@@ -93,6 +93,23 @@
 - [ ] [P1] A-23 agent 自升级：面板下发 upgrade 指令，agent 换二进制重启，失败回滚
 - [ ] [P1] A-24 一键部署：deploy/ 安装脚本（下载二进制、装 systemd、签发节点令牌、mTLS 证书生成）
 
+## 支付（设计：docs/design/支付设计.md）
+
+口径：Provider 抽象在 `packages/payment`，网关插件在 `payments/`；三账=订单/支付流水/发放记录，按 order_no 串联可对账；卡密先行零资质，USDT 二段，微信/支付宝留 Provider 位等资质。
+
+- [ ] [P0] PAY-0 支付设计文档落 docs/design/支付设计.md（Provider 接口、三账 schema、阶段划分）
+- [ ] [P0] PAY-1 `packages/payment` 契约：Provider 接口 + Order/Receipt/Callback 类型 + 三账表迁移
+- [ ] [P0] PAY-2 卡密批次与卡密表：批次（权益类型/值/有效期/生成人）+ 卡密（唯一索引/状态/失败计数）
+- [ ] [P0] PAY-3 批次生成接口：crypto/rand 去混淆字符集批量生成 + CSV 导出，仅管理员可调
+- [ ] [P0] PAY-4 兑换接口：原子核销 → 事务写三账（provider=card）→ 执行加配额/延到期，幂等
+- [ ] [P0] PAY-5 兑换防爆破：按 IP 滑动窗口限速 + 失败计数锁码 + 统一错误文案
+- [ ] [P0] PAY-6 dash 卡密管理页：建批次、批次/卡密列表、导出、禁用
+- [ ] [P0] PAY-7 panel 兑换页：输入卡密兑换并展示结果
+- [ ] [P1] PAY-8 payments/epusdt Provider：CreateOrder 收银台 + 回调验签 + 到账自动发放
+- [ ] [P1] PAY-9 dash 对账视图：订单/流水/发放三账按订单分组，标出缺失环节
+- [ ] [P1] PAY-10 payments/wechat、payments/alipay Provider stub（返回未启用，等商户资质）
+- [ ] [P1] PAY-11 panel 下单与订单状态查询 API（对 epusdt 段）
+
 ## P2 — 远期或明确不做
 
 - [ ] P2-1（不做）多节点主从同步：ferry 定位单机小内存 VPS，3x-ui Node 心跳/Hiddify Child 同步的复杂度与定位冲突（来源：3x-ui `node_traffic_sync_job.go`；Hiddify `models/child.py`）
