@@ -13,6 +13,7 @@ import (
 	"github.com/cuihairu/ferry/agent/internal/config"
 	"github.com/cuihairu/ferry/agent/internal/host"
 	"github.com/cuihairu/ferry/agent/internal/link"
+	"github.com/cuihairu/ferry/agent/internal/procs"
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
 
@@ -26,30 +27,40 @@ type App struct {
 	cfg     config.Config
 	version string
 	log     *log.Logger
+	mgr     *procs.Manager
 
 	mu       sync.Mutex
 	hbStop   chan struct{}
 	interval time.Duration
 
+	sendMu  sync.Mutex
+	curSend func(agentproto.Envelope) error // 当前连接的发送口；断开即清空
+
 	hbSeq int
 	hello chan agentproto.Envelope
 
-	// Procs 返回进程状态快照；进程管理功能接入后注入，nil 时心跳里为空。
+	// Procs 返回进程状态快照（心跳载荷用）。
 	Procs func() []agentproto.ProcStatus
 }
 
-// New 创建 app。
+// New 创建 app，并按配置装配进程管理器。
 func New(cfg config.Config, version string) *App {
-	return &App{
+	a := &App{
 		cfg:      cfg,
 		version:  version,
 		log:      log.New(os.Stderr, "agent ", log.LstdFlags),
 		interval: cfg.HeartbeatInterval(),
 	}
+	a.mgr = procs.New(cfg.Procs, a.log)
+	a.mgr.OnStatusChange = a.reportStatus
+	a.mgr.OnAlarm = a.reportAlarm
+	a.Procs = a.mgr.Statuses
+	return a
 }
 
-// Run 阻塞运行到 ctx 取消。
+// Run 阻塞运行到 ctx 取消：先起进程监管，再维持与面板的连接。
 func (a *App) Run(ctx context.Context) error {
+	a.mgr.Start(ctx)
 	client := link.New(link.Options{
 		URL:      a.cfg.PanelURL,
 		CAFile:   a.cfg.TLS.CAFile,
@@ -60,9 +71,46 @@ func (a *App) Run(ctx context.Context) error {
 	return client.Run(ctx, a)
 }
 
+// reportStatus 把进程状态变化推给面板（离线时静默丢弃）。
+func (a *App) reportStatus(status agentproto.ProcStatus) {
+	env, err := agentproto.NewEnvelope("", agentproto.MsgProcReport, agentproto.ProcReport{
+		Procs: []agentproto.ProcStatus{status},
+	})
+	if err != nil {
+		return
+	}
+	_ = a.sendIfConnected(env)
+}
+
+// reportAlarm 上报异常告警。
+func (a *App) reportAlarm(al agentproto.Alarm) {
+	env, err := agentproto.NewEnvelope(fmt.Sprintf("alarm-%d", time.Now().UnixNano()), agentproto.MsgAlarm, al)
+	if err != nil {
+		return
+	}
+	_ = a.sendIfConnected(env)
+}
+
+func (a *App) sendIfConnected(env agentproto.Envelope) error {
+	a.sendMu.Lock()
+	send := a.curSend
+	a.sendMu.Unlock()
+	if send == nil {
+		return errors.New("not connected")
+	}
+	return send(env)
+}
+
+func (a *App) setSend(send func(agentproto.Envelope) error) {
+	a.sendMu.Lock()
+	a.curSend = send
+	a.sendMu.Unlock()
+}
+
 // OnConnected 发送 hello 并等待应答，超时视为握手失败。
 func (a *App) OnConnected(ctx context.Context, send func(agentproto.Envelope) error) error {
 	a.stopHeartbeat()
+	a.setSend(send)
 	ch := make(chan agentproto.Envelope, 1)
 	a.mu.Lock()
 	a.hello = ch
@@ -116,9 +164,27 @@ func (a *App) OnMessage(_ context.Context, env agentproto.Envelope, send func(ag
 		if err := env.Decode(&ha); err == nil && ha.NextIntervalSec > 0 {
 			a.setInterval(time.Duration(ha.NextIntervalSec) * time.Second)
 		}
-	case agentproto.MsgConfigPush, agentproto.MsgProcCtl:
-		// 配置下发与进程控制在后续批次接入，先记录保证协议前向兼容。
-		a.log.Printf("received %s (id=%s): handler not enabled yet", env.Type, env.ID)
+	case agentproto.MsgProcCtl:
+		var ctl agentproto.ProcCtl
+		ack := agentproto.ProcCtlAck{Proc: ctl.Proc, Action: ctl.Action}
+		if err := env.Decode(&ctl); err != nil {
+			ack.OK = false
+			ack.Error = err.Error()
+		} else {
+			ack.Proc = ctl.Proc
+			ack.Action = ctl.Action
+			if err := a.mgr.Control(ctl.Proc, ctl.Action); err != nil {
+				ack.OK = false
+				ack.Error = err.Error()
+			} else {
+				ack.OK = true
+			}
+		}
+		reply, _ := agentproto.NewEnvelope(env.ID, agentproto.MsgProcCtlAck, ack)
+		_ = a.sendIfConnected(reply)
+	case agentproto.MsgConfigPush:
+		// 配置下发在后续批次接入，先记录保证协议前向兼容。
+		a.log.Printf("received config_push (id=%s): handler not enabled yet", env.ID)
 	case agentproto.MsgAlarmAck, agentproto.MsgTrafficAck:
 		// 面板对 agent 上报的确认，无需处理。
 	default:
@@ -126,9 +192,10 @@ func (a *App) OnMessage(_ context.Context, env agentproto.Envelope, send func(ag
 	}
 }
 
-// OnDisconnected 停掉本轮心跳。
+// OnDisconnected 停掉本轮心跳并清空发送口。
 func (a *App) OnDisconnected() {
 	a.stopHeartbeat()
+	a.setSend(nil)
 }
 
 func (a *App) setInterval(d time.Duration) {

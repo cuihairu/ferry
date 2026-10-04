@@ -1,0 +1,394 @@
+//go:build unix
+
+// Package procs 管理本机代理进程：按规格启停、崩溃自动拉起（退避）、reload 与状态上报。
+package procs
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"os/exec"
+	"sort"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/cuihairu/ferry/agent/internal/config"
+	"github.com/cuihairu/ferry/packages/agentproto"
+)
+
+// reload 策略取值。
+const (
+	ReloadRestart = "restart"
+	ReloadSignal  = "signal"
+)
+
+// Manager 管理全部被管进程。
+type Manager struct {
+	log *log.Logger
+
+	mu    sync.Mutex
+	procs map[string]*proc
+
+	// OnStatusChange 在进程状态变化时被异步调用，供上报 proc_report。
+	OnStatusChange func(status agentproto.ProcStatus)
+	// OnAlarm 在崩溃等异常时被异步调用，供上报 alarm。
+	OnAlarm func(alarm agentproto.Alarm)
+
+	minBackoff time.Duration
+	maxBackoff time.Duration
+	stableRun  time.Duration // 连续运行超过该时长后重置退避
+}
+
+// proc 是单个被管进程的运行态与监管输入。
+type proc struct {
+	mgr  *Manager
+	spec config.ProcSpec
+
+	mu       sync.Mutex
+	state    string
+	since    time.Time
+	restarts int
+	desired  bool // 期望运行（true=running）
+	stopping bool // 退出由 stop/reload 指令触发（区别于崩溃）
+	pid      int
+
+	req    chan ctrlReq
+	exited chan struct{} // 当前进程退出后关闭；启动失败时为已关闭通道
+	kill   func()        // 终止当前进程
+}
+
+type ctrlReq struct {
+	action string
+	reply  chan error
+}
+
+// New 按规格表创建管理器（不启动进程，由 Start 统一监管）。
+func New(specs []config.ProcSpec, logger *log.Logger) *Manager {
+	if logger == nil {
+		logger = log.Default()
+	}
+	m := &Manager{
+		log:        logger,
+		procs:      map[string]*proc{},
+		minBackoff: time.Second,
+		maxBackoff: 30 * time.Second,
+		stableRun:  time.Minute,
+	}
+	for _, spec := range specs {
+		m.procs[spec.Name] = &proc{
+			mgr:    m,
+			spec:   spec,
+			state:  agentproto.ProcStopped,
+			req:    make(chan ctrlReq, 8),
+			exited: closedChan(),
+			kill:   func() {},
+		}
+	}
+	return m
+}
+
+func closedChan() chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}
+
+// Start 为每个进程拉起监管循环；agent 启动即自启全部进程。
+func (m *Manager) Start(ctx context.Context) {
+	for _, p := range m.procs {
+		p.mu.Lock()
+		p.desired = true
+		p.mu.Unlock()
+		go m.supervise(ctx, p)
+	}
+}
+
+// Statuses 返回全部进程状态快照（供心跳）。
+func (m *Manager) Statuses() []agentproto.ProcStatus {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	names := make([]string, 0, len(m.procs))
+	for name := range m.procs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]agentproto.ProcStatus, 0, len(names))
+	for _, n := range names {
+		out = append(out, m.procs[n].status())
+	}
+	return out
+}
+
+// Control 执行面板指令：start/stop/reload，阻塞到指令落地或超时。
+func (m *Manager) Control(name, action string) error {
+	m.mu.Lock()
+	p := m.procs[name]
+	m.mu.Unlock()
+	if p == nil {
+		return fmt.Errorf("unknown proc %q", name)
+	}
+	switch action {
+	case agentproto.ProcActionStart, agentproto.ProcActionStop, agentproto.ProcActionReload:
+	default:
+		return fmt.Errorf("unknown action %q", action)
+	}
+	reply := make(chan error, 1)
+	select {
+	case p.req <- ctrlReq{action: action, reply: reply}:
+	case <-time.After(5 * time.Second):
+		return errors.New("proc busy")
+	}
+	select {
+	case err := <-reply:
+		return err
+	case <-time.After(15 * time.Second):
+		return errors.New("control timeout")
+	}
+}
+
+// supervise 是单进程的监管循环：期望运行则保活，崩溃退避拉起，指令即时响应。
+func (m *Manager) supervise(ctx context.Context, p *proc) {
+	backoff := m.minBackoff
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		if !p.desiredRun() {
+			p.clearStopping()
+			p.setState(agentproto.ProcStopped)
+			select {
+			case <-ctx.Done():
+				return
+			case r := <-p.req:
+				backoff = m.applyWhenStopped(p, r)
+			}
+			continue
+		}
+
+		startedAt := time.Now()
+		if !m.launch(p) {
+			// 启动失败按崩溃处理：退避后重试。
+			p.setState(agentproto.ProcCrashed)
+			m.alarm(p, agentproto.AlarmKindProcCrash, agentproto.AlarmSeverityCritical, "launch failed")
+			backoff = m.backoffWait(ctx, p, backoff)
+			continue
+		}
+
+		select {
+		case <-ctx.Done():
+			p.killCurrent()
+			return
+		case r := <-p.req:
+			m.handleRunningReq(p, r)
+		case <-p.exited:
+			ranFor := time.Since(startedAt)
+			if p.consumeStopping() {
+				// stop/reload 触发的退出：回到循环头，desired 决定是否再拉起。
+				continue
+			}
+			// 非预期退出：崩溃告警并退避拉起。
+			p.setState(agentproto.ProcCrashed)
+			p.bumpRestarts()
+			m.alarm(p, agentproto.AlarmKindProcCrash, agentproto.AlarmSeverityWarning,
+				fmt.Sprintf("proc exited unexpectedly (restarts=%d)", p.restartCount()))
+			if ranFor >= m.stableRun {
+				backoff = m.minBackoff
+			}
+			m.log.Printf("proc %s crashed, restart in %s", p.spec.Name, backoff)
+			backoff = m.backoffWait(ctx, p, backoff)
+		}
+	}
+}
+
+// backoffWait 退避等待，期间照常响应指令；返回下一段退避。
+func (m *Manager) backoffWait(ctx context.Context, p *proc, backoff time.Duration) time.Duration {
+	select {
+	case <-ctx.Done():
+		return backoff
+	case r := <-p.req:
+		return m.applyWhenStopped(p, r)
+	case <-time.After(backoff):
+	}
+	next := backoff * 2
+	if next > m.maxBackoff {
+		next = m.maxBackoff
+	}
+	return next
+}
+
+// launch 启动进程；无论成败都保证 p.exited/p.kill 可用，返回是否成功。
+func (m *Manager) launch(p *proc) bool {
+	cmd := exec.Command(p.spec.Exec, p.spec.Args...)
+	cmd.Dir = p.spec.WorkDir
+	cmd.Stdout = m.log.Writer()
+	cmd.Stderr = m.log.Writer()
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		m.log.Printf("proc %s launch: %v", p.spec.Name, err)
+		p.mu.Lock()
+		p.pid = 0
+		p.kill = func() {}
+		p.exited = closedChan()
+		p.mu.Unlock()
+		return false
+	}
+	exited := make(chan struct{})
+	pgid := -cmd.Process.Pid
+	p.mu.Lock()
+	p.pid = cmd.Process.Pid
+	p.kill = func() { _ = syscall.Kill(pgid, syscall.SIGTERM) }
+	p.exited = exited
+	p.mu.Unlock()
+	p.setState(agentproto.ProcRunning)
+
+	go func() {
+		err := cmd.Wait()
+		if err != nil {
+			m.log.Printf("proc %s exited: %v", p.spec.Name, err)
+		}
+		close(exited)
+	}()
+	return true
+}
+
+// applyWhenStopped 处理停机态指令，返回后续退避起点。
+func (m *Manager) applyWhenStopped(p *proc, r ctrlReq) time.Duration {
+	defer close(r.reply)
+	switch r.action {
+	case agentproto.ProcActionStart, agentproto.ProcActionReload:
+		// 停机态 start 与 reload 等价：恢复期望运行。
+		p.mu.Lock()
+		p.desired = true
+		p.mu.Unlock()
+		r.reply <- nil
+	case agentproto.ProcActionStop:
+		// 停机态与崩溃退避态都可能出现 stop：统一置为不期望运行。
+		p.mu.Lock()
+		p.desired = false
+		p.mu.Unlock()
+		r.reply <- nil
+	default:
+		r.reply <- fmt.Errorf("unknown action %q", r.action)
+	}
+	return m.minBackoff
+}
+
+// handleRunningReq 处理运行态指令。
+func (m *Manager) handleRunningReq(p *proc, r ctrlReq) {
+	switch r.action {
+	case agentproto.ProcActionStop:
+		p.mu.Lock()
+		p.desired = false
+		p.stopping = true
+		kill := p.kill
+		p.mu.Unlock()
+		kill()
+		<-p.exited
+		r.reply <- nil
+	case agentproto.ProcActionReload:
+		r.reply <- m.reload(p)
+	case agentproto.ProcActionStart:
+		r.reply <- errors.New("already running")
+	}
+}
+
+// reload 按 reload 策略执行：signal 发 SIGHUP，restart 停止后由监管循环拉起。
+func (m *Manager) reload(p *proc) error {
+	if p.spec.Reload == ReloadSignal {
+		p.mu.Lock()
+		pid := p.pid
+		p.mu.Unlock()
+		if pid == 0 {
+			return errors.New("not running")
+		}
+		if err := syscall.Kill(pid, syscall.SIGHUP); err != nil {
+			return err
+		}
+		return nil
+	}
+	p.mu.Lock()
+	p.stopping = true
+	kill := p.kill
+	p.mu.Unlock()
+	kill()
+	<-p.exited // 监管循环随后按 desired=true 立即拉起
+	return nil
+}
+
+func (p *proc) desiredRun() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.desired
+}
+
+func (p *proc) clearStopping() {
+	p.mu.Lock()
+	p.stopping = false
+	p.mu.Unlock()
+}
+
+// consumeStopping 返回并清除 stopping 标记：退出是否由指令触发。
+func (p *proc) consumeStopping() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	s := p.stopping
+	p.stopping = false
+	return s
+}
+
+func (p *proc) killCurrent() {
+	p.mu.Lock()
+	kill := p.kill
+	p.mu.Unlock()
+	kill()
+}
+
+func (p *proc) bumpRestarts() {
+	p.mu.Lock()
+	p.restarts++
+	p.mu.Unlock()
+}
+
+func (p *proc) restartCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.restarts
+}
+
+func (p *proc) setState(state string) {
+	p.mu.Lock()
+	p.state = state
+	p.since = time.Now()
+	status := p.snapshotLocked()
+	p.mu.Unlock()
+	if p.mgr.OnStatusChange != nil {
+		go p.mgr.OnStatusChange(status)
+	}
+}
+
+func (p *proc) snapshotLocked() agentproto.ProcStatus {
+	return agentproto.ProcStatus{
+		Name:     p.spec.Name,
+		State:    p.state,
+		Since:    p.since,
+		Restarts: p.restarts,
+		PID:      p.pid,
+	}
+}
+
+func (p *proc) status() agentproto.ProcStatus {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.snapshotLocked()
+}
+
+func (m *Manager) alarm(p *proc, kind, severity, message string) {
+	if m.OnAlarm == nil {
+		return
+	}
+	go m.OnAlarm(agentproto.Alarm{
+		Kind: kind, Severity: severity, Proc: p.spec.Name, Message: message, At: time.Now(),
+	})
+}
