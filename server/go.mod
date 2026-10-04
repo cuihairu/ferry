@@ -1,4 +1,4 @@
-module github.com/cuihairu/ferry/apps/server
+module github.com/cuihairu/ferry/server
 
 go 1.27.1
 

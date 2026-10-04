@@ -4,10 +4,10 @@ package main
 import (
 	"log"
 
-	"github.com/cuihairu/ferry/apps/server/internal/config"
-	"github.com/cuihairu/ferry/apps/server/internal/database"
-	"github.com/cuihairu/ferry/apps/server/internal/handler"
-	"github.com/cuihairu/ferry/apps/server/internal/xray"
+	"github.com/cuihairu/ferry/server/internal/config"
+	"github.com/cuihairu/ferry/server/internal/database"
+	"github.com/cuihairu/ferry/server/internal/handler"
+	"github.com/cuihairu/ferry/server/internal/xray"
 )
 
 func main() {
