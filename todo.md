@@ -47,6 +47,52 @@
 - [ ] P1-10 通知渠道：事件外发（如 Telegram/Webhook）（来源：Marzban Telegram Bot；3x-ui discord_notify_job）
 - [ ] P1-11 运行日志查看（来源：Marzban 节点 WebSocket 日志；3x-ui clear_logs_job）
 
+## ferry-agent —（代理机侧，设计定稿）
+
+口径：Go 静态二进制（CGO_ENABLED=0）常驻每台代理机；只出站连面板（WebSocket 长连接，节点不开入站端口）；认证=节点令牌（必选）+ mTLS（可开关）；协议契约在 `packages/`，面板 Go 端与 agent 共用。
+
+### 协议契约（先做）
+
+- [ ] [P0] A-1 `packages/agentproto` Go module：Envelope(JSON) + 消息类型常量 + 协议版本号，面板与 agent 以 go.mod replace 共用
+- [ ] [P0] A-2 握手与认证消息 `agent.hello`（节点令牌）/`panel.hello_ack`；agent 配置支持 CA/客户端证书路径（mTLS 开关）
+- [ ] [P0] A-3 心跳消息：uptime/负载/内存/证书到期/进程状态汇总 + 应答带回周期
+- [ ] [P0] A-4 配置下发消息 `config.push`（proc/kind/version/sha256/payload）/`config.ack`（结果/错误/是否已回滚）
+- [ ] [P0] A-5 进程管理消息：状态上报 + `proc_ctl`（start/stop/reload）/应答
+- [ ] [P0] A-6 流量上报消息：按进程 rx/tx 累计 + 在线连接数，周期主动上报
+- [ ] [P0] A-7 告警消息 `alarm`：进程崩溃拉起失败、证书临近到期、负载过高
+
+### 骨架 + 心跳
+
+- [ ] [P0] A-8 `apps/agent` 入口：静态编译产出单文件二进制，`make build-agent` 验收
+- [ ] [P0] A-9 agent 配置文件：面板地址、节点令牌、agent ID、证书路径、心跳与重连参数
+- [ ] [P0] A-10 连接层：只出站 WebSocket、指数退避自动重连、按消息类型分发
+- [ ] [P0] A-11 面板侧 `/agent/ws` 接入：读 hello 校验令牌、注册在线连接、心跳更新在线状态
+- [ ] [P0] A-12 面板 API：节点列表带在线状态与 `last_seen`（nodes 表增 token/last_seen/status 字段）
+
+### 进程管理
+
+- [ ] [P0] A-13 进程规格：agent 配置文件定义 name/kind(exec/args/config 路径)/reload 策略
+- [ ] [P0] A-14 启停与状态机（running/stopped/crashed），崩溃自动拉起（退避），状态随心跳/事件上报
+- [ ] [P1] A-15 面板批量操作：对选中的多节点统一下发 proc 操作与配置
+
+### 配置下发
+
+- [ ] [P0] A-16 agent 收到 `config.push`：sha256 校验 → 落临时文件 → kind 对应校验命令 → 原子替换 → reload
+- [ ] [P0] A-17 校验或 reload 失败自动回滚旧配置并恢复，`config.ack` 带错误详情
+- [ ] [P0] A-18 面板侧：节点配置存储（node_configs 表）+ 推送接口 + 等待 ack（超时判失败）
+
+### 流量采集
+
+- [ ] [P0] A-19 agent 周期采集流量字节数（xray 走 gRPC stats；其余 kind 标记未实现）并上报
+- [ ] [P0] A-20 面板接收 `traffic.report` 写入 traffic_logs（对齐 P0-9 记账写接口）
+- [ ] [P0] A-21 按进程的在线连接数采集与上报
+
+### 管理面（面板侧）
+
+- [ ] [P1] A-22 异常告警落库与节点页展示（进程挂/证书到期即时可见）
+- [ ] [P1] A-23 agent 自升级：面板下发 upgrade 指令，agent 换二进制重启，失败回滚
+- [ ] [P1] A-24 一键部署：deploy/ 安装脚本（下载二进制、装 systemd、签发节点令牌、mTLS 证书生成）
+
 ## P2 — 远期或明确不做
 
 - [ ] P2-1（不做）多节点主从同步：ferry 定位单机小内存 VPS，3x-ui Node 心跳/Hiddify Child 同步的复杂度与定位冲突（来源：3x-ui `node_traffic_sync_job.go`；Hiddify `models/child.py`）
