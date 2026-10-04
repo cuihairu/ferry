@@ -53,5 +53,10 @@ func (e Envelope) Decode(v any) error {
 	return json.Unmarshal(e.Payload, v)
 }
 
+// Marshal 编码为传输报文。
+func (e Envelope) Marshal() ([]byte, error) {
+	return json.Marshal(e)
+}
+
 // Valid 校验消息版本，未知版本直接拒绝。
 func (e Envelope) Valid() bool { return e.V == ProtocolVersion }
