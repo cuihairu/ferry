@@ -1,0 +1,111 @@
+// Package config 加载 agent 运行配置：文件为 JSON，环境变量可覆盖关键项。
+package config
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"strconv"
+	"time"
+)
+
+// TLSConfig 声明 mTLS 相关文件；全部为空时仅用节点令牌走系统根证书校验。
+type TLSConfig struct {
+	CAFile   string `json:"ca_file"`   // 校验面板证书的 CA（自签部署时必填）
+	CertFile string `json:"cert_file"` // 客户端证书（mTLS 开启时）
+	KeyFile  string `json:"key_file"`
+}
+
+// ProcSpec 描述一个被管代理进程，进程管理功能使用。
+type ProcSpec struct {
+	Name       string   `json:"name"`        // 进程名，面板消息按此寻址
+	Kind       string   `json:"kind"`        // xray / sing-box / hysteria2
+	Exec       string   `json:"exec"`        // 可执行文件路径
+	Args       []string `json:"args"`        // 启动参数
+	WorkDir    string   `json:"work_dir"`    // 工作目录
+	ConfigPath string   `json:"config_path"` // 配置文件路径，配置下发落盘点
+	Reload     string   `json:"reload"`      // reload 策略：restart / signal
+	Validate   string   `json:"validate"`    // 校验命令模板，{config} 占位符；空则跳过校验
+}
+
+// Config 是 agent 的全部运行参数。
+type Config struct {
+	PanelURL     string     `json:"panel_url"` // 形如 wss://panel.example.com/agent/ws
+	AgentID      string     `json:"agent_id"`
+	Token        string     `json:"token"`
+	HeartbeatSec int        `json:"heartbeat_sec"`
+	TLS          TLSConfig  `json:"tls"`
+	Procs        []ProcSpec `json:"procs"`
+}
+
+// Default 返回带默认值的配置。
+func Default() Config {
+	return Config{HeartbeatSec: 30}
+}
+
+// Load 读取配置文件并用环境变量覆盖：FERRY_PANEL_URL / FERRY_NODE_TOKEN / FERRY_AGENT_ID / FERRY_HEARTBEAT_SEC。
+func Load(path string) (Config, error) {
+	cfg := Default()
+	if path != "" {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return cfg, fmt.Errorf("read config: %w", err)
+		}
+		if err := json.Unmarshal(raw, &cfg); err != nil {
+			return cfg, fmt.Errorf("parse config: %w", err)
+		}
+	}
+	if v := os.Getenv("FERRY_PANEL_URL"); v != "" {
+		cfg.PanelURL = v
+	}
+	if v := os.Getenv("FERRY_NODE_TOKEN"); v != "" {
+		cfg.Token = v
+	}
+	if v := os.Getenv("FERRY_AGENT_ID"); v != "" {
+		cfg.AgentID = v
+	}
+	if v := os.Getenv("FERRY_HEARTBEAT_SEC"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return cfg, fmt.Errorf("FERRY_HEARTBEAT_SEC: %w", err)
+		}
+		cfg.HeartbeatSec = n
+	}
+	if err := cfg.Validate(); err != nil {
+		return cfg, err
+	}
+	return cfg, nil
+}
+
+// Validate 校验必填项与取值范围。
+func (c Config) Validate() error {
+	if c.PanelURL == "" {
+		return errors.New("panel_url is required")
+	}
+	if c.Token == "" {
+		return errors.New("token is required")
+	}
+	if c.HeartbeatSec < 5 || c.HeartbeatSec > 600 {
+		return errors.New("heartbeat_sec must be 5-600")
+	}
+	if (c.TLS.CertFile == "") != (c.TLS.KeyFile == "") {
+		return errors.New("tls.cert_file and tls.key_file must be set together")
+	}
+	names := map[string]bool{}
+	for _, p := range c.Procs {
+		if p.Name == "" || p.Exec == "" {
+			return errors.New("procs[].name and procs[].exec are required")
+		}
+		if names[p.Name] {
+			return fmt.Errorf("duplicate proc name %q", p.Name)
+		}
+		names[p.Name] = true
+	}
+	return nil
+}
+
+// HeartbeatInterval 返回心跳周期。
+func (c Config) HeartbeatInterval() time.Duration {
+	return time.Duration(c.HeartbeatSec) * time.Second
+}
