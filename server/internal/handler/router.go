@@ -19,6 +19,15 @@ func NewRouter(db *sql.DB) *gin.Engine {
 	r := gin.Default()
 
 	r.GET("/api/health", h.health)
+
+	api := r.Group("/api")
+	{
+		api.GET("/nodes", h.listNodes)
+		api.POST("/nodes", h.createNode)
+		api.GET("/nodes/:id", h.getNode)
+		api.PUT("/nodes/:id", h.updateNode)
+		api.DELETE("/nodes/:id", h.deleteNode)
+	}
 	return r
 }
 

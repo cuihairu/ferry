@@ -23,5 +23,5 @@ type NoopHandler struct{}
 func (NoopHandler) QueryUserTraffic(context.Context, string) (uint64, uint64, error) {
 	return 0, 0, nil
 }
-func (NoopHandler) AddInbound(context.Context, []byte) error   { return nil }
+func (NoopHandler) AddInbound(context.Context, []byte) error    { return nil }
 func (NoopHandler) RemoveInbound(context.Context, string) error { return nil }

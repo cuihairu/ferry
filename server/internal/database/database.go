@@ -72,5 +72,49 @@ func migrate(db *sql.DB) error {
 			return fmt.Errorf("migrate: %w", err)
 		}
 	}
+	if err := ensureColumns(db, "nodes", map[string]string{
+		// 节点令牌供 agent 出站连接认证；SQLite 的 ALTER ADD COLUMN 不支持 UNIQUE，用唯一索引补齐。
+		"token":     "TEXT NOT NULL DEFAULT ''",
+		"last_seen": "DATETIME",
+		"status":    "TEXT NOT NULL DEFAULT 'unknown'",
+	}); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_nodes_token ON nodes(token)`); err != nil {
+		return fmt.Errorf("migrate nodes token index: %w", err)
+	}
+	return nil
+}
+
+// ensureColumns 为已存在的表补充缺失列，缺一条加一条。
+func ensureColumns(db *sql.DB, table string, cols map[string]string) error {
+	rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return fmt.Errorf("table info %s: %w", table, err)
+	}
+	defer rows.Close()
+	existing := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var dflt any
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
+			return err
+		}
+		existing[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for name, def := range cols {
+		if existing[name] {
+			continue
+		}
+		if _, err := db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, name, def)); err != nil {
+			return fmt.Errorf("add column %s.%s: %w", table, name, err)
+		}
+	}
 	return nil
 }
