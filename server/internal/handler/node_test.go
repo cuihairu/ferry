@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/database"
 	"github.com/gin-gonic/gin"
 )
@@ -21,7 +22,7 @@ func newTestRouter(t *testing.T) *gin.Engine {
 	}
 	t.Cleanup(func() { db.Close() })
 	gin.SetMode(gin.TestMode)
-	return NewRouter(db)
+	return NewRouter(db, config.Default())
 }
 
 func doJSON(t *testing.T, r *gin.Engine, method, path string, body any) *httptest.ResponseRecorder {

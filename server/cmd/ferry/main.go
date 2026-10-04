@@ -19,10 +19,15 @@ func main() {
 	}
 	defer db.Close()
 
+	// 重启后在线状态一律置离线，等 agent 重连刷新。
+	if _, err := db.Exec(`UPDATE nodes SET status='offline'`); err != nil {
+		log.Fatalf("reset node status: %v", err)
+	}
+
 	// Xray 内核对接未启用前使用空实现，接口保持稳定。
 	_ = xray.NoopHandler{}
 
-	r := handler.NewRouter(db)
+	r := handler.NewRouter(db, cfg)
 	log.Printf("ferry listening on %s", cfg.Addr)
 	if err := r.Run(cfg.Addr); err != nil {
 		log.Fatalf("serve: %v", err)

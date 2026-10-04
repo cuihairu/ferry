@@ -3,7 +3,9 @@ module github.com/cuihairu/ferry/server
 go 1.27.1
 
 require (
+	github.com/cuihairu/ferry/packages/agentproto v0.0.0-20261004225058-2a7df8790cad
 	github.com/gin-gonic/gin v1.12.0
+	github.com/gorilla/websocket v1.5.3
 	modernc.org/sqlite v1.60.1
 )
 
