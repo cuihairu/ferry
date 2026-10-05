@@ -52,9 +52,46 @@ type Hello struct {
 }
 
 // HelloAck 是面板的握手应答，Agent 据此校准心跳周期。
+// Meta 为面板权威的节点元数据（Role/ISP 非空时覆盖 agent 本地初值）。
 type HelloAck struct {
 	ServerTime           time.Time `json:"server_time"`
 	HeartbeatIntervalSec int       `json:"heartbeat_interval_sec"`
+	Meta                 NodeMeta  `json:"meta"`
+}
+
+// Normalize 补齐元数据缺省值并把取值收敛到合法范围；
+// region 与 isp 必填，未知时标「未知」（不许空）。面板与 agent 共用。
+func (m *NodeMeta) Normalize() {
+	if m.Role != RoleEntry && m.Role != RoleLanding && m.Role != RoleBoth {
+		m.Role = RoleLanding
+	}
+	if m.Direction != DirectionOut && m.Direction != DirectionIn && m.Direction != DirectionBoth {
+		m.Direction = DirectionOut
+	}
+	switch m.LineType {
+	case "cn2_gia", "cu_vip", "cmi", "iplc", "163":
+	default:
+		m.LineType = "普通"
+	}
+	if m.Region == "" {
+		m.Region = "未知"
+	}
+	if m.ISP == "" {
+		m.ISP = "未知"
+	}
+	switch m.Transport {
+	case "tls", "quic", "ws-tls", "ssh":
+	default:
+		m.Transport = "tls"
+	}
+	switch m.BillingType {
+	case "按流量", "包月", "固定带宽":
+	default:
+		m.BillingType = "包月"
+	}
+	if m.Currency == "" {
+		m.Currency = "CNY"
+	}
 }
 
 // Heartbeat 是周期心跳，汇总存活与负载快照。

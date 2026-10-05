@@ -56,10 +56,15 @@ func (h *Handler) agentWS(c *gin.Context) {
 		return
 	}
 
+	// 注册元数据：首次注册落 agent 上报的初值，之后以面板为准；
+	// hello_ack 回传面板权威值供 agent 校准。
+	meta := h.syncNodeMeta(nodeID, hello.Meta)
+
 	// 认证通过：应答、注册、解除读限时。
 	ack, _ := agentproto.NewEnvelope(env.ID, agentproto.MsgHelloAck, agentproto.HelloAck{
 		ServerTime:           time.Now(),
 		HeartbeatIntervalSec: h.cfg.HeartbeatIntervalSec,
+		Meta:                 meta,
 	})
 	hc := agenthub.NewConn(nodeID, conn)
 	if err := hc.Send(ack); err != nil {
@@ -89,6 +94,63 @@ func (h *Handler) setNodeStatus(nodeID int64, status string, touch bool) {
 	}
 	if err := h.db.Model(&storage.Node{}).Where("id=?", nodeID).Updates(updates).Error; err != nil {
 		log.Printf("update node status node=%d: %v", nodeID, err)
+	}
+}
+
+// syncNodeMeta 同步节点注册元数据，返回面板权威值。
+// 首次注册（meta_init 未置位）落 agent 上报的初值；
+// 之后面板可改且以面板为准，注册不再覆盖。
+func (h *Handler) syncNodeMeta(nodeID int64, reported agentproto.NodeMeta) agentproto.NodeMeta {
+	var node storage.Node
+	if err := h.db.Where("id=?", nodeID).First(&node).Error; err != nil {
+		log.Printf("load node node=%d: %v", nodeID, err)
+		return agentproto.NodeMeta{}
+	}
+	if node.MetaInit {
+		return nodeMetaFromRow(&node)
+	}
+	m := reported
+	m.Normalize()
+	labels, _ := json.Marshal(m.Labels)
+	updates := map[string]any{
+		"role": m.Role, "direction": m.Direction, "line_type": m.LineType,
+		"region": m.Region, "city": m.City, "datacenter": m.Datacenter,
+		"isp": m.ISP, "labels": string(labels), "transport": m.Transport,
+		"billing_type":                m.BillingType,
+		"traffic_price_cents":         m.TrafficPriceCents,
+		"monthly_cost_cents":          m.MonthlyCostCents,
+		"currency":                    m.Currency,
+		"cost_note":                   m.CostNote,
+		"bw_up_mbps":                  m.BwUpMbps,
+		"bw_down_mbps":                m.BwDownMbps,
+		"monthly_traffic_quota_bytes": m.MonthlyTrafficQuota,
+		"rate_limited":                m.RateLimited,
+		"burst":                       m.Burst,
+		"meta_init":                   true,
+	}
+	if err := h.db.Model(&storage.Node{}).Where("id=?", nodeID).Updates(updates).Error; err != nil {
+		log.Printf("apply node meta node=%d: %v", nodeID, err)
+		return agentproto.NodeMeta{}
+	}
+	return m
+}
+
+// nodeMetaFromRow 把节点行的注册元数据转回契约结构。
+func nodeMetaFromRow(n *storage.Node) agentproto.NodeMeta {
+	var labels []string
+	if n.Labels != "" {
+		_ = json.Unmarshal([]byte(n.Labels), &labels)
+	}
+	return agentproto.NodeMeta{
+		Role: n.Role, Direction: n.Direction, LineType: n.LineType,
+		Region: n.Region, City: n.City, Datacenter: n.Datacenter,
+		ISP: n.ISP, Labels: labels, Transport: n.Transport,
+		BillingType:       n.BillingType,
+		TrafficPriceCents: n.TrafficPriceCents, MonthlyCostCents: n.MonthlyCostCents,
+		Currency: n.Currency, CostNote: n.CostNote,
+		BwUpMbps: n.BwUpMbps, BwDownMbps: n.BwDownMbps,
+		MonthlyTrafficQuota: n.MonthlyTrafficQuotaBytes,
+		RateLimited:         n.RateLimited, Burst: n.Burst,
 	}
 }
 

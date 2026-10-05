@@ -2,8 +2,10 @@ module github.com/cuihairu/ferry/server
 
 go 1.27.1
 
+replace github.com/cuihairu/ferry/packages/agentproto => ../packages/agentproto
+
 require (
-	github.com/cuihairu/ferry/packages/agentproto v0.0.0-20261004225058-2a7df8790cad
+	github.com/cuihairu/ferry/packages/agentproto v0.0.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/gorilla/websocket v1.5.3

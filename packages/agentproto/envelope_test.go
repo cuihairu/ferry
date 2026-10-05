@@ -124,3 +124,29 @@ func TestHeartbeatAndTrafficRoundTrip(t *testing.T) {
 	}
 	roundTrip(t, e2, tr)
 }
+
+func TestNodeMetaNormalize(t *testing.T) {
+	// 零值应补齐缺省，region/isp 不许空。
+	m := NodeMeta{}
+	m.Normalize()
+	if m.Role != RoleLanding || m.Direction != DirectionOut {
+		t.Fatalf("role/direction defaults wrong: %+v", m)
+	}
+	if m.LineType != "普通" || m.Region != "未知" || m.ISP != "未知" {
+		t.Fatalf("line/region/isp defaults wrong: %+v", m)
+	}
+	if m.Transport != "tls" || m.BillingType != "包月" || m.Currency != "CNY" {
+		t.Fatalf("transport/billing/currency defaults wrong: %+v", m)
+	}
+	// 非法取值收敛到默认，合法取值原样保留。
+	m = NodeMeta{Role: "gateway", Direction: "x", LineType: "y", Transport: "raw",
+		BillingType: "z", Region: "华东", ISP: "电信", Labels: []string{"bgp"}}
+	m.Normalize()
+	if m.Role != RoleLanding || m.Direction != DirectionOut || m.LineType != "普通" ||
+		m.Transport != "tls" || m.BillingType != "包月" {
+		t.Fatalf("invalid values must clamp: %+v", m)
+	}
+	if m.Region != "华东" || m.ISP != "电信" || len(m.Labels) != 1 {
+		t.Fatalf("valid values must survive: %+v", m)
+	}
+}

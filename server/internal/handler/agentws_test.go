@@ -98,6 +98,96 @@ func TestAgentWSHeartbeat(t *testing.T) {
 	waitStatus(t, r, 1, "offline")
 }
 
+func TestAgentWSHelloMeta(t *testing.T) {
+	r := newTestRouter(t)
+
+	// 造一个节点拿接入令牌
+	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
+		"name": "entry-1", "address": "sh.example.com", "port": 443, "protocol": "vless",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create node: %d %s", rec.Code, rec.Body)
+	}
+	var node map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &node)
+	token := node["token"].(string)
+	id := int(node["id"].(float64))
+
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/agent/ws"
+
+	c, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer c.Close()
+
+	// 首次注册：hello 带元数据初值，hello_ack 应回传
+	hello, _ := agentproto.NewEnvelope("h1", agentproto.MsgHello, agentproto.Hello{
+		Token: token, AgentID: "entry-1", Version: "test",
+		Meta: agentproto.NodeMeta{
+			Role: agentproto.RoleEntry, Direction: agentproto.DirectionOut,
+			LineType: "cn2_gia", Region: "华东", City: "上海", Datacenter: "sh-1",
+			ISP: "电信", Labels: []string{"bgp"}, Transport: "tls",
+			BillingType: "按流量", TrafficPriceCents: 120, MonthlyCostCents: 5000,
+			BwUpMbps: 100, BwDownMbps: 200, RateLimited: true,
+		},
+	})
+	if err := c.WriteJSON(hello); err != nil {
+		t.Fatalf("write hello: %v", err)
+	}
+	env := readEnv(t, c)
+	if env.Type != agentproto.MsgHelloAck {
+		t.Fatalf("expected hello_ack, got %s", env.Type)
+	}
+	var ack agentproto.HelloAck
+	if err := env.Decode(&ack); err != nil {
+		t.Fatalf("decode ack: %v", err)
+	}
+	if ack.Meta.Role != agentproto.RoleEntry || ack.Meta.Region != "华东" ||
+		ack.Meta.ISP != "电信" || ack.Meta.LineType != "cn2_gia" ||
+		ack.Meta.City != "上海" || ack.Meta.Datacenter != "sh-1" ||
+		ack.Meta.BillingType != "按流量" || ack.Meta.BwUpMbps != 100 ||
+		ack.Meta.BwDownMbps != 200 || ack.Meta.TrafficPriceCents != 120 {
+		t.Fatalf("ack meta mismatch: %+v", ack.Meta)
+	}
+	if len(ack.Meta.Labels) != 1 || ack.Meta.Labels[0] != "bgp" {
+		t.Fatalf("labels mismatch: %v", ack.Meta.Labels)
+	}
+
+	// 节点详情应带上元数据
+	drec := doJSON(t, r, "GET", "/api/nodes/"+strconv.Itoa(id), nil)
+	var detail map[string]any
+	_ = json.Unmarshal(drec.Body.Bytes(), &detail)
+	if detail["role"] != "entry" || detail["region"] != "华东" || detail["isp"] != "电信" ||
+		detail["line_type"] != "cn2_gia" || detail["billing_type"] != "按流量" {
+		t.Fatalf("node detail meta mismatch: %v", detail)
+	}
+
+	// 二次注册：面板为权威，agent 的新上报不覆盖，hello_ack 回面板值
+	c2, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("redial: %v", err)
+	}
+	defer c2.Close()
+	hello2, _ := agentproto.NewEnvelope("h2", agentproto.MsgHello, agentproto.Hello{
+		Token: token, AgentID: "entry-1", Version: "test",
+		Meta: agentproto.NodeMeta{Region: "华南", ISP: "联通", BwUpMbps: 1, BwDownMbps: 1},
+	})
+	if err := c2.WriteJSON(hello2); err != nil {
+		t.Fatalf("write hello2: %v", err)
+	}
+	env2 := readEnv(t, c2)
+	var ack2 agentproto.HelloAck
+	if err := env2.Decode(&ack2); err != nil {
+		t.Fatalf("decode ack2: %v", err)
+	}
+	if ack2.Meta.Region != "华东" || ack2.Meta.ISP != "电信" || ack2.Meta.BwUpMbps != 100 {
+		t.Fatalf("panel-authoritative meta must win: %+v", ack2.Meta)
+	}
+}
+
 func TestAgentWSBadToken(t *testing.T) {
 	r := newTestRouter(t)
 	srv := httptest.NewServer(r)

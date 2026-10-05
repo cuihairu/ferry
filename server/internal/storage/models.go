@@ -16,18 +16,42 @@ type User struct {
 
 // Node 是一台代理节点。Token 供 agent 出站连接认证。
 type Node struct {
-	ID        uint       `gorm:"primaryKey" json:"id"`
-	Name      string     `gorm:"size:64" json:"name"`
-	Address   string     `gorm:"size:255" json:"address"`
-	Port      int        `gorm:"not null" json:"port"`
-	Protocol  string     `gorm:"size:16" json:"protocol"` // vless/vmess/trojan/shadowsocks
-	Config    string     `gorm:"type:text" json:"config"` // 协议配置模板 JSON
-	Enabled   bool       `gorm:"default:true" json:"enabled"`
-	Token     string     `gorm:"size:64;uniqueIndex" json:"token"`
-	LastSeen  *time.Time `json:"last_seen,omitempty"`
-	Status    string     `gorm:"size:16;default:unknown" json:"status"` // online/offline/unknown
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
+	ID       uint       `gorm:"primaryKey" json:"id"`
+	Name     string     `gorm:"size:64" json:"name"`
+	Address  string     `gorm:"size:255" json:"address"`
+	Port     int        `gorm:"not null" json:"port"`
+	Protocol string     `gorm:"size:16" json:"protocol"` // vless/vmess/trojan/shadowsocks
+	Config   string     `gorm:"type:text" json:"config"` // 协议配置模板 JSON
+	Enabled  bool       `gorm:"default:true" json:"enabled"`
+	Token    string     `gorm:"size:64;uniqueIndex" json:"token"`
+	LastSeen *time.Time `json:"last_seen,omitempty"`
+	Status   string     `gorm:"size:16;default:unknown" json:"status"` // online/offline/unknown
+	// 注册元数据（入口与负载均衡设计 §C.3/C.6）：agent 注册上报初值，
+	// 面板可改且以面板为准（meta_init 置位后注册不再覆盖）。
+	Role                     string     `gorm:"size:16;default:landing" json:"role"` // entry/landing/both
+	Direction                string     `gorm:"size:8;default:out" json:"direction"` // out/in/both
+	LineType                 string     `gorm:"size:16;default:普通" json:"line_type"` // cn2_gia/cu_vip/cmi/iplc/163/普通
+	Region                   string     `gorm:"size:64;default:未知" json:"region"`    // 区域，故障聚合维度
+	City                     string     `gorm:"size:64" json:"city"`
+	Datacenter               string     `gorm:"size:128" json:"datacenter"`
+	ISP                      string     `gorm:"size:32;default:未知" json:"isp"`          // 运营商，故障聚合维度
+	Labels                   string     `gorm:"type:text" json:"labels"`                // JSON 数组
+	Transport                string     `gorm:"size:16;default:tls" json:"transport"`   // tls/quic/ws-tls/ssh
+	BillingType              string     `gorm:"size:16;default:包月" json:"billing_type"` // 按流量/包月/固定带宽
+	TrafficPriceCents        int64      `gorm:"default:0" json:"traffic_price_cents"`   // 流量单价（分/GB）
+	MonthlyCostCents         int64      `gorm:"default:0" json:"monthly_cost_cents"`    // 月固定成本（分/月）
+	Currency                 string     `gorm:"size:8;default:CNY" json:"currency"`
+	CostNote                 string     `gorm:"size:255" json:"cost_note"`
+	BwUpMbps                 int        `gorm:"default:0" json:"bw_up_mbps"`                  // 套餐上行 Mbps
+	BwDownMbps               int        `gorm:"default:0" json:"bw_down_mbps"`                // 套餐下行 Mbps
+	MonthlyTrafficQuotaBytes int64      `gorm:"default:0" json:"monthly_traffic_quota_bytes"` // 月流量配额（字节，0=不限）
+	RateLimited              bool       `gorm:"default:true" json:"rate_limited"`
+	Burst                    bool       `gorm:"default:false" json:"burst"`
+	SpeedMeasuredMbps        int        `gorm:"default:0" json:"speed_measured_mbps"` // 测速校准实测容量
+	SpeedCalibratedAt        *time.Time `json:"speed_calibrated_at"`
+	MetaInit                 bool       `gorm:"default:false" json:"-"` // 元数据是否已初始化（面板已接管）
+	CreatedAt                time.Time  `json:"created_at"`
+	UpdatedAt                time.Time  `json:"updated_at"`
 }
 
 // TrafficLog 是一条流量记账记录（按用户按节点按周期汇总）。

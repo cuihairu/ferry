@@ -135,8 +135,15 @@ func (a *App) OnConnected(ctx context.Context, send func(agentproto.Envelope) er
 	select {
 	case ack := <-ch:
 		var ha agentproto.HelloAck
-		if err := ack.Decode(&ha); err == nil && ha.HeartbeatIntervalSec > 0 {
-			a.setInterval(time.Duration(ha.HeartbeatIntervalSec) * time.Second)
+		if err := ack.Decode(&ha); err == nil {
+			if ha.HeartbeatIntervalSec > 0 {
+				a.setInterval(time.Duration(ha.HeartbeatIntervalSec) * time.Second)
+			}
+			// 面板为元数据权威来源：hello_ack 回传值覆盖本地初值。
+			if ha.Meta.Role != "" || ha.Meta.ISP != "" {
+				ha.Meta.Normalize()
+				a.cfg.Meta = ha.Meta
+			}
 		}
 		a.startHeartbeat(ctx, send)
 		return nil
