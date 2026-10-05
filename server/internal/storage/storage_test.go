@@ -108,3 +108,53 @@ func runCRUD(t *testing.T, db *gorm.DB) {
 		t.Fatalf("traffic logs should cascade, remain %d", rest)
 	}
 }
+
+func TestLandingAssignmentAndProbeReport(t *testing.T) {
+	db := openTest(t)
+
+	entry := Node{Name: "entry-1", Address: "sh.example.com", Port: 443, Protocol: "vless", Config: "{}", Enabled: true, Token: "tok-e1"}
+	landing := Node{Name: "landing-1", Address: "sg.example.com", Port: 443, Protocol: "vless", Config: "{}", Enabled: true, Token: "tok-l1"}
+	if err := db.Create(&entry).Error; err != nil {
+		t.Fatalf("create entry node: %v", err)
+	}
+	if err := db.Create(&landing).Error; err != nil {
+		t.Fatalf("create landing node: %v", err)
+	}
+
+	// 落地分配记录：生效中记录可查
+	la := LandingAssignment{
+		EntryNodeID: &entry.ID, LandingNodeID: landing.ID,
+		Direction: "out", Strategy: "manual", Weight: 10,
+		Reason: "manual", AssignedAt: time.Now(),
+	}
+	if err := db.Create(&la).Error; err != nil {
+		t.Fatalf("create assignment: %v", err)
+	}
+	var active []LandingAssignment
+	if err := db.Where("released_at IS NULL").Find(&active).Error; err != nil {
+		t.Fatalf("query active assignments: %v", err)
+	}
+	if len(active) != 1 || active[0].LandingNodeID != landing.ID || active[0].EntryNodeID == nil {
+		t.Fatalf("active assignments: %+v", active)
+	}
+
+	// 探测结论存证：按探测者与目标类型可查
+	target := landing.ID
+	pr := ProbeReport{
+		NodeID: entry.ID, TargetKind: "tunnel", TargetNodeID: &target,
+		Direction: "out", RttMs: 48, LossPct: 0,
+		Reachable: true, Verdict: "healthy",
+		Region: "华东", ISP: "电信", ProbedAt: time.Now(),
+	}
+	if err := db.Create(&pr).Error; err != nil {
+		t.Fatalf("create probe report: %v", err)
+	}
+	var reports []ProbeReport
+	if err := db.Where("node_id=? AND target_kind=?", entry.ID, "tunnel").Order("id").Find(&reports).Error; err != nil {
+		t.Fatalf("query probe reports: %v", err)
+	}
+	if len(reports) != 1 || reports[0].RttMs != 48 || reports[0].Region != "华东" ||
+		reports[0].ISP != "电信" || reports[0].TargetNodeID == nil {
+		t.Fatalf("probe reports: %+v", reports)
+	}
+}

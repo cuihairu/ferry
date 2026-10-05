@@ -91,6 +91,41 @@ type CardCode struct {
 	CreatedAt time.Time  `json:"created_at"`
 }
 
+// LandingAssignment 是一条落地分配记录（入口→落地的映射与策略留痕）。
+// 入口池/落地池即 nodes.role 分组，不另建池表。
+type LandingAssignment struct {
+	ID             uint       `gorm:"primaryKey" json:"id"`
+	EntryNodeID    *uint      `gorm:"index" json:"entry_node_id"`    // 入口节点（空=区域级分配）
+	LandingNodeID  uint       `gorm:"index;not null" json:"landing_node_id"`
+	Direction      string     `gorm:"size:8;not null" json:"direction"` // out/in，方向分流留痕
+	Strategy       string     `gorm:"size:16;not null" json:"strategy"` // manual/least_conn/cost_first/perf_first/balanced
+	Weight         int        `gorm:"default:0" json:"weight"`
+	Reason         string     `gorm:"size:64" json:"reason"`           // region_fault/failover/manual...
+	AssignedAt     time.Time  `gorm:"not null" json:"assigned_at"`
+	ReleasedAt     *time.Time `json:"released_at"`                     // 空=生效中
+	ReleaseReason  string     `gorm:"size:64" json:"release_reason"`
+}
+
+// ProbeReport 是一条边缘探测结论存证：探测在节点本地完成，
+// 面板只收结论做聚合判定与历史回溯。
+type ProbeReport struct {
+	ID           uint       `gorm:"primaryKey" json:"id"`
+	NodeID       uint       `gorm:"index;not null" json:"node_id"` // 探测者（入口 agent）
+	TargetKind   string     `gorm:"size:16;not null;index:idx_probe_window,priority:1" json:"target_kind"` // tunnel/exit/peer
+	TargetNodeID *uint      `gorm:"index:idx_probe_window,priority:2" json:"target_node_id"`
+	TargetHost   string     `gorm:"size:255" json:"target_host"`
+	Direction    string     `gorm:"size:8;not null;default:out" json:"direction"`
+	RttMs        int        `gorm:"default:0" json:"rtt_ms"`
+	LossPct      int        `gorm:"default:0" json:"loss_pct"` // 0-100
+	Reachable    bool       `gorm:"default:false" json:"reachable"`
+	Blocked      bool       `gorm:"default:false" json:"blocked"`
+	Verdict      string     `gorm:"size:16;not null" json:"verdict"` // healthy/sick
+	Region       string     `gorm:"size:64;not null;default:未知" json:"region"` // 目标区域快照
+	ISP          string     `gorm:"size:32;not null;default:未知" json:"isp"`    // 目标运营商快照
+	ProbedAt     time.Time  `gorm:"not null;index:idx_probe_window,priority:3" json:"probed_at"`
+	CreatedAt    time.Time  `json:"created_at"`
+}
+
 // PaymentOrder 是订单（三账之一：谁该收多少）。
 type PaymentOrder struct {
 	ID          uint       `gorm:"primaryKey" json:"id"`

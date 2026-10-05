@@ -154,6 +154,36 @@ func nodeMetaFromRow(n *storage.Node) agentproto.NodeMeta {
 	}
 }
 
+// saveProbeReports 批量落边缘探测结论存证。
+func (h *Handler) saveProbeReports(nodeID int64, items []agentproto.ProbeReport) error {
+	if len(items) == 0 {
+		return nil
+	}
+	rows := make([]storage.ProbeReport, 0, len(items))
+	for _, it := range items {
+		row := storage.ProbeReport{
+			NodeID:     uint(nodeID),
+			TargetKind: it.TargetKind,
+			TargetHost: it.TargetHost,
+			Direction:  it.Direction,
+			RttMs:      it.RttMs,
+			LossPct:    it.LossPct,
+			Reachable:  it.Reachable,
+			Blocked:    it.Blocked,
+			Verdict:    it.Verdict,
+			Region:     it.Region,
+			ISP:        it.ISP,
+			ProbedAt:   it.ProbedAt,
+		}
+		if it.TargetNode > 0 {
+			id := uint(it.TargetNode)
+			row.TargetNodeID = &id
+		}
+		rows = append(rows, row)
+	}
+	return h.db.Create(&rows).Error
+}
+
 func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID int64) {
 	for {
 		env, err := readEnvelope(conn)
@@ -189,8 +219,9 @@ func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID 
 			if err := env.Decode(&pr); err != nil {
 				continue
 			}
-			// 探测历史落库在 E-11 接入，先记录保证结论不丢。
-			log.Printf("probe report node=%d: %d items", nodeID, len(pr.Items))
+			if err := h.saveProbeReports(nodeID, pr.Items); err != nil {
+				log.Printf("save probe reports node=%d: %v", nodeID, err)
+			}
 			reply, _ := agentproto.NewEnvelope(env.ID, agentproto.MsgProbeAck, agentproto.ProbeAck{
 				Recorded: len(pr.Items),
 			})

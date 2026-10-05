@@ -74,6 +74,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&PaymentOrder{},
 		&PaymentTransaction{},
 		&Grant{},
+		&LandingAssignment{},
+		&ProbeReport{},
 	)
 }
 

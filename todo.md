@@ -128,8 +128,8 @@
 ### 数据模型
 
 - [x] [P0] E-9 nodes 表扩展：role/direction/line_type/region/city/datacenter/isp/labels/transport/billing_type/traffic_price_cents/monthly_cost_cents/currency/cost_note/套餐带宽与配额/测速校准列（ensureColumns 增量迁移）
-- [ ] [P0] E-10 分配记录表 landing_assignments：入口/落地/策略/权重/原因/起止
-- [ ] [P0] E-11 探测历史表 probe_reports：探测者/目标/rtt/丢包/判定/区域运营商快照 + 窗口索引
+- [x] [P0] E-10 分配记录表 landing_assignments：入口/落地/策略/权重/原因/起止
+- [x] [P0] E-11 探测历史表 probe_reports：探测者/目标/rtt/丢包/判定/区域运营商快照 + 窗口索引
 - [ ] [P1] E-12 区域/运营商状态表 dimension_status：状态灯数据（region/isp 两维）
 
 ### 探测与故障处置
