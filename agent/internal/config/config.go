@@ -8,6 +8,8 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/cuihairu/ferry/packages/agentproto"
 )
 
 // TLSConfig 声明 mTLS 相关文件；全部为空时仅用节点令牌走系统根证书校验。
@@ -31,12 +33,13 @@ type ProcSpec struct {
 
 // Config 是 agent 的全部运行参数。
 type Config struct {
-	PanelURL     string     `json:"panel_url"` // 形如 wss://panel.example.com/agent/ws
-	AgentID      string     `json:"agent_id"`
-	Token        string     `json:"token"`
-	HeartbeatSec int        `json:"heartbeat_sec"`
-	TLS          TLSConfig  `json:"tls"`
-	Procs        []ProcSpec `json:"procs"`
+	PanelURL     string              `json:"panel_url"` // 形如 wss://panel.example.com/agent/ws
+	AgentID      string              `json:"agent_id"`
+	Token        string              `json:"token"`
+	HeartbeatSec int                 `json:"heartbeat_sec"`
+	TLS          TLSConfig           `json:"tls"`
+	Meta         agentproto.NodeMeta `json:"meta"` // 节点注册元数据初值，注册时随 hello 上报
+	Procs        []ProcSpec          `json:"procs"`
 }
 
 // Default 返回带默认值的配置。
@@ -72,10 +75,52 @@ func Load(path string) (Config, error) {
 		}
 		cfg.HeartbeatSec = n
 	}
+	if v := os.Getenv("FERRY_NODE_ROLE"); v != "" {
+		cfg.Meta.Role = v
+	}
+	if v := os.Getenv("FERRY_NODE_DIRECTION"); v != "" {
+		cfg.Meta.Direction = v
+	}
+	if v := os.Getenv("FERRY_NODE_REGION"); v != "" {
+		cfg.Meta.Region = v
+	}
+	if v := os.Getenv("FERRY_NODE_ISP"); v != "" {
+		cfg.Meta.ISP = v
+	}
+	applyMetaDefaults(&cfg)
 	if err := cfg.Validate(); err != nil {
 		return cfg, err
 	}
 	return cfg, nil
+}
+
+// applyMetaDefaults 补齐元数据缺省值，与 nodes 表默认值对齐。
+func applyMetaDefaults(cfg *Config) {
+	m := &cfg.Meta
+	if m.Role == "" {
+		m.Role = agentproto.RoleLanding
+	}
+	if m.Direction == "" {
+		m.Direction = agentproto.DirectionOut
+	}
+	if m.LineType == "" {
+		m.LineType = "普通"
+	}
+	if m.Region == "" {
+		m.Region = "未知"
+	}
+	if m.ISP == "" {
+		m.ISP = "未知"
+	}
+	if m.Transport == "" {
+		m.Transport = "tls"
+	}
+	if m.BillingType == "" {
+		m.BillingType = "包月"
+	}
+	if m.Currency == "" {
+		m.Currency = "CNY"
+	}
 }
 
 // Validate 校验必填项与取值范围。
@@ -101,6 +146,40 @@ func (c Config) Validate() error {
 			return fmt.Errorf("duplicate proc name %q", p.Name)
 		}
 		names[p.Name] = true
+	}
+	switch c.Meta.Role {
+	case agentproto.RoleEntry, agentproto.RoleLanding, agentproto.RoleBoth:
+	default:
+		return errors.New("meta.role must be entry/landing/both")
+	}
+	switch c.Meta.Direction {
+	case agentproto.DirectionOut, agentproto.DirectionIn, agentproto.DirectionBoth:
+	default:
+		return errors.New("meta.direction must be out/in/both")
+	}
+	switch c.Meta.LineType {
+	case "cn2_gia", "cu_vip", "cmi", "iplc", "163", "普通":
+	default:
+		return errors.New("meta.line_type must be cn2_gia/cu_vip/cmi/iplc/163/普通")
+	}
+	switch c.Meta.Transport {
+	case "tls", "quic", "ws-tls", "ssh":
+	default:
+		return errors.New("meta.transport must be tls/quic/ws-tls/ssh")
+	}
+	switch c.Meta.BillingType {
+	case "按流量", "包月", "固定带宽":
+	default:
+		return errors.New("meta.billing_type must be 按流量/包月/固定带宽")
+	}
+	if c.Meta.Region == "" {
+		return errors.New("meta.region is required (use 未知 if unknown)")
+	}
+	if c.Meta.ISP == "" {
+		return errors.New("meta.isp is required (use 未知 if unknown)")
+	}
+	if c.Meta.BwUpMbps <= 0 || c.Meta.BwDownMbps <= 0 {
+		return errors.New("meta.bw_up_mbps and meta.bw_down_mbps are required")
 	}
 	return nil
 }

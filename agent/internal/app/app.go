@@ -123,6 +123,7 @@ func (a *App) OnConnected(ctx context.Context, send func(agentproto.Envelope) er
 		Version:   a.version,
 		Hostname:  hostname,
 		StartedAt: time.Now(),
+		Meta:      a.cfg.Meta,
 	})
 	if err != nil {
 		return err

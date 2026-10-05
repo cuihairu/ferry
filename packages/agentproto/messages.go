@@ -2,6 +2,45 @@ package agentproto
 
 import "time"
 
+// 节点角色取值（池归属与组件装配）。
+const (
+	RoleEntry   = "entry"   // 入口节点
+	RoleLanding = "landing" // 落地节点
+	RoleBoth    = "both"    // 入口与落地一体
+)
+
+// 拓扑方向取值（出海线/回国线）。
+const (
+	DirectionOut  = "out"  // 出海：国内入口 → 海外落地
+	DirectionIn   = "in"   // 回国：海外入口 → 国内落地
+	DirectionBoth = "both" // 双向
+)
+
+// NodeMeta 是节点注册元数据：配置文件填写为初值，注册时随 hello 上报，
+// 面板可改且以面板为准（改后经 hello_ack 同步回 agent）。
+// region 与 isp 必填，可标「未知」但不许空——区域与运营商是故障聚合维度。
+type NodeMeta struct {
+	Role                string   `json:"role"`                            // entry/landing/both
+	Direction           string   `json:"direction"`                       // out/in/both
+	LineType            string   `json:"line_type"`                       // cn2_gia/cu_vip/cmi/iplc/163/普通
+	Region              string   `json:"region"`                          // 区域，可「未知」
+	City                string   `json:"city,omitempty"`                  // 城市
+	Datacenter          string   `json:"datacenter,omitempty"`            // 机房
+	ISP                 string   `json:"isp"`                             // 运营商，可「未知」但不许空
+	Labels              []string `json:"labels,omitempty"`                // 自定义标签
+	Transport           string   `json:"transport"`                       // tls/quic/ws-tls/ssh
+	BillingType         string   `json:"billing_type"`                    // 按流量/包月/固定带宽
+	TrafficPriceCents   int64    `json:"traffic_price_cents,omitempty"`   // 流量单价（分/GB），仅按流量计费有意义
+	MonthlyCostCents    int64    `json:"monthly_cost_cents,omitempty"`    // 月固定成本（分/月）
+	Currency            string   `json:"currency,omitempty"`              // 币种，默认 CNY
+	CostNote            string   `json:"cost_note,omitempty"`             // 成本备注
+	BwUpMbps            int      `json:"bw_up_mbps"`                      // 套餐上行 Mbps，必填
+	BwDownMbps          int      `json:"bw_down_mbps"`                    // 套餐下行 Mbps，必填
+	MonthlyTrafficQuota int64    `json:"monthly_traffic_quota,omitempty"` // 月流量配额（字节，0=不限）
+	RateLimited         bool     `json:"rate_limited"`                    // 是否限速
+	Burst               bool     `json:"burst,omitempty"`                 // 是否峰值突发
+}
+
 // Hello 是 agent 连接后发出的第一条消息，认证失败面板直接断开。
 type Hello struct {
 	Token     string    `json:"token"`      // 节点令牌
@@ -9,6 +48,7 @@ type Hello struct {
 	Version   string    `json:"version"`    // agent 构建版本
 	Hostname  string    `json:"hostname"`   // 主机名，仅展示用
 	StartedAt time.Time `json:"started_at"` // agent 进程启动时间
+	Meta      NodeMeta  `json:"meta"`       // 节点注册元数据
 }
 
 // HelloAck 是面板的握手应答，Agent 据此校准心跳周期。
