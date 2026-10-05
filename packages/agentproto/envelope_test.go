@@ -95,8 +95,10 @@ func TestMessageTypesStable(t *testing.T) {
 		MsgProcCtlAck:   "agent.proc_ctl_ack",
 		MsgConfigPush:   "panel.config_push",
 		MsgConfigAck:    "agent.config_ack",
+		MsgProbeReport:  "agent.probe_report",
+		MsgProbeAck:     "panel.probe_ack",
 	}
-	if len(want) != 13 {
+	if len(want) != 15 {
 		t.Fatalf("message type table out of sync: %d entries", len(want))
 	}
 }
@@ -123,6 +125,33 @@ func TestHeartbeatAndTrafficRoundTrip(t *testing.T) {
 		t.Fatalf("new envelope: %v", err)
 	}
 	roundTrip(t, e2, tr)
+}
+
+func TestProbeReportRoundTrip(t *testing.T) {
+	pr := ProbeReportBatch{Items: []ProbeReport{
+		{
+			TargetKind: ProbeTargetTunnel, TargetNode: 2, Direction: DirectionOut,
+			RttMs: 48, LossPct: 0, Reachable: true, Verdict: ProbeVerdictHealthy,
+			Region: "华东", ISP: "电信", ProbedAt: time.Unix(300, 0).UTC(),
+		},
+		{
+			TargetKind: ProbeTargetExit, TargetHost: "www.example.com", Direction: DirectionOut,
+			RttMs: 210, LossPct: 30, Reachable: true, Blocked: true, Verdict: ProbeVerdictSick,
+			Region: "未知", ISP: "未知", ProbedAt: time.Unix(301, 0).UTC(),
+		},
+	}}
+	e, err := NewEnvelope("pr-1", MsgProbeReport, pr)
+	if err != nil {
+		t.Fatalf("new envelope: %v", err)
+	}
+	roundTrip(t, e, pr)
+
+	ack := ProbeAck{Recorded: 2}
+	e2, err := NewEnvelope("pr-1", MsgProbeAck, ack)
+	if err != nil {
+		t.Fatalf("new ack envelope: %v", err)
+	}
+	roundTrip(t, e2, ack)
 }
 
 func TestNodeMetaNormalize(t *testing.T) {

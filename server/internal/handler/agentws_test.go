@@ -188,6 +188,66 @@ func TestAgentWSHelloMeta(t *testing.T) {
 	}
 }
 
+func TestAgentWSProbeReport(t *testing.T) {
+	r := newTestRouter(t)
+
+	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
+		"name": "probe-1", "address": "sh.example.com", "port": 443, "protocol": "vless",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create node: %d %s", rec.Code, rec.Body)
+	}
+	var node map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &node)
+	token := node["token"].(string)
+
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/agent/ws"
+
+	c, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer c.Close()
+
+	hello, _ := agentproto.NewEnvelope("h1", agentproto.MsgHello, agentproto.Hello{
+		Token: token, AgentID: "probe-1", Version: "test",
+	})
+	if err := c.WriteJSON(hello); err != nil {
+		t.Fatalf("write hello: %v", err)
+	}
+	if env := readEnv(t, c); env.Type != agentproto.MsgHelloAck {
+		t.Fatalf("expected hello_ack, got %s", env.Type)
+	}
+
+	// 探测结论上报 → probe.ack 回执条数
+	batch, _ := agentproto.NewEnvelope("pr-1", agentproto.MsgProbeReport, agentproto.ProbeReportBatch{
+		Items: []agentproto.ProbeReport{
+			{
+				TargetKind: agentproto.ProbeTargetTunnel, TargetNode: 2,
+				Direction: agentproto.DirectionOut, RttMs: 48,
+				Reachable: true, Verdict: agentproto.ProbeVerdictHealthy,
+				Region: "华东", ISP: "电信", ProbedAt: time.Now(),
+			},
+		},
+	})
+	if err := c.WriteJSON(batch); err != nil {
+		t.Fatalf("write probe report: %v", err)
+	}
+	env := readEnv(t, c)
+	if env.Type != agentproto.MsgProbeAck {
+		t.Fatalf("expected probe_ack, got %s", env.Type)
+	}
+	var ack agentproto.ProbeAck
+	if err := env.Decode(&ack); err != nil {
+		t.Fatalf("decode probe ack: %v", err)
+	}
+	if ack.Recorded != 1 {
+		t.Fatalf("recorded = %d, want 1", ack.Recorded)
+	}
+}
+
 func TestAgentWSBadToken(t *testing.T) {
 	r := newTestRouter(t)
 	srv := httptest.NewServer(r)

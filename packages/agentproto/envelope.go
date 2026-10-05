@@ -22,6 +22,8 @@ const (
 	MsgProcCtlAck   = "agent.proc_ctl_ack"  // 进程操作应答
 	MsgConfigPush   = "panel.config_push"   // 配置下发
 	MsgConfigAck    = "agent.config_ack"    // 配置下发应答
+	MsgProbeReport  = "agent.probe_report"  // 边缘探测结论上报
+	MsgProbeAck     = "panel.probe_ack"     // 探测上报应答
 )
 
 // Envelope 是所有消息的统一封装。请求方设置 ID，应答方原样带回。

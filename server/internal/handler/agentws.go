@@ -184,6 +184,19 @@ func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID 
 			if err := hc.Send(reply); err != nil {
 				return
 			}
+		case agentproto.MsgProbeReport:
+			var pr agentproto.ProbeReportBatch
+			if err := env.Decode(&pr); err != nil {
+				continue
+			}
+			// 探测历史落库在 E-11 接入，先记录保证结论不丢。
+			log.Printf("probe report node=%d: %d items", nodeID, len(pr.Items))
+			reply, _ := agentproto.NewEnvelope(env.ID, agentproto.MsgProbeAck, agentproto.ProbeAck{
+				Recorded: len(pr.Items),
+			})
+			if err := hc.Send(reply); err != nil {
+				return
+			}
 		case agentproto.MsgProcReport:
 			var pr agentproto.ProcReport
 			if err := env.Decode(&pr); err != nil {

@@ -196,6 +196,46 @@ type TrafficAck struct {
 	Recorded int `json:"recorded"`
 }
 
+// 探测目标类型取值。
+const (
+	ProbeTargetTunnel = "tunnel" // 经 relay 的隧道连通/延迟/丢包
+	ProbeTargetExit   = "exit"   // 出口基线（区分隧道问题与本机问题）
+	ProbeTargetPeer   = "peer"   // 入口互探（被封检测）
+)
+
+// 探测结论取值。
+const (
+	ProbeVerdictHealthy = "healthy"
+	ProbeVerdictSick    = "sick"
+)
+
+// ProbeReport 是一条边缘探测结论。探测在节点本地完成，
+// 面板只收结论做聚合判定，不集中探测。
+type ProbeReport struct {
+	TargetKind string    `json:"target_kind"`           // tunnel/exit/peer
+	TargetNode int64     `json:"target_node,omitempty"` // 目标节点 ID（隧道/互探）
+	TargetHost string    `json:"target_host,omitempty"` // 出口探测目标
+	Direction  string    `json:"direction"`             // out/in，探测方向
+	RttMs      int       `json:"rtt_ms,omitempty"`      // 往返延迟（毫秒）
+	LossPct    int       `json:"loss_pct,omitempty"`    // 丢包率 0-100
+	Reachable  bool      `json:"reachable"`             // 是否可达
+	Blocked    bool      `json:"blocked"`               // 是否判定被封
+	Verdict    string    `json:"verdict"`               // healthy/sick
+	Region     string    `json:"region"`                // 目标区域快照（聚合用）
+	ISP        string    `json:"isp"`                   // 目标运营商快照
+	ProbedAt   time.Time `json:"probed_at"`
+}
+
+// ProbeReportBatch 一次批量上报多条探测结论。
+type ProbeReportBatch struct {
+	Items []ProbeReport `json:"items"`
+}
+
+// ProbeAck 确认面板已接收的条数。
+type ProbeAck struct {
+	Recorded int `json:"recorded"`
+}
+
 // 告警级别与类别取值。
 const (
 	AlarmSeverityWarning  = "warning"
