@@ -95,11 +95,16 @@ func (m *NodeMeta) Normalize() {
 }
 
 // Heartbeat 是周期心跳，汇总存活与负载快照。
+// NetRxBytes/NetTxBytes 为开机以来累计字节，面板按心跳间隔差分得带宽速率。
 type Heartbeat struct {
 	UptimeSec     int64        `json:"uptime_sec"`
 	Load1         float64      `json:"load1"`
+	CPUUtil       float64      `json:"cpu_util"` // CPU 使用率 0-100
 	MemUsedBytes  uint64       `json:"mem_used_bytes"`
 	MemTotalBytes uint64       `json:"mem_total_bytes"`
+	NetRxBytes    uint64       `json:"net_rx_bytes"` // 累计接收字节（不含 lo）
+	NetTxBytes    uint64       `json:"net_tx_bytes"` // 累计发送字节（不含 lo）
+	Conns         int          `json:"conns"`        // 本机 ESTABLISHED 连接数
 	Certs         []CertStatus `json:"certs,omitempty"`
 	Procs         []ProcStatus `json:"procs,omitempty"`
 	At            time.Time    `json:"at"`

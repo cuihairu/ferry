@@ -266,8 +266,12 @@ func (a *App) buildHeartbeat() agentproto.Heartbeat {
 	hb := agentproto.Heartbeat{
 		UptimeSec:     s.UptimeSec,
 		Load1:         s.Load1,
+		CPUUtil:       s.CPUUtil,
 		MemUsedBytes:  s.MemUsedBytes,
 		MemTotalBytes: s.MemTotalBytes,
+		NetRxBytes:    s.NetRxBytes,
+		NetTxBytes:    s.NetTxBytes,
+		Conns:         s.TCPConns,
 		Procs:         []agentproto.ProcStatus{},
 		At:            time.Now(),
 	}

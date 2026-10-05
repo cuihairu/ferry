@@ -107,8 +107,12 @@ func TestHeartbeatAndTrafficRoundTrip(t *testing.T) {
 	hb := Heartbeat{
 		UptimeSec:     120,
 		Load1:         0.42,
+		CPUUtil:       37.5,
 		MemUsedBytes:  1 << 20,
 		MemTotalBytes: 1 << 30,
+		NetRxBytes:    1 << 40,
+		NetTxBytes:    1 << 39,
+		Conns:         128,
 		Certs:         []CertStatus{{Domain: "a.example.com", NotAfter: time.Unix(100, 0).UTC()}},
 		Procs:         []ProcStatus{{Name: "xray", State: ProcRunning, Since: time.Unix(50, 0).UTC(), Restarts: 1, PID: 7}},
 		At:            time.Unix(200, 0).UTC(),

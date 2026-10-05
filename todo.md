@@ -118,7 +118,7 @@
 
 - [x] [P0] E-1 `agentproto` 注册元数据：role/direction（出海/回国/双向）/line_type（163/CN2 GIA/CU VIP/CMI/IPLC/普通）/region/city/datacenter/isp/labels/transport + 成本字段（billing_type 必填、traffic_price/monthly_cost/currency/note）+ 套餐字段（bw_up/bw_down Mbps 必填、monthly_traffic_quota、rate_limited、burst），isp 与方向线路必填可「未知/普通」不许空，面板可改以面板为准
 - [x] [P0] E-2 `probe.report` 探测上报消息与应答：目标类型/rtt/丢包/可达/被封/判定/区域运营商快照
-- [ ] [P0] E-3 心跳负载字段：连接数/带宽/CPU 随心跳上报（对齐落地分配的负载信号），带宽利用率（实测吞吐/校准容量）随自动均衡补
+- [x] [P0] E-3 心跳负载字段：连接数/带宽/CPU 随心跳上报（对齐落地分配的负载信号），带宽利用率（实测吞吐/校准容量）随自动均衡补
 - [ ] [P0] E-4 agent 核心瘦身分层：核心最小集（注册心跳/进程管理/配置接收/流量负载上报，目标 ≤10MB）与角色组件边界
 - [ ] [P0] E-5 relay 数据面组件（独立进程）：入口角色装配，与核心只经本机 IPC/配置交互，崩不带崩心跳
 - [ ] [P0] E-6 传输插件抽象：隧道接口（建立/多路复用/心跳/重连）与传输解耦，首个插件 TLS 伪装（默认）
