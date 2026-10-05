@@ -18,6 +18,8 @@ type Config struct {
 	BaseURL string
 	// HeartbeatIntervalSec 是约定的 agent 心跳周期，随 hello_ack 下发。
 	HeartbeatIntervalSec int
+	// MonitorIntervalSec 是区域/运营商聚合判定周期（秒）。
+	MonitorIntervalSec int
 }
 
 // Load 从环境变量读取配置，未设置的项回退到默认值。
@@ -29,6 +31,7 @@ func Load() Config {
 		DBDSN:                envOr("FERRY_DB_DSN", envOr("FERRY_DB", "ferry.db")),
 		BaseURL:              envOr("FERRY_BASE_URL", "http://localhost:8080"),
 		HeartbeatIntervalSec: envIntOr("FERRY_HEARTBEAT_SEC", 30),
+		MonitorIntervalSec:   envIntOr("FERRY_MONITOR_SEC", 30),
 	}
 }
 
@@ -40,6 +43,7 @@ func Default() Config {
 		DBDSN:                "ferry.db",
 		BaseURL:              "http://localhost:8080",
 		HeartbeatIntervalSec: 30,
+		MonitorIntervalSec:   30,
 	}
 }
 

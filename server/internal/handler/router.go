@@ -6,6 +6,7 @@ import (
 
 	"github.com/cuihairu/ferry/server/internal/agenthub"
 	"github.com/cuihairu/ferry/server/internal/config"
+	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -32,10 +33,21 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		api.GET("/nodes/:id", h.getNode)
 		api.PUT("/nodes/:id", h.updateNode)
 		api.DELETE("/nodes/:id", h.deleteNode)
+		api.GET("/dimension-status", h.listDimensionStatus)
 	}
 	return r
 }
 
 func (h *Handler) health(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// listDimensionStatus 返回区域/运营商维度的状态灯数据。
+func (h *Handler) listDimensionStatus(c *gin.Context) {
+	out := []storage.DimensionStatus{}
+	if err := h.db.Order("scope, key").Find(&out).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
 }

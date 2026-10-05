@@ -2,10 +2,13 @@
 package main
 
 import (
+	"context"
 	"log"
+	"time"
 
 	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/handler"
+	"github.com/cuihairu/ferry/server/internal/monitor"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/cuihairu/ferry/server/internal/xray"
 )
@@ -30,6 +33,11 @@ func main() {
 
 	// Xray 内核对接未启用前使用空实现，接口保持稳定。
 	_ = xray.NoopHandler{}
+
+	// 区域/运营商聚合判定：周期聚合探测结论，状态迁移时合并告警。
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go monitor.Run(ctx, db, time.Duration(cfg.MonitorIntervalSec)*time.Second, nil)
 
 	r := handler.NewRouter(db, cfg)
 	log.Printf("ferry listening on %s", cfg.Addr)

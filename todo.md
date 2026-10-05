@@ -130,13 +130,13 @@
 - [x] [P0] E-9 nodes 表扩展：role/direction/line_type/region/city/datacenter/isp/labels/transport/billing_type/traffic_price_cents/monthly_cost_cents/currency/cost_note/套餐带宽与配额/测速校准列（ensureColumns 增量迁移）
 - [x] [P0] E-10 分配记录表 landing_assignments：入口/落地/策略/权重/原因/起止
 - [x] [P0] E-11 探测历史表 probe_reports：探测者/目标/rtt/丢包/判定/区域运营商快照 + 窗口索引
-- [ ] [P1] E-12 区域/运营商状态表 dimension_status：状态灯数据（region/isp 两维）
+- [x] [P1] E-12 区域/运营商状态表 dimension_status：状态灯数据（region/isp 两维）
 
 ### 探测与故障处置
 
 - [ ] [P0] E-13 边缘探测任务：隧道探测（入口→落地）/出口基线/入口互探被封检测，周期上报结论
 - [x] [P0] E-14 面板聚合判定：窗口内同区域异常达阈值=区域故障整区域切走；同 ISP 聚合=运营商故障一起切；不逐个摘挂
-- [ ] [P0] E-15 告警按区域/运营商合并发（「XX 区域入口整体不可达」单条），dash 区域级状态灯
+- [x] [P0] E-15 告警按区域/运营商合并发（「XX 区域入口整体不可达」单条），dash 区域级状态灯
 - [ ] [P1] E-16 自动摘挂：连续 sick 摘除/恢复复位，热更新换线（config.push 变更列表），入口池补位
 - [ ] [P1] E-17 区域探测结果决定该区域传输类型（哪种活着用哪种），切换=换配置不改架构
 - [ ] [P1] E-18 QUIC（hysteria2 系）与 WS-TLS 传输插件；SSH 仅备选不默认
