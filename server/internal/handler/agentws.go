@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"log"
@@ -9,20 +8,25 @@ import (
 
 	"github.com/cuihairu/ferry/packages/agentproto"
 	"github.com/cuihairu/ferry/server/internal/agenthub"
+	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"gorm.io/gorm"
 )
 
 var wsUpgrader = websocket.Upgrader{}
 
 // authNode 按令牌查启用的节点，返回节点 ID。
 func (h *Handler) authNode(token string) (int64, error) {
-	var id int64
-	err := h.db.QueryRow(`SELECT id FROM nodes WHERE token=? AND enabled=1`, token).Scan(&id)
-	if errors.Is(err, sql.ErrNoRows) {
+	var n storage.Node
+	err := h.db.Where("token=? AND enabled=?", token, true).First(&n).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return 0, errors.New("invalid token")
 	}
-	return id, err
+	if err != nil {
+		return 0, err
+	}
+	return int64(n.ID), nil
 }
 
 // agentWS 处理 agent 的出站长连接：hello 认证 → 注册在线 → 心跳与上报。
@@ -66,14 +70,26 @@ func (h *Handler) agentWS(c *gin.Context) {
 	}
 	_ = conn.SetReadDeadline(time.Time{})
 	log.Printf("agent online node=%d agent_id=%s hostname=%s", nodeID, hello.AgentID, hello.Hostname)
-	_, _ = h.db.Exec(`UPDATE nodes SET status='online' WHERE id=?`, nodeID)
+	h.setNodeStatus(nodeID, "online", false)
 
 	h.readAgentLoop(conn, hc, nodeID)
 
 	h.hub.Unregister(nodeID, hc)
 	hc.Close()
-	_, _ = h.db.Exec(`UPDATE nodes SET status='offline' WHERE id=?`, nodeID)
+	h.setNodeStatus(nodeID, "offline", false)
 	log.Printf("agent offline node=%d", nodeID)
+}
+
+// setNodeStatus 更新节点在线状态；touch 为真时同时刷新 last_seen。
+// 心跳与上下线是高频写，失败仅记日志不打断连接。
+func (h *Handler) setNodeStatus(nodeID int64, status string, touch bool) {
+	updates := map[string]any{"status": status}
+	if touch {
+		updates["last_seen"] = time.Now()
+	}
+	if err := h.db.Model(&storage.Node{}).Where("id=?", nodeID).Updates(updates).Error; err != nil {
+		log.Printf("update node status node=%d: %v", nodeID, err)
+	}
 }
 
 func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID int64) {
@@ -88,9 +104,7 @@ func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID 
 			if err := env.Decode(&hb); err != nil {
 				continue
 			}
-			if _, err := h.db.Exec(`UPDATE nodes SET last_seen=CURRENT_TIMESTAMP, status='online' WHERE id=?`, nodeID); err != nil {
-				log.Printf("update heartbeat node=%d: %v", nodeID, err)
-			}
+			h.setNodeStatus(nodeID, "online", true)
 			reply, _ := agentproto.NewEnvelope(env.ID, agentproto.MsgHeartbeatAck, agentproto.HeartbeatAck{
 				NextIntervalSec: h.cfg.HeartbeatIntervalSec,
 			})

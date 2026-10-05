@@ -5,22 +5,26 @@ import (
 	"log"
 
 	"github.com/cuihairu/ferry/server/internal/config"
-	"github.com/cuihairu/ferry/server/internal/database"
 	"github.com/cuihairu/ferry/server/internal/handler"
+	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/cuihairu/ferry/server/internal/xray"
 )
 
 func main() {
 	cfg := config.Load()
 
-	db, err := database.Open(cfg.DBPath)
+	db, err := storage.Open(cfg.DBDriver, cfg.DBDSN)
 	if err != nil {
 		log.Fatalf("init database: %v", err)
 	}
-	defer db.Close()
+	sqlDB, err := db.DB()
+	if err != nil {
+		log.Fatalf("db handle: %v", err)
+	}
+	defer sqlDB.Close()
 
 	// 重启后在线状态一律置离线，等 agent 重连刷新。
-	if _, err := db.Exec(`UPDATE nodes SET status='offline'`); err != nil {
+	if err := db.Exec(`UPDATE nodes SET status='offline'`).Error; err != nil {
 		log.Fatalf("reset node status: %v", err)
 	}
 

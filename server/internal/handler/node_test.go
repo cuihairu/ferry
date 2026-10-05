@@ -9,18 +9,22 @@ import (
 	"testing"
 
 	"github.com/cuihairu/ferry/server/internal/config"
-	"github.com/cuihairu/ferry/server/internal/database"
+	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
 )
 
 // newTestRouter 建独立临时库的 gin 测试引擎。
 func newTestRouter(t *testing.T) *gin.Engine {
 	t.Helper()
-	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
+	db, err := storage.Open(storage.DriverSQLite, filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
 	gin.SetMode(gin.TestMode)
 	return NewRouter(db, config.Default())
 }

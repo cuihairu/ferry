@@ -2,23 +2,23 @@
 package handler
 
 import (
-	"database/sql"
 	"net/http"
 
 	"github.com/cuihairu/ferry/server/internal/agenthub"
 	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // Handler 持有共享依赖，各资源方法挂在其上，路由注册由 NewRouter 完成。
 type Handler struct {
-	db  *sql.DB
+	db  *gorm.DB
 	cfg config.Config
 	hub *agenthub.Hub
 }
 
 // NewRouter 创建 gin 引擎并挂载全部路由。
-func NewRouter(db *sql.DB, cfg config.Config) *gin.Engine {
+func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 	h := &Handler{db: db, cfg: cfg, hub: agenthub.New()}
 	r := gin.Default()
 

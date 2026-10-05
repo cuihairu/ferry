@@ -20,21 +20,7 @@ func ValidProtocol(p string) bool {
 	return false
 }
 
-// Node 是一台代理节点的描述。config 为该协议的配置模板 JSON 文本。
-type Node struct {
-	ID        int64      `json:"id"`
-	Name      string     `json:"name"`
-	Address   string     `json:"address"`
-	Port      int        `json:"port"`
-	Protocol  string     `json:"protocol"`
-	Config    string     `json:"config"`
-	Enabled   bool       `json:"enabled"`
-	Token     string     `json:"token"` // agent 出站连接令牌，管理面可见
-	LastSeen  *time.Time `json:"last_seen,omitempty"`
-	Status    string     `json:"status"` // online/offline/unknown
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
-}
+// 节点的持久化结构在 internal/storage（GORM 模型），此处仅保留请求载荷。
 
 // NodeInput 是创建/更新节点的请求载荷。
 type NodeInput struct {

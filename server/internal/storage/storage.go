@@ -51,6 +51,12 @@ func Open(driver, dsn string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", driver, err)
 	}
+	if driver == "" || driver == DriverSQLite {
+		// SQLite 单文件，多连接加剧锁竞争，限单连接由 WAL 兜底读并发。
+		if sqlDB, err := db.DB(); err == nil {
+			sqlDB.SetMaxOpenConns(1)
+		}
+	}
 	if err := AutoMigrate(db); err != nil {
 		return nil, err
 	}

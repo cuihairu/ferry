@@ -10,8 +10,10 @@ import (
 type Config struct {
 	// Addr 是 HTTP 监听地址，例如 ":8080"。
 	Addr string
-	// DBPath 是 SQLite 数据库文件路径。
-	DBPath string
+	// DBDriver 是数据库方言：sqlite（默认）/postgres/mysql。
+	DBDriver string
+	// DBDSN 是连接串：sqlite 为文件路径（默认 ferry.db），postgres/mysql 为连接串。
+	DBDSN string
 	// BaseURL 用于拼装对外展示的订阅链接，例如 "https://panel.example.com"。
 	BaseURL string
 	// HeartbeatIntervalSec 是约定的 agent 心跳周期，随 hello_ack 下发。
@@ -19,10 +21,12 @@ type Config struct {
 }
 
 // Load 从环境变量读取配置，未设置的项回退到默认值。
+// FERRY_DB 仍可用作 sqlite 文件路径的兼容别名。
 func Load() Config {
 	return Config{
 		Addr:                 envOr("FERRY_ADDR", ":8080"),
-		DBPath:               envOr("FERRY_DB", "ferry.db"),
+		DBDriver:             envOr("FERRY_DB_DRIVER", "sqlite"),
+		DBDSN:                envOr("FERRY_DB_DSN", envOr("FERRY_DB", "ferry.db")),
 		BaseURL:              envOr("FERRY_BASE_URL", "http://localhost:8080"),
 		HeartbeatIntervalSec: envIntOr("FERRY_HEARTBEAT_SEC", 30),
 	}
@@ -32,7 +36,8 @@ func Load() Config {
 func Default() Config {
 	return Config{
 		Addr:                 ":8080",
-		DBPath:               "ferry.db",
+		DBDriver:             "sqlite",
+		DBDSN:                "ferry.db",
 		BaseURL:              "http://localhost:8080",
 		HeartbeatIntervalSec: 30,
 	}

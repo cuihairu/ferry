@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -9,28 +8,14 @@ import (
 	"strings"
 
 	"github.com/cuihairu/ferry/server/internal/model"
+	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
-const nodeSelect = `SELECT id, name, address, port, protocol, config, enabled, token, last_seen, status, created_at, updated_at FROM nodes`
-
 func (h *Handler) listNodes(c *gin.Context) {
-	rows, err := h.db.Query(nodeSelect + ` ORDER BY id`)
-	if err != nil {
-		fail(c, http.StatusInternalServerError, err)
-		return
-	}
-	defer rows.Close()
-	out := []model.Node{}
-	for rows.Next() {
-		n, err := scanNode(rows)
-		if err != nil {
-			fail(c, http.StatusInternalServerError, err)
-			return
-		}
-		out = append(out, *n)
-	}
-	if err := rows.Err(); err != nil {
+	out := []storage.Node{}
+	if err := h.db.Order("id").Find(&out).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
@@ -65,16 +50,17 @@ func (h *Handler) createNode(c *gin.Context) {
 	if in.Enabled != nil {
 		enabled = *in.Enabled
 	}
-	res, err := h.db.Exec(
-		`INSERT INTO nodes (name, address, port, protocol, config, enabled, token) VALUES (?,?,?,?,?,?,?)`,
-		strings.TrimSpace(in.Name), strings.TrimSpace(in.Address), in.Port, in.Protocol, normalizeConfig(in.Config), enabled, token)
-	if err != nil {
-		fail(c, http.StatusInternalServerError, err)
-		return
+	n := storage.Node{
+		Name:     strings.TrimSpace(in.Name),
+		Address:  strings.TrimSpace(in.Address),
+		Port:     in.Port,
+		Protocol: in.Protocol,
+		Config:   normalizeConfig(in.Config),
+		Enabled:  enabled,
+		Token:    token,
+		Status:   "unknown",
 	}
-	id, _ := res.LastInsertId()
-	n, err := h.findNode(strconv.FormatInt(id, 10))
-	if err != nil {
+	if err := h.db.Create(&n).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
@@ -116,13 +102,19 @@ func (h *Handler) updateNode(c *gin.Context) {
 	if in.Enabled != nil {
 		enabled = *in.Enabled
 	}
-	if _, err := h.db.Exec(
-		`UPDATE nodes SET name=?, address=?, port=?, protocol=?, config=?, enabled=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
-		strings.TrimSpace(in.Name), strings.TrimSpace(in.Address), in.Port, in.Protocol, normalizeConfig(in.Config), enabled, n.ID); err != nil {
+	updates := map[string]any{
+		"name":     strings.TrimSpace(in.Name),
+		"address":  strings.TrimSpace(in.Address),
+		"port":     in.Port,
+		"protocol": in.Protocol,
+		"config":   normalizeConfig(in.Config),
+		"enabled":  enabled,
+	}
+	if err := h.db.Model(&storage.Node{}).Where("id=?", n.ID).Updates(updates).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
-	updated, err := h.findNode(strconv.FormatInt(n.ID, 10))
+	updated, err := h.findNode(strconv.FormatUint(uint64(n.ID), 10))
 	if err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
@@ -131,39 +123,30 @@ func (h *Handler) updateNode(c *gin.Context) {
 }
 
 func (h *Handler) deleteNode(c *gin.Context) {
-	res, err := h.db.Exec(`DELETE FROM nodes WHERE id=?`, c.Param("id"))
-	if err != nil {
-		fail(c, http.StatusInternalServerError, err)
+	res := h.db.Where("id=?", c.Param("id")).Delete(&storage.Node{})
+	if res.Error != nil {
+		fail(c, http.StatusInternalServerError, res.Error)
 		return
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
+	if res.RowsAffected == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
 		return
 	}
 	c.JSON(http.StatusNoContent, nil)
 }
 
-func (h *Handler) findNode(id string) (*model.Node, error) {
-	row := h.db.QueryRow(nodeSelect+` WHERE id=?`, id)
-	n, err := scanNode(row)
-	if errors.Is(err, sql.ErrNoRows) {
+// findNode 按主键查节点，不存在返回 errNotFound（非法 id 同样视为不存在）。
+func (h *Handler) findNode(id string) (*storage.Node, error) {
+	uid, err := strconv.ParseUint(id, 10, 32)
+	if err != nil {
 		return nil, errNotFound
 	}
-	return n, err
-}
-
-type rowScanner interface{ Scan(dest ...any) error }
-
-func scanNode(r rowScanner) (*model.Node, error) {
-	var n model.Node
-	var enabled int
-	var lastSeen sql.NullTime
-	if err := r.Scan(&n.ID, &n.Name, &n.Address, &n.Port, &n.Protocol, &n.Config, &enabled, &n.Token, &lastSeen, &n.Status, &n.CreatedAt, &n.UpdatedAt); err != nil {
+	var n storage.Node
+	if err := h.db.First(&n, uint(uid)).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errNotFound
+		}
 		return nil, err
-	}
-	n.Enabled = enabled == 1
-	if lastSeen.Valid {
-		n.LastSeen = &lastSeen.Time
 	}
 	return &n, nil
 }

@@ -24,7 +24,7 @@ type Node struct {
 	Config    string     `gorm:"type:text" json:"config"` // 协议配置模板 JSON
 	Enabled   bool       `gorm:"default:true" json:"enabled"`
 	Token     string     `gorm:"size:64;uniqueIndex" json:"token"`
-	LastSeen  *time.Time `json:"last_seen"`
+	LastSeen  *time.Time `json:"last_seen,omitempty"`
 	Status    string     `gorm:"size:16;default:unknown" json:"status"` // online/offline/unknown
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
