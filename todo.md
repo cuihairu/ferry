@@ -116,7 +116,7 @@
 
 ### 契约与架构
 
-- [ ] [P0] E-1 `agentproto` 注册元数据：role/region/city/datacenter/isp/labels/transport + 成本字段（billing_type 必填、traffic_price/monthly_cost/currency/note）+ 套餐字段（bw_up/bw_down Mbps 必填、monthly_traffic_quota、rate_limited、burst），isp 必填可「未知」不许空，面板可改以面板为准
+- [ ] [P0] E-1 `agentproto` 注册元数据：role/direction（出海/回国/双向）/line_type（163/CN2 GIA/CU VIP/CMI/IPLC/普通）/region/city/datacenter/isp/labels/transport + 成本字段（billing_type 必填、traffic_price/monthly_cost/currency/note）+ 套餐字段（bw_up/bw_down Mbps 必填、monthly_traffic_quota、rate_limited、burst），isp 与方向线路必填可「未知/普通」不许空，面板可改以面板为准
 - [ ] [P0] E-2 `probe.report` 探测上报消息与应答：目标类型/rtt/丢包/可达/被封/判定/区域运营商快照
 - [ ] [P0] E-3 心跳负载字段：连接数/带宽/CPU 随心跳上报（对齐落地分配的负载信号），带宽利用率（实测吞吐/校准容量）随自动均衡补
 - [ ] [P0] E-4 agent 核心瘦身分层：核心最小集（注册心跳/进程管理/配置接收/流量负载上报，目标 ≤10MB）与角色组件边界
@@ -127,7 +127,7 @@
 
 ### 数据模型
 
-- [ ] [P0] E-9 nodes 表扩展：role/region/city/datacenter/isp/labels/transport/billing_type/traffic_price_cents/monthly_cost_cents/currency/cost_note/套餐带宽与配额/测速校准列（ensureColumns 增量迁移）
+- [ ] [P0] E-9 nodes 表扩展：role/direction/line_type/region/city/datacenter/isp/labels/transport/billing_type/traffic_price_cents/monthly_cost_cents/currency/cost_note/套餐带宽与配额/测速校准列（ensureColumns 增量迁移）
 - [ ] [P0] E-10 分配记录表 landing_assignments：入口/落地/策略/权重/原因/起止
 - [ ] [P0] E-11 探测历史表 probe_reports：探测者/目标/rtt/丢包/判定/区域运营商快照 + 窗口索引
 - [ ] [P1] E-12 区域/运营商状态表 dimension_status：状态灯数据（region/isp 两维）
@@ -156,6 +156,17 @@
 
 - [ ] [P2] E-26 入口轮换：按探测结论轮换订阅入口顺序
 - [ ] [P2] E-27 智能 DNS 分地域：按解析来源地域下发就近区域入口（预留）
+
+### 方向与回国线（出海/回国两篇，见设计稿）
+
+- [ ] [P0] E-28 回国回程探测：海外入口探测器测国内落地回程延迟/丢包（复用 probe.report，direction=in），晚高峰探测加密
+- [ ] [P1] E-29 晚高峰回程报表：按小时分段，19–23 时单独报表，与成本看板同页
+- [ ] [P1] E-30 方向分流分配：出海走性价比、回国优先优质线路（线路档进权重、成本容忍高），landing_assignments 记 direction
+
+### 成本参考
+
+- [ ] [P2] E-31 成本参考库插件位：costref.Source 接口，手录成本为准，参考价接开源比价（infracost 类/公开价格表），偏差提示不自动改价
+- [ ] [P2] E-32 价格变动与促销关注：关注条件（机房/配置/价位）命中的降价促销进 dash 通知
 
 ## P2 — 远期或明确不做
 
