@@ -168,6 +168,29 @@
 - [ ] [P2] E-31 成本参考库插件位：costref.Source 接口，手录成本为准，参考价接开源比价（infracost 类/公开价格表），偏差提示不自动改价
 - [ ] [P2] E-32 价格变动与促销关注：关注条件（机房/配置/价位）命中的降价促销进 dash 通知
 
+## 一键开服与自动入池（设计：docs/design/计划扩充设计.md §1）
+
+口径：底座=OpenTofu/Terraform 供给引擎 + cloud-init 初始化，ferry 只做模板→供给执行→入池流水线三层；state 与云密钥按 R24 加密面口径加密存。
+
+- [ ] [P1] OS-1 dash 提供商配置与机型模板：云凭证录入加密存储（R24 口径），模板含机型/区域/带宽/计费/方向线路标签
+- [ ] [P1] OS-2 OpenTofu 供给接入：模板渲染 HCL/调 tofu CLI，state 集中管理与漂移检测（选型对比见设计 §1.2）
+- [ ] [P1] OS-3 cloud-init 初始化与注册：装 agent、注入预签发 token，首连注册
+- [ ] [P1] OS-4 入池流水线：provisioning→元数据补全→模板下发→探测通过→online，新节点 5 分钟可用
+
+## 被封自动恢复（设计：docs/design/计划扩充设计.md §2，与摘挂同批 P1）
+
+- [ ] [P1] BR-1 判封状态机与恢复流水线编排：接入区域探测/摘挂闭环（E-14/E-15），L1→L2→L3 分级推进
+- [ ] [P1] BR-2 域名前置与自动 DNS 切换：DNS 商 API 插件位，域名不换 IP 随换
+- [ ] [P1] BR-3 IP 池储备与自动补位：预备清单轮换，池空联动一键开服
+- [ ] [P1] BR-4 证书 ACME 自动签发与续期：面板编排，复用 acme.sh/certbot 工具位
+- [ ] [P1] BR-5 恢复动作留痕与失败升级：recovery_actions 落表，超时全失败告警升级人工（经 Herald）
+
+## 分销/代理体系（设计：docs/design/计划扩充设计.md §3）
+
+- [ ] [P2] DS-1 代理层级与折扣：distributors 表、二级卡批次归属、分润入三账按 order_no 串联
+- [ ] [P2] DS-2 代理结算账目：售卡收入/分润/未结算汇总，对账视图加代理维度
+- [ ] [P2] DS-3 代理面板视图：自己的客户/卡密/用量/结算；与优惠码不叠加取优
+
 ## P2 — 远期或明确不做
 
 - [ ] P2-1（不做）多节点主从同步：ferry 定位单机小内存 VPS，3x-ui Node 心跳/Hiddify Child 同步的复杂度与定位冲突（来源：3x-ui `node_traffic_sync_job.go`；Hiddify `models/child.py`）
