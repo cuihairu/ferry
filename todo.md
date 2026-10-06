@@ -58,7 +58,7 @@
 - [ ] [P0] A-3 心跳消息：uptime/负载/内存/证书到期/进程状态汇总 + 应答带回周期
 - [x] [P0] A-4 配置下发消息 `config.push`（proc/kind/version/sha256/payload）/`config.ack`（结果/错误/是否已回滚）
 - [x] [P0] A-5 进程管理消息：状态上报 + `proc_ctl`（start/stop/reload）/应答
-- [ ] [P0] A-6 流量上报消息：按进程 rx/tx 累计 + 在线连接数，周期主动上报
+- [x] [P0] A-6 流量上报消息：按进程 rx/tx 累计 + 在线连接数，周期主动上报
 - [ ] [P0] A-7 告警消息 `alarm`：进程崩溃拉起失败、证书临近到期、负载过高
 
 ### 骨架 + 心跳
@@ -83,9 +83,9 @@
 
 ### 流量采集
 
-- [ ] [P0] A-19 agent 周期采集流量字节数（xray 走 gRPC stats；其余 kind 标记未实现）并上报
-- [ ] [P0] A-20 面板接收 `traffic.report` 写入 traffic_logs（对齐 P0-9 记账写接口）
-- [ ] [P0] A-21 按进程的在线连接数采集与上报
+- [x] [P0] A-19 agent 周期采集流量字节数（xray 走 gRPC stats；其余 kind 标记未实现）并上报
+- [x] [P0] A-20 面板接收 `traffic.report` 写入 node_traffic_logs（节点级；用户级记账对齐 P0-9，走 traffic_logs 待 P1-3 逐用户映射）
+- [x] [P0] A-21 按进程的在线连接数采集与上报
 
 ### 管理面（面板侧）
 

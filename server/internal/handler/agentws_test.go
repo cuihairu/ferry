@@ -471,3 +471,77 @@ func TestAgentWSConfigPushOffline(t *testing.T) {
 		t.Fatalf("offline push must leave failed record: %v", rows)
 	}
 }
+
+func TestAgentWSTrafficReport(t *testing.T) {
+	r := newTestRouter(t)
+
+	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
+		"name": "traf-1", "address": "jp.example.com", "port": 443, "protocol": "vless",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create node: %d %s", rec.Code, rec.Body)
+	}
+	var node map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &node)
+	token := node["token"].(string)
+	id := int(node["id"].(float64))
+
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/agent/ws"
+
+	c, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer c.Close()
+
+	hello, _ := agentproto.NewEnvelope("h1", agentproto.MsgHello, agentproto.Hello{
+		Token: token, AgentID: "traf-1", Version: "test",
+	})
+	if err := c.WriteJSON(hello); err != nil {
+		t.Fatalf("write hello: %v", err)
+	}
+	if env := readEnv(t, c); env.Type != agentproto.MsgHelloAck {
+		t.Fatalf("expected hello_ack, got %s", env.Type)
+	}
+
+	// 流量上报 → traffic_ack 回执条数
+	rep, _ := agentproto.NewEnvelope("tr-1", agentproto.MsgTraffic, agentproto.TrafficReport{
+		Items: []agentproto.ProcTraffic{
+			{Proc: "xray", Rx: 1024, Tx: 2048, Conns: 7, At: time.Now()},
+			{Proc: "hysteria2", Rx: 1, Tx: 2, Conns: 1, At: time.Now()},
+		},
+	})
+	if err := c.WriteJSON(rep); err != nil {
+		t.Fatalf("write traffic report: %v", err)
+	}
+	env := readEnv(t, c)
+	if env.Type != agentproto.MsgTrafficAck {
+		t.Fatalf("expected traffic_ack, got %s", env.Type)
+	}
+	var ack agentproto.TrafficAck
+	if err := env.Decode(&ack); err != nil {
+		t.Fatalf("decode traffic ack: %v", err)
+	}
+	if ack.Recorded != 2 {
+		t.Fatalf("recorded = %d, want 2", ack.Recorded)
+	}
+
+	// 记账可查
+	trec := doJSON(t, r, "GET", fmt.Sprintf("/api/nodes/%d/traffic-logs", id), nil)
+	var rows []map[string]any
+	if err := json.Unmarshal(trec.Body.Bytes(), &rows); err != nil {
+		t.Fatalf("unmarshal traffic logs: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("traffic logs = %d, want 2", len(rows))
+	}
+	byProc := map[string]map[string]any{}
+	for _, row := range rows {
+		byProc[row["proc"].(string)] = row
+	}
+	if byProc["xray"]["rx_bytes"].(float64) != 1024 || byProc["xray"]["conns"].(float64) != 7 {
+		t.Fatalf("xray row mismatch: %v", byProc["xray"])
+	}
+}

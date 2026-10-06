@@ -39,6 +39,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		api.GET("/probe-reports", h.listProbeReports)
 		api.POST("/nodes/:id/config", h.pushConfig)
 		api.GET("/nodes/:id/configs", h.listNodeConfigs)
+		api.GET("/nodes/:id/traffic-logs", h.listNodeTraffic)
 	}
 	return r
 }

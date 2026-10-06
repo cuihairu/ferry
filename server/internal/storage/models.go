@@ -154,6 +154,19 @@ type NodeConfig struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// NodeTrafficLog 是节点级进程流量记账（A-20）：agent 按进程周期上报的增量。
+// 用户级记账走 traffic_logs（P0-9），需要逐用户统计映射（P1-3）。
+type NodeTrafficLog struct {
+	ID         uint      `gorm:"primaryKey" json:"id"`
+	NodeID     uint      `gorm:"index:idx_node_traffic,priority:1;not null" json:"node_id"`
+	Proc       string    `gorm:"size:64;not null" json:"proc"`
+	RxBytes    int64     `gorm:"default:0" json:"rx_bytes"`
+	TxBytes    int64     `gorm:"default:0" json:"tx_bytes"`
+	Conns      int       `gorm:"default:0" json:"conns"`
+	RecordedAt time.Time `gorm:"not null;index:idx_node_traffic,priority:2" json:"recorded_at"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
 // PaymentOrder 是订单（三账之一：谁该收多少）。
 type PaymentOrder struct {
 	ID          uint       `gorm:"primaryKey" json:"id"`

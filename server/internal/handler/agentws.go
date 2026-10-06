@@ -205,6 +205,25 @@ func (h *Handler) saveProbeReports(nodeID int64, items []agentproto.ProbeReport)
 	return h.db.Create(&rows).Error
 }
 
+// saveNodeTraffic 批量落节点级进程流量记账（A-20）。
+func (h *Handler) saveNodeTraffic(nodeID int64, items []agentproto.ProcTraffic) error {
+	if len(items) == 0 {
+		return nil
+	}
+	rows := make([]storage.NodeTrafficLog, 0, len(items))
+	for _, it := range items {
+		rows = append(rows, storage.NodeTrafficLog{
+			NodeID:     uint(nodeID),
+			Proc:       it.Proc,
+			RxBytes:    int64(it.Rx),
+			TxBytes:    int64(it.Tx),
+			Conns:      it.Conns,
+			RecordedAt: it.At,
+		})
+	}
+	return h.db.Create(&rows).Error
+}
+
 // findNodeByAddress 按 host:port 解析节点。
 func (h *Handler) findNodeByAddress(hostport string) *storage.Node {
 	host, portStr, err := net.SplitHostPort(hostport)
@@ -272,6 +291,20 @@ func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID 
 				continue
 			}
 			log.Printf("proc report node=%d: %d procs", nodeID, len(pr.Procs))
+		case agentproto.MsgTraffic:
+			var tr agentproto.TrafficReport
+			if err := env.Decode(&tr); err != nil {
+				continue
+			}
+			if err := h.saveNodeTraffic(nodeID, tr.Items); err != nil {
+				log.Printf("save node traffic node=%d: %v", nodeID, err)
+			}
+			reply, _ := agentproto.NewEnvelope(env.ID, agentproto.MsgTrafficAck, agentproto.TrafficAck{
+				Recorded: len(tr.Items),
+			})
+			if err := hc.Send(reply); err != nil {
+				return
+			}
 		default:
 			// 应答类消息交给等待中的请求。
 			if h.hub.Deliver(env) {

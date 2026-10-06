@@ -47,6 +47,7 @@ type Config struct {
 	AgentID      string              `json:"agent_id"`
 	Token        string              `json:"token"`
 	HeartbeatSec int                 `json:"heartbeat_sec"`
+	TrafficSec   int                 `json:"traffic_sec"` // 流量采集上报周期，0=关闭
 	TLS          TLSConfig           `json:"tls"`
 	Meta         agentproto.NodeMeta `json:"meta"` // 节点注册元数据初值，注册时随 hello 上报
 	Procs        []ProcSpec          `json:"procs"`
@@ -55,7 +56,7 @@ type Config struct {
 
 // Default 返回带默认值的配置。
 func Default() Config {
-	return Config{HeartbeatSec: 30}
+	return Config{HeartbeatSec: 30, TrafficSec: 60}
 }
 
 // Load 读取配置文件并用环境变量覆盖：FERRY_PANEL_URL / FERRY_NODE_TOKEN / FERRY_AGENT_ID / FERRY_HEARTBEAT_SEC。
@@ -85,6 +86,13 @@ func Load(path string) (Config, error) {
 			return cfg, fmt.Errorf("FERRY_HEARTBEAT_SEC: %w", err)
 		}
 		cfg.HeartbeatSec = n
+	}
+	if v := os.Getenv("FERRY_TRAFFIC_SEC"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return cfg, fmt.Errorf("FERRY_TRAFFIC_SEC: %w", err)
+		}
+		cfg.TrafficSec = n
 	}
 	if v := os.Getenv("FERRY_NODE_ROLE"); v != "" {
 		cfg.Meta.Role = v
@@ -149,6 +157,9 @@ func (c Config) Validate() error {
 	}
 	if c.HeartbeatSec < 5 || c.HeartbeatSec > 600 {
 		return errors.New("heartbeat_sec must be 5-600")
+	}
+	if c.TrafficSec != 0 && (c.TrafficSec < 10 || c.TrafficSec > 3600) {
+		return errors.New("traffic_sec must be 0 (off) or 10-3600")
 	}
 	if (c.TLS.CertFile == "") != (c.TLS.KeyFile == "") {
 		return errors.New("tls.cert_file and tls.key_file must be set together")
@@ -221,4 +232,12 @@ func (c Config) Validate() error {
 // HeartbeatInterval 返回心跳周期。
 func (c Config) HeartbeatInterval() time.Duration {
 	return time.Duration(c.HeartbeatSec) * time.Second
+}
+
+// TrafficInterval 返回流量采集周期；0 表示关闭。
+func (c Config) TrafficInterval() time.Duration {
+	if c.TrafficSec <= 0 {
+		return 0
+	}
+	return time.Duration(c.TrafficSec) * time.Second
 }

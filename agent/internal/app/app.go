@@ -16,6 +16,7 @@ import (
 	"github.com/cuihairu/ferry/agent/internal/link"
 	"github.com/cuihairu/ferry/agent/internal/probe"
 	"github.com/cuihairu/ferry/agent/internal/procs"
+	"github.com/cuihairu/ferry/agent/internal/traffic"
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
 
@@ -37,6 +38,7 @@ type App struct {
 	interval time.Duration
 
 	probe *probe.Runner
+	traf  *traffic.Reporter
 
 	sendMu  sync.Mutex
 	curSend func(agentproto.Envelope) error // 当前连接的发送口；断开即清空
@@ -63,6 +65,7 @@ func New(cfg config.Config, version string) *App {
 	a.cfgd = configd.New(a.log)
 	a.probe = probe.New(cfg.Probes, a.log)
 	a.probe.SetSend(a.sendIfConnected)
+	a.traf = traffic.New(cfg.Procs, cfg.TrafficInterval(), traffic.Dispatch(cfg.Procs), a.log)
 	return a
 }
 
@@ -70,6 +73,7 @@ func New(cfg config.Config, version string) *App {
 func (a *App) Run(ctx context.Context) error {
 	a.mgr.Start(ctx)
 	go a.probe.Run(ctx)
+	go a.traf.Run(ctx)
 	client := link.New(link.Options{
 		URL:      a.cfg.PanelURL,
 		CAFile:   a.cfg.TLS.CAFile,
@@ -120,6 +124,7 @@ func (a *App) setSend(send func(agentproto.Envelope) error) {
 func (a *App) OnConnected(ctx context.Context, send func(agentproto.Envelope) error) error {
 	a.stopHeartbeat()
 	a.setSend(send)
+	a.traf.SetSend(send)
 	ch := make(chan agentproto.Envelope, 1)
 	a.mu.Lock()
 	a.hello = ch
@@ -213,6 +218,7 @@ func (a *App) OnMessage(_ context.Context, env agentproto.Envelope, send func(ag
 func (a *App) OnDisconnected() {
 	a.stopHeartbeat()
 	a.setSend(nil)
+	a.traf.SetSend(nil)
 }
 
 // handleConfigPush 执行配置下发并回 config.ack（A-16/A-17）。

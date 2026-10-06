@@ -102,6 +102,30 @@ func (h *Handler) finishNodeConfig(row *storage.NodeConfig, status string, rever
 	row.Status, row.Reverted, row.Validated, row.Error = status, reverted, validated, errMsg
 }
 
+// listNodeTraffic 返回节点的流量记账（新在前，默认 200 条）。
+func (h *Handler) listNodeTraffic(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
+		return
+	}
+	limit := 200
+	if v := c.Query("limit"); v != "" {
+		n, perr := strconv.Atoi(v)
+		if perr != nil || n < 1 || n > 1000 {
+			fail(c, http.StatusBadRequest, errors.New("limit must be 1-1000"))
+			return
+		}
+		limit = n
+	}
+	out := []storage.NodeTrafficLog{}
+	if err := h.db.Where("node_id=?", id).Order("recorded_at DESC, id DESC").Limit(limit).Find(&out).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
 // listNodeConfigs 返回节点的配置下发历史（新在前，默认 50 条）。
 func (h *Handler) listNodeConfigs(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
