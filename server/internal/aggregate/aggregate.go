@@ -127,5 +127,6 @@ func record(by map[string]*Verdict, dim Dimension, scope string, nodeID uint, r 
 	if r.Verdict == agentproto.ProbeVerdictSick {
 		v.Sick++
 		v.SickNodes = append(v.SickNodes, uint64(nodeID))
+		sort.Slice(v.SickNodes, func(i, j int) bool { return v.SickNodes[i] < v.SickNodes[j] })
 	}
 }
