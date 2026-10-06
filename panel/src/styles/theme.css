@@ -1,0 +1,117 @@
+/* Linear 风格暗色主题（P0-14）：自定 token 口径，覆盖 Element Plus 变量避免默认蓝紫。 */
+:root {
+  --ferry-bg: #0e1015;
+  --ferry-bg-panel: #15171e;
+  --ferry-bg-hover: #1b1e27;
+  --ferry-border: #262a35;
+  --ferry-text: #e8eaee;
+  --ferry-text-dim: #9298a3;
+  --ferry-text-muted: #5c6370;
+  --ferry-accent: #6e79d6;
+  --ferry-accent-hover: #7d87dd;
+  --ferry-ok: #4cb782;
+  --ferry-warn: #f2c94c;
+  --ferry-danger: #eb5757;
+}
+
+html.dark {
+  color-scheme: dark;
+  --el-color-primary: var(--ferry-accent);
+  --el-color-primary-light-3: #5a63bd;
+  --el-color-primary-light-5: #4a52a0;
+  --el-color-primary-light-7: #3a4182;
+  --el-color-primary-light-8: #2f3568;
+  --el-color-primary-light-9: #232752;
+  --el-color-primary-dark-2: var(--ferry-accent-hover);
+  --el-bg-color: var(--ferry-bg-panel);
+  --el-bg-color-page: var(--ferry-bg);
+  --el-bg-color-overlay: #1a1d26;
+  --el-fill-color-blank: var(--ferry-bg-panel);
+  --el-fill-color-light: var(--ferry-bg-hover);
+  --el-border-color: var(--ferry-border);
+  --el-border-color-light: var(--ferry-border);
+  --el-border-color-lighter: var(--ferry-border);
+  --el-text-color-primary: var(--ferry-text);
+  --el-text-color-regular: var(--ferry-text-dim);
+  --el-border-radius-base: 6px;
+}
+
+body {
+  margin: 0;
+  background: var(--ferry-bg);
+  color: var(--ferry-text);
+  font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- 布局 ---- */
+.layout {
+  min-height: 100vh;
+}
+.layout-aside {
+  border-right: 1px solid var(--ferry-border);
+  background: var(--ferry-bg-panel);
+  display: flex;
+  flex-direction: column;
+}
+.logo {
+  padding: 20px 20px 12px;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+.logo-sub {
+  padding: 0 20px 16px;
+  font-size: 12px;
+  color: var(--ferry-text-muted);
+}
+.nav {
+  border-right: none;
+  background: transparent;
+  --el-menu-bg-color: transparent;
+  --el-menu-text-color: var(--ferry-text-dim);
+  --el-menu-hover-bg-color: var(--ferry-bg-hover);
+  --el-menu-active-color: var(--ferry-text);
+}
+.topbar {
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--ferry-border);
+  padding: 0 20px;
+}
+.health {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ferry-text-dim);
+}
+.health .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ferry-danger);
+}
+.health .dot.ok {
+  background: var(--ferry-ok);
+}
+
+/* 页面容器统一留白与标题层级 */
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 28px 48px;
+}
+.page h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+  font-weight: 650;
+}
+.page .page-desc {
+  margin: 0 0 20px;
+  color: var(--ferry-text-muted);
+  font-size: 13px;
+}

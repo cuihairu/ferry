@@ -3,8 +3,8 @@
 </script>
 
 <template>
-  <main>
+  <div class="page">
     <h2>设置</h2>
-    <p>占位：面板设置（运营批）。</p>
-  </main>
+    <p class="page-desc">占位：面板设置（运营批）。</p>
+  </div>
 </template>

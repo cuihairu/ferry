@@ -3,8 +3,8 @@
 </script>
 
 <template>
-  <main>
+  <div class="page">
     <h2>用户</h2>
-    <p>占位：用户列表与订阅链接管理（P0-15）。</p>
-  </main>
+    <p class="page-desc">占位：用户列表与订阅链接管理（P0-15）。</p>
+  </div>
 </template>
