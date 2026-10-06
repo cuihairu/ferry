@@ -77,6 +77,14 @@ func (h *Handler) createUser(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
+	if !enabled {
+		// Enabled 带 default:true，零值 false 会被 GORM 略过落库默认值，需显式补写。
+		if err := h.db.Model(&storage.User{}).Where("id=?", u.ID).Update("enabled", false).Error; err != nil {
+			fail(c, http.StatusInternalServerError, err)
+			return
+		}
+		u.Enabled = false
+	}
 	c.JSON(http.StatusCreated, u)
 }
 

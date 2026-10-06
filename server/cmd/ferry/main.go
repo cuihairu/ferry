@@ -9,6 +9,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/handler"
 	"github.com/cuihairu/ferry/server/internal/monitor"
+	"github.com/cuihairu/ferry/server/internal/review"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/cuihairu/ferry/server/internal/xray"
 )
@@ -38,6 +39,9 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go monitor.Run(ctx, db, time.Duration(cfg.MonitorIntervalSec)*time.Second, nil)
+
+	// 到期/超限用户停用扫表。
+	go review.Run(ctx, db, time.Duration(cfg.ReviewIntervalSec)*time.Second)
 
 	r := handler.NewRouter(db, cfg)
 	log.Printf("ferry listening on %s", cfg.Addr)

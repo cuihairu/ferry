@@ -20,6 +20,8 @@ type Config struct {
 	HeartbeatIntervalSec int
 	// MonitorIntervalSec 是区域/运营商聚合判定周期（秒）。
 	MonitorIntervalSec int
+	// ReviewIntervalSec 是到期/超限用户停用扫表周期（秒）。
+	ReviewIntervalSec int
 }
 
 // Load 从环境变量读取配置，未设置的项回退到默认值。
@@ -32,6 +34,7 @@ func Load() Config {
 		BaseURL:              envOr("FERRY_BASE_URL", "http://localhost:8080"),
 		HeartbeatIntervalSec: envIntOr("FERRY_HEARTBEAT_SEC", 30),
 		MonitorIntervalSec:   envIntOr("FERRY_MONITOR_SEC", 30),
+		ReviewIntervalSec:    envIntOr("FERRY_REVIEW_SEC", 60),
 	}
 }
 
@@ -44,6 +47,7 @@ func Default() Config {
 		BaseURL:              "http://localhost:8080",
 		HeartbeatIntervalSec: 30,
 		MonitorIntervalSec:   30,
+		ReviewIntervalSec:    60,
 	}
 }
 

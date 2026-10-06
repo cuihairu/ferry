@@ -108,4 +108,15 @@ func TestUserValidation(t *testing.T) {
 	if rec := doJSON(t, r, "GET", "/api/users/abc", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("bad id: %d", rec.Code)
 	}
+
+	// 显式停用创建不被 default:true 吞掉
+	rec := doJSON(t, r, "POST", "/api/users", map[string]any{"username": "off", "enabled": false})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create disabled user: %d %s", rec.Code, rec.Body)
+	}
+	var off map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &off)
+	if off["enabled"] != false {
+		t.Fatalf("created disabled user came back enabled: %v", off["enabled"])
+	}
 }

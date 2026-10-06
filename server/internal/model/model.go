@@ -53,3 +53,17 @@ type UserInput struct {
 	// ClearExpires 置真清除到期时间（JSON null 与字段缺席无法区分，用显式语义）。
 	ClearExpires *bool `json:"clear_expire,omitempty"`
 }
+
+// TrafficLogInput 是一条用户流量记账（P0-9），RecordedAt 缺省取服务端当前时间。
+type TrafficLogInput struct {
+	UserID     uint       `json:"user_id"`
+	NodeID     *uint      `json:"node_id,omitempty"`
+	RxBytes    int64      `json:"rx_bytes"`
+	TxBytes    int64      `json:"tx_bytes"`
+	RecordedAt *time.Time `json:"recorded_at,omitempty"`
+}
+
+// TrafficLogBatchInput 是流量记账批量载荷，items 为空或超量整体拒绝。
+type TrafficLogBatchInput struct {
+	Items []TrafficLogInput `json:"items"`
+}
