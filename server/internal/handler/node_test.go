@@ -11,10 +11,18 @@ import (
 	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // newTestRouter 建独立临时库的 gin 测试引擎。
 func newTestRouter(t *testing.T) *gin.Engine {
+	t.Helper()
+	r, _ := newTestRouterWithDB(t)
+	return r
+}
+
+// newTestRouterWithDB 额外返回 db 句柄，供直接插入流量等关联数据的用例使用。
+func newTestRouterWithDB(t *testing.T) (*gin.Engine, *gorm.DB) {
 	t.Helper()
 	db, err := storage.Open(storage.DriverSQLite, filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -26,7 +34,7 @@ func newTestRouter(t *testing.T) *gin.Engine {
 		}
 	})
 	gin.SetMode(gin.TestMode)
-	return NewRouter(db, config.Default())
+	return NewRouter(db, config.Default()), db
 }
 
 func doJSON(t *testing.T, r *gin.Engine, method, path string, body any) *httptest.ResponseRecorder {

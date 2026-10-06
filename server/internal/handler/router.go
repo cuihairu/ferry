@@ -27,6 +27,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 
 	r.GET("/api/health", h.health)
 	r.GET("/agent/ws", h.agentWS)
+	r.GET("/sub/:token", h.subscription)
 
 	api := r.Group("/api")
 	{
