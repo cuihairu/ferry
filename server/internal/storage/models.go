@@ -76,7 +76,8 @@ type CardBatch struct {
 	ExpiredAt  *time.Time `json:"expired_at"` // 卡密有效期，空为永久
 	CreatedBy  string     `gorm:"size:64" json:"created_by"`
 	CreatedAt  time.Time  `json:"created_at"`
-	Codes      []CardCode `gorm:"foreignKey:BatchID;references:ID" json:"-"`
+	// 删批次连带删卡密（《支付设计》§3.1），导出发放前误建批次可整体回收。
+	Codes []CardCode `gorm:"foreignKey:BatchID;references:ID;constraint:OnDelete:CASCADE" json:"-"`
 }
 
 // CardCode 是一张卡密；Code 明文存储以便导出发放。

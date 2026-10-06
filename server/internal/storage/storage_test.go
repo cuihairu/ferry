@@ -183,3 +183,26 @@ func TestLandingAssignmentAndProbeReport(t *testing.T) {
 		t.Fatalf("probe reports: %+v", reports)
 	}
 }
+
+func TestCardBatchCascade(t *testing.T) {
+	db := openTest(t)
+	batch := CardBatch{Name: "测试批次", GrantType: "add_quota", GrantValue: 1 << 30, Total: 2, CreatedBy: "admin"}
+	if err := db.Create(&batch).Error; err != nil {
+		t.Fatalf("create batch: %v", err)
+	}
+	codes := []CardCode{{BatchID: batch.ID, Code: "AAAA-BBBB-CCCC"}, {BatchID: batch.ID, Code: "DDDD-EEEE-FFFF"}}
+	if err := db.Create(&codes).Error; err != nil {
+		t.Fatalf("create codes: %v", err)
+	}
+	// 删批次连带删卡密（DB 级 FK CASCADE）
+	if err := db.Delete(&batch).Error; err != nil {
+		t.Fatalf("delete batch: %v", err)
+	}
+	var cnt int64
+	if err := db.Model(&CardCode{}).Where("batch_id=?", batch.ID).Count(&cnt).Error; err != nil {
+		t.Fatal(err)
+	}
+	if cnt != 0 {
+		t.Fatalf("card codes should cascade, got %d", cnt)
+	}
+}
