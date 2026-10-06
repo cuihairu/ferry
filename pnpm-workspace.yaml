@@ -1,0 +1,3 @@
+packages:
+  - panel
+  # dash（用户面板）就绪后加入 workspace
