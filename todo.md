@@ -97,8 +97,8 @@
 
 口径：Provider 抽象在 `packages/payment`，网关插件在 `payments/`；三账=订单/支付流水/发放记录，按 order_no 串联可对账；卡密先行零资质，USDT 二段，微信/支付宝留 Provider 位等资质。
 
-- [ ] [P0] PAY-0 支付设计文档落 docs/design/支付设计.md（Provider 接口、三账 schema、阶段划分）
-- [ ] [P0] PAY-1 `packages/payment` 契约：Provider 接口 + Order/Receipt/Callback 类型 + 三账表迁移
+- [x] [P0] PAY-0 支付设计文档落 docs/design/支付设计.md（Provider 接口、三账 schema、阶段划分）
+- [x] [P0] PAY-1 `packages/payment` 契约：Provider 接口 + Order/Receipt/Callback 类型 + 三账表迁移
 - [ ] [P0] PAY-2 卡密批次与卡密表：批次（权益类型/值/有效期/生成人）+ 卡密（唯一索引/状态/失败计数）
 - [ ] [P0] PAY-3 批次生成接口：crypto/rand 去混淆字符集批量生成 + CSV 导出，仅管理员可调
 - [ ] [P0] PAY-4 兑换接口：原子核销 → 事务写三账（provider=card）→ 执行加配额/延到期，幂等
