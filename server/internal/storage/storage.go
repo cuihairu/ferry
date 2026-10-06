@@ -77,6 +77,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&LandingAssignment{},
 		&ProbeReport{},
 		&DimensionStatus{},
+		&NodeConfig{},
 	)
 }
 

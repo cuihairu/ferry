@@ -69,11 +69,15 @@ func (h *Handler) agentWS(c *gin.Context) {
 		Meta:                 meta,
 	})
 	hc := agenthub.NewConn(nodeID, conn)
-	if err := hc.Send(ack); err != nil {
-		return
-	}
+	// 先注册再回 hello_ack：ack 到达客户端即可能触发面板下发请求，
+	// 必须保证此刻连接已在册（否则请求会撞上「已应答但未注册」的窗口）。
 	if old := h.hub.Register(hc); old != nil {
 		old.Close() // 同节点重复接入，顶替旧连接
+	}
+	if err := hc.Send(ack); err != nil {
+		h.hub.Unregister(nodeID, hc)
+		hc.Close()
+		return
 	}
 	_ = conn.SetReadDeadline(time.Time{})
 	log.Printf("agent online node=%d agent_id=%s hostname=%s", nodeID, hello.AgentID, hello.Hostname)

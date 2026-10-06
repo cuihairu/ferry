@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -354,5 +355,119 @@ func TestAgentWSBadToken(t *testing.T) {
 	}
 	if !websocket.IsCloseError(err, websocket.ClosePolicyViolation) && !websocket.IsUnexpectedCloseError(err) {
 		t.Fatalf("unexpected close error: %v", err)
+	}
+}
+
+func TestAgentWSConfigPush(t *testing.T) {
+	r := newTestRouter(t)
+
+	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
+		"name": "cfg-1", "address": "tw.example.com", "port": 443, "protocol": "vless",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create node: %d %s", rec.Code, rec.Body)
+	}
+	var node map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &node)
+	token := node["token"].(string)
+	id := int(node["id"].(float64))
+
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/agent/ws"
+
+	c, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer c.Close()
+
+	hello, _ := agentproto.NewEnvelope("h1", agentproto.MsgHello, agentproto.Hello{
+		Token: token, AgentID: "cfg-1", Version: "test",
+	})
+	if err := c.WriteJSON(hello); err != nil {
+		t.Fatalf("write hello: %v", err)
+	}
+	if env := readEnv(t, c); env.Type != agentproto.MsgHelloAck {
+		t.Fatalf("expected hello_ack, got %s", env.Type)
+	}
+
+	// 推送配置：请求阻塞等待 ack，agent 侧异步回 config.ack
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		rec := doJSON(t, r, "POST", fmt.Sprintf("/api/nodes/%d/config", id), map[string]any{
+			"proc": "xray", "kind": "xray", "payload": `{"inbounds":[]}`,
+		})
+		done <- rec
+	}()
+
+	push := readEnv(t, c)
+	if push.Type != agentproto.MsgConfigPush {
+		t.Fatalf("expected config_push, got %s", push.Type)
+	}
+	var cp agentproto.ConfigPush
+	if err := push.Decode(&cp); err != nil {
+		t.Fatalf("decode config_push: %v", err)
+	}
+	if cp.Proc != "xray" || cp.Payload != `{"inbounds":[]}` || cp.Sha256 == "" {
+		t.Fatalf("config_push fields mismatch: %+v", cp)
+	}
+	ack, _ := agentproto.NewEnvelope(push.ID, agentproto.MsgConfigAck, agentproto.ConfigAck{
+		Proc: cp.Proc, Version: cp.Version, OK: true, Validated: true,
+	})
+	if err := c.WriteJSON(ack); err != nil {
+		t.Fatalf("write config_ack: %v", err)
+	}
+
+	select {
+	case rec := <-done:
+		if rec.Code != http.StatusOK {
+			t.Fatalf("push config: %d %s", rec.Code, rec.Body)
+		}
+		var row map[string]any
+		_ = json.Unmarshal(rec.Body.Bytes(), &row)
+		if row["status"] != "applied" || row["validated"] != true {
+			t.Fatalf("node_config row mismatch: %v", row)
+		}
+		if row["sha256"] != cp.Sha256 {
+			t.Fatalf("sha256 mismatch: %v", row["sha256"])
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("push config timed out")
+	}
+
+	// 下发历史可查
+	hrec := doJSON(t, r, "GET", fmt.Sprintf("/api/nodes/%d/configs", id), nil)
+	var rows []map[string]any
+	if err := json.Unmarshal(hrec.Body.Bytes(), &rows); err != nil {
+		t.Fatalf("unmarshal configs: %v", err)
+	}
+	if len(rows) != 1 || rows[0]["status"] != "applied" {
+		t.Fatalf("config history mismatch: %v", rows)
+	}
+}
+
+func TestAgentWSConfigPushOffline(t *testing.T) {
+	r := newTestRouter(t)
+
+	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
+		"name": "lone-1", "address": "us.example.com", "port": 443, "protocol": "vless",
+	})
+	var node map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &node)
+	id := int(node["id"].(float64))
+
+	// 节点未接入：502 且落一条 failed 记录
+	rec = doJSON(t, r, "POST", fmt.Sprintf("/api/nodes/%d/config", id), map[string]any{
+		"proc": "xray", "kind": "xray", "payload": `{}`,
+	})
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("offline push: %d %s", rec.Code, rec.Body)
+	}
+	hrec := doJSON(t, r, "GET", fmt.Sprintf("/api/nodes/%d/configs", id), nil)
+	var rows []map[string]any
+	_ = json.Unmarshal(hrec.Body.Bytes(), &rows)
+	if len(rows) != 1 || rows[0]["status"] != "failed" {
+		t.Fatalf("offline push must leave failed record: %v", rows)
 	}
 }

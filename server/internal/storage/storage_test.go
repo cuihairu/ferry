@@ -18,6 +18,8 @@ func openTest(t *testing.T) *gorm.DB {
 		if err != nil {
 			t.Fatalf("open postgres: %v", err)
 		}
+		// PG 测试库跨次复用，先清空数据（先子后父避开外键），SQLite 每次临时目录无需清理。
+		purgeTables(t, db)
 		return db
 	}
 	db, err := Open(DriverSQLite, filepath.Join(t.TempDir(), "test.db"))
@@ -25,6 +27,20 @@ func openTest(t *testing.T) *gorm.DB {
 		t.Fatalf("open sqlite: %v", err)
 	}
 	return db
+}
+
+// purgeTables 按依赖序清空全部业务表。
+func purgeTables(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	for _, tb := range []string{
+		"traffic_logs", "probe_reports", "landing_assignments", "dimension_statuses",
+		"node_configs", "grants", "payment_transactions", "payment_orders",
+		"card_codes", "card_batches", "nodes", "users",
+	} {
+		if err := db.Exec("DELETE FROM " + tb).Error; err != nil {
+			t.Fatalf("purge %s: %v", tb, err)
+		}
+	}
 }
 
 func TestSQLiteCRUD(t *testing.T) {

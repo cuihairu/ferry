@@ -37,6 +37,8 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		api.DELETE("/nodes/:id", h.deleteNode)
 		api.GET("/dimension-status", h.listDimensionStatus)
 		api.GET("/probe-reports", h.listProbeReports)
+		api.POST("/nodes/:id/config", h.pushConfig)
+		api.GET("/nodes/:id/configs", h.listNodeConfigs)
 	}
 	return r
 }

@@ -137,6 +137,23 @@ type DimensionStatus struct {
 	UpdatedAt time.Time `gorm:"not null" json:"updated_at"`
 }
 
+// NodeConfig 是一次配置下发的记录与结果（A-18）：pending → applied/failed。
+type NodeConfig struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	NodeID    uint      `gorm:"index;not null" json:"node_id"`
+	Proc      string    `gorm:"size:64;not null" json:"proc"`
+	Kind      string    `gorm:"size:32" json:"kind"`
+	Version   string    `gorm:"size:64;not null" json:"version"` // 内容哈希，与 sha256 同值
+	Sha256    string    `gorm:"size:64;not null" json:"sha256"`
+	Payload   string    `gorm:"type:text" json:"payload"`
+	Status    string    `gorm:"size:16;not null;default:pending" json:"status"` // pending/applied/failed
+	Reverted  bool      `gorm:"default:false" json:"reverted"`
+	Validated bool      `gorm:"default:false" json:"validated"`
+	Error     string    `gorm:"size:512" json:"error,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // PaymentOrder 是订单（三账之一：谁该收多少）。
 type PaymentOrder struct {
 	ID          uint       `gorm:"primaryKey" json:"id"`

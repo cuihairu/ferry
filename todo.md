@@ -53,33 +53,33 @@
 
 ### 协议契约（先做）
 
-- [ ] [P0] A-1 `packages/agentproto` Go module：Envelope(JSON) + 消息类型常量 + 协议版本号，面板与 agent 以 go.mod replace 共用
-- [ ] [P0] A-2 握手与认证消息 `agent.hello`（节点令牌）/`panel.hello_ack`；agent 配置支持 CA/客户端证书路径（mTLS 开关）
+- [x] [P0] A-1 `packages/agentproto` Go module：Envelope(JSON) + 消息类型常量 + 协议版本号，面板与 agent 以 go.mod replace 共用
+- [x] [P0] A-2 握手与认证消息 `agent.hello`（节点令牌）/`panel.hello_ack`；agent 配置支持 CA/客户端证书路径（mTLS 开关）
 - [ ] [P0] A-3 心跳消息：uptime/负载/内存/证书到期/进程状态汇总 + 应答带回周期
-- [ ] [P0] A-4 配置下发消息 `config.push`（proc/kind/version/sha256/payload）/`config.ack`（结果/错误/是否已回滚）
-- [ ] [P0] A-5 进程管理消息：状态上报 + `proc_ctl`（start/stop/reload）/应答
+- [x] [P0] A-4 配置下发消息 `config.push`（proc/kind/version/sha256/payload）/`config.ack`（结果/错误/是否已回滚）
+- [x] [P0] A-5 进程管理消息：状态上报 + `proc_ctl`（start/stop/reload）/应答
 - [ ] [P0] A-6 流量上报消息：按进程 rx/tx 累计 + 在线连接数，周期主动上报
 - [ ] [P0] A-7 告警消息 `alarm`：进程崩溃拉起失败、证书临近到期、负载过高
 
 ### 骨架 + 心跳
 
-- [ ] [P0] A-8 `apps/agent` 入口：静态编译产出单文件二进制，`make build-agent` 验收
-- [ ] [P0] A-9 agent 配置文件：面板地址、节点令牌、agent ID、证书路径、心跳与重连参数
-- [ ] [P0] A-10 连接层：只出站 WebSocket、指数退避自动重连、按消息类型分发
-- [ ] [P0] A-11 面板侧 `/agent/ws` 接入：读 hello 校验令牌、注册在线连接、心跳更新在线状态
-- [ ] [P0] A-12 面板 API：节点列表带在线状态与 `last_seen`（nodes 表增 token/last_seen/status 字段）
+- [x] [P0] A-8 `apps/agent` 入口：静态编译产出单文件二进制，`make build-agent` 验收
+- [x] [P0] A-9 agent 配置文件：面板地址、节点令牌、agent ID、证书路径、心跳与重连参数
+- [x] [P0] A-10 连接层：只出站 WebSocket、指数退避自动重连、按消息类型分发
+- [x] [P0] A-11 面板侧 `/agent/ws` 接入：读 hello 校验令牌、注册在线连接、心跳更新在线状态
+- [x] [P0] A-12 面板 API：节点列表带在线状态与 `last_seen`（nodes 表增 token/last_seen/status 字段）
 
 ### 进程管理
 
-- [ ] [P0] A-13 进程规格：agent 配置文件定义 name/kind(exec/args/config 路径)/reload 策略
-- [ ] [P0] A-14 启停与状态机（running/stopped/crashed），崩溃自动拉起（退避），状态随心跳/事件上报
+- [x] [P0] A-13 进程规格：agent 配置文件定义 name/kind(exec/args/config 路径)/reload 策略
+- [x] [P0] A-14 启停与状态机（running/stopped/crashed），崩溃自动拉起（退避），状态随心跳/事件上报
 - [ ] [P1] A-15 面板批量操作：对选中的多节点统一下发 proc 操作与配置
 
 ### 配置下发
 
-- [ ] [P0] A-16 agent 收到 `config.push`：sha256 校验 → 落临时文件 → kind 对应校验命令 → 原子替换 → reload
-- [ ] [P0] A-17 校验或 reload 失败自动回滚旧配置并恢复，`config.ack` 带错误详情
-- [ ] [P0] A-18 面板侧：节点配置存储（node_configs 表）+ 推送接口 + 等待 ack（超时判失败）
+- [x] [P0] A-16 agent 收到 `config.push`：sha256 校验 → 落临时文件 → kind 对应校验命令 → 原子替换 → reload
+- [x] [P0] A-17 校验或 reload 失败自动回滚旧配置并恢复，`config.ack` 带错误详情
+- [x] [P0] A-18 面板侧：节点配置存储（node_configs 表）+ 推送接口 + 等待 ack（超时判失败）
 
 ### 流量采集
 
