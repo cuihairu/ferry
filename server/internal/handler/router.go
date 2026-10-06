@@ -40,6 +40,12 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		api.POST("/nodes/:id/config", h.pushConfig)
 		api.GET("/nodes/:id/configs", h.listNodeConfigs)
 		api.GET("/nodes/:id/traffic-logs", h.listNodeTraffic)
+		api.GET("/users", h.listUsers)
+		api.POST("/users", h.createUser)
+		api.GET("/users/:id", h.getUser)
+		api.PUT("/users/:id", h.updateUser)
+		api.DELETE("/users/:id", h.deleteUser)
+		api.POST("/users/:id/sub-token", h.resetSubToken)
 	}
 	return r
 }

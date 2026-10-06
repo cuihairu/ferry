@@ -50,4 +50,6 @@ type UserInput struct {
 	QuotaBytes *int64     `json:"quota_bytes,omitempty"`
 	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
 	Enabled    *bool      `json:"enabled,omitempty"`
+	// ClearExpires 置真清除到期时间（JSON null 与字段缺席无法区分，用显式语义）。
+	ClearExpires *bool `json:"clear_expire,omitempty"`
 }
