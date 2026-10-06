@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/ferry/agent/internal/config"
+	"github.com/cuihairu/ferry/agent/internal/configd"
 	"github.com/cuihairu/ferry/agent/internal/host"
 	"github.com/cuihairu/ferry/agent/internal/link"
 	"github.com/cuihairu/ferry/agent/internal/probe"
@@ -29,6 +30,7 @@ type App struct {
 	version string
 	log     *log.Logger
 	mgr     *procs.Manager
+	cfgd    *configd.Deployer
 
 	mu       sync.Mutex
 	hbStop   chan struct{}
@@ -58,6 +60,7 @@ func New(cfg config.Config, version string) *App {
 	a.mgr.OnStatusChange = a.reportStatus
 	a.mgr.OnAlarm = a.reportAlarm
 	a.Procs = a.mgr.Statuses
+	a.cfgd = configd.New(a.log)
 	a.probe = probe.New(cfg.Probes, a.log)
 	a.probe.SetSend(a.sendIfConnected)
 	return a
@@ -197,8 +200,8 @@ func (a *App) OnMessage(_ context.Context, env agentproto.Envelope, send func(ag
 		reply, _ := agentproto.NewEnvelope(env.ID, agentproto.MsgProcCtlAck, ack)
 		_ = a.sendIfConnected(reply)
 	case agentproto.MsgConfigPush:
-		// 配置下发在后续批次接入，先记录保证协议前向兼容。
-		a.log.Printf("received config_push (id=%s): handler not enabled yet", env.ID)
+		// 下发执行耗时（校验命令 + reload），放后台跑避免阻塞读循环；串行化由 Deployer 保证。
+		go a.handleConfigPush(env)
 	case agentproto.MsgAlarmAck, agentproto.MsgTrafficAck:
 		// 面板对 agent 上报的确认，无需处理。
 	default:
@@ -210,6 +213,41 @@ func (a *App) OnMessage(_ context.Context, env agentproto.Envelope, send func(ag
 func (a *App) OnDisconnected() {
 	a.stopHeartbeat()
 	a.setSend(nil)
+}
+
+// handleConfigPush 执行配置下发并回 config.ack（A-16/A-17）。
+func (a *App) handleConfigPush(env agentproto.Envelope) {
+	var push agentproto.ConfigPush
+	if err := env.Decode(&push); err != nil {
+		a.log.Printf("config_push decode: %v", err)
+		return // 无法定位 proc/version，ack 无从构造，放弃
+	}
+	ack := agentproto.ConfigAck{Proc: push.Proc, Version: push.Version}
+	spec, ok := a.procSpec(push.Proc)
+	if !ok {
+		ack.Error = fmt.Sprintf("unknown proc %q", push.Proc)
+	} else {
+		ack = a.cfgd.Apply(spec, push, func() error {
+			return a.mgr.Control(push.Proc, agentproto.ProcActionReload)
+		})
+	}
+	reply, err := agentproto.NewEnvelope(env.ID, agentproto.MsgConfigAck, ack)
+	if err != nil {
+		return
+	}
+	if err := a.sendIfConnected(reply); err != nil {
+		a.log.Printf("send config_ack: %v", err)
+	}
+}
+
+// procSpec 按名字查找进程规格。
+func (a *App) procSpec(name string) (config.ProcSpec, bool) {
+	for _, p := range a.cfg.Procs {
+		if p.Name == name {
+			return p, true
+		}
+	}
+	return config.ProcSpec{}, false
 }
 
 func (a *App) setInterval(d time.Duration) {
