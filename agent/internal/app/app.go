@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cuihairu/ferry/agent/internal/certwatch"
 	"github.com/cuihairu/ferry/agent/internal/config"
 	"github.com/cuihairu/ferry/agent/internal/configd"
 	"github.com/cuihairu/ferry/agent/internal/host"
@@ -23,6 +24,10 @@ import (
 const (
 	helloTimeout = 10 * time.Second
 	sendTimeout  = 10 * time.Second
+
+	highLoadCPU      = 90.0             // CPU 使用率告警阈值
+	highLoadStreak   = 2                // 连续超阈值的心跳次数
+	highLoadCooldown = 30 * time.Minute // 同类告警最短间隔
 )
 
 // App 实现 link.Handlers，持有运行态。
@@ -40,6 +45,11 @@ type App struct {
 	probe *probe.Runner
 	traf  *traffic.Reporter
 
+	// 告警节流状态（A-7）：证书按「域名+有效期」只报一次，高负载按冷却期。
+	alarmMu    sync.Mutex
+	certAlarms map[string]time.Time
+	lw         loadWatch
+
 	sendMu  sync.Mutex
 	curSend func(agentproto.Envelope) error // 当前连接的发送口；断开即清空
 
@@ -53,10 +63,11 @@ type App struct {
 // New 创建 app，并按配置装配进程管理器。
 func New(cfg config.Config, version string) *App {
 	a := &App{
-		cfg:      cfg,
-		version:  version,
-		log:      log.New(os.Stderr, "agent ", log.LstdFlags),
-		interval: cfg.HeartbeatInterval(),
+		cfg:        cfg,
+		version:    version,
+		log:        log.New(os.Stderr, "agent ", log.LstdFlags),
+		interval:   cfg.HeartbeatInterval(),
+		certAlarms: map[string]time.Time{},
 	}
 	a.mgr = procs.New(cfg.Procs, a.log)
 	a.mgr.OnStatusChange = a.reportStatus
@@ -322,13 +333,79 @@ func (a *App) buildHeartbeat() agentproto.Heartbeat {
 		NetRxBytes:    s.NetRxBytes,
 		NetTxBytes:    s.NetTxBytes,
 		Conns:         s.TCPConns,
+		Certs:         a.collectCerts(),
 		Procs:         []agentproto.ProcStatus{},
 		At:            time.Now(),
 	}
 	if a.Procs != nil {
 		hb.Procs = a.Procs()
 	}
+	a.watchAlarms(hb)
 	return hb
+}
+
+// collectCerts 汇总受管进程配置里的证书状态（A-3）。
+func (a *App) collectCerts() []agentproto.CertStatus {
+	out := []agentproto.CertStatus{}
+	for _, p := range a.cfg.Procs {
+		if p.ConfigPath == "" {
+			continue
+		}
+		out = append(out, certwatch.FromFile(p.ConfigPath)...)
+	}
+	return out
+}
+
+// watchAlarms 基于心跳采样触发证书临期与持续高负载告警（A-7），内部自带节流。
+func (a *App) watchAlarms(hb agentproto.Heartbeat) {
+	now := time.Now()
+	a.alarmMu.Lock()
+	defer a.alarmMu.Unlock()
+	for _, c := range certwatch.Expiring(hb.Certs, now, certwatch.ExpiryWindow) {
+		// 同一张证书同一有效期只报一次，续期后（NotAfter 变化）重新具备告警资格。
+		if last, ok := a.certAlarms[c.Domain]; ok && last.Equal(c.NotAfter) {
+			continue
+		}
+		a.certAlarms[c.Domain] = c.NotAfter
+		msg := fmt.Sprintf("证书 %s 将于 %s 到期", c.Domain, c.NotAfter.Format("2006-01-02"))
+		if ttl := time.Until(c.NotAfter); ttl < 0 {
+			msg = fmt.Sprintf("证书 %s 已于 %s 过期", c.Domain, c.NotAfter.Format("2006-01-02"))
+		} else {
+			msg += fmt.Sprintf("（剩 %d 天）", int(ttl.Hours()/24))
+		}
+		a.reportAlarm(agentproto.Alarm{
+			Kind: agentproto.AlarmKindCertExpiry, Severity: "warn", Message: msg, At: now,
+		})
+	}
+	if a.lw.observe(hb.CPUUtil, now) {
+		a.reportAlarm(agentproto.Alarm{
+			Kind: agentproto.AlarmKindHighLoad, Severity: "warn",
+			Message: fmt.Sprintf("CPU 使用率持续 ≥ %.0f%%", highLoadCPU), At: now,
+		})
+	}
+}
+
+// loadWatch 连续高负载判定：连续 streak 次超阈值报警一次，冷却期内不重报。
+type loadWatch struct {
+	streak int
+	last   time.Time
+}
+
+func (w *loadWatch) observe(cpu float64, now time.Time) bool {
+	if cpu < highLoadCPU {
+		w.streak = 0
+		return false
+	}
+	w.streak++
+	if w.streak < highLoadStreak {
+		return false
+	}
+	if now.Sub(w.last) < highLoadCooldown {
+		return false
+	}
+	w.last = now
+	w.streak = 0
+	return true
 }
 
 var _ link.Handlers = (*App)(nil)

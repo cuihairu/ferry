@@ -22,15 +22,15 @@
 
 ### 前端
 
-- [ ] P0-13 pnpm workspace + Vue3/Vite/TS/Pinia/Element Plus 应用骨架与路由（用户/节点/设置占位）
+- [x] P0-13 pnpm workspace + Vue3/Vite/TS/Pinia/Element Plus 应用骨架与路由（用户/节点/设置占位）
 - [x] P0-14 Linear 风格主题：CSS 变量覆盖 Element Plus，暗色为主，侧边导航+顶栏+内容区布局（本机 linear.app.md token 表，自定口径）
 - [x] P0-15 用户管理页：表格 + 新建/编辑对话框（配额/到期/开关）+ 订阅链接展示与复制
 - [x] P0-16 节点管理页：表格 + 新建/编辑对话框（协议/地址/端口/配置模板）
 
 ### 工程
 
-- [ ] P0-17 根 Makefile：dev / build / test 一键入口，覆盖前后端
-- [ ] P0-18 deploy/：docker-compose.yml 与示例配置
+- [x] P0-17 根 Makefile：dev / build / test 一键入口，覆盖前后端
+- [x] P0-18 deploy/：docker-compose.yml 与示例配置
 - [x] P0-19 测试门禁：订阅编码、可用性判定、CRUD 的表驱动/集成测试接入 `make test`
 
 ## P1 — 进阶（分期做）
@@ -55,11 +55,11 @@
 
 - [x] [P0] A-1 `packages/agentproto` Go module：Envelope(JSON) + 消息类型常量 + 协议版本号，面板与 agent 以 go.mod replace 共用
 - [x] [P0] A-2 握手与认证消息 `agent.hello`（节点令牌）/`panel.hello_ack`；agent 配置支持 CA/客户端证书路径（mTLS 开关）
-- [ ] [P0] A-3 心跳消息：uptime/负载/内存/证书到期/进程状态汇总 + 应答带回周期
+- [x] [P0] A-3 心跳消息：uptime/负载/内存/证书到期/进程状态汇总 + 应答带回周期
 - [x] [P0] A-4 配置下发消息 `config.push`（proc/kind/version/sha256/payload）/`config.ack`（结果/错误/是否已回滚）
 - [x] [P0] A-5 进程管理消息：状态上报 + `proc_ctl`（start/stop/reload）/应答
 - [x] [P0] A-6 流量上报消息：按进程 rx/tx 累计 + 在线连接数，周期主动上报
-- [ ] [P0] A-7 告警消息 `alarm`：进程崩溃拉起失败、证书临近到期、负载过高
+- [x] [P0] A-7 告警消息 `alarm`：进程崩溃拉起失败、证书临近到期、负载过高
 
 ### 骨架 + 心跳
 
