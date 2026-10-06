@@ -108,6 +108,68 @@ func TestMetaEnvOverrides(t *testing.T) {
 	}
 }
 
+func TestProbeSpecValidation(t *testing.T) {
+	base := func() Config {
+		return Config{
+			PanelURL: "wss://p/ws", Token: "t", HeartbeatSec: 30,
+			Meta: agentproto.NodeMeta{
+				Role: agentproto.RoleLanding, Direction: agentproto.DirectionOut,
+				LineType: "普通", Region: "未知", ISP: "未知", Transport: "tls",
+				BillingType: "包月", BwUpMbps: 100, BwDownMbps: 100,
+			},
+		}
+	}
+	cases := []struct {
+		name string
+		mut  func(*Config)
+	}{
+		{"probe missing target", func(c *Config) {
+			c.Probes = []ProbeSpec{{Name: "p"}}
+		}},
+		{"probe dup name", func(c *Config) {
+			c.Probes = []ProbeSpec{
+				{Name: "p", Target: "a:1"}, {Name: "p", Target: "b:2"},
+			}
+		}},
+		{"probe bad kind", func(c *Config) {
+			c.Probes = []ProbeSpec{{Name: "p", TargetKind: "udp", Target: "a:1"}}
+		}},
+		{"probe interval low", func(c *Config) {
+			c.Probes = []ProbeSpec{{Name: "p", Target: "a:1", IntervalSec: 1}}
+		}},
+		{"probe interval high", func(c *Config) {
+			c.Probes = []ProbeSpec{{Name: "p", Target: "a:1", IntervalSec: 3601}}
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := base()
+			tc.mut(&cfg)
+			if err := cfg.Validate(); err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
+	}
+}
+
+func TestProbeDirectionDefault(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agent.json")
+	content := `{"panel_url":"wss://p/agent/ws","agent_id":"n1","token":"t1",
+		"heartbeat_sec":30,"meta":{"bw_up_mbps":100,"bw_down_mbps":100},
+		"probes":[{"name":"exit","target_kind":"exit","target":"www.example.com:443","interval_sec":30}]}`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(cfg.Probes) != 1 || cfg.Probes[0].Direction != agentproto.DirectionOut {
+		t.Fatalf("probe direction default: %+v", cfg.Probes)
+	}
+}
+
 func TestValidate(t *testing.T) {
 	base := func() Config {
 		return Config{

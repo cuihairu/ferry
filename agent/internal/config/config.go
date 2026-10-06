@@ -31,6 +31,16 @@ type ProcSpec struct {
 	Validate   string   `json:"validate"`    // 校验命令模板，{config} 占位符；空则跳过校验
 }
 
+// ProbeSpec 描述一个边缘探测任务：出口基线与入口互探本地执行，
+// 隧道探测经 relay 数据面（E-5/E-6 接入前跳过）。
+type ProbeSpec struct {
+	Name        string `json:"name"`        // 任务名
+	TargetKind  string `json:"target_kind"` // tunnel/exit/peer
+	Target      string `json:"target"`      // 目标 host:port
+	Direction   string `json:"direction"`   // out/in，默认 out
+	IntervalSec int    `json:"interval_sec"`
+}
+
 // Config 是 agent 的全部运行参数。
 type Config struct {
 	PanelURL     string              `json:"panel_url"` // 形如 wss://panel.example.com/agent/ws
@@ -40,6 +50,7 @@ type Config struct {
 	TLS          TLSConfig           `json:"tls"`
 	Meta         agentproto.NodeMeta `json:"meta"` // 节点注册元数据初值，注册时随 hello 上报
 	Procs        []ProcSpec          `json:"procs"`
+	Probes       []ProbeSpec         `json:"probes"`
 }
 
 // Default 返回带默认值的配置。
@@ -86,6 +97,11 @@ func Load(path string) (Config, error) {
 	}
 	if v := os.Getenv("FERRY_NODE_ISP"); v != "" {
 		cfg.Meta.ISP = v
+	}
+	for i := range cfg.Probes {
+		if cfg.Probes[i].Direction == "" {
+			cfg.Probes[i].Direction = agentproto.DirectionOut
+		}
 	}
 	applyMetaDefaults(&cfg)
 	if err := cfg.Validate(); err != nil {
@@ -146,6 +162,24 @@ func (c Config) Validate() error {
 			return fmt.Errorf("duplicate proc name %q", p.Name)
 		}
 		names[p.Name] = true
+	}
+	probes := map[string]bool{}
+	for _, p := range c.Probes {
+		if p.Name == "" || p.Target == "" {
+			return errors.New("probes[].name and probes[].target are required")
+		}
+		if probes[p.Name] {
+			return fmt.Errorf("duplicate probe name %q", p.Name)
+		}
+		probes[p.Name] = true
+		switch p.TargetKind {
+		case agentproto.ProbeTargetTunnel, agentproto.ProbeTargetExit, agentproto.ProbeTargetPeer:
+		default:
+			return errors.New("probes[].target_kind must be tunnel/exit/peer")
+		}
+		if p.IntervalSec < 5 || p.IntervalSec > 3600 {
+			return errors.New("probes[].interval_sec must be 5-3600")
+		}
 	}
 	switch c.Meta.Role {
 	case agentproto.RoleEntry, agentproto.RoleLanding, agentproto.RoleBoth:

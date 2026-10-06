@@ -13,6 +13,7 @@ import (
 	"github.com/cuihairu/ferry/agent/internal/config"
 	"github.com/cuihairu/ferry/agent/internal/host"
 	"github.com/cuihairu/ferry/agent/internal/link"
+	"github.com/cuihairu/ferry/agent/internal/probe"
 	"github.com/cuihairu/ferry/agent/internal/procs"
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
@@ -32,6 +33,8 @@ type App struct {
 	mu       sync.Mutex
 	hbStop   chan struct{}
 	interval time.Duration
+
+	probe *probe.Runner
 
 	sendMu  sync.Mutex
 	curSend func(agentproto.Envelope) error // 当前连接的发送口；断开即清空
@@ -55,12 +58,15 @@ func New(cfg config.Config, version string) *App {
 	a.mgr.OnStatusChange = a.reportStatus
 	a.mgr.OnAlarm = a.reportAlarm
 	a.Procs = a.mgr.Statuses
+	a.probe = probe.New(cfg.Probes, a.log)
+	a.probe.SetSend(a.sendIfConnected)
 	return a
 }
 
-// Run 阻塞运行到 ctx 取消：先起进程监管，再维持与面板的连接。
+// Run 阻塞运行到 ctx 取消：先起进程监管与边缘探测，再维持与面板的连接。
 func (a *App) Run(ctx context.Context) error {
 	a.mgr.Start(ctx)
+	go a.probe.Run(ctx)
 	client := link.New(link.Options{
 		URL:      a.cfg.PanelURL,
 		CAFile:   a.cfg.TLS.CAFile,
