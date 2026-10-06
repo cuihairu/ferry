@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -8,9 +9,17 @@ import (
 	"gorm.io/gorm"
 )
 
-// openTest 打开临时 SQLite 库（含全部 AutoMigrate）。
+// openTest 打开数据库库。优先读 FERRY_TEST_PG_DSN，未设置则回退 SQLite。
 func openTest(t *testing.T) *gorm.DB {
 	t.Helper()
+	dsn := os.Getenv("FERRY_TEST_PG_DSN")
+	if dsn != "" {
+		db, err := Open(DriverPostgres, dsn)
+		if err != nil {
+			t.Fatalf("open postgres: %v", err)
+		}
+		return db
+	}
 	db, err := Open(DriverSQLite, filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)

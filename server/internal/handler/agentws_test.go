@@ -248,6 +248,91 @@ func TestAgentWSProbeReport(t *testing.T) {
 	}
 }
 
+func TestAgentWSProbeReportResolve(t *testing.T) {
+	r := newTestRouter(t)
+
+	// 目标节点（落地）：探测目标按地址解析到该节点
+	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
+		"name": "landing-1", "address": "sg.example.com", "port": 443, "protocol": "vless",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create landing node: %d %s", rec.Code, rec.Body)
+	}
+	var landing map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &landing)
+	landingID := landing["id"].(float64)
+
+	// 探测者节点（入口）
+	rec = doJSON(t, r, "POST", "/api/nodes", map[string]any{
+		"name": "entry-1", "address": "sh.example.com", "port": 443, "protocol": "vless",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create entry node: %d %s", rec.Code, rec.Body)
+	}
+	var entry map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &entry)
+	token := entry["token"].(string)
+
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/agent/ws"
+
+	c, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer c.Close()
+
+	hello, _ := agentproto.NewEnvelope("h1", agentproto.MsgHello, agentproto.Hello{
+		Token: token, AgentID: "entry-1", Version: "test",
+	})
+	if err := c.WriteJSON(hello); err != nil {
+		t.Fatalf("write hello: %v", err)
+	}
+	if env := readEnv(t, c); env.Type != agentproto.MsgHelloAck {
+		t.Fatalf("expected hello_ack, got %s", env.Type)
+	}
+
+	// 按地址上报探测结论（不带目标节点 ID）
+	batch, _ := agentproto.NewEnvelope("pr-1", agentproto.MsgProbeReport, agentproto.ProbeReportBatch{
+		Items: []agentproto.ProbeReport{{
+			TargetKind: agentproto.ProbeTargetTunnel,
+			TargetHost: "sg.example.com:443",
+			Direction:  agentproto.DirectionOut,
+			RttMs:      88, Reachable: true,
+			Verdict:  agentproto.ProbeVerdictHealthy,
+			ProbedAt: time.Now(),
+		}},
+	})
+	if err := c.WriteJSON(batch); err != nil {
+		t.Fatalf("write probe report: %v", err)
+	}
+	env := readEnv(t, c)
+	if env.Type != agentproto.MsgProbeAck {
+		t.Fatalf("expected probe_ack, got %s", env.Type)
+	}
+
+	// 结论应解析到目标节点并补全区域/运营商快照
+	lrec := doJSON(t, r, "GET", "/api/probe-reports", nil)
+	var reports []map[string]any
+	if err := json.Unmarshal(lrec.Body.Bytes(), &reports); err != nil {
+		t.Fatalf("unmarshal reports: %v", err)
+	}
+	if len(reports) != 1 {
+		t.Fatalf("reports = %d, want 1", len(reports))
+	}
+	got := reports[0]
+	if got["target_node_id"].(float64) != landingID {
+		t.Fatalf("target_node_id = %v, want %v", got["target_node_id"], landingID)
+	}
+	if got["region"] != "未知" || got["isp"] != "未知" {
+		t.Fatalf("region/isp snapshot: %v/%v", got["region"], got["isp"])
+	}
+	if got["rtt_ms"].(float64) != 88 {
+		t.Fatalf("rtt = %v, want 88", got["rtt_ms"])
+	}
+}
+
 func TestAgentWSBadToken(t *testing.T) {
 	r := newTestRouter(t)
 	srv := httptest.NewServer(r)

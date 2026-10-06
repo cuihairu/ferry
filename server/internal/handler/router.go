@@ -2,7 +2,9 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/cuihairu/ferry/server/internal/agenthub"
 	"github.com/cuihairu/ferry/server/internal/config"
@@ -34,6 +36,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		api.PUT("/nodes/:id", h.updateNode)
 		api.DELETE("/nodes/:id", h.deleteNode)
 		api.GET("/dimension-status", h.listDimensionStatus)
+		api.GET("/probe-reports", h.listProbeReports)
 	}
 	return r
 }
@@ -46,6 +49,25 @@ func (h *Handler) health(c *gin.Context) {
 func (h *Handler) listDimensionStatus(c *gin.Context) {
 	out := []storage.DimensionStatus{}
 	if err := h.db.Order("scope, key").Find(&out).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+// listProbeReports 返回边缘探测结论存证（新结论在前，默认 200 条）。
+func (h *Handler) listProbeReports(c *gin.Context) {
+	limit := 200
+	if v := c.Query("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 1000 {
+			fail(c, http.StatusBadRequest, errors.New("limit must be 1-1000"))
+			return
+		}
+		limit = n
+	}
+	out := []storage.ProbeReport{}
+	if err := h.db.Order("probed_at DESC, id DESC").Limit(limit).Find(&out).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"net"
+	"strconv"
 	"time"
 
 	"github.com/cuihairu/ferry/packages/agentproto"
@@ -155,6 +157,7 @@ func nodeMetaFromRow(n *storage.Node) agentproto.NodeMeta {
 }
 
 // saveProbeReports 批量落边缘探测结论存证。
+// 目标节点按 ID 或地址解析（面板为权威），解析到则补全区域/运营商快照。
 func (h *Handler) saveProbeReports(nodeID int64, items []agentproto.ProbeReport) error {
 	if len(items) == 0 {
 		return nil
@@ -175,13 +178,44 @@ func (h *Handler) saveProbeReports(nodeID int64, items []agentproto.ProbeReport)
 			ISP:        it.ISP,
 			ProbedAt:   it.ProbedAt,
 		}
-		if it.TargetNode > 0 {
-			id := uint(it.TargetNode)
-			row.TargetNodeID = &id
+		switch {
+		case it.TargetNode > 0:
+			var n storage.Node
+			if err := h.db.Where("id=?", it.TargetNode).First(&n).Error; err == nil {
+				row.TargetNodeID = &n.ID
+				row.Region = n.Region
+				row.ISP = n.ISP
+			} else {
+				id := uint(it.TargetNode)
+				row.TargetNodeID = &id
+			}
+		default:
+			if n := h.findNodeByAddress(it.TargetHost); n != nil {
+				row.TargetNodeID = &n.ID
+				row.Region = n.Region
+				row.ISP = n.ISP
+			}
 		}
 		rows = append(rows, row)
 	}
 	return h.db.Create(&rows).Error
+}
+
+// findNodeByAddress 按 host:port 解析节点。
+func (h *Handler) findNodeByAddress(hostport string) *storage.Node {
+	host, portStr, err := net.SplitHostPort(hostport)
+	if err != nil {
+		return nil
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return nil
+	}
+	var n storage.Node
+	if err := h.db.Where("address=? AND port=?", host, port).First(&n).Error; err != nil {
+		return nil
+	}
+	return &n
 }
 
 func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID int64) {
