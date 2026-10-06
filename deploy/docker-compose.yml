@@ -1,0 +1,39 @@
+services:
+  ferry-server:
+    build:
+      context: ..
+      dockerfile: deploy/ferry-server.Dockerfile
+    restart: unless-stopped
+    environment:
+      FERRY_ADDR: ":8080"
+      FERRY_DB_DRIVER: ${FERRY_DB_DRIVER:-sqlite}
+      FERRY_DB_DSN: ${FERRY_DB_DSN:-/data/ferry.db}
+      FERRY_BASE_URL: ${FERRY_BASE_URL:-http://localhost:8080}
+    volumes:
+      - ferry-data:/data
+
+  ferry-panel:
+    build:
+      context: ..
+      dockerfile: deploy/ferry-panel.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - ferry-server
+    ports:
+      - "${FERRY_HTTP_PORT:-8080}:80"
+
+  # 切 postgres 存储：docker compose --env-file ferry.env --profile postgres up -d
+  ferry-postgres:
+    image: postgres:15-alpine
+    profiles: [postgres]
+    restart: unless-stopped
+    environment:
+      # 启用本 profile 前必须在 env 设置 FERRY_PG_PASSWORD（留空时容器会拒绝启动）
+      POSTGRES_PASSWORD: ${FERRY_PG_PASSWORD:-}
+      POSTGRES_DB: ferry
+    volumes:
+      - ferry-pg:/var/lib/postgresql/data
+
+volumes:
+  ferry-data:
+  ferry-pg:

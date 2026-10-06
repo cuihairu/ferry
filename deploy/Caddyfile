@@ -1,0 +1,21 @@
+:80 {
+	encode gzip
+
+	# 后端接口与 agent 通道
+	handle /api/* {
+		reverse_proxy ferry-server:8080
+	}
+	handle /sub/* {
+		reverse_proxy ferry-server:8080
+	}
+	handle /agent/* {
+		reverse_proxy ferry-server:8080
+	}
+
+	# 面板静态资源，history 路由回退 index.html
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}
