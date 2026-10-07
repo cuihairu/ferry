@@ -49,6 +49,10 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		api.POST("/users/:id/sub-token", h.resetSubToken)
 		api.GET("/users/:id/traffic", h.userTraffic)
 		api.POST("/traffic-logs", h.recordTraffic)
+		api.POST("/card-batches", h.createCardBatch)
+		api.GET("/card-batches", h.listCardBatches)
+		api.GET("/card-batches/:id/codes", h.listCardCodes)
+		api.GET("/card-batches/:id/export.csv", h.exportCardBatchCSV)
 	}
 	return r
 }
