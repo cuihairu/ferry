@@ -201,6 +201,69 @@ export interface CardCode {
   used_at: string | null
 }
 
+// ---- 支付三账对账（PAY-9）----
+
+export interface PaymentOrder {
+  id: number
+  order_no: string
+  user_id: number
+  provider: string
+  amount_cents: number
+  product: string
+  status: 'pending' | 'paid' | 'failed' | 'expired' | string
+  grant_type?: string
+  grant_value?: number
+  created_at: string
+  paid_at: string | null
+}
+
+export interface PaymentTransaction {
+  id: number
+  order_no: string
+  provider: string
+  external_id: string
+  amount_cents: number
+  direction: 'in' | 'out'
+  raw: string
+  occurred_at: string
+  created_at: string
+}
+
+export interface Grant {
+  id: number
+  order_no: string
+  user_id: number
+  grant_type: 'add_quota' | 'extend_days' | string
+  grant_value: number
+  snapshot: string
+  created_at: string
+}
+
+/** ReconcileRow 是一个订单的三账视图：订单本体 + 挂靠的流水/发放 + 缺失环节文案。 */
+export interface ReconcileRow extends PaymentOrder {
+  transactions: PaymentTransaction[]
+  grants: Grant[]
+  missing: string[]
+}
+
+/** ReconcileOrphan 是游离记录：有流水/发放却找不到对应订单。 */
+export interface ReconcileOrphan {
+  kind: 'transaction' | 'grant'
+  order_no: string
+  provider: string
+  detail: string
+}
+
+export interface ReconcileData {
+  orders: ReconcileRow[]
+  orphans: ReconcileOrphan[]
+  summary: { paid_orders: number; paid_cents: number; txn_cents: number; grants: number }
+}
+
+export function getReconcile(limit?: number): Promise<ReconcileData> {
+  return get<ReconcileData>(`/api/payments/reconcile${limit ? `?limit=${limit}` : ''}`)
+}
+
 // ---- 分流规则库（SAVE-1）----
 
 export interface RuleSet {

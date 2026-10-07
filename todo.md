@@ -106,7 +106,7 @@
 - [x] [P0] PAY-6 dash 卡密管理页：建批次、批次/卡密列表、导出、禁用
 - [x] [P0] PAY-7 panel 兑换页：输入卡密兑换并展示结果
 - [x] [P1] PAY-8 payments/epusdt Provider：CreateOrder 收银台 + 回调验签 + 到账自动发放
-- [ ] [P1] PAY-9 dash 对账视图：订单/流水/发放三账按订单分组，标出缺失环节
+- [x] [P1] PAY-9 dash 对账视图：订单/流水/发放三账按订单分组，标出缺失环节
 - [ ] [P1] PAY-10 payments/wechat、payments/alipay Provider stub（返回未启用，等商户资质）
 - [ ] [P1] PAY-11 panel 下单与订单状态查询 API（对 epusdt 段）
 
