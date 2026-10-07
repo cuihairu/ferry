@@ -82,6 +82,43 @@ func TestProvisionRunAPI(t *testing.T) {
 		t.Fatalf("job = %+v", job)
 	}
 
+	// OS-3：apply 预签发节点行——provisioning 态、token 已备、元数据取自模板。
+	var node storage.Node
+	if err := db.Where("name = ?", "ferry-hk-3t").First(&node).Error; err != nil {
+		t.Fatalf("provision node not created: %v", err)
+	}
+	if node.Status != "provisioning" || node.Token == "" || !node.Enabled || !node.MetaInit {
+		t.Fatalf("provision node = %+v", node)
+	}
+	if node.Role != "entry" || node.Direction != "out" {
+		t.Fatalf("node meta from template: %+v", node)
+	}
+	// plan 不建节点。
+	before := int64(0)
+	db.Model(&storage.Node{}).Count(&before)
+	rec = doJSON(t, r, "POST", "/api/provision-templates/"+itoa64(int(tpl.ID))+"/plan", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("plan status = %d", rec.Code)
+	}
+	after := int64(0)
+	db.Model(&storage.Node{}).Count(&after)
+	if before != after {
+		t.Fatalf("plan must not create nodes: %d -> %d", before, after)
+	}
+
+	// 重放 apply（同名）复用既有行：token 不变，不重复建行。
+	rec = doJSON(t, r, "POST", "/api/provision-templates/"+itoa64(int(tpl.ID))+"/apply", map[string]any{"name": "ferry-hk-3t"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("re-apply status = %d", rec.Code)
+	}
+	var again storage.Node
+	if err := db.Where("name = ?", "ferry-hk-3t").First(&again).Error; err != nil {
+		t.Fatal(err)
+	}
+	if again.Token != node.Token {
+		t.Fatalf("re-apply must reuse node token: %q vs %q", again.Token, node.Token)
+	}
+
 	// 后台 goroutine 会因 tofu 不存在回填 failed——轮询等终态落库。
 	deadline := time.Now().Add(10 * time.Second)
 	for {

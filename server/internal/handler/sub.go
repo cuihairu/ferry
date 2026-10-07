@@ -50,8 +50,10 @@ func (h *Handler) subscription(c *gin.Context) {
 	entries := []sub.Entry{}
 	if sub.UserActive(&u, usage.Rx+usage.Tx, time.Now()) {
 		// 订阅下发入口列表（E-19）：仅 entry/both 角色且未摘除（E-16 池态 active）的节点；落地不下发。
+		// provisioning（OS-3 供给中）不出订阅，转 online 后自动入列。
 		var nodes []storage.Node
-		if err := h.db.Where("enabled = ? AND role IN (?, ?) AND pool_state = ?", true, "entry", "both", pool.StateActive).
+		if err := h.db.Where("enabled = ? AND role IN (?, ?) AND pool_state = ? AND status != ?",
+			true, "entry", "both", pool.StateActive, "provisioning").
 			Order("id").Find(&nodes).Error; err != nil {
 			fail(c, http.StatusInternalServerError, err)
 			return

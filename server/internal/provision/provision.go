@@ -60,12 +60,26 @@ func realRunner(ctx context.Context, dir string, args []string, env map[string]s
 	return string(out), err
 }
 
+// ExecParams 是一次供给执行的全部输入（OS-3 起 apply 携带 cloud-init）。
+type ExecParams struct {
+	Template     storage.ProvisionTemplate
+	ProviderType string
+	APIKey       string
+	InstanceName string
+	Action       string
+	// UserData 是 cloud-init user_data（CloudInit 渲染）；空=不注入（plan 无需）。
+	UserData string
+}
+
 // RenderHCL 由模板渲染工作目录的 main.tf。P1 先通 vultr 一家；密钥
 // 不入 HCL（走 TF_VAR_api_key）。未知 provider 类型报错，不冒称支持。
-func RenderHCL(providerType string, tpl storage.ProvisionTemplate, instanceName string) (string, error) {
+// userData 非空时经 heredoc 注入 vultr_instance.user_data（provider 侧
+// 自行 base64 后交 Vultr API）；内容顶格写，避开转义 heredoc 的缩进剥离。
+func RenderHCL(providerType string, tpl storage.ProvisionTemplate, instanceName, userData string) (string, error) {
 	switch providerType {
 	case "vultr":
-		return fmt.Sprintf(`terraform {
+		var b strings.Builder
+		fmt.Fprintf(&b, `terraform {
   required_providers {
     vultr = { source = "vultr/vultr" }
   }
@@ -79,9 +93,15 @@ resource "vultr_instance" "node" {
   plan   = %q
   region = %q
   label  = %q
-  %s
-}
-`, tpl.Plan, tpl.Region, instanceName, imageLineVultr(tpl.Image)), nil
+`, tpl.Plan, tpl.Region, instanceName)
+		if img := imageLineVultr(tpl.Image); img != "" {
+			b.WriteString("  " + img + "\n")
+		}
+		if userData != "" {
+			b.WriteString("  user_data = <<EOT\n" + strings.TrimRight(userData, "\n") + "\nEOT\n")
+		}
+		b.WriteString("}\n")
+		return b.String(), nil
 	default:
 		return "", fmt.Errorf("provision: provider type %q not supported yet (vultr only for now)", providerType)
 	}
@@ -95,14 +115,14 @@ func imageLineVultr(image string) string {
 }
 
 // Apply 留痕执行：建 running job → Execute → 回填终态。
-func (m *Manager) Apply(ctx context.Context, tpl storage.ProvisionTemplate, providerType, apiKey, instanceName string, action string) (*storage.ProvisionJob, error) {
+func (m *Manager) Apply(ctx context.Context, p ExecParams) (*storage.ProvisionJob, error) {
 	job := storage.ProvisionJob{
-		TemplateID: tpl.ID, TemplateName: tpl.Name, Action: action, Status: "running",
+		TemplateID: p.Template.ID, TemplateName: p.Template.Name, Action: p.Action, Status: "running",
 	}
 	if err := m.db.Create(&job).Error; err != nil {
 		return nil, err
 	}
-	status, log := m.Execute(ctx, tpl, providerType, apiKey, instanceName, action)
+	status, log := m.Execute(ctx, p)
 	now := time.Now()
 	job.Status, job.Log, job.FinishedAt = status, log, &now
 	m.db.Model(&storage.ProvisionJob{}).Where("id = ?", job.ID).
@@ -112,17 +132,18 @@ func (m *Manager) Apply(ctx context.Context, tpl storage.ProvisionTemplate, prov
 
 // Execute 同步执行一轮供给（渲染 → init → plan/apply），返回终态与日志尾部，
 // 不留痕（留痕由调用方负责，便于复用已有 job 行）。
-func (m *Manager) Execute(ctx context.Context, tpl storage.ProvisionTemplate, providerType, apiKey, instanceName, action string) (string, string) {
+func (m *Manager) Execute(ctx context.Context, p ExecParams) (string, string) {
+	action := p.Action
 	if action != "plan" && action != "apply" {
 		return "failed", "provision: action must be plan/apply"
 	}
 	failed := func(log string) (string, string) { return "failed", tailLog(log) }
 
-	dir := filepath.Join(m.root, fmt.Sprintf("tpl-%d", tpl.ID))
+	dir := filepath.Join(m.root, fmt.Sprintf("tpl-%d", p.Template.ID))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return failed("mkdir workdir: " + err.Error())
 	}
-	hcl, err := RenderHCL(providerType, tpl, instanceName)
+	hcl, err := RenderHCL(p.ProviderType, p.Template, p.InstanceName, p.UserData)
 	if err != nil {
 		return failed(err.Error())
 	}
@@ -137,7 +158,7 @@ func (m *Manager) Execute(ctx context.Context, tpl storage.ProvisionTemplate, pr
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	env := map[string]string{"TF_VAR_api_key": apiKey}
+	env := map[string]string{"TF_VAR_api_key": p.APIKey}
 	if out, err := m.run(ctx, dir, []string{"init", "-input=false", "-no-color"}, env); err != nil {
 		return failed("init: " + out + errString(err))
 	}

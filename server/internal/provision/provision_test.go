@@ -2,6 +2,7 @@ package provision
 
 import (
 	"context"
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -31,10 +32,10 @@ func newTestDB(t *testing.T) *gorm.DB {
 }
 
 // TestRenderHCL 覆盖 vultr 渲染：plan/region/label 落 HCL、镜像可选、
-// 密钥绝不出现；未知类型报错不冒称支持。
+// 密钥绝不出现；userData 注入 heredoc；未知类型报错不冒称支持。
 func TestRenderHCL(t *testing.T) {
 	tpl := storage.ProvisionTemplate{Name: "hk-3t", Plan: "vc2-1c-1gb", Region: "hkg", Image: "docker"}
-	hcl, err := RenderHCL("vultr", tpl, "ferry-hk-3t")
+	hcl, err := RenderHCL("vultr", tpl, "ferry-hk-3t", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,8 +48,79 @@ func TestRenderHCL(t *testing.T) {
 	if !strings.Contains(hcl, "api_key = var.api_key") || strings.Contains(hcl, "sk-") {
 		t.Fatalf("hcl must reference var only, no literal key:\n%s", hcl)
 	}
-	if _, err := RenderHCL("aliyun", tpl, "x"); err == nil {
+	if strings.Contains(hcl, "user_data") {
+		t.Fatalf("no userData must mean no user_data attr:\n%s", hcl)
+	}
+	if _, err := RenderHCL("aliyun", tpl, "x", ""); err == nil {
 		t.Fatal("unknown provider must fail")
+	}
+
+	// userData（OS-3）：heredoc 顶格注入，#cloud-config 首行原样保留。
+	hcl2, err := RenderHCL("vultr", tpl, "ferry-hk-3t", "#cloud-config\nwrite_files: []\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(hcl2, "user_data = <<EOT\n#cloud-config\nwrite_files: []\nEOT\n") {
+		t.Fatalf("userData heredoc missing or mangled:\n%s", hcl2)
+	}
+}
+
+// TestCloudInit 覆盖 cloud-init 渲染（OS-3）：#cloud-config 首行、agent.json
+// 经 base64 携带 token/panel_url、systemd unit 与安装脚本落位、下载地址按
+// 参数拼装；token 不以明文出现在渲染结果里。
+func TestCloudInit(t *testing.T) {
+	cfg, err := AgentConfigJSON(AgentConfigFile{PanelURL: "wss://panel.example.com/agent/ws", AgentID: "hk-1", Token: "tok_abc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ud := CloudInit(cfg, "https://dl.example.com/ferry/", "1.2.3")
+	if !strings.HasPrefix(ud, "#cloud-config\n") {
+		t.Fatalf("missing #cloud-config header:\n%s", ud)
+	}
+	// agent.json 经 base64 注入（token 不落明文），可解回且字段齐全。
+	if strings.Contains(ud, "tok_abc") {
+		t.Fatalf("token must not appear in plain text:\n%s", ud)
+	}
+	wantCfg := base64.StdEncoding.EncodeToString([]byte(cfg))
+	if !strings.Contains(ud, "content: "+wantCfg) {
+		t.Fatalf("agent.json b64 content missing:\n%s", ud)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(wantCfg)
+	if err != nil || string(decoded) != cfg {
+		t.Fatalf("b64 roundtrip failed: %q err=%v", decoded, err)
+	}
+	for _, want := range []string{
+		"path: /etc/ferry/agent.json",
+		"path: /etc/systemd/system/ferry-agent.service",
+		"ExecStart=/usr/local/bin/ferry-agent -config /etc/ferry/agent.json",
+		"Restart=always",
+		"https://dl.example.com/ferry/v1.2.3/ferry-agent_1.2.3_linux_${arch}.tar.gz",
+		"uname -m", "x86_64) arch=amd64", "aarch64|arm64) arch=arm64",
+		"systemctl restart ferry-agent",
+	} {
+		if !strings.Contains(ud, want) {
+			t.Fatalf("cloud-init missing %q:\n%s", want, ud)
+		}
+	}
+	// 基址尾斜杠归一：不出双斜杠版本号。
+	if strings.Contains(ud, "//v1.") {
+		t.Fatalf("base trailing slash not trimmed:\n%s", ud)
+	}
+}
+
+// TestPanelWSURL 覆盖面板基址到 agent ws 地址的口径（与 agent-install.sh 一致）。
+func TestPanelWSURL(t *testing.T) {
+	cases := map[string]string{
+		"http://localhost:8080":      "ws://localhost:8080/agent/ws",
+		"https://panel.example.com/": "wss://panel.example.com/agent/ws",
+		"ws://x:1":                   "ws://x:1/agent/ws",
+		"wss://x":                    "wss://x/agent/ws",
+		"panel.example.com":          "ws://panel.example.com/agent/ws",
+	}
+	for in, want := range cases {
+		if got := PanelWSURL(in); got != want {
+			t.Fatalf("PanelWSURL(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 
@@ -70,7 +142,7 @@ func TestApplyLifecycle(t *testing.T) {
 		return "planned", nil
 	})
 
-	job, err := m.Apply(context.Background(), tpl, "vultr", "sk-live-key", "ferry-hk-3t", "apply")
+	job, err := m.Apply(context.Background(), execParams(tpl, "vultr", "sk-live-key", "ferry-hk-3t", "apply"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +166,7 @@ func TestApplyLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	info1, _ := os.Stat(tfPath)
-	if _, err := m.Apply(context.Background(), tpl, "vultr", "sk-live-key", "ferry-hk-3t", "plan"); err != nil {
+	if _, err := m.Apply(context.Background(), execParams(tpl, "vultr", "sk-live-key", "ferry-hk-3t", "plan")); err != nil {
 		t.Fatal(err)
 	}
 	info2, _ := os.Stat(tfPath)
@@ -110,7 +182,7 @@ func TestApplyLifecycle(t *testing.T) {
 		}
 		return "inited", nil
 	})
-	job2, err := m2.Apply(context.Background(), tpl, "vultr", "k", "x", "apply")
+	job2, err := m2.Apply(context.Background(), execParams(tpl, "vultr", "k", "x", "apply"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +191,7 @@ func TestApplyLifecycle(t *testing.T) {
 	}
 
 	// 非法 action：留痕 failed 不中断（与执行失败同口径）。
-	job3, err := m.Apply(context.Background(), tpl, "vultr", "k", "x", "destroy")
+	job3, err := m.Apply(context.Background(), execParams(tpl, "vultr", "k", "x", "destroy"))
 	if err != nil || job3.Status != "failed" {
 		t.Fatalf("invalid action job = %+v err=%v", job3, err)
 	}
@@ -141,4 +213,9 @@ func TestDecryptKey(t *testing.T) {
 	if _, err := DecryptKey(storage.Provider{AccessKey: "v1:bad"}, secret.NewStore("k2")); err == nil {
 		t.Fatal("wrong key must fail")
 	}
+}
+
+// execParams 测试便捷构造。
+func execParams(tpl storage.ProvisionTemplate, providerType, apiKey, instanceName, action string) ExecParams {
+	return ExecParams{Template: tpl, ProviderType: providerType, APIKey: apiKey, InstanceName: instanceName, Action: action}
 }

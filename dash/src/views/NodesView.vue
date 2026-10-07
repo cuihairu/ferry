@@ -33,6 +33,7 @@ const STATUS_TYPE: Record<string, 'success' | 'danger' | 'info' | 'warning'> = {
   online: 'success',
   offline: 'info',
   unknown: 'warning',
+  provisioning: 'warning',
 }
 
 const ROLE_TEXT: Record<string, string> = { entry: '入口', landing: '落地', both: '入口+落地' }

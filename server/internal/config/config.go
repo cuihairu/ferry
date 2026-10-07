@@ -44,6 +44,11 @@ type Config struct {
 	TofuBin string `json:"-"`
 	// TofuWorkdir 是供给工作目录根（state 集中存面板侧，每模板一目录）。
 	TofuWorkdir string `json:"-"`
+	// AgentDownloadBase 是供给节点下载 ferry-agent 的基址（OS-3 cloud-init），
+	// 内网可指到自建文件服务。
+	AgentDownloadBase string `json:"-"`
+	// AgentVersion 是供给节点安装的 agent 版本（对应 release tag vV）。
+	AgentVersion string `json:"-"`
 }
 
 // Load 从环境变量读取配置，未设置的项回退到默认值。
@@ -66,6 +71,8 @@ func Load() Config {
 		SecretKey:            envOr("FERRY_SECRET_KEY", ""),
 		TofuBin:              envOr("FERRY_TOFU_BIN", "tofu"),
 		TofuWorkdir:          envOr("FERRY_TOFU_DIR", "/var/lib/ferry/tofu"),
+		AgentDownloadBase:    envOr("FERRY_AGENT_BASE", "https://github.com/cuihairu/ferry/releases/download"),
+		AgentVersion:         envOr("FERRY_AGENT_VERSION", "latest"),
 	}
 }
 
@@ -88,6 +95,8 @@ func Default() Config {
 		SecretKey:            "",
 		TofuBin:              "tofu",
 		TofuWorkdir:          "",
+		AgentDownloadBase:    "https://github.com/cuihairu/ferry/releases/download",
+		AgentVersion:         "latest",
 	}
 }
 

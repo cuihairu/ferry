@@ -406,13 +406,14 @@ func SweepAt(db *gorm.DB, now time.Time) ([]SwitchEvent, error) {
 		return nil, err
 	}
 	var entries []storage.Node
-	if err := db.Where("enabled = ? AND role IN (?, ?) AND pool_state = ?",
-		true, "entry", "both", "active").Find(&entries).Error; err != nil {
+	if err := db.Where("enabled = ? AND role IN (?, ?) AND pool_state = ? AND status != ?",
+		true, "entry", "both", "active", "provisioning").Find(&entries).Error; err != nil {
 		return nil, err
 	}
+	// provisioning（OS-3 供给中）不参与分配，转 online 后由下轮 sweep 自然纳入。
 	var landings []storage.Node
-	if err := db.Where("enabled = ? AND role IN (?, ?)", true, "landing", "both").
-		Find(&landings).Error; err != nil {
+	if err := db.Where("enabled = ? AND role IN (?, ?) AND status != ?",
+		true, "landing", "both", "provisioning").Find(&landings).Error; err != nil {
 		return nil, err
 	}
 	conns := latestConns(db)
