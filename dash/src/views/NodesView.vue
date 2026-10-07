@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { get, post, put, del, resolveAlert, type Node, type DimensionStatus, type NodeShare, type BatchProcResult, type BatchConfigResult, type Alert } from '../api'
+import { get, post, put, del, resolveAlert, upgradeNode, type Node, type DimensionStatus, type NodeShare, type BatchProcResult, type BatchConfigResult, type Alert } from '../api'
 import QRCode from 'qrcode'
 import RuleLibDialog from '../components/RuleLibDialog.vue'
 
@@ -293,6 +293,46 @@ async function sendCfg() {
   }
 }
 
+// 自升级对话框（A-23）：面板下发 upgrade 指令，agent 下载替换重启，
+// 结果经 Agent 版本列体现（hello 上报新版本）。
+const upgradeVisible = ref(false)
+const upgradeBusy = ref(false)
+const upgradeFor = ref<Node | null>(null)
+const upgradeForm = reactive({ version: '', url: '', sha256: '' })
+const upgradeMsg = ref('')
+
+function openUpgrade(n: Node) {
+  upgradeFor.value = n
+  upgradeForm.version = ''
+  upgradeForm.url = ''
+  upgradeForm.sha256 = ''
+  upgradeMsg.value = ''
+  upgradeVisible.value = true
+}
+
+async function sendUpgrade() {
+  if (!upgradeFor.value || upgradeBusy.value) return
+  if (!upgradeForm.version.trim() || !upgradeForm.url.trim()) {
+    ElMessage.warning('版本号与下载地址必填')
+    return
+  }
+  upgradeBusy.value = true
+  upgradeMsg.value = ''
+  try {
+    const res = await upgradeNode(upgradeFor.value.id, {
+      version: upgradeForm.version.trim(),
+      url: upgradeForm.url.trim(),
+      sha256: upgradeForm.sha256.trim() || undefined,
+    })
+    upgradeMsg.value = `已受理：agent 将升级到 ${res.version}（当前 ${res.current_version || '未知'}），完成后版本列自动刷新`
+    ElMessage.success('升级指令已受理')
+  } catch (e) {
+    ElMessage.error(String(e))
+  } finally {
+    upgradeBusy.value = false
+  }
+}
+
 function openCreate() {
   editing.value = null
   Object.assign(form, {
@@ -456,6 +496,11 @@ async function remove(n: Node) {
           <el-tag size="small" :type="STATUS_TYPE[row.status] ?? 'info'" disable-transitions>{{ row.status }}</el-tag>
         </template>
       </el-table-column>
+      <el-table-column label="Agent 版本" width="110">
+        <template #default="{ row }">
+          <span class="version-text">{{ row.agent_version || '—' }}</span>
+        </template>
+      </el-table-column>
       <el-table-column prop="region" label="区域" width="90" />
       <el-table-column prop="isp" label="运营商" width="90" />
       <el-table-column prop="line_type" label="线路" width="90" />
@@ -464,11 +509,12 @@ async function remove(n: Node) {
           <el-switch :model-value="row.enabled" @change="(v: boolean) => toggleEnabled(row, v)" />
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="240" fixed="right">
+      <el-table-column label="操作" width="280" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
           <el-button link type="primary" @click="openShare(row)">分享</el-button>
           <el-button link type="primary" @click="openRuleLib(row)">分流</el-button>
+          <el-button link type="primary" @click="openUpgrade(row)">升级</el-button>
           <el-button link type="danger" @click="remove(row)">删除</el-button>
         </template>
       </el-table-column>
@@ -584,6 +630,27 @@ async function remove(n: Node) {
       <template #footer>
         <el-button @click="cfgVisible = false">取消</el-button>
         <el-button type="primary" :loading="cfgBusy" @click="sendCfg">下发</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 自升级（A-23）：下发 upgrade 指令 -->
+    <el-dialog v-model="upgradeVisible" :title="`升级 ${upgradeFor?.name ?? ''}`" width="480px">
+      <el-form label-width="90px">
+        <el-form-item label="目标版本">
+          <el-input v-model="upgradeForm.version" maxlength="32" placeholder="如 v0.2.0" />
+        </el-form-item>
+        <el-form-item label="下载地址">
+          <el-input v-model="upgradeForm.url" maxlength="255" placeholder="https://.../ferry-agent" />
+        </el-form-item>
+        <el-form-item label="SHA-256">
+          <el-input v-model="upgradeForm.sha256" maxlength="64" placeholder="可选，十六进制校验和" />
+        </el-form-item>
+      </el-form>
+      <p v-if="upgradeMsg" class="upgrade-msg">{{ upgradeMsg }}</p>
+      <span class="form-hint">agent 下载校验后替换自身并重启；启动验证超时自动回滚。</span>
+      <template #footer>
+        <el-button @click="upgradeVisible = false">取消</el-button>
+        <el-button type="primary" :loading="upgradeBusy" @click="sendUpgrade">下发</el-button>
       </template>
     </el-dialog>
 
@@ -727,6 +794,18 @@ async function remove(n: Node) {
   font-size: 13px;
   padding: 24px 0;
   text-align: center;
+}
+
+/* ---- 升级对话框（A-23） ---- */
+.upgrade-msg {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--ferry-ok);
+}
+.version-text {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--ferry-text-dim);
 }
 
 /* ---- 告警对话框（A-22） ---- */

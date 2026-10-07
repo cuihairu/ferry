@@ -160,6 +160,18 @@ export function resolveAlert(id: number): Promise<Alert> {
   return post<Alert>(`/api/alerts/${id}/resolve`)
 }
 
+/** UpgradeResult 是自升级指令受理回执（A-23）。 */
+export interface UpgradeResult {
+  node_id: number
+  version: string
+  accepted: boolean
+  current_version: string
+}
+
+export function upgradeNode(id: number, body: { version: string; url: string; sha256?: string }): Promise<UpgradeResult> {
+  return post<UpgradeResult>(`/api/nodes/${id}/upgrade`, body)
+}
+
 /** UserTemplate 是默认用户模板（P1-5）：新建用户可套用的默认配额/时长/重置周期。 */
 export interface UserTemplate {
   quota_bytes: number
