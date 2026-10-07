@@ -534,3 +534,42 @@ export function updateDNSFront(id: number, body: Partial<DNSFront>): Promise<DNS
 export function deleteDNSFront(id: number): Promise<{ ok: boolean }> {
   return del<{ ok: boolean }>(`/api/dns-fronts/${id}`)
 }
+
+// ---- 证书任务（BR-4）----
+
+/** CertTask 是一张证书的编排任务：面板管编排与到期，签发执行 acme.sh。 */
+export interface CertTask {
+  id: number
+  name: string
+  domain: string
+  sans: string
+  method: 'dns-01' | 'http-01' | string
+  provider_id: number
+  ca: string
+  state: 'pending' | 'issuing' | 'ok' | 'failed' | string
+  not_after: string | null
+  last_error: string
+  last_attempt: string | null
+  created_at: string
+  updated_at: string
+}
+
+export function getCertTasks(): Promise<CertTask[]> {
+  return get<CertTask[]>('/api/cert-tasks')
+}
+
+export function createCertTask(body: Partial<CertTask>): Promise<CertTask> {
+  return post<CertTask>('/api/cert-tasks', body)
+}
+
+export function updateCertTask(id: number, body: Partial<CertTask>): Promise<CertTask> {
+  return put<CertTask>(`/api/cert-tasks/${id}`, body)
+}
+
+export function deleteCertTask(id: number): Promise<{ ok: boolean }> {
+  return del<{ ok: boolean }>(`/api/cert-tasks/${id}`)
+}
+
+export function issueCertTask(id: number): Promise<{ ok: boolean }> {
+  return post<{ ok: boolean }>(`/api/cert-tasks/${id}/issue`)
+}

@@ -341,3 +341,22 @@ type DNSFront struct {
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
+
+// CertTask 是一张证书的编排任务（BR-4）：面板管编排与到期，签发执行
+// 复用外部工具（acme.sh）——DNS-01 复用 BR-2 的 DNS 商凭证通道，
+// 产物留在工具工作目录，节点分发由后续批次接。
+type CertTask struct {
+	ID            uint       `gorm:"primaryKey" json:"id"`
+	Name          string     `gorm:"size:64" json:"name"`                           // 说明
+	Domain        string     `gorm:"size:191;not null;index" json:"domain"`         // 主域名（FQDN）
+	Sans          string     `gorm:"size:512" json:"sans"`                          // 附加域名（逗号分隔，可空）
+	Method        string     `gorm:"size:16;not null;default:dns-01" json:"method"` // dns-01/http-01
+	DNSProviderID uint       `json:"provider_id"`                                   // dns-01 用的 DNS 商凭证（BR-2 通道）
+	CA            string     `gorm:"size:32;default:letsencrypt" json:"ca"`
+	State         string     `gorm:"size:16;default:pending" json:"state"` // pending/issuing/ok/failed
+	NotAfter      *time.Time `json:"not_after"`                            // 证书到期（签发成功后回填）
+	LastError     string     `gorm:"size:512" json:"last_error,omitempty"`
+	LastAttempt   *time.Time `json:"last_attempt"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+}

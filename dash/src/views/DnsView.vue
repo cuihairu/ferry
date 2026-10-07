@@ -2,24 +2,29 @@
 import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  createDNSFront, createDNSProvider, deleteDNSFront, deleteDNSProvider,
-  getDNSFronts, getDNSProviders, updateDNSFront, updateDNSProvider,
-  type DNSFront, type DNSProvider,
+  createCertTask, createDNSFront, createDNSProvider, deleteCertTask, deleteDNSFront,
+  deleteDNSProvider, getCertTasks, getDNSFronts, getDNSProviders, issueCertTask,
+  updateCertTask, updateDNSFront, updateDNSProvider,
+  type CertTask, type DNSFront, type DNSProvider,
 } from '../api'
 
-// 域名前置（BR-2）：DNS 商凭证与前置记录。
+// 域名前置（BR-2）与证书编排（BR-4）：DNS 商凭证、前置记录、证书任务。
 // 凭证加密落库（R24 口径）：表单不回显明文，留空表示保留原值；
 // 记录常态指向 primary_ip，被封恢复 L1 切备用 IP 轮换、探测恢复回切——
 // 域名不换、IP 随换。备用 IP 每行一个，提交时转 JSON 数组。
+// 证书任务面板管编排与到期（30 天自动续），签发执行 acme.sh 工具位。
 
 const providers = ref<DNSProvider[]>([])
 const fronts = ref<DNSFront[]>([])
+const certTasks = ref<CertTask[]>([])
 const loading = ref(false)
 
 async function load() {
   loading.value = true
   try {
-    ;[providers.value, fronts.value] = await Promise.all([getDNSProviders(), getDNSFronts()])
+    ;[providers.value, fronts.value, certTasks.value] = await Promise.all([
+      getDNSProviders(), getDNSFronts(), getCertTasks(),
+    ])
   } catch (e) {
     ElMessage.error(String(e))
   } finally {
@@ -147,6 +152,80 @@ async function removeFront(row: DNSFront) {
     ElMessage.error(String(e))
   }
 }
+
+// ---- 证书任务（BR-4）----
+const certDialog = ref(false)
+const certEditing = ref<CertTask | null>(null)
+const issuing = ref<number[]>([])
+const emptyCert = () => ({ name: '', domain: '', sans: '', method: 'dns-01', provider_id: 0 })
+const certForm = ref(emptyCert())
+
+const CERT_STATE: Record<string, { text: string; type: 'success' | 'warning' | 'danger' | 'info' }> = {
+  pending: { text: '待签发', type: 'info' },
+  issuing: { text: '签发中', type: 'warning' },
+  ok: { text: '有效', type: 'success' },
+  failed: { text: '失败', type: 'danger' },
+}
+
+function newCert() {
+  certEditing.value = null
+  certForm.value = emptyCert()
+  certDialog.value = true
+}
+function editCert(row: CertTask) {
+  certEditing.value = row
+  certForm.value = {
+    name: row.name, domain: row.domain, sans: row.sans,
+    method: row.method, provider_id: row.provider_id,
+  }
+  certDialog.value = true
+}
+async function saveCert() {
+  try {
+    if (certEditing.value) {
+      await updateCertTask(certEditing.value.id, certForm.value)
+      ElMessage.success('证书任务已更新（编排参数变更将自动重签）')
+    } else {
+      await createCertTask(certForm.value)
+      ElMessage.success('证书任务已创建，将自动签发')
+    }
+    certDialog.value = false
+    await load()
+  } catch (e) {
+    ElMessage.error(String(e))
+  }
+}
+async function runIssue(row: CertTask) {
+  issuing.value = [...issuing.value, row.id]
+  try {
+    await issueCertTask(row.id)
+    ElMessage.success('签发已受理，稍后刷新看结果')
+    setTimeout(load, 2000)
+  } catch (e) {
+    ElMessage.error(String(e))
+  } finally {
+    issuing.value = issuing.value.filter((id) => id !== row.id)
+  }
+}
+async function removeCert(row: CertTask) {
+  try {
+    await ElMessageBox.confirm(`删除证书任务「${row.domain}」？`, '删除确认', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    await deleteCertTask(row.id)
+    ElMessage.success('已删除')
+    await load()
+  } catch (e) {
+    ElMessage.error(String(e))
+  }
+}
+
+function fmtDate(v: string | null): string {
+  if (!v) return '—'
+  return new Date(v).toLocaleString()
+}
 </script>
 
 <template>
@@ -268,6 +347,74 @@ async function removeFront(row: DNSFront) {
       <template #footer>
         <el-button @click="frontDialog = false">取消</el-button>
         <el-button type="primary" @click="saveFront">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <div class="head-row">
+      <h3 class="section">证书任务</h3>
+      <el-button type="primary" size="small" :disabled="providers.length === 0" @click="newCert">
+        新建任务
+      </el-button>
+    </div>
+    <el-table :data="certTasks" v-loading="loading" :header-cell-style="{ background: 'var(--ferry-bg-panel)' }">
+      <el-table-column prop="name" label="说明" min-width="110" />
+      <el-table-column prop="domain" label="域名" min-width="170" />
+      <el-table-column label="方式" width="90">
+        <template #default="{ row }">{{ row.method }}</template>
+      </el-table-column>
+      <el-table-column label="状态" width="100">
+        <template #default="{ row }">
+          <el-tooltip :disabled="!row.last_error" :content="row.last_error" placement="top">
+            <el-tag :type="CERT_STATE[row.state]?.type ?? 'info'" size="small" effect="plain">
+              {{ CERT_STATE[row.state]?.text ?? row.state }}
+            </el-tag>
+          </el-tooltip>
+        </template>
+      </el-table-column>
+      <el-table-column label="到期" min-width="150">
+        <template #default="{ row }">
+          <span :class="{ dim: !row.not_after }">{{ fmtDate(row.not_after) }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="190">
+        <template #default="{ row }">
+          <el-button
+            link type="primary" size="small"
+            :disabled="row.state === 'issuing'" :loading="issuing.includes(row.id)"
+            @click="runIssue(row)"
+          >签发</el-button>
+          <el-button link type="primary" size="small" @click="editCert(row)">编辑</el-button>
+          <el-button link type="danger" size="small" @click="removeCert(row)">删除</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+
+    <el-dialog v-model="certDialog" :title="certEditing ? '编辑任务' : '新建任务'" width="480px">
+      <el-form label-width="80px">
+        <el-form-item label="说明">
+          <el-input v-model="certForm.name" placeholder="如 主入口证书" />
+        </el-form-item>
+        <el-form-item label="域名">
+          <el-input v-model="certForm.domain" placeholder="如 edge.example.com" />
+        </el-form-item>
+        <el-form-item label="附加域名">
+          <el-input v-model="certForm.sans" placeholder="逗号分隔，可空" />
+        </el-form-item>
+        <el-form-item label="验证方式">
+          <el-select v-model="certForm.method" style="width: 100%">
+            <el-option value="dns-01" label="dns-01（DNS 凭证，泛域名可用）" />
+            <el-option value="http-01" label="http-01（面板 webroot）" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="certForm.method === 'dns-01'" label="DNS 凭证">
+          <el-select v-model="certForm.provider_id" style="width: 100%" placeholder="选择 DNS 商凭证">
+            <el-option v-for="p in providers" :key="p.id" :value="p.id" :label="p.name" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="certDialog = false">取消</el-button>
+        <el-button type="primary" @click="saveCert">保存</el-button>
       </template>
     </el-dialog>
   </div>

@@ -57,6 +57,13 @@ type Config struct {
 	ReplenishIntervalSec int
 	// PoolTemplateID 是池空保底开服用的供给模板 ID（0=不启用，BR-3）。
 	PoolTemplateID uint
+	// AcmeBin/AcmeHome/AcmeWebroot 是证书编排的外部工具位口径（BR-4）：
+	// acme.sh 可执行路径、工作目录（state 集中面板侧）、http-01 webroot。
+	AcmeBin     string
+	AcmeHome    string
+	AcmeWebroot string
+	// CertIntervalSec 是证书到期/续期扫表周期（BR-4）。
+	CertIntervalSec int
 }
 
 // Load 从环境变量读取配置，未设置的项回退到默认值。
@@ -85,6 +92,10 @@ func Load() Config {
 		RecoveryTemplateID:   uint(envIntOr("FERRY_RECOVERY_TEMPLATE_ID", 0)),
 		ReplenishIntervalSec: envIntOr("FERRY_REPLENISH_SEC", 300),
 		PoolTemplateID:       uint(envIntOr("FERRY_POOL_TEMPLATE_ID", 0)),
+		AcmeBin:              envOr("FERRY_ACME_BIN", "acme.sh"),
+		AcmeHome:             envOr("FERRY_ACME_HOME", "/var/lib/ferry/acme"),
+		AcmeWebroot:          envOr("FERRY_ACME_WEBROOT", "/var/www/acme"),
+		CertIntervalSec:      envIntOr("FERRY_CERT_SEC", 21600),
 	}
 }
 
@@ -113,6 +124,10 @@ func Default() Config {
 		RecoveryTemplateID:   0,
 		ReplenishIntervalSec: 300,
 		PoolTemplateID:       0,
+		AcmeBin:              "acme.sh",
+		AcmeHome:             "",
+		AcmeWebroot:          "",
+		CertIntervalSec:      21600,
 	}
 }
 

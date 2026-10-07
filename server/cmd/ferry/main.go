@@ -14,6 +14,7 @@ import (
 	_ "github.com/cuihairu/ferry/payments/epusdt" // PAY-8：init 自注册收款渠道
 	_ "github.com/cuihairu/ferry/payments/wechat" // PAY-10：占位渠道（未启用文案）
 	"github.com/cuihairu/ferry/server/internal/alloc"
+	"github.com/cuihairu/ferry/server/internal/cert"
 	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/cost"
 	"github.com/cuihairu/ferry/server/internal/handler"
@@ -128,6 +129,13 @@ func main() {
 			},
 		}
 		go provision.ReplenishLoop(ctx, repl, time.Duration(cfg.ReplenishIntervalSec)*time.Second, nil)
+	}
+
+	// 证书编排（BR-4）：待签/临期/失败退避逐个驱动，签发执行 acme.sh
+	// 工具位（DNS-01 复用 BR-2 凭证通道），到期前 30 天自动续，失败告警。
+	{
+		cm := &cert.Manager{Bin: cfg.AcmeBin, Home: cfg.AcmeHome, Webroot: cfg.AcmeWebroot}
+		go cert.Loop(ctx, db, cm, secret.NewStore(cfg.SecretKey), time.Duration(cfg.CertIntervalSec)*time.Second, nil)
 	}
 
 	// 到期/超限用户停用扫表。
