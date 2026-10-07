@@ -27,14 +27,26 @@ const saving = ref(false)
 const form = reactive({
   username: '',
   quotaGb: 0,
+  resetCycle: 'none',
   expires: null as Date | null,
   enabled: true,
   hadExpiry: false,
 })
 
+// 重置周期选项（P1-4）：none 不限、day/week/month 按日历窗口重算用量。
+const cycleOptions = [
+  { value: 'none', label: '不限' },
+  { value: 'day', label: '每日' },
+  { value: 'week', label: '每周' },
+  { value: 'month', label: '每月' },
+]
+function cycleLabel(c: string): string {
+  return cycleOptions.find((o) => o.value === c)?.label ?? c
+}
+
 function openCreate() {
   editing.value = null
-  Object.assign(form, { username: '', quotaGb: 0, expires: null, enabled: true, hadExpiry: false })
+  Object.assign(form, { username: '', quotaGb: 0, resetCycle: 'none', expires: null, enabled: true, hadExpiry: false })
   dialogVisible.value = true
 }
 
@@ -43,6 +55,7 @@ function openEdit(u: User) {
   Object.assign(form, {
     username: u.username,
     quotaGb: u.quota_bytes / GB,
+    resetCycle: u.reset_cycle || 'none',
     expires: u.expires_at ? new Date(u.expires_at) : null,
     enabled: u.enabled,
     hadExpiry: !!u.expires_at,
@@ -62,6 +75,7 @@ async function save() {
     const body: Record<string, unknown> = {
       username,
       quota_bytes: Math.round(form.quotaGb * GB),
+      reset_cycle: form.resetCycle,
       enabled: form.enabled,
     }
     if (form.expires) {
@@ -131,6 +145,9 @@ async function remove(u: User) {
       <el-table-column label="配额" width="110">
         <template #default="{ row }">{{ quotaText(row.quota_bytes) }}</template>
       </el-table-column>
+      <el-table-column label="重置" width="80">
+        <template #default="{ row }">{{ cycleLabel(row.reset_cycle) }}</template>
+      </el-table-column>
       <el-table-column label="到期" width="150">
         <template #default="{ row }">{{ formatDate(row.expires_at) }}</template>
       </el-table-column>
@@ -164,6 +181,12 @@ async function remove(u: User) {
         <el-form-item label="配额 (GiB)">
           <el-input-number v-model="form.quotaGb" :min="0" :step="10" />
           <span class="form-hint">0 表示不限</span>
+        </el-form-item>
+        <el-form-item label="重置周期">
+          <el-select v-model="form.resetCycle" style="width: 160px">
+            <el-option v-for="o in cycleOptions" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
+          <span class="form-hint">用量按该周期重新计算</span>
         </el-form-item>
         <el-form-item label="到期时间">
           <el-date-picker v-model="form.expires" type="datetime" placeholder="留空表示不限期" style="width: 100%" />

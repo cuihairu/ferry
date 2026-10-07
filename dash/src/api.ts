@@ -100,6 +100,7 @@ export interface User {
   username: string
   sub_token: string
   quota_bytes: number
+  reset_cycle: 'none' | 'day' | 'week' | 'month'
   expires_at: string | null
   enabled: boolean
   created_at: string
