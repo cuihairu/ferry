@@ -249,6 +249,7 @@
 - [x] [P1] HERALD-2 Herald 集成接口：POST /events（kind/severity/target/dedup_key）+ 回执落库，配置 FERRY_HERALD_URL/TOKEN（HTTPSender Bearer+10s 超时，载荷带 outbox id 供回执关联；回执端点 /api/internal/event-results 只留痕不动事件状态，未配置 URL 仍 outbox-only）
 - [x] [P1] HERALD-3 管理告警接入：区域故障/被封/证书到期三类先行，其余六类随后（九类中八类已接线：monitor 故障迁移 region_fault/isp_fault、recovery 判封 node_blocked+失败升级 recovery_failed、cert 临期 cert_expiring、pool 自动摘除 node_down、cost 告警激活 cost_exceeded、服务端崩溃告警激活 proc_crashed；backup_failed 无后台备份任务暂无生产点；Emit 失败只记日志不阻断）
 - [x] [P1] HERALD-4 用户触达事件走同一接口（账单/域名/到期/预警，随触达批）——已有生产点接线：到期/流量预警（notifyscan 站内信已落才发+日闸门）、发放到账（applyGrant 同事务原子 dedup 带 order_no）、公告扇出（notice 同批落禁用不收）；target=user:<id> severity=info，bill/domains 随触达批调度器接同一接口
+- [x] [P1] HERALD-5 回执端点原生解析 herald §13.5（已落地 2026-10-08）：POST /api/internal/event-results 双形状判别——外层 event_id 是 JSON 字符串=§13.5 事件回调（取 delivery.event_id 字符串解析为 outbox id、delivery.channel、success/failed→sent/failed、error→detail；unsubscribe 等无 delivery 回调 200 ack 防 at-least-once 重试刷），是 JSON 数字=HERALD-2 旧形状继续收（线上 shim 通道不断流）；验签 X-Herald-Signature sha256=<hex HMAC-SHA256> 覆盖原始请求体，密钥 FERRY_HERALD_CALLBACK_SECRET（对应 herald PUT /api/v1/apps/ferry/callback 32 字节 secret，常量时间比对；空=不验签沿用网络边界隔离口径，配置后强制验签 401）；触达联动 TOUCH-5 两形状同走；测试 TestEventResultHeraldCallback（验签过/篡改与缺头 401/failed 落 detail+stale 联动/旧形状带签续收/非数字 event_id 400/非法 status 与缺 channel 400/unsubscribe ack/无密钥实例不验签/事件不存在 404）
 
 ## P2 — 远期或明确不做
 

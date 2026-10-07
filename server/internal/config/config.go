@@ -87,6 +87,11 @@ type Config struct {
 	//（HERALD-2）；URL 为空=未接 Herald，事件只落本地 outbox。
 	HeraldURL   string
 	HeraldToken string
+	// HeraldCallbackSecret 是 Herald 回调（§13.5 事件回调，HERALD-5）的
+	// HMAC-SHA256 验签密钥，对应 herald 侧 PUT /api/v1/apps/ferry/callback
+	// 设置的 32 字节 secret（FERRY_HERALD_CALLBACK_SECRET）；空=不验签
+	//（沿用 HERALD-2 的网络边界隔离口径，配置后回执端点强制验签）。
+	HeraldCallbackSecret string
 }
 
 // Load 从环境变量读取配置，未设置的项回退到默认值。
@@ -129,6 +134,7 @@ func Load() Config {
 		EventFlushIntervalSec: envIntOr("FERRY_EVENT_FLUSH_SEC", 30),
 		HeraldURL:             os.Getenv("FERRY_HERALD_URL"),
 		HeraldToken:           os.Getenv("FERRY_HERALD_TOKEN"),
+		HeraldCallbackSecret:  os.Getenv("FERRY_HERALD_CALLBACK_SECRET"),
 	}
 }
 
