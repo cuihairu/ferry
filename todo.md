@@ -196,6 +196,7 @@
 ## 分销/代理体系（设计：docs/design/计划扩充设计.md §3）
 
 拍板（2026-10-08）：DS/PROMO/SV 三组 P2 维持远期不开工，先清 P1 流量节省尾巴。
+拍板（2026-10-08 二巡）：todo 未勾 P2 全部维持原判不开新工——DS/PROMO/SV 维持远期不开工、E-27/E-31/E-32 维持预留远期、P2-1..7 维持不做/观察；P1 流量节省已清零，开工用户触达 P1 触达批（TOUCH-1..7，设计 docs/design/用户触达设计.md §7）。
 
 - [ ] [P2·远期不开工] DS-1 代理层级与折扣：distributors 表、二级卡批次归属、分润入三账按 order_no 串联
 - [ ] [P2·远期不开工] DS-2 代理结算账目：售卡收入/分润/未结算汇总，对账视图加代理维度
@@ -227,6 +228,18 @@
 - [x] [P1] SAVE-6 配额联动：流量/费用超阈值自动降速或切低成本节点（可配、留痕）——落「订阅降档」（降速不可执行：共享凭据无按用户身份，见流量节省设计 §5）
 - [x] [P1] SAVE-7 节省报表：save_stats 按日汇总，dash 每日/月省下 GB 与折算费用，与成本看板同页（save.Loop 按 node_traffic_logs 自增 id 水位增量聚合（水位存 settings，无水位清空重建防重复，FERRY_SAVE_STATS_SEC 缺省 600s）；数据源 agent 出站计数：SAVE-4 查询扩成 QueryOutboundStats 直连+拦截同次取（reset 前缀清零分开查互踩）→ ProcTraffic.DirectBytes → node_traffic_logs.direct_bytes，cache_hit_bytes 列预留；GET /api/save-stats?days=N 按日行+全网合计，折算按节点流量单价现算不入库（仅按流量计费节点，与成本同口径）；dash 成本页「流量节省（近 30 天）」统计卡+按日明细表）
 - [x] [P1] SAVE-8 panel 用户侧「已为你省下」汇总（月账单邮件附亮点）——GET /api/panel/savings（订阅令牌身份）：节点级节省计数无用户身份，按「用户在该节点当月记账流量占比 × 该节点当月节省」折算（可复核估算式，节点当月无用户记账不摊派），窗口=自然月至今（UTC）对齐账单口径，cache_hit_bytes 随 SAVE-3 metrics 汇入后自动进返回；panel 概览「已为你省下（本月）」卡（读取失败静默隐藏不打扰主流程）；月账单邮件亮点待触达批例行邮件落地时接本接口作数据源（bill 随触达批同口径）——P1 流量节省尾巴清零
+
+## 用户触达 P1 触达批（设计：docs/design/用户触达设计.md §7，2026-10-08 开工）
+
+口径：多通道触达统一经 Herald 投递，ferry 不自建通道；拆 TOUCH-1..7 原子项按序连做。
+
+- [x] [P1] TOUCH-1 联系绑定与换绑（已落地 2026-10-08）：storage.UserContact（user_id 主键，tg_chat_id/email/routine_emails/bound_at/stale/fail_streak）+ GET/PUT /api/panel/contact（订阅令牌身份，两项都空 400，换绑清 stale 与失败计数，只改偏好不动 BoundAt，首绑 routine_emails 缺省 true 由 handler 置——gorm default 标签吞 Create 零值）；panel 概览引导卡（未绑定或 stale 显示且不可关闭，stale 提示换绑）+ 通知偏好卡例行邮件退订开关；账单类必收无开关（改通道留 Herald 侧路由）；测试 TestPanelContact（都空 400/格式 400/只绑 TG 缺省 true/换绑清 stale 刷 BoundAt/偏好不算换绑/回读/无凭据 404）
+- [ ] [P1] TOUCH-2 RSS 公告输出：/feed.xml 公开订阅（公告站级锚点行，历史公告可见）
+- [ ] [P1] TOUCH-3 入口域名数据面：entry_domains 表（primary/backup/区域/启用）+ dash CRUD（域名例行邮件与断联容灾的共同数据源）
+- [ ] [P1] TOUCH-4 月账单与域名例行邮件：toucher 调度器（月账单每月、域名例行可配周期）→ touch_jobs 落任务 → 经 Herald 投递（月账单附「已为你省下」亮点接 SAVE-8 口径；发送结果回写触达记录）
+- [ ] [P1] TOUCH-5 投递失败换绑闭环：Herald 回执 failed → touch_jobs 标 failed + user_contacts 标 stale + 站内提醒换绑，连续失败升级通知（回执 sent 清零）
+- [ ] [P1] TOUCH-6 TG bot 对接面：FERRY_BOT_TOKEN 服务级鉴权 + /api/bot/summary 只读查询（chat_id→用户：流量/到期/最近订单），bot 后端独立部署读此对接
+- [ ] [P1] TOUCH-7 断联容灾：outage 断联态标记（dash 开关）+ 订阅响应附备用公告地址与备用域名列表（文本注释，客户端缓存自带逃生通道）+ 推新入口走公告扇出（TG/邮件随 Herald 分发）
 
 ## 告警通道（设计：docs/design/告警通道设计.md，对接 Herald）
 

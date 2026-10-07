@@ -510,6 +510,16 @@ body {
   padding: 5px 8px;
   font-size: 13px;
 }
+.pref-input {
+  background: var(--ferry-bg-hover);
+  color: var(--ferry-text);
+  border: 1px solid var(--ferry-border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 13px;
+  width: 260px;
+  max-width: 100%;
+}
 .pref-bar {
   display: flex;
   align-items: center;

@@ -126,3 +126,20 @@ export interface SavingsSummary {
 export function getSavings(): Promise<SavingsSummary> {
   return get<SavingsSummary>('/api/panel/savings')
 }
+
+/** ContactInfo 是 GET/PUT /api/panel/contact 的载荷（TOUCH-1）。 */
+export interface ContactInfo {
+  email: string
+  tg_chat_id: string
+  routine_emails: boolean
+  stale: boolean
+  bound_at?: string | null
+}
+
+export function getContact(): Promise<ContactInfo> {
+  return get<ContactInfo>('/api/panel/contact')
+}
+
+export function updateContact(p: Partial<ContactInfo>): Promise<ContactInfo> {
+  return put('/api/panel/contact', p)
+}

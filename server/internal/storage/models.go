@@ -224,6 +224,20 @@ type NodeProcStatus struct {
 	UpdatedAt time.Time `gorm:"not null" json:"updated_at"`
 }
 
+// UserContact 是用户联系信息绑定与触达偏好（触达批 TOUCH-1）：TG/邮箱至少
+// 一个必填（panel 引导补全），stale 为投递失败待换绑标记（TOUCH-5 回执联动）。
+// RoutineEmails 只管域名例行邮件的退订；账单类涉及权益默认必收，无开关。
+type UserContact struct {
+	UserID        uint      `gorm:"primaryKey" json:"user_id"`
+	TgChatID      string    `gorm:"size:64" json:"tg_chat_id,omitempty"`
+	Email         string    `gorm:"size:255" json:"email,omitempty"`
+	RoutineEmails bool      `json:"routine_emails"` // 缺省 true 由 handler 置（gorm default 标签会吞 Create 零值）
+	BoundAt       time.Time `json:"bound_at"`
+	Stale         bool      `gorm:"default:false" json:"stale"`   // 失效待换绑
+	FailStreak    int       `gorm:"default:0" json:"fail_streak"` // 连续投递失败计数（成功清零）
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
 // SaveStat 是流量节省按日汇总（SAVE-7）：从 node_traffic_logs 聚合，
 // 直连/拦截字节来自 agent 出站计数，缓存命中预留（缓存层字节指标接
 // SAVE-3 metrics 后汇入），折算费用按节点流量单价在 API 侧计算。

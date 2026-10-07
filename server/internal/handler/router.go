@@ -168,6 +168,8 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		panel := api.Group("/panel")
 		{
 			panel.GET("/me", h.panelMe)
+			panel.GET("/contact", h.panelContact)
+			panel.PUT("/contact", h.panelContactPut)
 			panel.GET("/savings", h.panelSavings)
 			panel.POST("/redeem", h.panelRedeem)
 			panel.GET("/orders", h.panelOrders)
