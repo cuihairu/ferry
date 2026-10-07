@@ -104,7 +104,8 @@ func TestPackV2Ray(t *testing.T) {
 		{Name: "a", Address: "a", Port: 1, Protocol: "vless", Config: `{"uuid":"u1"}`},
 		{Name: "b", Address: "b", Port: 2, Protocol: "vless", Config: `{"uuid":"u2"}`},
 	}
-	packed, err := PackV2Ray(nodes)
+	entries := []Entry{{Node: nodes[0]}, {Node: nodes[1]}}
+	packed, err := PackV2Ray(entries)
 	if err != nil {
 		t.Fatalf("PackV2Ray: %v", err)
 	}

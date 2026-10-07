@@ -38,6 +38,9 @@ type clashGroup struct {
 	Name    string   `yaml:"name"`
 	Type    string   `yaml:"type"`
 	Proxies []string `yaml:"proxies"`
+	// url-test 组自选优字段（E-19）；select 组留空。
+	URL      string `yaml:"url,omitempty"`
+	Interval int    `yaml:"interval,omitempty"`
 }
 
 type clashDoc struct {
@@ -46,26 +49,51 @@ type clashDoc struct {
 	Rules       []string     `yaml:"rules"`
 }
 
-// PackClash 生成 mihomo/clash 订阅 YAML（P0-5）：全部节点进 PROXY 选择组。
-func PackClash(nodes []storage.Node) (string, error) {
+// urlTestURL / urlTestInterval：url-test 组的连通性探测与刷新周期。
+const (
+	urlTestURL      = "https://www.gstatic.com/generate_204"
+	urlTestInterval = 300
+)
+
+// PackClash 生成 mihomo/clash 订阅 YAML（P0-5/E-19）：
+// 区域 → url-test 组（组内自选优），顶层 PROXY select 聚合区域组。
+func PackClash(entries []Entry) (string, error) {
 	doc := clashDoc{
 		Proxies:     []clashProxy{},
 		ProxyGroups: []clashGroup{{Name: "PROXY", Type: "select", Proxies: []string{}}},
 		Rules:       []string{"MATCH,PROXY"},
 	}
-	seen := map[string]int{}
-	for i := range nodes {
-		p, err := clashProxyOf(&nodes[i])
+	regionGroup := map[string]int{} // region → proxy-groups 下标
+	used := map[string]bool{"PROXY": true} // 已占用的 name（代理与策略组共用命名空间）
+	claim := func(base string) string {
+		name := base
+		for n := 2; used[name]; n++ {
+			name = fmt.Sprintf("%s-%d", base, n)
+		}
+		used[name] = true
+		return name
+	}
+	for i := range entries {
+		e := &entries[i]
+		p, err := clashProxyOf(&e.Node)
 		if err != nil {
-			return "", fmt.Errorf("node %s: %w", nodes[i].Name, err)
+			return "", fmt.Errorf("node %s: %w", e.Node.Name, err)
 		}
-		// clash 内 name 是唯一键：重名追加序号避免互相覆盖。
-		if n := seen[p.Name]; n > 0 {
-			p.Name = fmt.Sprintf("%s-%d", p.Name, n+1)
-		}
-		seen[p.Name]++
+		p.Name = claim(p.Name)
 		doc.Proxies = append(doc.Proxies, p)
-		doc.ProxyGroups[0].Proxies = append(doc.ProxyGroups[0].Proxies, p.Name)
+
+		region := entryRegion(e)
+		gi, ok := regionGroup[region]
+		if !ok {
+			doc.ProxyGroups = append(doc.ProxyGroups, clashGroup{
+				Name: claim(region), Type: "url-test", Proxies: []string{},
+				URL: urlTestURL, Interval: urlTestInterval,
+			})
+			gi = len(doc.ProxyGroups) - 1
+			regionGroup[region] = gi
+			doc.ProxyGroups[0].Proxies = append(doc.ProxyGroups[0].Proxies, doc.ProxyGroups[gi].Name)
+		}
+		doc.ProxyGroups[gi].Proxies = append(doc.ProxyGroups[gi].Proxies, p.Name)
 	}
 	out, err := yaml.Marshal(doc)
 	if err != nil {

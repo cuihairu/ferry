@@ -1,0 +1,122 @@
+package handler
+
+import (
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/cuihairu/ferry/server/internal/storage"
+	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/bcrypt"
+)
+
+// adminClaims 是 JWT claim，仅包含用户 ID 与是否为管理员。
+type adminClaims struct {
+	jwt.RegisteredClaims
+	IsAdmin bool `json:"is_admin"`
+}
+
+// AdminLogin 管理员登录（P1-1）：验证用户名/密码，返回 signed JWT。
+// 登录失败按 IP 滑动窗口计数，达到阈值进入 15 分钟锁定。
+func (h *Handler) AdminLogin(c *gin.Context) {
+	ip := c.ClientIP()
+	// 速率限流：每 60 秒最多 5 次尝试，失败 5 次进入 15 分钟锁定
+	if !h.redeemLimiter.Allow(ip) {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "尝试过于频繁，请稍后再试"})
+		return
+	}
+	var in struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
+		return
+	}
+	u, err := h.findUserByUsername(in.Username)
+	if err != nil {
+		// 无论用户是否存在，均记录一次失败以防止枚举
+		h.redeemLimiter.RecordFailure(ip)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
+		return
+	}
+	if !u.Enabled {
+		h.redeemLimiter.RecordFailure(ip)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "账户已停用"})
+		return
+	}
+	if !u.IsAdmin {
+		h.redeemLimiter.RecordFailure(ip)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "无管理员权限"})
+		return
+	}
+	// password 校验：bcrypt 比对
+	if err := bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(in.Password)); err != nil {
+		h.redeemLimiter.RecordFailure(ip)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
+		return
+	}
+	now := time.Now()
+	expire := now.Add(24 * time.Hour) // 登录令牌有效期 24 小时
+	claims := adminClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   u.Username,
+			ID:        strconv.FormatUint(uint64(u.ID), 10),
+			ExpiresAt: jwt.NewNumericDate(expire),
+			IssuedAt:  jwt.NewNumericDate(now),
+		},
+		IsAdmin: u.IsAdmin,
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	// 使用配置中的秘钥签名；默认使用 "ferry-admin-secret"，可通过 FERRY_ADMIN_SECRET 环境变量覆盖
+	secret := h.cfg.AdminSecret
+	if secret == "" {
+		secret = "ferry-admin-secret"
+	}
+	ss, err := token.SignedString([]byte(secret))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "内部错误"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"token": ss})
+}
+
+// adminAuthMiddleware 管理员身份中间件：从 Authorization: Bearer <token> 解析并验证。
+func adminAuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		auth := c.GetHeader("Authorization")
+		tokenStr := ""
+		if strings.HasPrefix(auth, "Bearer ") {
+			tokenStr = strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
+		}
+		if tokenStr == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "令牌缺失"})
+			c.Abort()
+			return
+		}
+		claims := &adminClaims{}
+		secret := "ferry-admin-secret" // 生产请务必配置 FERRY_ADMIN_SECRET
+		tkn, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
+			return []byte(secret), nil
+		})
+		if err != nil || !tkn.Valid {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "无效令牌"})
+			c.Abort()
+			return
+		}
+		c.Set("adminUserID", claims.ID)
+		c.Set("adminIsAdmin", claims.IsAdmin)
+		c.Next()
+	}
+}
+
+// findUserByUsername 根据用户名查找用户。
+func (h *Handler) findUserByUsername(username string) (storage.User, error) {
+	var u storage.User
+	if err := h.db.Where("username = ?", username).First(&u).Error; err != nil {
+		return u, err
+	}
+	return u, nil
+}

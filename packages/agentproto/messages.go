@@ -201,6 +201,20 @@ type TrafficAck struct {
 	Recorded int `json:"recorded"`
 }
 
+// Calibrate 是 agent 注册后轻量测速的上报（E-8）：实测下行容量。
+type Calibrate struct {
+	MeasuredDownMbps int     `json:"measured_down_mbps"` // 实测下行 Mbps
+	Bytes            int64   `json:"bytes"`              // 实测字节数
+	Seconds          float64 `json:"seconds"`            // 实测耗时（秒）
+}
+
+// CalibrateAck 是面板的校准应答：是否采纳实测为有效容量。
+type CalibrateAck struct {
+	Accepted          bool   `json:"accepted"`
+	EffectiveDownMbps int    `json:"effective_down_mbps"` // 生效容量（采纳=实测，否则=套餐）
+	Note              string `json:"note,omitempty"`
+}
+
 // 探测目标类型取值。
 const (
 	ProbeTargetTunnel = "tunnel" // 经 relay 的隧道连通/延迟/丢包

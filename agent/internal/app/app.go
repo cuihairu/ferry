@@ -17,6 +17,7 @@ import (
 	"github.com/cuihairu/ferry/agent/internal/link"
 	"github.com/cuihairu/ferry/agent/internal/probe"
 	"github.com/cuihairu/ferry/agent/internal/procs"
+	"github.com/cuihairu/ferry/agent/internal/roles/speedtest"
 	"github.com/cuihairu/ferry/agent/internal/spool"
 	"github.com/cuihairu/ferry/agent/internal/traffic"
 	"github.com/cuihairu/ferry/packages/agentproto"
@@ -53,6 +54,10 @@ type App struct {
 
 	sendMu  sync.Mutex
 	curSend func(agentproto.Envelope) error // 当前连接的发送口；断开即清空
+
+	// calibrated 保证测速校准每进程只跑一次（重连不重测，E-8）。
+	calMu      sync.Mutex
+	calibrated bool
 
 	hbSeq int
 	hello chan agentproto.Envelope
@@ -102,6 +107,50 @@ func (a *App) Run(ctx context.Context) error {
 		Log:      a.log,
 	})
 	return client.Run(ctx, a)
+}
+
+// maybeCalibrate 注册后跑一次轻量测速并上报（E-8）：无套餐下行容量即跳过
+// （纯中转/未定价节点不测）；测速失败只记日志，不影响在线。
+func (a *App) maybeCalibrate(send func(agentproto.Envelope) error) {
+	a.calMu.Lock()
+	if a.calibrated {
+		a.calMu.Unlock()
+		return
+	}
+	a.calibrated = true
+	a.calMu.Unlock()
+
+	plan := a.cfg.Meta.BwDownMbps
+	if plan <= 0 {
+		return
+	}
+	base, err := speedtest.BaseURL(a.cfg.PanelURL)
+	if err != nil {
+		a.log.Printf("calibrate: %v", err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), speedtest.Timeout)
+	defer cancel()
+	res, err := speedtest.Measure(ctx, base, speedtest.DefaultBytes)
+	if err != nil {
+		a.log.Printf("calibrate: measure: %v", err)
+		return
+	}
+	env, err := agentproto.NewEnvelope(
+		fmt.Sprintf("cal-%d", time.Now().UnixNano()),
+		agentproto.MsgCalibrate,
+		agentproto.Calibrate{
+			MeasuredDownMbps: res.Mbps,
+			Bytes:            res.Bytes,
+			Seconds:          res.Seconds,
+		},
+	)
+	if err != nil {
+		return
+	}
+	if err := send(env); err != nil {
+		a.log.Printf("calibrate: send: %v", err)
+	}
 }
 
 // reportStatus 把进程状态变化推给面板（离线时静默丢弃）。
@@ -180,6 +229,7 @@ func (a *App) OnConnected(ctx context.Context, send func(agentproto.Envelope) er
 			}
 		}
 		a.startHeartbeat(ctx, send)
+		go a.maybeCalibrate(send)
 		return nil
 	case <-time.After(helloTimeout):
 		return errors.New("hello ack timeout")
@@ -229,6 +279,11 @@ func (a *App) OnMessage(_ context.Context, env agentproto.Envelope, send func(ag
 		go a.handleConfigPush(env)
 	case agentproto.MsgAlarmAck, agentproto.MsgTrafficAck:
 		// 面板对 agent 上报的确认，无需处理。
+	case agentproto.MsgCalibrateAck:
+		var ca agentproto.CalibrateAck
+		if err := env.Decode(&ca); err == nil {
+			a.log.Printf("calibrate ack: accepted=%v effective=%dMbps (%s)", ca.Accepted, ca.EffectiveDownMbps, ca.Note)
+		}
 	default:
 		a.log.Printf("unknown message type %q", env.Type)
 	}

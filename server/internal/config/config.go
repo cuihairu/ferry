@@ -4,9 +4,12 @@ package config
 import (
 	"os"
 	"strconv"
+	"time"
+
+	"github.com/cuihairu/ferry/server/internal/ratelimit"
 )
 
-// Config 汇总服务启动所需的全部参数。
+// Config 汇总服务运行所需的全部参数。
 type Config struct {
 	// Addr 是 HTTP 监听地址，例如 ":8080"。
 	Addr string
@@ -22,6 +25,10 @@ type Config struct {
 	MonitorIntervalSec int
 	// ReviewIntervalSec 是到期/超限用户停用扫表周期（秒）。
 	ReviewIntervalSec int
+	// RedeemLimiter 是兑换接口的 IP 限流选项（PAY-5）。
+	RedeemLimiter *ratelimit.Options `json:"-"`
+	// AdminSecret 是管理员 JWT 签名秘钥，默认 "ferry-admin-secret"，可通过 FERRY_ADMIN_SECRET 环境变量覆盖。
+	AdminSecret string `json:"-"`
 }
 
 // Load 从环境变量读取配置，未设置的项回退到默认值。
@@ -35,6 +42,8 @@ func Load() Config {
 		HeartbeatIntervalSec: envIntOr("FERRY_HEARTBEAT_SEC", 30),
 		MonitorIntervalSec:   envIntOr("FERRY_MONITOR_SEC", 30),
 		ReviewIntervalSec:    envIntOr("FERRY_REVIEW_SEC", 60),
+		RedeemLimiter:        &ratelimit.Options{Window: time.Minute, MaxAttempts: 10, FailLimit: 5, Lockout: 15 * time.Minute},
+		AdminSecret:          envOr("FERRY_ADMIN_SECRET", ""),
 	}
 }
 
@@ -48,6 +57,8 @@ func Default() Config {
 		HeartbeatIntervalSec: 30,
 		MonitorIntervalSec:   30,
 		ReviewIntervalSec:    60,
+		RedeemLimiter:        &ratelimit.Options{Window: time.Minute, MaxAttempts: 10, FailLimit: 5, Lockout: 15 * time.Minute},
+		AdminSecret:          "",
 	}
 }
 

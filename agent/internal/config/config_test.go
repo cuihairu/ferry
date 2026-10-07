@@ -170,6 +170,29 @@ func TestProbeDirectionDefault(t *testing.T) {
 	}
 }
 
+func TestSpoolDirEnvAndRelay(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agent.json")
+	content := `{"panel_url":"wss://p/agent/ws","agent_id":"n1","token":"t1","heartbeat_sec":30,
+		"meta":{"bw_up_mbps":100,"bw_down_mbps":100},
+		"relay":{"listen":"127.0.0.1:1080","landing_addr":"l.example.com:443","tunnel":"tls-camo"}}`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FERRY_SPOOL_DIR", "/run/ferry/spool")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.SpoolDir != "/run/ferry/spool" {
+		t.Fatalf("spool_dir env override failed: %q", cfg.SpoolDir)
+	}
+	if cfg.Relay.Listen != "127.0.0.1:1080" || cfg.Relay.LandingAddr != "l.example.com:443" ||
+		cfg.Relay.Tunnel != "tls-camo" {
+		t.Fatalf("relay spec not loaded: %+v", cfg.Relay)
+	}
+}
+
 func TestValidate(t *testing.T) {
 	base := func() Config {
 		return Config{

@@ -24,7 +24,7 @@ func getSub(t *testing.T, r *gin.Engine, path, ua string) *httptest.ResponseReco
 }
 
 func TestSubscription(t *testing.T) {
-	r, _ := newTestRouterWithDB(t)
+	r, db := newTestRouterWithDB(t)
 
 	// 用户 alice：配额 1000，2030 到期
 	rec := doJSON(t, r, "POST", "/api/users", map[string]any{
@@ -51,6 +51,11 @@ func TestSubscription(t *testing.T) {
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create disabled node: %d %s", rec.Code, rec.Body)
+	}
+	// E-19：仅入口/双角色节点进订阅，落地不下发（测试 API 建节点默认 landing）。
+	if err := db.Model(&storage.Node{}).Where("name=?", "hk").
+		Updates(map[string]any{"role": "entry", "meta_init": true}).Error; err != nil {
+		t.Fatal(err)
 	}
 
 	subPath := "/sub/" + token
@@ -123,6 +128,10 @@ func TestSubscriptionAvailability(t *testing.T) {
 		"name": "hk", "address": "a", "port": 443, "protocol": "vless", "config": `{"uuid":"u-1"}`,
 	}); rec.Code != http.StatusCreated {
 		t.Fatalf("create node: %d", rec.Code)
+	}
+	if err := db.Model(&storage.Node{}).Where("name=?", "hk").
+		Updates(map[string]any{"role": "entry", "meta_init": true}).Error; err != nil {
+		t.Fatal(err)
 	}
 
 	mkUser := func(name string, quota int64, expires string) (uint, string) {

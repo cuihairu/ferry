@@ -4,14 +4,16 @@ import "time"
 
 // User 是一个订阅用户；SubToken 为订阅链接令牌。
 type User struct {
-	ID         uint       `gorm:"primaryKey" json:"id"`
-	Username   string     `gorm:"size:64;uniqueIndex" json:"username"`
-	SubToken   string     `gorm:"size:64;uniqueIndex" json:"sub_token"`
-	QuotaBytes int64      `gorm:"default:0" json:"quota_bytes"`
-	ExpiresAt  *time.Time `json:"expires_at"`
-	Enabled    bool       `gorm:"default:true" json:"enabled"`
-	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at"`
+	ID          uint       `gorm:"primaryKey" json:"id"`
+	Username    string     `gorm:"size:64;uniqueIndex" json:"username"`
+	SubToken    string     `gorm:"size:64;uniqueIndex" json:"sub_token"`
+	QuotaBytes  int64      `gorm:"default:0" json:"quota_bytes"`
+	ExpiresAt   *time.Time `json:"expires_at"`
+	Enabled     bool       `gorm:"default:true" json:"enabled"`
+	IsAdmin     bool       `gorm:"default:false" json:"is_admin"`
+	Password    string     `gorm:"size:128" json:"-"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 // Node 是一台代理节点。Token 供 agent 出站连接认证。
@@ -97,6 +99,7 @@ type CardCode struct {
 type LandingAssignment struct {
 	ID            uint       `gorm:"primaryKey" json:"id"`
 	EntryNodeID   *uint      `gorm:"index" json:"entry_node_id"` // 入口节点（空=区域级分配）
+	Region        string     `gorm:"size:64" json:"region"`      // 区域级分配的区域名（入口级分配留空）
 	LandingNodeID uint       `gorm:"index;not null" json:"landing_node_id"`
 	Direction     string     `gorm:"size:8;not null" json:"direction"` // out/in，方向分流留痕
 	Strategy      string     `gorm:"size:16;not null" json:"strategy"` // manual/least_conn/cost_first/perf_first/balanced

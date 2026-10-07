@@ -44,14 +44,16 @@ type NodeInput struct {
 
 // User 是一个订阅用户。
 type User struct {
-	ID         int64      `json:"id"`
-	Username   string     `json:"username"`
-	SubToken   string     `json:"sub_token"` // 订阅链接令牌
-	QuotaBytes int64      `json:"quota_bytes"`
-	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
-	Enabled    bool       `json:"enabled"`
-	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at"`
+	ID          int64      `json:"id"`
+	Username    string     `json:"username"`
+	SubToken    string     `json:"sub_token"` // 订阅链接令牌
+	QuotaBytes  int64      `json:"quota_bytes"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+	Enabled     bool       `json:"enabled"`
+	IsAdmin     bool       `json:"is_admin"`
+	Password    string     `json:"password,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 // UserInput 是创建/更新用户的请求载荷。

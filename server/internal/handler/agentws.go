@@ -305,6 +305,14 @@ func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID 
 			if err := hc.Send(reply); err != nil {
 				return
 			}
+		case agentproto.MsgCalibrate:
+			reply, ok := h.handleCalibrate(nodeID, env)
+			if !ok {
+				continue
+			}
+			if err := hc.Send(reply); err != nil {
+				return
+			}
 		default:
 			// 应答类消息交给等待中的请求。
 			if h.hub.Deliver(env) {

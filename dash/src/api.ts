@@ -71,6 +71,21 @@ export interface DimensionStatus {
   reason: string
 }
 
+/** LandingAssignment 是一条落地分配（E-20）：入口或区域 → 落地与权重。 */
+export interface LandingAssignment {
+  id: number
+  entry_node_id: number | null
+  region: string
+  landing_node_id: number
+  direction: 'out' | 'in'
+  strategy: string
+  weight: number
+  reason: string
+  assigned_at: string
+  released_at: string | null
+  release_reason: string
+}
+
 export interface User {
   id: number
   username: string

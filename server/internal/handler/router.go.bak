@@ -85,11 +85,6 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 			panel.GET("/orders", h.panelOrders)
 		}
 	}
-	// P1-1 管理员登录与鉴权
-	admin := r.Group("/admin", adminAuthMiddleware())
-	{
-		admin.POST("/login", h.AdminLogin)
-	}
 	return r
 }
 
