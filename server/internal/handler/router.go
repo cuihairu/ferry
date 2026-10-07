@@ -133,6 +133,12 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.GET("/nodes/:id/routing-config", h.renderRoutingConfig)
 		api.PUT("/routing/ads", h.putAdsEnabled)
 		api.GET("/save-stats", h.saveStats)
+
+		// 入口域名数据面（TOUCH-3）：域名例行邮件与断联容灾的共同数据源。
+		api.GET("/entry-domains", h.listEntryDomains)
+		api.POST("/entry-domains", h.createEntryDomain)
+		api.PUT("/entry-domains/:id", h.updateEntryDomain)
+		api.DELETE("/entry-domains/:id", h.deleteEntryDomain)
 		api.GET("/nodes/:id/share", h.nodeShare)
 		api.GET("/nodes/:id/logs", h.nodeProcLogs)
 		api.GET("/nodes/:id/procs", h.nodeProcs)

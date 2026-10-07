@@ -238,6 +238,18 @@ type UserContact struct {
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
+// EntryDomain 是面板入口域名与备用地址（触达批 TOUCH-3）：域名例行邮件与
+// 断联容灾的共同数据源（订阅备用信息、推新入口都取这份清单）。
+type EntryDomain struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	Domain    string    `gorm:"size:255;not null" json:"domain"`
+	Role      string    `gorm:"size:16;not null" json:"role"`    // primary/backup
+	Region    string    `gorm:"size:64" json:"region,omitempty"` // 适用区域，空=全区域
+	Enabled   bool      `json:"enabled"`
+	UpdatedAt time.Time `gorm:"not null" json:"updated_at"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // SaveStat 是流量节省按日汇总（SAVE-7）：从 node_traffic_logs 聚合，
 // 直连/拦截字节来自 agent 出站计数，缓存命中预留（缓存层字节指标接
 // SAVE-3 metrics 后汇入），折算费用按节点流量单价在 API 侧计算。
