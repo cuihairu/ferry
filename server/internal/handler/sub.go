@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/pool"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/cuihairu/ferry/server/internal/sub"
 	"github.com/gin-gonic/gin"
@@ -48,9 +49,9 @@ func (h *Handler) subscription(c *gin.Context) {
 
 	entries := []sub.Entry{}
 	if sub.UserActive(&u, usage.Rx+usage.Tx, time.Now()) {
-		// 订阅下发入口列表（E-19）：仅 entry/both 角色节点；落地不下发。
+		// 订阅下发入口列表（E-19）：仅 entry/both 角色且未摘除（E-16 池态 active）的节点；落地不下发。
 		var nodes []storage.Node
-		if err := h.db.Where("enabled = ? AND role IN (?, ?)", true, "entry", "both").
+		if err := h.db.Where("enabled = ? AND role IN (?, ?) AND pool_state = ?", true, "entry", "both", pool.StateActive).
 			Order("id").Find(&nodes).Error; err != nil {
 			fail(c, http.StatusInternalServerError, err)
 			return

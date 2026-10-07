@@ -55,8 +55,13 @@ type Node struct {
 	SpeedCalibratedAt        *time.Time `json:"speed_calibrated_at"`
 	MetaInit                 bool       `gorm:"default:false" json:"-"` // 元数据是否已初始化（面板已接管）
 	AgentVersion             string     `gorm:"size:64;default:''" json:"agent_version"` // agent 自报版本（A-23）
-	CreatedAt                time.Time  `json:"created_at"`
-	UpdatedAt                time.Time  `json:"updated_at"`
+	// 入口池摘挂状态（E-16）：suspended=连续 sick 摘除，订阅入口池即时剔除；
+	// 不动 enabled（agent 连接与探测保持，复位判定才有依据）。
+	PoolState     string     `gorm:"size:16;default:active;index" json:"pool_state"`
+	PoolChangedAt *time.Time `json:"pool_changed_at"`
+	PoolReason    string     `gorm:"size:64" json:"pool_reason"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
 }
 
 // TrafficLog 是一条流量记账记录（按用户按节点按周期汇总）。

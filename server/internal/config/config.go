@@ -25,6 +25,8 @@ type Config struct {
 	MonitorIntervalSec int
 	// ReviewIntervalSec 是到期/超限用户停用扫表周期（秒）。
 	ReviewIntervalSec int
+	// PoolIntervalSec 是入口池摘挂判定周期（秒）。
+	PoolIntervalSec int
 	// RedeemLimiter 是兑换接口的 IP 限流选项（PAY-5）。
 	RedeemLimiter *ratelimit.Options `json:"-"`
 	// AdminSecret 是管理员 JWT 签名秘钥，默认 "ferry-admin-secret"，可通过 FERRY_ADMIN_SECRET 环境变量覆盖。
@@ -44,6 +46,7 @@ func Load() Config {
 		HeartbeatIntervalSec: envIntOr("FERRY_HEARTBEAT_SEC", 30),
 		MonitorIntervalSec:   envIntOr("FERRY_MONITOR_SEC", 30),
 		ReviewIntervalSec:    envIntOr("FERRY_REVIEW_SEC", 60),
+		PoolIntervalSec:      envIntOr("FERRY_POOL_SEC", 60),
 		RedeemLimiter:        &ratelimit.Options{Window: time.Minute, MaxAttempts: 10, FailLimit: 5, Lockout: 15 * time.Minute},
 		AdminSecret:          envOr("FERRY_ADMIN_SECRET", ""),
 		ApiTokenSecret:       envOr("FERRY_API_SECRET", ""),
@@ -60,6 +63,7 @@ func Default() Config {
 		HeartbeatIntervalSec: 30,
 		MonitorIntervalSec:   30,
 		ReviewIntervalSec:    60,
+		PoolIntervalSec:      60,
 		RedeemLimiter:        &ratelimit.Options{Window: time.Minute, MaxAttempts: 10, FailLimit: 5, Lockout: 15 * time.Minute},
 		AdminSecret:          "",
 		ApiTokenSecret:       "",
