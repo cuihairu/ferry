@@ -114,3 +114,15 @@ export function getNotifyPrefs(): Promise<NotifyPrefs> {
 export function updateNotifyPrefs(p: Partial<NotifyPrefs>): Promise<{ ok: boolean }> {
   return put('/api/panel/notify-prefs', p)
 }
+
+/** SavingsSummary 是 GET /api/panel/savings 的响应（SAVE-8）：本月「已为你省下」。 */
+export interface SavingsSummary {
+  window: string
+  direct_bytes: number
+  cache_hit_bytes: number
+  blocked_bytes: number
+}
+
+export function getSavings(): Promise<SavingsSummary> {
+  return get<SavingsSummary>('/api/panel/savings')
+}

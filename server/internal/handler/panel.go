@@ -343,3 +343,65 @@ func (h *Handler) panelOrderStatus(c *gin.Context) {
 		"grants":       items,
 	})
 }
+
+// panelSavings 用户侧「已为你省下」汇总（GET /api/panel/savings，SAVE-8）。
+// 节点级节省计数（save_stats）出自 agent 出站计数，无用户身份，按用户在该
+// 节点当月记账流量占比折算（可复核的估算式；节点当月无用户记账则不摊派）。
+// 窗口=自然月至今（UTC），对齐月账单亮点口径；缓存命中列随 SAVE-3 metrics
+// 汇入后自动进返回，现先行预留。
+func (h *Handler) panelSavings(c *gin.Context) {
+	u, ok := h.panelUser(c)
+	if !ok {
+		return
+	}
+	monthStart := time.Now().UTC().Format("2006-01") + "-01"
+
+	var saves []struct {
+		NodeID   uint
+		Direct   int64
+		CacheHit int64
+		Blocked  int64
+	}
+	if err := h.db.Model(&storage.SaveStat{}).
+		Select("node_id, COALESCE(SUM(direct_bytes),0) AS direct, COALESCE(SUM(cache_hit_bytes),0) AS cache_hit, COALESCE(SUM(blocked_bytes),0) AS blocked").
+		Where("day >= ?", monthStart).
+		Group("node_id").Scan(&saves).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	var usages []struct {
+		NodeID uint
+		Total  int64
+		Mine   int64
+	}
+	if err := h.db.Model(&storage.TrafficLog{}).
+		Select("node_id, COALESCE(SUM(rx_bytes+tx_bytes),0) AS total, COALESCE(SUM(CASE WHEN user_id = ? THEN rx_bytes+tx_bytes ELSE 0 END),0) AS mine", u.ID).
+		Where("recorded_at >= ? AND node_id IS NOT NULL", monthStart).
+		Group("node_id").Scan(&usages).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	byNode := make(map[uint]struct{ total, mine int64 }, len(usages))
+	for _, us := range usages {
+		byNode[us.NodeID] = struct{ total, mine int64 }{us.Total, us.Mine}
+	}
+	var direct, cacheHit, blocked int64
+	for _, s := range saves {
+		us, ok := byNode[s.NodeID]
+		if !ok || us.total <= 0 {
+			continue
+		}
+		share := float64(us.mine) / float64(us.total)
+		direct += int64(float64(s.Direct) * share)
+		cacheHit += int64(float64(s.CacheHit) * share)
+		blocked += int64(float64(s.Blocked) * share)
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"window":          monthStart,
+		"direct_bytes":    direct,
+		"cache_hit_bytes": cacheHit,
+		"blocked_bytes":   blocked,
+	})
+}

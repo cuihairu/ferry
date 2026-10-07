@@ -168,6 +168,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		panel := api.Group("/panel")
 		{
 			panel.GET("/me", h.panelMe)
+			panel.GET("/savings", h.panelSavings)
 			panel.POST("/redeem", h.panelRedeem)
 			panel.GET("/orders", h.panelOrders)
 			// 在线下单（PAY-11，对 epusdt 段）

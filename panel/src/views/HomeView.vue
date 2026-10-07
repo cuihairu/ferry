@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { ApiError, get, getNotifyPrefs, updateNotifyPrefs } from '../api'
-import type { Me } from '../api'
+import { ApiError, get, getNotifyPrefs, getSavings, updateNotifyPrefs } from '../api'
+import type { Me, SavingsSummary } from '../api'
 import { auth, setUser } from '../auth'
 import { formatDate, formatBytes, quotaText } from '../utils/format'
 
-// 概览：用量进度、配额与到期、订阅链接复制、通知偏好（NT-2）。
+// 概览：用量进度、配额与到期、订阅链接复制、通知偏好（NT-2）；
+// 「已为你省下」为 SAVE-8 本月分流直连/广告拦截的占比折算汇总。
 const loading = ref(false)
 const error = ref('')
 const copied = ref('')
@@ -25,7 +26,18 @@ onMounted(async () => {
     }
   }
   loadPrefs()
+  loadSavings()
 })
+
+// 已为你省下（SAVE-8）：读取失败静默隐藏卡片，不打扰主流程。
+const savings = ref<SavingsSummary | null>(null)
+async function loadSavings() {
+  try {
+    savings.value = await getSavings()
+  } catch {
+    /* 保持隐藏 */
+  }
+}
 
 const me = computed(() => auth.user)
 const unlimited = computed(() => (me.value?.quota_bytes ?? 0) === 0)
@@ -124,6 +136,16 @@ async function savePrefs() {
           <div class="kv-row"><dt>剩余</dt><dd>{{ remaining }}</dd></div>
           <div class="kv-row"><dt>到期</dt><dd>{{ formatDate(me.expires_at) }}</dd></div>
           <div class="kv-row"><dt>状态</dt><dd>{{ me.active ? '正常' : '不可用' }}</dd></div>
+        </dl>
+      </section>
+
+      <section v-if="savings" class="card">
+        <h2 class="card-title">已为你省下（本月）</h2>
+        <p class="muted">分流直连与广告拦截为你省下的流量，按各节点用量占比折算。</p>
+        <dl class="kv">
+          <div class="kv-row"><dt>直连分流</dt><dd>{{ formatBytes(savings.direct_bytes) }}</dd></div>
+          <div class="kv-row"><dt>广告拦截</dt><dd>{{ formatBytes(savings.blocked_bytes) }}</dd></div>
+          <div v-if="savings.cache_hit_bytes > 0" class="kv-row"><dt>缓存命中</dt><dd>{{ formatBytes(savings.cache_hit_bytes) }}</dd></div>
         </dl>
       </section>
 
