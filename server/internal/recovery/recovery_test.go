@@ -3,6 +3,7 @@ package recovery
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -116,6 +117,14 @@ func TestSweepOpenAndAdvance(t *testing.T) {
 	if manual != 0 {
 		t.Fatal("manual suspend must not open recovery")
 	}
+	// 判封事件（HERALD-3）：开线节点落 node_blocked，手动摘除不落
+	var blockedEv []storage.Event
+	if err := db.Where("kind = ?", "node_blocked").Find(&blockedEv).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(blockedEv) != 1 || blockedEv[0].DedupKey == "" || blockedEv[0].Severity != "critical" {
+		t.Fatalf("node_blocked events = %+v", blockedEv)
+	}
 
 	// 后续轮次：L1/L2 skipped 推进 → L3 启动。
 	for i := 0; i < 3; i++ {
@@ -129,6 +138,12 @@ func TestSweepOpenAndAdvance(t *testing.T) {
 	})
 	if rec.ActionState != ActionRunning && rec.ActionState != ActionOK {
 		t.Fatalf("action_state = %+v", rec)
+	}
+	// 后续轮次推进不重复发判封事件
+	var evN int64
+	db.Model(&storage.Event{}).Where("kind = ?", "node_blocked").Count(&evN)
+	if evN != 1 {
+		t.Fatalf("node_blocked events after advances = %d, want 1", evN)
 	}
 }
 
@@ -351,7 +366,8 @@ func TestFailedEscalationNotify(t *testing.T) {
 		t.Fatalf("trace = %+v", trace)
 	}
 
-	// 升级告警同步外发（Send 在 Sweep 内联执行），恰好一次。
+	// 升级告警同步外发（Send 在 Sweep 内联执行），恰好一次；
+	// 事件 outbox 同步落 recovery_failed（HERALD-3）。
 	mu.Lock()
 	defer mu.Unlock()
 	if len(events) != 1 {
@@ -359,5 +375,12 @@ func TestFailedEscalationNotify(t *testing.T) {
 	}
 	if events[0].Event != "recovery_failed" || !strings.Contains(events[0].Text, n.Name) {
 		t.Fatalf("event = %+v", events[0])
+	}
+	var ev storage.Event
+	if err := db.Where("kind = ?", "recovery_failed").First(&ev).Error; err != nil {
+		t.Fatalf("recovery_failed event missing: %v", err)
+	}
+	if ev.Severity != "critical" || ev.DedupKey != fmt.Sprintf("recovery:%d:recovery_failed", rec.ID) {
+		t.Fatalf("event = %+v", ev)
 	}
 }

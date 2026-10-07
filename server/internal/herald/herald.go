@@ -27,6 +27,17 @@ const (
 // Herald 异步回投的通道分发回执（HERALD-2）用具体通道名。
 const ChannelHerald = "herald"
 
+// 事件 kind 与 target 取值（《告警通道设计》§2 清单，HERALD-3 起按类接入）。
+const (
+	KindRegionFault    = "region_fault"    // 区域聚合整体故障
+	KindISPFault       = "isp_fault"       // 运营商聚合整体故障
+	KindNodeBlocked    = "node_blocked"    // 节点判封进恢复流水线
+	KindRecoveryFailed = "recovery_failed" // 恢复流水线全级耗尽（升级人工）
+	KindCertExpiring   = "cert_expiring"   // 证书临近到期
+
+	TargetAdmin = "admin"
+)
+
 // ValidSeverity 严重度取值是否合法。
 func ValidSeverity(s string) bool {
 	switch s {

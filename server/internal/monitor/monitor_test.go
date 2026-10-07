@@ -73,14 +73,27 @@ func TestApplyVerdictTransitions(t *testing.T) {
 	if !strings.Contains(buf.String(), "alarm") || !strings.Contains(buf.String(), "华东") {
 		t.Fatalf("merged alarm missing: %q", buf.String())
 	}
+	// 故障迁移落事件 outbox（HERALD-3）：region_fault critical 一条
+	var ev storage.Event
+	if err := db.Where("kind = ?", "region_fault").First(&ev).Error; err != nil {
+		t.Fatalf("region_fault event missing: %v", err)
+	}
+	if ev.Severity != "critical" || ev.DedupKey != "region:华东:region_fault" || ev.Target != "admin" {
+		t.Fatalf("event = %+v", ev)
+	}
 
-	// 重复 failed：状态未迁移，不重复告警
+	// 重复 failed：状态未迁移，不重复告警不重复落事件
 	buf.Reset()
 	if err := applyVerdict(db, logger, failed); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 	if buf.String() != "" {
 		t.Fatalf("must not re-alarm on unchanged state: %q", buf.String())
+	}
+	var n int64
+	db.Model(&storage.Event{}).Where("kind = ?", "region_fault").Count(&n)
+	if n != 1 {
+		t.Fatalf("region_fault events = %d, want 1", n)
 	}
 
 	// 恢复 healthy：状态迁移并记恢复日志
@@ -122,6 +135,12 @@ func TestApplyVerdictDegraded(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "degraded") {
 		t.Fatalf("degraded log missing: %q", buf.String())
+	}
+	// 降级不在告警三类清单：不落事件
+	var n int64
+	db.Model(&storage.Event{}).Count(&n)
+	if n != 0 {
+		t.Fatalf("degraded must not emit events, got %d", n)
 	}
 }
 

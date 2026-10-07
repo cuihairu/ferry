@@ -3,6 +3,7 @@ package cert
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -171,7 +172,7 @@ func TestSweepRenewsDue(t *testing.T) {
 	rr := &recRunner{}
 	m := newMgr(rr, now.Add(90*24*time.Hour))
 
-	due := now.Add(-10 * 24 * time.Hour)
+	due := now.Add(10 * 24 * time.Hour) // 进 30 天续期窗口且未过期
 	mkTask(t, db, func(tk *storage.CertTask) {
 		tk.State, tk.NotAfter = StateOK, &due
 	})
@@ -192,6 +193,28 @@ func TestSweepRenewsDue(t *testing.T) {
 	}
 	if first.State != StateOK || first.NotAfter.Before(now.Add(89*24*time.Hour)) {
 		t.Fatalf("after renew = %+v", first)
+	}
+
+	// 临期事件（HERALD-3）：进窗口的任务落 cert_expiring，未临期不落；
+	// 同日第二轮不重复。
+	var evs []storage.Event
+	if err := db.Where("kind = ?", "cert_expiring").Find(&evs).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 || evs[0].Severity != "warning" ||
+		evs[0].DedupKey != fmt.Sprintf("cert:%s:cert_expiring:%s", first.Domain, now.Format("20060102")) {
+		t.Fatalf("cert_expiring events = %+v", evs)
+	}
+	if !strings.Contains(evs[0].Title, "10 天后到期") {
+		t.Fatalf("title = %q", evs[0].Title)
+	}
+	if err := Sweep(context.Background(), db, m, secret.NewStore("x"), now, nil); err != nil {
+		t.Fatal(err)
+	}
+	var n int64
+	db.Model(&storage.Event{}).Where("kind = ?", "cert_expiring").Count(&n)
+	if n != 1 {
+		t.Fatalf("second sweep events = %d, want 1", n)
 	}
 }
 

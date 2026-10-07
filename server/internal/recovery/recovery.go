@@ -14,6 +14,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/herald"
 	"github.com/cuihairu/ferry/server/internal/notify"
 	"github.com/cuihairu/ferry/server/internal/pool"
 	"github.com/cuihairu/ferry/server/internal/storage"
@@ -187,6 +188,18 @@ func Sweep(db *gorm.DB, now time.Time, opts Options, reg Registry, logger *log.L
 		existing[n.ID] = true
 		logger.Printf("recovery open: node=%d %s（摘除持续 %s 判封，进入 L1）",
 			n.ID, n.Name, opts.SustainedAfter)
+		// 判封事件（HERALD-3）：单节点封禁告警；恢复完成不发（dash 流水线
+		// 留痕可见）。失败只记日志不阻断判封。
+		if _, err := herald.Emit(db, herald.EmitInput{
+			Kind: herald.KindNodeBlocked, Severity: herald.SeverityCritical,
+			Title:    fmt.Sprintf("节点 %s 判封，进入恢复流水线", n.Name),
+			Body:     fmt.Sprintf("摘除持续 %s 未复位，L1→L3 分级自动恢复已启动", opts.SustainedAfter),
+			Target:   herald.TargetAdmin,
+			DedupKey: fmt.Sprintf("node:%d:node_blocked", n.ID),
+			Meta:     map[string]any{"node_id": n.ID, "reason": n.PoolReason},
+		}); err != nil {
+			logger.Printf("herald emit node_blocked: node=%d %v", n.ID, err)
+		}
 	}
 	return nil
 }
@@ -328,6 +341,18 @@ func finishRecovery(db *gorm.DB, rec storage.Recovery, state, reason string) err
 		return err
 	}
 	if state == StateFailed {
+		// 升级人工（BR-5）：落事件 outbox 统一投递（HERALD-3），webhook
+		// 通道并行期保留，Herald 验证后收敛。
+		if _, err := herald.Emit(db, herald.EmitInput{
+			Kind: herald.KindRecoveryFailed, Severity: herald.SeverityCritical,
+			Title:    fmt.Sprintf("节点 %s 恢复流水线失败", rec.NodeName),
+			Body:     reason + "，需人工介入",
+			Target:   herald.TargetAdmin,
+			DedupKey: fmt.Sprintf("recovery:%d:recovery_failed", rec.ID),
+			Meta:     map[string]any{"recovery_id": rec.ID, "node_id": rec.NodeID, "level": rec.Level},
+		}); err != nil {
+			log.Printf("recovery emit recovery_failed: node=%d %v", rec.NodeID, err)
+		}
 		if n := notify.FromDB(db); n.Enabled() {
 			_ = n.Send(notify.Event{
 				Event: "recovery_failed",

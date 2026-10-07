@@ -2,10 +2,13 @@ package cert
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"math"
 	"strings"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/herald"
 	"github.com/cuihairu/ferry/server/internal/notify"
 	"github.com/cuihairu/ferry/server/internal/secret"
 	"github.com/cuihairu/ferry/server/internal/storage"
@@ -55,6 +58,7 @@ func Sweep(ctx context.Context, db *gorm.DB, m *Manager, store *secret.Store, no
 				logger.Printf("cert issue: task=%d %v", task.ID, err)
 			}
 		case task.State == StateOK && task.NotAfter != nil && task.NotAfter.Before(now.Add(RenewBefore)):
+			emitExpiring(db, task, now, logger)
 			if err := runRenew(ctx, db, m, notifier, task, now, logger); err != nil {
 				logger.Printf("cert renew: task=%d %v", task.ID, err)
 			}
@@ -148,6 +152,36 @@ func runRenew(ctx context.Context, db *gorm.DB, m *Manager, n *notify.Notifier, 
 		logger.Printf("cert expiry read: task=%d %v", task.ID, err)
 	}
 	return db.Model(&storage.CertTask{}).Where("id = ?", task.ID).Updates(updates).Error
+}
+
+// emitExpiring 临期告警（HERALD-3）：进续期窗口即落事件 outbox，同域名
+// 同日只发一条（dedup_key 带日，ferry 侧查重），续期成功窗口退出自然停发；
+// 失败只记日志不阻断编排。
+func emitExpiring(db *gorm.DB, task storage.CertTask, now time.Time, logger *log.Logger) {
+	key := fmt.Sprintf("cert:%s:cert_expiring:%s", task.Domain, now.Format("20060102"))
+	var n int64
+	if err := db.Model(&storage.Event{}).Where("kind = ? AND dedup_key = ?", herald.KindCertExpiring, key).Count(&n).Error; err != nil {
+		logger.Printf("cert expiring dedup check: task=%d %v", task.ID, err)
+		return
+	}
+	if n > 0 {
+		return
+	}
+	days := int(math.Ceil(task.NotAfter.Sub(now).Hours() / 24))
+	title := fmt.Sprintf("证书 %s 已到期，续期仍未完成", task.Domain)
+	if days > 0 {
+		title = fmt.Sprintf("证书 %s 将于 %d 天后到期", task.Domain, days)
+	}
+	if _, err := herald.Emit(db, herald.EmitInput{
+		Kind: herald.KindCertExpiring, Severity: herald.SeverityWarning,
+		Title:    title,
+		Body:     fmt.Sprintf("到期时间 %s，已进入续期窗口，续期由证书编排自动驱动", task.NotAfter.Format("2006-01-02")),
+		Target:   herald.TargetAdmin,
+		DedupKey: key,
+		Meta:     map[string]any{"task_id": task.ID, "domain": task.Domain, "not_after": task.NotAfter.Format(time.RFC3339)},
+	}); err != nil {
+		logger.Printf("herald emit cert_expiring: task=%d %v", task.ID, err)
+	}
 }
 
 // domains 主域名 + 附加域名（逗号分隔）展开成 -d 序列。
