@@ -3,7 +3,9 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"log"
+	"net/http"
 	"time"
 
 	"github.com/cuihairu/ferry/server/internal/config"
@@ -44,6 +46,24 @@ func main() {
 	go review.Run(ctx, db, time.Duration(cfg.ReviewIntervalSec)*time.Second)
 
 	r := handler.NewRouter(db, cfg)
+	// 面板 Web 证书（P1-7）：settings 里配置了证书即走 HTTPS，
+	// 配置损坏启动中止以免静默降级 HTTP；切换证书需重启生效。
+	cert, hasCert, err := handler.WebTLSCert(db)
+	if err != nil {
+		log.Fatalf("load web cert: %v", err)
+	}
+	if hasCert {
+		log.Printf("ferry listening on %s (https)", cfg.Addr)
+		srv := &http.Server{
+			Addr:      cfg.Addr,
+			Handler:   r,
+			TLSConfig: &tls.Config{Certificates: []tls.Certificate{*cert}, MinVersion: tls.VersionTLS12},
+		}
+		if err := srv.ListenAndServeTLS("", ""); err != nil {
+			log.Fatalf("serve: %v", err)
+		}
+		return
+	}
 	log.Printf("ferry listening on %s", cfg.Addr)
 	if err := r.Run(cfg.Addr); err != nil {
 		log.Fatalf("serve: %v", err)
