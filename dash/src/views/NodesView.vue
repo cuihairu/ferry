@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { get, post, put, del, type Node, type DimensionStatus, type NodeShare } from '../api'
+import { get, post, put, del, type Node, type DimensionStatus, type NodeShare, type BatchProcResult, type BatchConfigResult } from '../api'
 import QRCode from 'qrcode'
 import RuleLibDialog from '../components/RuleLibDialog.vue'
 
@@ -158,6 +158,87 @@ async function copyShareLink() {
   ElMessage.success('分享链接已复制')
 }
 
+// ---- 批量操作（A-15）：选中节点统一下发 proc 操作与配置 ----
+const tableRef = ref()
+const selected = ref<Node[]>([])
+const procBusy = ref(false)
+
+const PROC_TEXT: Record<string, string> = { start: '启动', stop: '停止', reload: '重载' }
+
+function clearSelection() {
+  tableRef.value?.clearSelection()
+}
+
+// summarizeProc 汇总批量回执：全成功给成功提示，有失败列出节点名与原因。
+function summarizeProc(results: BatchProcResult[], names: Map<number, string>) {
+  const fail = results.filter((r) => !r.ok)
+  if (!fail.length) {
+    ElMessage.success(`${PROC_TEXT[results[0]?.action ?? 'start']}指令已下发 ${results.length} 个节点`)
+    return
+  }
+  const detail = fail
+    .slice(0, 5)
+    .map((r) => `${names.get(r.node_id) ?? r.node_id}：${r.error ?? '失败'}`)
+    .join('；')
+  ElMessage.warning(`成功 ${results.length - fail.length} / 失败 ${fail.length}——${detail}`)
+}
+
+async function runProc(action: 'start' | 'stop' | 'reload') {
+  if (!selected.value.length || procBusy.value) return
+  procBusy.value = true
+  try {
+    const ids = selected.value.map((n) => n.id)
+    const names = new Map(selected.value.map((n) => [n.id, n.name]))
+    const res = await post<BatchProcResult[]>('/api/nodes/batch/proc', { ids, action })
+    summarizeProc(res, names)
+    await load()
+  } catch (e) {
+    ElMessage.error(String(e))
+  } finally {
+    procBusy.value = false
+  }
+}
+
+// 批量下发配置对话框：同一份 payload 推到所有选中节点，逐节点回执。
+const cfgVisible = ref(false)
+const cfgBusy = ref(false)
+const cfgForm = reactive({ proc: 'xray', kind: 'xray', payload: '' })
+
+async function sendCfg() {
+  if (!cfgForm.proc.trim() || !cfgForm.payload.trim()) {
+    ElMessage.warning('进程与配置内容必填')
+    return
+  }
+  try {
+    JSON.parse(cfgForm.payload)
+  } catch {
+    ElMessage.warning('配置内容必须是合法 JSON')
+    return
+  }
+  cfgBusy.value = true
+  try {
+    const ids = selected.value.map((n) => n.id)
+    const names = new Map(selected.value.map((n) => [n.id, n.name]))
+    const res = await post<BatchConfigResult[]>('/api/nodes/batch/config', { ids, ...cfgForm })
+    const fail = res.filter((r) => !r.ok || r.status !== 'applied')
+    if (!fail.length) {
+      ElMessage.success(`配置已下发 ${res.length} 个节点`)
+    } else {
+      const detail = fail
+        .slice(0, 5)
+        .map((r) => `${names.get(r.node_id) ?? r.node_id}：${r.error ?? r.status ?? '失败'}`)
+        .join('；')
+      ElMessage.warning(`成功 ${res.length - fail.length} / 失败 ${fail.length}——${detail}`)
+    }
+    cfgVisible.value = false
+    await load()
+  } catch (e) {
+    ElMessage.error(String(e))
+  } finally {
+    cfgBusy.value = false
+  }
+}
+
 function openCreate() {
   editing.value = null
   Object.assign(form, {
@@ -267,13 +348,26 @@ async function remove(n: Node) {
       <el-button type="primary" @click="openCreate">新建节点</el-button>
     </div>
 
+    <!-- 批量操作条（A-15）：选中节点统一 proc/配置下发 -->
+    <div v-if="view === 'nodes' && selected.length" class="batch-bar">
+      <span class="batch-count">已选 {{ selected.length }}</span>
+      <el-button :loading="procBusy" @click="runProc('start')">启动</el-button>
+      <el-button :loading="procBusy" @click="runProc('stop')">停止</el-button>
+      <el-button :loading="procBusy" @click="runProc('reload')">重载</el-button>
+      <el-button type="primary" @click="cfgVisible = true">下发配置</el-button>
+      <el-button @click="clearSelection">取消选择</el-button>
+    </div>
+
     <!-- 节点视角 -->
     <el-table
       v-if="view === 'nodes'"
+      ref="tableRef"
       :data="filtered"
       v-loading="loading"
       :header-cell-style="{ background: 'var(--ferry-bg-panel)' }"
+      @selection-change="(rows: Node[]) => (selected = rows)"
     >
+      <el-table-column type="selection" width="40" />
       <el-table-column prop="name" label="名称" min-width="120" />
       <el-table-column label="角色" width="100">
         <template #default="{ row }">
@@ -403,6 +497,32 @@ async function remove(n: Node) {
       </div>
     </el-dialog>
 
+    <!-- 批量下发配置（A-15）：同一份配置推到选中节点 -->
+    <el-dialog v-model="cfgVisible" :title="`下发配置到 ${selected.length} 个节点`" width="560px">
+      <el-form label-width="80px">
+        <el-form-item label="进程">
+          <el-input v-model="cfgForm.proc" maxlength="32" placeholder="如 xray" />
+        </el-form-item>
+        <el-form-item label="类型">
+          <el-input v-model="cfgForm.kind" maxlength="32" placeholder="如 xray" />
+        </el-form-item>
+        <el-form-item label="配置内容">
+          <el-input
+            v-model="cfgForm.payload"
+            type="textarea"
+            :rows="10"
+            class="config-input"
+            placeholder='{"inbounds": [...]}'
+          />
+          <span class="form-hint">JSON 配置，下发前校验、失败自动回滚</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="cfgVisible = false">取消</el-button>
+        <el-button type="primary" :loading="cfgBusy" @click="sendCfg">下发</el-button>
+      </template>
+    </el-dialog>
+
     <RuleLibDialog v-model="ruleLibVisible" :node="ruleLibFor" />
   </div>
 </template>
@@ -416,6 +536,22 @@ async function remove(n: Node) {
 }
 .toolbar .el-button--primary {
   margin-left: auto;
+}
+.batch-bar {
+  margin-bottom: 12px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--ferry-bg-panel);
+  border: 1px solid var(--ferry-border);
+  border-radius: 8px;
+}
+.batch-count {
+  color: var(--ferry-text-dim);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  margin-right: 4px;
 }
 .form-hint {
   margin-left: 10px;

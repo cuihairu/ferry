@@ -113,6 +113,25 @@ export interface NodeShare {
   link: string
 }
 
+/** BatchProcResult 是批量进程操作的逐节点回执（A-15）。 */
+export interface BatchProcResult {
+  node_id: number
+  proc: string
+  action: string
+  ok: boolean
+  error?: string
+}
+
+/** BatchConfigResult 是批量配置下发的逐节点回执（A-15）。 */
+export interface BatchConfigResult {
+  node_id: number
+  ok: boolean
+  status?: string
+  sha256?: string
+  error?: string
+  http_status?: number
+}
+
 /** UserTemplate 是默认用户模板（P1-5）：新建用户可套用的默认配额/时长/重置周期。 */
 export interface UserTemplate {
   quota_bytes: number
