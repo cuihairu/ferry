@@ -5,10 +5,10 @@
 <h1 align="center">ferry</h1>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white" alt="Go 1.27" />
-  <img src="https://img.shields.io/badge/Vue-3-42b883?logo=vuedotjs&logoColor=white" alt="Vue 3" />
-  <img src="https://img.shields.io/badge/SQLite-PG-MySQL-336791?logo=postgresql&logoColor=white" alt="SQLite / PostgreSQL / MySQL" />
-  <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0" />
+  <img src="docs/public/badges/go.svg" alt="Go 1.27" />
+  <img src="docs/public/badges/vue.svg" alt="Vue 3" />
+  <img src="docs/public/badges/db.svg" alt="SQLite / PostgreSQL / MySQL" />
+  <img src="docs/public/badges/license.svg" alt="Apache-2.0" />
 </p>
 
 ferry 是一个轻量级代理管理面板，面向小内存 VPS，提供用户、节点、订阅链接与流量记账管理。
