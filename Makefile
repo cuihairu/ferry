@@ -1,7 +1,7 @@
 # ferry 统一入口：make build / make test / make dev
-.PHONY: build build-server build-agent build-panel test test-pg dev dev-server dev-panel fmt
+.PHONY: build build-server build-agent build-dash test test-pg dev dev-server dev-dash fmt
 
-build: build-server build-agent build-panel
+build: build-server build-agent build-dash
 
 build-server:
 	cd server && CGO_ENABLED=0 go build -o ../bin/ferry-server ./cmd/ferry
@@ -9,15 +9,15 @@ build-server:
 build-agent:
 	cd agent && CGO_ENABLED=0 go build -o ../bin/ferry-agent ./cmd/agent
 
-build-panel:
-	cd panel && pnpm build
+build-dash:
+	cd dash && pnpm build
 
 test:
 	cd server && go test ./...
 	cd agent && go test ./...
 	cd packages/agentproto && go test ./...
 	cd packages/payment && go test ./...
-	cd panel && pnpm build
+	cd dash && pnpm build
 
 # 需本机 docker：起临时 PostgreSQL 跑存储三方言集成测试
 test-pg:
@@ -27,13 +27,13 @@ test-pg:
 
 # 前后端并行起：make -j2 内 Ctrl-C 同时退出
 dev:
-	$(MAKE) -j2 dev-server dev-panel
+	$(MAKE) -j2 dev-server dev-dash
 
 dev-server:
 	cd server && go run ./cmd/ferry
 
-dev-panel:
-	cd panel && pnpm dev
+dev-dash:
+	cd dash && pnpm dev
 
 fmt:
 	gofmt -w server agent packages/agentproto

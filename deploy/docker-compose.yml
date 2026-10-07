@@ -12,10 +12,10 @@ services:
     volumes:
       - ferry-data:/data
 
-  ferry-panel:
+  ferry-dash:
     build:
       context: ..
-      dockerfile: deploy/ferry-panel.Dockerfile
+      dockerfile: deploy/ferry-dash.Dockerfile
     restart: unless-stopped
     depends_on:
       - ferry-server
