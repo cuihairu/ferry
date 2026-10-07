@@ -22,6 +22,7 @@ type cardBatchInput struct {
 	Name       string     `json:"name"`
 	GrantType  string     `json:"grant_type"` // add_quota / extend_days
 	GrantValue int64      `json:"grant_value"`
+	PriceCents int64      `json:"price_cents"` // 在线售价（分），0=仅兑换不出售（PAY-11）
 	Total      int        `json:"total"`
 	ExpiredAt  *time.Time `json:"expired_at,omitempty"`
 	CreatedBy  string     `json:"created_by"`
@@ -51,6 +52,10 @@ func (h *Handler) createCardBatch(c *gin.Context) {
 		fail(c, http.StatusBadRequest, errors.New("extend_days value must be <= 3650"))
 		return
 	}
+	if in.PriceCents < 0 {
+		fail(c, http.StatusBadRequest, errors.New("price_cents must be >= 0"))
+		return
+	}
 	if in.Total < 1 || in.Total > maxCardsPerBatch {
 		fail(c, http.StatusBadRequest, errors.New("total must be 1-10000"))
 		return
@@ -71,7 +76,7 @@ func (h *Handler) createCardBatch(c *gin.Context) {
 	}
 	batch := storage.CardBatch{
 		Name: in.Name, GrantType: in.GrantType, GrantValue: in.GrantValue,
-		Total: in.Total, ExpiredAt: in.ExpiredAt, CreatedBy: in.CreatedBy,
+		PriceCents: in.PriceCents, Total: in.Total, ExpiredAt: in.ExpiredAt, CreatedBy: in.CreatedBy,
 	}
 	rows := make([]storage.CardCode, 0, len(codes))
 	for _, code := range codes {

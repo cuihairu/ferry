@@ -34,7 +34,7 @@ func (h *Handler) epusdtNotify(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	res, err := h.settlePayment(cb)
+	res, err := h.settlePayment("epusdt", cb)
 	if err != nil {
 		fail(c, http.StatusBadRequest, err)
 		return
@@ -44,8 +44,8 @@ func (h *Handler) epusdtNotify(c *gin.Context) {
 
 // settlePayment 回调结算（单事务）：对单校验（渠道/金额）→ 流水（同
 // trade_id 重复回调幂等返回）→ 订单置 paid → 按订单发放口径执行权益
-// （与卡密兑换共用 applyGrant）。
-func (h *Handler) settlePayment(cb payment.Callback) (gin.H, error) {
+// （与卡密兑换共用 applyGrant）。provider 为回调入口对应的渠道名。
+func (h *Handler) settlePayment(provider string, cb payment.Callback) (gin.H, error) {
 	var out gin.H
 	now := time.Now()
 	err := h.db.Transaction(func(tx *gorm.DB) error {
@@ -56,7 +56,7 @@ func (h *Handler) settlePayment(cb payment.Callback) (gin.H, error) {
 			}
 			return err
 		}
-		if order.Provider != "epusdt" {
+		if order.Provider != provider {
 			return fmt.Errorf("订单渠道不符: %s", order.Provider)
 		}
 		if cb.AmountCents != order.AmountCents {
@@ -65,7 +65,7 @@ func (h *Handler) settlePayment(cb payment.Callback) (gin.H, error) {
 		// 幂等：同 (provider, external_id) 流水已在，或订单已 paid，直接成功返回
 		var dup int64
 		if err := tx.Model(&storage.PaymentTransaction{}).
-			Where("provider = ? AND external_id = ?", "epusdt", cb.ExternalID).
+			Where("provider = ? AND external_id = ?", provider, cb.ExternalID).
 			Count(&dup).Error; err != nil {
 			return err
 		}
@@ -74,7 +74,7 @@ func (h *Handler) settlePayment(cb payment.Callback) (gin.H, error) {
 			return nil
 		}
 		txn := storage.PaymentTransaction{
-			OrderNo: order.OrderNo, Provider: "epusdt", ExternalID: cb.ExternalID,
+			OrderNo: order.OrderNo, Provider: provider, ExternalID: cb.ExternalID,
 			AmountCents: cb.AmountCents, Direction: "in", Raw: string(cb.Raw),
 			OccurredAt: cb.PaidAt, CreatedAt: now,
 		}

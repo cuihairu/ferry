@@ -2,11 +2,13 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/cuihairu/ferry/packages/payment"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/cuihairu/ferry/server/internal/sub"
 	"github.com/gin-gonic/gin"
@@ -163,4 +165,179 @@ func (h *Handler) panelOrders(c *gin.Context) {
 		})
 	}
 	c.JSON(http.StatusOK, out)
+}
+
+// ---- 在线下单（PAY-11，对 epusdt 段）----
+
+// panelProduct 是门户可售商品行：来自卡密批次，设了价（price_cents>0）
+// 且未过期、仍有剩余卡密的批次视为上架。
+type panelProduct struct {
+	ID         uint   `json:"id"`
+	Name       string `json:"name"`
+	PriceCents int64  `json:"price_cents"`
+	GrantType  string `json:"grant_type"`
+	GrantValue int64  `json:"grant_value"`
+	Remaining  int64  `json:"remaining"`
+}
+
+// panelProducts 可售商品列表（GET /api/panel/products）。
+func (h *Handler) panelProducts(c *gin.Context) {
+	if _, ok := h.panelUser(c); !ok {
+		return
+	}
+	var batches []storage.CardBatch
+	if err := h.db.Where("price_cents > 0 AND (expired_at IS NULL OR expired_at > ?)", time.Now()).
+		Order("id DESC").Find(&batches).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	remaining := map[uint]int64{}
+	var rows []struct {
+		BatchID uint
+		Cnt     int64
+	}
+	if err := h.db.Model(&storage.CardCode{}).
+		Select("batch_id, COUNT(*) AS cnt").Where("status = ?", "unused").
+		Group("batch_id").Scan(&rows).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	for _, r := range rows {
+		remaining[r.BatchID] = r.Cnt
+	}
+	out := make([]panelProduct, 0, len(batches))
+	for _, b := range batches {
+		if remaining[b.ID] == 0 {
+			continue
+		}
+		out = append(out, panelProduct{
+			ID: b.ID, Name: b.Name, PriceCents: b.PriceCents,
+			GrantType: b.GrantType, GrantValue: b.GrantValue, Remaining: remaining[b.ID],
+		})
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+// panelCreateOrder 门户下单（POST /api/panel/orders）：{batch_id, provider}。
+// 定价取批次 price_cents，客户端不可传金额；订单先落 pending 作三账锚点，
+// 回调结算（settlePayment）照 PAY-8 路径置 paid 并按批次口径自动发放。
+func (h *Handler) panelCreateOrder(c *gin.Context) {
+	u, ok := h.panelUser(c)
+	if !ok {
+		return
+	}
+	var in struct {
+		BatchID  uint   `json:"batch_id"`
+		Provider string `json:"provider"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil || in.BatchID == 0 || in.Provider == "" {
+		fail(c, http.StatusBadRequest, errors.New("batch_id 与 provider 必填"))
+		return
+	}
+	// 下单会打到上游网关，按 IP 限速兜底（只限频不记失败）。
+	ip := c.ClientIP()
+	if !h.orderLimiter.Allow(ip) {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "下单过于频繁，请稍后再试"})
+		return
+	}
+	provider, err := payment.Get(in.Provider)
+	if err != nil {
+		fail(c, http.StatusBadRequest, errors.New("收款渠道不可用"))
+		return
+	}
+	var batch storage.CardBatch
+	if err := h.db.First(&batch, in.BatchID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			fail(c, http.StatusBadRequest, errors.New("商品不可售"))
+			return
+		}
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	now := time.Now()
+	if batch.PriceCents <= 0 || (batch.ExpiredAt != nil && !batch.ExpiredAt.After(now)) {
+		fail(c, http.StatusBadRequest, errors.New("商品不可售"))
+		return
+	}
+	var sellable int64
+	if err := h.db.Model(&storage.CardCode{}).
+		Where("batch_id = ? AND status = ?", batch.ID, "unused").
+		Count(&sellable).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	if sellable == 0 {
+		fail(c, http.StatusBadRequest, errors.New("商品已售罄"))
+		return
+	}
+	orderNo := fmt.Sprintf("%s-%d-%d", in.Provider, u.ID, now.UnixNano())
+	rcpt, err := provider.CreateOrder(c.Request.Context(), payment.Order{
+		OrderNo: orderNo, UserID: int64(u.ID), AmountCents: batch.PriceCents,
+		Product: batch.Name, CreatedAt: now,
+	})
+	if err != nil {
+		fail(c, http.StatusBadGateway, err) // 上游网关失败
+		return
+	}
+	order := storage.PaymentOrder{
+		OrderNo: orderNo, UserID: u.ID, Provider: in.Provider,
+		AmountCents: batch.PriceCents, Product: batch.Name, Status: "pending",
+		GrantType: batch.GrantType, GrantValue: batch.GrantValue,
+	}
+	if err := h.db.Create(&order).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{
+		"order_no":     orderNo,
+		"provider":     in.Provider,
+		"product":      batch.Name,
+		"amount_cents": batch.PriceCents,
+		"pay_url":      rcpt.PayURL,
+		"external_id":  rcpt.ExternalID,
+		"expires_at":   rcpt.ExpiresAt,
+	})
+}
+
+// panelOrderStatus 单笔订单状态（GET /api/panel/orders/:order_no）：
+// 仅本人可见（他人订单号统一 404，防枚举），归并发放记录。
+func (h *Handler) panelOrderStatus(c *gin.Context) {
+	u, ok := h.panelUser(c)
+	if !ok {
+		return
+	}
+	var order storage.PaymentOrder
+	if err := h.db.Where("order_no = ? AND user_id = ?", c.Param("order_no"), u.ID).
+		First(&order).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	var grants []storage.Grant
+	if err := h.db.Where("order_no = ?", order.OrderNo).Order("id").Find(&grants).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	items := make([]gin.H, 0, len(grants))
+	for i := range grants {
+		items = append(items, gin.H{
+			"grant_type":  grants[i].GrantType,
+			"grant_value": grants[i].GrantValue,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"order_no":     order.OrderNo,
+		"provider":     order.Provider,
+		"product":      order.Product,
+		"amount_cents": order.AmountCents,
+		"status":       order.Status,
+		"grant_type":   order.GrantType,
+		"grant_value":  order.GrantValue,
+		"created_at":   order.CreatedAt,
+		"paid_at":      order.PaidAt,
+		"grants":       items,
+	})
 }

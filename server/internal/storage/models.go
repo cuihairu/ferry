@@ -84,6 +84,7 @@ type CardBatch struct {
 	Name       string     `gorm:"size:128" json:"name"`
 	GrantType  string     `gorm:"size:16" json:"grant_type"`   // add_quota / extend_days
 	GrantValue int64      `gorm:"not null" json:"grant_value"` // 字节数或天数
+	PriceCents int64      `gorm:"default:0" json:"price_cents"` // 在线售价（分），0=仅兑换不出售
 	Total      int        `gorm:"not null" json:"total"`
 	ExpiredAt  *time.Time `json:"expired_at"` // 卡密有效期，空为永久
 	CreatedBy  string     `gorm:"size:64" json:"created_by"`

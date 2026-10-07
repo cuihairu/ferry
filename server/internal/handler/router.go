@@ -24,6 +24,8 @@ type Handler struct {
 	redeemLimiter *ratelimit.Limiter
 	// speedLimiter 是测速字节端点的 IP 限流（30 次/分钟，只 Allow 不记失败）。
 	speedLimiter *ratelimit.Limiter
+	// orderLimiter 是门户在线下单的 IP 限流（10 次/分钟，只 Allow 不记失败）。
+	orderLimiter *ratelimit.Limiter
 }
 
 // NewRouter 创建 gin 引擎并挂载全部路由。
@@ -38,6 +40,10 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 	h.speedLimiter = ratelimit.New(ratelimit.Options{
 		Window:      time.Minute,
 		MaxAttempts: 30,
+	})
+	h.orderLimiter = ratelimit.New(ratelimit.Options{
+		Window:      time.Minute,
+		MaxAttempts: 10,
 	})
 	r := gin.Default()
 
@@ -99,6 +105,10 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 			panel.GET("/me", h.panelMe)
 			panel.POST("/redeem", h.panelRedeem)
 			panel.GET("/orders", h.panelOrders)
+			// 在线下单（PAY-11，对 epusdt 段）
+			panel.GET("/products", h.panelProducts)
+			panel.POST("/orders", h.panelCreateOrder)
+			panel.GET("/orders/:order_no", h.panelOrderStatus)
 		}
 	}
 	// P1-1 管理员登录与鉴权

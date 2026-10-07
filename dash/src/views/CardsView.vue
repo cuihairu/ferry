@@ -28,12 +28,13 @@ const form = reactive({
   name: '',
   grantType: 'add_quota' as CardBatch['grant_type'],
   grantValue: 10,
+  priceYuan: 0,
   total: 10,
   expiredAt: null as Date | null,
 })
 
 function openCreate() {
-  Object.assign(form, { name: '', grantType: 'add_quota', grantValue: 10, total: 10, expiredAt: null })
+  Object.assign(form, { name: '', grantType: 'add_quota', grantValue: 10, priceYuan: 0, total: 10, expiredAt: null })
   createVisible.value = true
 }
 
@@ -52,8 +53,9 @@ async function save() {
     const body: Record<string, unknown> = {
       name,
       grant_type: form.grantType,
-      // 加配额按 GiB 录入，后端口径为字节。
+      // 加配额按 GiB 录入，后端口径为字节；售价按元录入，口径为分。
       grant_value: form.grantType === 'add_quota' ? Math.round(form.grantValue * GB) : form.grantValue,
+      price_cents: Math.round(form.priceYuan * 100),
       total: form.total,
     }
     if (form.expiredAt) body.expired_at = form.expiredAt.toISOString()
@@ -133,6 +135,10 @@ function grantText(b: CardBatch): string {
   return b.grant_type === 'add_quota' ? `+${formatBytes(b.grant_value)}` : `+${b.grant_value} 天`
 }
 
+function priceText(b: CardBatch): string {
+  return b.price_cents > 0 ? `¥${(b.price_cents / 100).toFixed(2)}` : '—'
+}
+
 function batchState(b: CardBatch): { text: string; type: 'success' | 'info' | 'danger' | 'warning' } {
   if (b.expired_at && new Date(b.expired_at).getTime() < Date.now()) return { text: '已过期', type: 'danger' }
   if (b.remaining === 0) return { text: '已售罄', type: 'info' }
@@ -159,6 +165,9 @@ const codeState: Record<CardCode['status'], { text: string; type: 'success' | 'i
       <el-table-column prop="name" label="名称" min-width="150" />
       <el-table-column label="权益" width="130">
         <template #default="{ row }">{{ grantText(row) }}</template>
+      </el-table-column>
+      <el-table-column label="在线售价" width="100">
+        <template #default="{ row }">{{ priceText(row) }}</template>
       </el-table-column>
       <el-table-column label="剩余 / 总数" width="120">
         <template #default="{ row }">{{ row.remaining }} / {{ row.total }}</template>
@@ -197,6 +206,10 @@ const codeState: Record<CardCode['status'], { text: string; type: 'success' | 'i
         </el-form-item>
         <el-form-item :label="form.grantType === 'add_quota' ? '配额 (GiB)' : '时长 (天)'">
           <el-input-number v-model="form.grantValue" :min="1" :step="form.grantType === 'add_quota' ? 10 : 30" />
+        </el-form-item>
+        <el-form-item label="在线售价 (元)">
+          <el-input-number v-model="form.priceYuan" :min="0" :precision="2" :step="10" />
+          <div class="form-tip">0 表示仅卡密兑换，不进入门户在售商品（PAY-11）</div>
         </el-form-item>
         <el-form-item label="生成数量">
           <el-input-number v-model="form.total" :min="1" :max="10000" :step="10" />
@@ -246,6 +259,13 @@ const codeState: Record<CardCode['status'], { text: string; type: 'success' | 'i
   margin-left: 10px;
   color: var(--ferry-text-muted);
   font-size: 12px;
+}
+.form-tip {
+  width: 100%;
+  margin-top: 4px;
+  color: var(--ferry-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
 }
 .code {
   font-family: 'SFMono-Regular', 'JetBrains Mono', Menlo, Consolas, monospace;

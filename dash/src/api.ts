@@ -184,6 +184,7 @@ export interface CardBatch {
   name: string
   grant_type: 'add_quota' | 'extend_days'
   grant_value: number
+  price_cents: number
   total: number
   expired_at: string | null
   created_by: string
