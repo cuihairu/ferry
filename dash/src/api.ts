@@ -106,6 +106,13 @@ export interface User {
   created_at: string
 }
 
+/** UserTemplate 是默认用户模板（P1-5）：新建用户可套用的默认配额/时长/重置周期。 */
+export interface UserTemplate {
+  quota_bytes: number
+  expire_days: number
+  reset_cycle: 'none' | 'day' | 'week' | 'month'
+}
+
 export interface CardBatch {
   id: number
   name: string

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { get, post, put, del, type User } from '../api'
+import { get, post, put, del, type User, type UserTemplate } from '../api'
 import { GB, quotaText, formatDate } from '../utils/format'
 
 // P0-15：用户表格 + 新建/编辑对话框 + 订阅链接复制与重置。
@@ -61,6 +61,19 @@ function openEdit(u: User) {
     hadExpiry: !!u.expires_at,
   })
   dialogVisible.value = true
+}
+
+// 套用默认模板（P1-5）：把设置里的默认配额/时长/周期填进表单，可再改。
+async function applyTemplate() {
+  try {
+    const t = await get<UserTemplate>('/api/user-template')
+    form.quotaGb = t.quota_bytes / GB
+    form.resetCycle = t.reset_cycle || 'none'
+    form.expires = t.expire_days > 0 ? new Date(Date.now() + t.expire_days * 86400000) : null
+    ElMessage.success('已套用默认模板')
+  } catch (e) {
+    ElMessage.error(String(e))
+  }
 }
 
 async function save() {
@@ -175,6 +188,9 @@ async function remove(u: User) {
 
     <el-dialog v-model="dialogVisible" :title="editing ? '编辑用户' : '新建用户'" width="480px">
       <el-form label-width="90px">
+        <el-form-item v-if="!editing">
+          <el-button size="small" @click="applyTemplate">套用默认模板</el-button>
+        </el-form-item>
         <el-form-item label="用户名">
           <el-input v-model="form.username" maxlength="64" placeholder="1-64 字符" />
         </el-form-item>
