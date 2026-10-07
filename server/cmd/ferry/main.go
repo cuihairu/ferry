@@ -4,20 +4,30 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"io"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/handler"
 	"github.com/cuihairu/ferry/server/internal/monitor"
+	"github.com/cuihairu/ferry/server/internal/ringlog"
 	"github.com/cuihairu/ferry/server/internal/review"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/cuihairu/ferry/server/internal/xray"
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
 	cfg := config.Load()
+
+	// 运行日志（P1-11）：std log 与 gin 输出镜像进环形缓冲，供管理端查看。
+	ring := ringlog.Default()
+	log.SetOutput(io.MultiWriter(os.Stderr, ring))
+	gin.DefaultWriter = io.MultiWriter(os.Stdout, ring)
+	gin.DefaultErrorWriter = io.MultiWriter(os.Stderr, ring)
 
 	db, err := storage.Open(cfg.DBDriver, cfg.DBDSN)
 	if err != nil {

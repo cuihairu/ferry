@@ -109,6 +109,8 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		admin.GET("/notify", h.getNotify)
 		admin.PUT("/notify", h.putNotify)
 		admin.POST("/notify/test", h.testNotify)
+		admin.GET("/logs", h.adminLogs)
+		admin.DELETE("/logs", h.clearAdminLogs)
 	}
 	return r
 }
