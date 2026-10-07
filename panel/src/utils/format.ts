@@ -1,17 +1,26 @@
-export const GB = 1024 ** 3
-
-// formatBytes 以 GB/PB 口径展示字节数（小内存 VPS 上配额以 GiB 计）。
+/** formatBytes 人类可读字节数；纯数值函数，不做「不限」等业务措辞。 */
 export function formatBytes(n: number): string {
-  if (n >= 1024 ** 5) return `${(n / 1024 ** 5).toFixed(2)} PB`
-  if (n >= GB) return `${(n / GB).toFixed(n % GB === 0 ? 0 : 1)} GB`
-  if (n >= 1024 ** 2) return `${(n / 1024 ** 2).toFixed(0)} MB`
-  return `${n} B`
+  if (n < 1024) return `${n} B`
+  const units = ['KiB', 'MiB', 'GiB', 'TiB']
+  let v = n
+  let i = -1
+  do {
+    v /= 1024
+    i++
+  } while (v >= 1024 && i < units.length - 1)
+  return `${v.toFixed(v >= 100 ? 0 : 1)} ${units[i]}`
 }
 
-export function formatDate(v: string | null): string {
-  if (!v) return '—'
-  const d = new Date(v)
+/** quotaText 配额展示：0 = 不限。 */
+export function quotaText(bytes: number): string {
+  return bytes === 0 ? '不限' : formatBytes(bytes)
+}
+
+/** formatDate 本地时间展示，空值给破折号。 */
+export function formatDate(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return '—'
-  const p = (x: number) => String(x).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+  const pad = (x: number) => String(x).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }

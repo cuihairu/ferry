@@ -1,11 +1,9 @@
 import { createApp } from 'vue'
-import ElementPlus from 'element-plus'
-import 'element-plus/dist/index.css'
-import 'element-plus/theme-chalk/dark/css-vars.css'
 import './styles/theme.css'
 import App from './App.vue'
+import { router } from './router'
 
-// 暗色为主：直接挂 dark 类，与管理端共用同一套 token 口径。
+// 暗色为主：与 dash 同一套 Linear 风格 token。
 document.documentElement.classList.add('dark')
 
-createApp(App).use(ElementPlus).mount('#app')
+createApp(App).use(router).mount('#app')
