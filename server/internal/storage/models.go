@@ -243,3 +243,36 @@ type Grant struct {
 	CreatedAt  time.Time `json:"created_at"`
 	// 不设 User 关联：发放记录不随用户删除（无外键）。
 }
+
+// Provider 是云提供商凭证（OS-1）：接入 OpenTofu 供给引擎的 provider
+// 认证机密。AccessKey 为 AES-256-GCM 密文（secret 统一入口加密），
+// 接口层永不回显明文，仅 server 执行供给时解密使用。
+type Provider struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	Name      string    `gorm:"size:64;not null" json:"name"`
+	Type      string    `gorm:"size:32;not null" json:"type"`        // OpenTofu provider 名（vultr/hetzner/…）
+	AccessKey string    `gorm:"size:512;not null" json:"access_key"` // 密文，接口层以 has_access_key 呈现
+	Enabled   bool      `gorm:"default:true" json:"enabled"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// ProvisionTemplate 是机型模板（OS-1）：dash 录入，OS-2 渲染 HCL 供给，
+// OS-4 入池时按模板补全节点元数据（方向/线路/区域/成本口径与节点对齐）。
+type ProvisionTemplate struct {
+	ID                uint      `gorm:"primaryKey" json:"id"`
+	Name              string    `gorm:"size:64;not null" json:"name"`
+	ProviderID        uint      `gorm:"index;not null" json:"provider_id"`
+	Plan              string    `gorm:"size:64" json:"plan"`              // 机型 slug
+	Region            string    `gorm:"size:64" json:"region"`            // 区域
+	BwMbps            int       `json:"bw_mbps"`                          // 带宽（Mbps）
+	BillingType       string    `gorm:"size:16" json:"billing_type"`      // 包月 / 按流量
+	MonthlyCostCents  int64     `json:"monthly_cost_cents"`               // 月固定成本（分）
+	TrafficPriceCents int64     `json:"traffic_price_cents"`              // 流量单价（分/GB）
+	Direction         string    `gorm:"size:8;default:out" json:"direction"` // out/in/both
+	LineType          string    `gorm:"size:32" json:"line_type"`         // 163/cn2_gia/cu_vip/cmi/iplc
+	Role              string    `gorm:"size:16;default:entry" json:"role"`   // entry/landing/both/relay
+	Transport         string    `gorm:"size:16" json:"transport"`         // tls/ws-tls/quic/ssh
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}

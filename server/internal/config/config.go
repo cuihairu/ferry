@@ -37,6 +37,9 @@ type Config struct {
 	AdminSecret string `json:"-"`
 	// ApiTokenSecret 是 API Token 签名秘钥，默认 "ferry-api-secret"，可通过 FERRY_API_SECRET 环境变量覆盖。
 	ApiTokenSecret string `json:"-"`
+	// SecretKey 是机密加密主密钥（R24：不入库，部署环境变量/文件注入），
+	// 未配置时云凭证等机密不可录入。可通过 FERRY_SECRET_KEY 覆盖。
+	SecretKey string `json:"-"`
 }
 
 // Load 从环境变量读取配置，未设置的项回退到默认值。
@@ -56,6 +59,7 @@ func Load() Config {
 		RedeemLimiter:        &ratelimit.Options{Window: time.Minute, MaxAttempts: 10, FailLimit: 5, Lockout: 15 * time.Minute},
 		AdminSecret:          envOr("FERRY_ADMIN_SECRET", ""),
 		ApiTokenSecret:       envOr("FERRY_API_SECRET", ""),
+		SecretKey:            envOr("FERRY_SECRET_KEY", ""),
 	}
 }
 
@@ -75,6 +79,7 @@ func Default() Config {
 		RedeemLimiter:        &ratelimit.Options{Window: time.Minute, MaxAttempts: 10, FailLimit: 5, Lockout: 15 * time.Minute},
 		AdminSecret:          "",
 		ApiTokenSecret:       "",
+		SecretKey:            "",
 	}
 }
 

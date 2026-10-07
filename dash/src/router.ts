@@ -10,6 +10,7 @@ export const router = createRouter({
     { path: '/cards', component: () => import('./views/CardsView.vue') },
     { path: '/payments', component: () => import('./views/ReconcileView.vue') },
     { path: '/cost', component: () => import('./views/CostView.vue') },
+    { path: '/provision', component: () => import('./views/ProvisionView.vue') },
     { path: '/landings', component: () => import('./views/LandingsView.vue') },
     { path: '/settings', component: () => import('./views/SettingsView.vue') },
   ],

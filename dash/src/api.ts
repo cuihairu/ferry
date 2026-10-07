@@ -395,3 +395,63 @@ export interface NodeConfigRow {
   error?: string
   created_at: string
 }
+
+// ---- 供给配置（OS-1）----
+
+/** CloudProvider 是云提供商凭证视图：机密不回显，只有 has_access_key。 */
+export interface CloudProvider {
+  id: number
+  name: string
+  type: string
+  enabled: boolean
+  has_access_key: boolean
+}
+
+export function getProviders(): Promise<CloudProvider[]> {
+  return get<CloudProvider[]>('/api/providers')
+}
+
+export function createProvider(body: { name: string; type: string; access_key: string }): Promise<CloudProvider> {
+  return post<CloudProvider>('/api/providers', body)
+}
+
+export function updateProvider(id: number, body: { name?: string; type?: string; access_key?: string; enabled?: boolean }): Promise<CloudProvider> {
+  return put<CloudProvider>(`/api/providers/${id}`, body)
+}
+
+export function deleteProvider(id: number): Promise<{ ok: boolean }> {
+  return del<{ ok: boolean }>(`/api/providers/${id}`)
+}
+
+/** ProvisionTemplate 是机型模板：OS-2 渲染 HCL 供给，OS-4 入池补全元数据。 */
+export interface ProvisionTemplate {
+  id: number
+  name: string
+  provider_id: number
+  plan: string
+  region: string
+  bw_mbps: number
+  billing_type: string
+  monthly_cost_cents: number
+  traffic_price_cents: number
+  direction: 'out' | 'in' | 'both' | string
+  line_type: string
+  role: string
+  transport: string
+}
+
+export function getTemplates(): Promise<ProvisionTemplate[]> {
+  return get<ProvisionTemplate[]>('/api/provision-templates')
+}
+
+export function createTemplate(body: Partial<ProvisionTemplate>): Promise<ProvisionTemplate> {
+  return post<ProvisionTemplate>('/api/provision-templates', body)
+}
+
+export function updateTemplate(id: number, body: Partial<ProvisionTemplate>): Promise<ProvisionTemplate> {
+  return put<ProvisionTemplate>(`/api/provision-templates/${id}`, body)
+}
+
+export function deleteTemplate(id: number): Promise<{ ok: boolean }> {
+  return del<{ ok: boolean }>(`/api/provision-templates/${id}`)
+}

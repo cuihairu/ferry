@@ -11,6 +11,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/ratelimit"
 	"github.com/cuihairu/ferry/server/internal/relaypush"
+	"github.com/cuihairu/ferry/server/internal/secret"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -23,6 +24,8 @@ type Handler struct {
 	hub *agenthub.Hub
 	// pusher 是配置推送通道（手动下发与自动换线重指共用，E-16b）。
 	pusher *relaypush.Pusher
+	// secrets 是机密加密统一入口（R24）：云凭证等机密 AES-256-GCM 落库。
+	secrets *secret.Store
 	// redeemLimiter 是兑换接口的 IP 限流（PAY-5：10 次/分钟，失败 5 次锁 15 分钟）。
 	redeemLimiter *ratelimit.Limiter
 	// speedLimiter 是测速字节端点的 IP 限流（30 次/分钟，只 Allow 不记失败）。
@@ -50,6 +53,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		MaxAttempts: 10,
 	})
 	h.pusher = relaypush.New(db, h.hub, nil)
+	h.secrets = secret.NewStore(cfg.SecretKey)
 	r := gin.Default()
 
 	r.GET("/api/health", h.health)
@@ -77,6 +81,14 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.POST("/pool/:id/suspend", h.suspendPoolNode)
 		api.POST("/pool/:id/resume", h.resumePoolNode)
 		api.GET("/load", h.listLoad)
+		api.GET("/providers", h.listProviders)
+		api.POST("/providers", h.createProvider)
+		api.PUT("/providers/:id", h.updateProvider)
+		api.DELETE("/providers/:id", h.deleteProvider)
+		api.GET("/provision-templates", h.listTemplates)
+		api.POST("/provision-templates", h.createTemplate)
+		api.PUT("/provision-templates/:id", h.updateTemplate)
+		api.DELETE("/provision-templates/:id", h.deleteTemplate)
 		api.GET("/alloc", h.listAlloc)
 		api.PUT("/alloc/policy", h.putAllocPolicy)
 		api.GET("/cost", h.getCost)
