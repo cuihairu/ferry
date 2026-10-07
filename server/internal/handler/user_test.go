@@ -120,3 +120,46 @@ func TestUserValidation(t *testing.T) {
 		t.Fatalf("created disabled user came back enabled: %v", off["enabled"])
 	}
 }
+
+func TestUserResetCycle(t *testing.T) {
+	r := newTestRouter(t)
+
+	// 创建带周期
+	rec := doJSON(t, r, "POST", "/api/users", map[string]any{
+		"username": "cycled", "quota_bytes": 1000, "reset_cycle": "day",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body)
+	}
+	var u map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &u)
+	if u["reset_cycle"] != "day" {
+		t.Fatalf("reset_cycle = %v, want day", u["reset_cycle"])
+	}
+	// 缺席默认 none
+	rec = doJSON(t, r, "POST", "/api/users", map[string]any{"username": "plain"})
+	_ = json.Unmarshal(rec.Body.Bytes(), &u)
+	if u["reset_cycle"] != "none" {
+		t.Fatalf("default reset_cycle = %v, want none", u["reset_cycle"])
+	}
+
+	// 更新改周期
+	rec = doJSON(t, r, "PUT", "/api/users/1", map[string]any{"reset_cycle": "month"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("patch: %d %s", rec.Code, rec.Body)
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &u)
+	if u["reset_cycle"] != "month" {
+		t.Fatalf("patched reset_cycle = %v, want month", u["reset_cycle"])
+	}
+
+	// 非法值 400
+	rec = doJSON(t, r, "PUT", "/api/users/1", map[string]any{"reset_cycle": "yearly"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad cycle: %d %s", rec.Code, rec.Body)
+	}
+	rec = doJSON(t, r, "POST", "/api/users", map[string]any{"username": "bad", "reset_cycle": "weekly"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad cycle on create: %d %s", rec.Code, rec.Body)
+	}
+}

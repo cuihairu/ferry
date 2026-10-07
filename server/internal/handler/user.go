@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/cuihairu/ferry/server/internal/model"
+	"github.com/cuihairu/ferry/server/internal/quota"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -45,6 +46,11 @@ func (h *Handler) createUser(c *gin.Context) {
 		fail(c, http.StatusBadRequest, errors.New("quota_bytes must be >= 0 (0 = unlimited)"))
 		return
 	}
+	cycle, err := resetCycleOrDefault(in.ResetCycle)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
 	if err := h.ensureUsernameFree(username, 0); err != nil {
 		if errors.Is(err, errUsernameTaken) {
 			fail(c, http.StatusConflict, err)
@@ -66,6 +72,7 @@ func (h *Handler) createUser(c *gin.Context) {
 		Username:   username,
 		SubToken:   token,
 		QuotaBytes: quotaOrDefault(in.QuotaBytes),
+		ResetCycle: cycle,
 		ExpiresAt:  in.ExpiresAt,
 		Enabled:    enabled,
 	}
@@ -123,6 +130,14 @@ func (h *Handler) updateUser(c *gin.Context) {
 			return
 		}
 		updates["quota_bytes"] = *in.QuotaBytes
+	}
+	if in.ResetCycle != nil {
+		cycle, err := resetCycleOrDefault(in.ResetCycle)
+		if err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		updates["reset_cycle"] = cycle
 	}
 	if in.ExpiresAt != nil {
 		updates["expires_at"] = *in.ExpiresAt
@@ -223,6 +238,17 @@ func quotaOrDefault(p *int64) int64 {
 		return 0 // 0 = 不限
 	}
 	return *p
+}
+
+// resetCycleOrDefault 归一化重置周期：空/缺席=none，非法值报错。
+func resetCycleOrDefault(p *string) (string, error) {
+	if p == nil || *p == "" {
+		return quota.CycleNone, nil
+	}
+	if !quota.ValidCycle(*p) {
+		return "", errors.New("reset_cycle must be none/day/week/month")
+	}
+	return *p, nil
 }
 
 func isDup(err error) bool {

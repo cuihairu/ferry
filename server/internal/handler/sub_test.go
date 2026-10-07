@@ -185,3 +185,69 @@ func TestSubscriptionAvailability(t *testing.T) {
 		t.Fatalf("userinfo = %q", info)
 	}
 }
+
+// TestSubResetCycleWindow 是 P1-4 语义：day 周期用户窗口外流量不计超限，
+// 窗口内超限才封订阅。
+func TestSubResetCycleWindow(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
+		"name": "hk", "address": "a.example.com", "port": 443, "protocol": "vless",
+		"config": `{"uuid":"u-1","tls":true,"sni":"s.com","net":"ws","path":"/wss","host":"cdn.example.com"}`,
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create node: %d", rec.Code)
+	}
+	if err := db.Model(&storage.Node{}).Where("name=?", "hk").
+		Updates(map[string]any{"role": "entry", "meta_init": true}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	rec = doJSON(t, r, "POST", "/api/users", map[string]any{
+		"username": "cycled", "quota_bytes": 100, "reset_cycle": "day",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create user: %d %s", rec.Code, rec.Body)
+	}
+	var u map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &u)
+	tok := u["sub_token"].(string)
+
+	// 上月 200 超 100：day 窗口外 → 照常出节点，用量头只算窗口内
+	if err := db.Create(&storage.TrafficLog{
+		UserID: uint(u["id"].(float64)), RxBytes: 200,
+		RecordedAt: time.Now().AddDate(0, -1, 0),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	r1 := getSub(t, r, "/sub/"+tok, "v2rayNG/1.8")
+	if r1.Code != http.StatusOK || r1.Body.String() == "" {
+		t.Fatalf("窗口外流量不应封订阅: %d %q", r1.Code, r1.Body)
+	}
+
+	// 今日再记 60：窗口内 60 < 100 → 仍出节点
+	if err := db.Create(&storage.TrafficLog{
+		UserID: uint(u["id"].(float64)), RxBytes: 60, RecordedAt: time.Now(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	r2 := getSub(t, r, "/sub/"+tok, "v2rayNG/1.8")
+	if r2.Code != http.StatusOK || r2.Body.String() == "" {
+		t.Fatalf("窗口内未超限不应封订阅: %d %q", r2.Code, r2.Body)
+	}
+	if !strings.Contains(r2.Header().Get("Subscription-Userinfo"), "total=100") ||
+		strings.Contains(r2.Header().Get("Subscription-Userinfo"), "download=200") {
+		t.Fatalf("用量头应只算窗口内: %q", r2.Header().Get("Subscription-Userinfo"))
+	}
+
+	// 今日累计到 100 → 封
+	if err := db.Create(&storage.TrafficLog{
+		UserID: uint(u["id"].(float64)), RxBytes: 40, RecordedAt: time.Now(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	r3 := getSub(t, r, "/sub/"+tok, "v2rayNG/1.8")
+	if r3.Body.String() != "" {
+		t.Fatalf("窗口内超限应封订阅: %q", r3.Body)
+	}
+}

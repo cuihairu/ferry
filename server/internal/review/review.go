@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/quota"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"gorm.io/gorm"
 )
@@ -33,6 +34,8 @@ func Run(ctx context.Context, db *gorm.DB, interval time.Duration) {
 
 // DisableInactive 一次性停用已到期与已超配额的启用用户，返回停用数。
 // 判定口径与订阅可用性（sub.UserActive）一致：quota=0 不限；used>=quota 即停。
+// 超限按 reset_cycle 分组批量判定（P1-4）：窗口起点只依赖周期与 now，
+// 同周期共享一条 SQL；none=全量累计。
 func DisableInactive(db *gorm.DB, now time.Time) (int64, error) {
 	var total int64
 	res := db.Model(&storage.User{}).
@@ -42,14 +45,26 @@ func DisableInactive(db *gorm.DB, now time.Time) (int64, error) {
 		return total, res.Error
 	}
 	total += res.RowsAffected
-	res = db.Model(&storage.User{}).
-		Where("enabled = ? AND quota_bytes > 0 AND quota_bytes <= ("+
-			"SELECT COALESCE(SUM(rx_bytes + tx_bytes), 0) FROM traffic_logs WHERE traffic_logs.user_id = users.id"+
-			")", true).
-		Update("enabled", false)
-	if res.Error != nil {
-		return total, res.Error
+	for _, cycle := range []string{quota.CycleNone, quota.CycleDay, quota.CycleWeek, quota.CycleMonth} {
+		n, err := disableOverQuota(db, cycle, now)
+		if err != nil {
+			return total, err
+		}
+		total += n
 	}
-	total += res.RowsAffected
 	return total, nil
+}
+
+// disableOverQuota 停用单一周期内超配额的启用用户。
+func disableOverQuota(db *gorm.DB, cycle string, now time.Time) (int64, error) {
+	sub := "SELECT COALESCE(SUM(rx_bytes + tx_bytes), 0) FROM traffic_logs WHERE traffic_logs.user_id = users.id"
+	args := []any{true, cycle}
+	if since := quota.WindowStart(cycle, now); !since.IsZero() {
+		sub += " AND recorded_at >= ?"
+		args = append(args, since)
+	}
+	res := db.Model(&storage.User{}).
+		Where("enabled = ? AND reset_cycle = ? AND quota_bytes > 0 AND quota_bytes <= ("+sub+")", args...).
+		Update("enabled", false)
+	return res.RowsAffected, res.Error
 }

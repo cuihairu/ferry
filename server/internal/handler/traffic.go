@@ -7,12 +7,24 @@ import (
 	"time"
 
 	"github.com/cuihairu/ferry/server/internal/model"
+	"github.com/cuihairu/ferry/server/internal/quota"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // maxTrafficBatch 限制单批记账条数，防误传大载荷。
 const maxTrafficBatch = 1000
+
+// usageQuery 返回用户已用流量的窗口化查询（P1-4）：reset_cycle 为
+// day/week/month 时只算当前窗口内的记录，none=全量累计。
+func (h *Handler) usageQuery(userID uint, cycle string, now time.Time) *gorm.DB {
+	q := h.db.Model(&storage.TrafficLog{}).Where("user_id = ?", userID)
+	if since := quota.WindowStart(cycle, now); !since.IsZero() {
+		q = q.Where("recorded_at >= ?", since)
+	}
+	return q
+}
 
 // recordTraffic 写入用户级流量记账（P0-9），单条或批量共用 items 数组。
 func (h *Handler) recordTraffic(c *gin.Context) {

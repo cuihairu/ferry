@@ -82,3 +82,58 @@ func TestDisableInactiveEmpty(t *testing.T) {
 		t.Fatalf("empty db: n=%d err=%v", n, err)
 	}
 }
+
+func TestDisableInactiveRespectsResetCycle(t *testing.T) {
+	db, err := storage.Open(storage.DriverSQLite, filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+
+	// day 用户：上月 200 超 100 配额，但窗口外不计；今日 60 未超 → 不停。
+	dayUser := storage.User{Username: "day-u", SubToken: "c1", Enabled: true, QuotaBytes: 100, ResetCycle: "day"}
+	// none 用户：同样流量分布，全量 260 ≥ 100 → 停。
+	noneUser := storage.User{Username: "none-u", SubToken: "c2", Enabled: true, QuotaBytes: 100, ResetCycle: "none"}
+	users := []storage.User{dayUser, noneUser}
+	if err := db.Create(&users).Error; err != nil {
+		t.Fatalf("seed users: %v", err)
+	}
+	dayUser, noneUser = users[0], users[1]
+
+	now := time.Now()
+	traffic := []storage.TrafficLog{
+		{UserID: dayUser.ID, RxBytes: 100, TxBytes: 100, RecordedAt: now.Add(-30 * 24 * time.Hour)}, // 上月
+		{UserID: dayUser.ID, RxBytes: 60, TxBytes: 0, RecordedAt: now.Add(-time.Hour)},              // 今天
+		{UserID: noneUser.ID, RxBytes: 100, TxBytes: 100, RecordedAt: now.Add(-30 * 24 * time.Hour)},
+		{UserID: noneUser.ID, RxBytes: 60, TxBytes: 0, RecordedAt: now.Add(-time.Hour)},
+	}
+	if err := db.Create(&traffic).Error; err != nil {
+		t.Fatalf("seed traffic: %v", err)
+	}
+
+	n, err := DisableInactive(db, now)
+	if err != nil {
+		t.Fatalf("DisableInactive: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("disabled = %d, want 1 (只有 none 用户)", n)
+	}
+	var out []storage.User
+	if err := db.Order("id").Find(&out).Error; err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]bool{}
+	for _, u := range out {
+		byName[u.Username] = u.Enabled
+	}
+	if !byName["day-u"] {
+		t.Fatal("day 用户窗口外流量不应计入超限，不该被停用")
+	}
+	if byName["none-u"] {
+		t.Fatal("none 用户全量 260 ≥ 100 应被停用")
+	}
+}

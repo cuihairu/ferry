@@ -8,6 +8,7 @@ type User struct {
 	Username    string     `gorm:"size:64;uniqueIndex" json:"username"`
 	SubToken    string     `gorm:"size:64;uniqueIndex" json:"sub_token"`
 	QuotaBytes  int64      `gorm:"default:0" json:"quota_bytes"`
+	ResetCycle  string     `gorm:"size:8;default:none" json:"reset_cycle"` // 流量重置周期（P1-4）：none/day/week/month
 	ExpiresAt   *time.Time `json:"expires_at"`
 	Enabled     bool       `gorm:"default:true" json:"enabled"`
 	IsAdmin     bool       `gorm:"default:false" json:"is_admin"`

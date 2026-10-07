@@ -60,6 +60,7 @@ type User struct {
 type UserInput struct {
 	Username   string     `json:"username"`
 	QuotaBytes *int64     `json:"quota_bytes,omitempty"`
+	ResetCycle *string    `json:"reset_cycle,omitempty"` // 流量重置周期（P1-4）：none/day/week/month
 	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
 	Enabled    *bool      `json:"enabled,omitempty"`
 	// ClearExpires 置真清除到期时间（JSON null 与字段缺席无法区分，用显式语义）。

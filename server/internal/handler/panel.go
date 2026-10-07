@@ -56,9 +56,9 @@ func (h *Handler) panelMe(c *gin.Context) {
 		return
 	}
 	var usage trafficUsage
-	if err := h.db.Model(&storage.TrafficLog{}).
+	if err := h.usageQuery(u.ID, u.ResetCycle, time.Now()).
 		Select("COALESCE(SUM(rx_bytes),0) AS rx, COALESCE(SUM(tx_bytes),0) AS tx").
-		Where("user_id = ?", u.ID).Scan(&usage).Error; err != nil {
+		Scan(&usage).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
