@@ -61,6 +61,9 @@ type Event struct {
 // ErrNotSuspended 手动复位时节点不在摘除状态。
 var ErrNotSuspended = errors.New("node not suspended")
 
+// ErrAlreadySuspended 手动摘除时节点已在摘除状态。
+var ErrAlreadySuspended = errors.New("node already suspended")
+
 // Loop 周期执行摘挂判定直到 ctx 取消；状态迁移记日志并外发事件。
 func Loop(ctx context.Context, db *gorm.DB, interval time.Duration, logger *log.Logger) {
 	if logger == nil {
@@ -165,6 +168,34 @@ func Resume(db *gorm.DB, nodeID uint, logger *log.Logger) (storage.Node, error) 
 	logger.Printf("pool manual_resume: node %d %s", n.ID, n.Name)
 	announce(db, logger, Event{NodeID: n.ID, Name: n.Name, Action: "manual_resume", Reason: reason})
 	n.PoolState, n.PoolReason = StateActive, reason
+	now := time.Now()
+	n.PoolChangedAt = &now
+	return n, nil
+}
+
+// Suspend 手动摘除（E-25 管理端）：立即出池（订阅即时生效）并留痕通知；
+// 摘除态复位仍走自动判定或手动复位。已在摘除态报 ErrAlreadySuspended。
+func Suspend(db *gorm.DB, nodeID uint, logger *log.Logger) (storage.Node, error) {
+	if logger == nil {
+		logger = log.Default()
+	}
+	var n storage.Node
+	if err := db.First(&n, nodeID).Error; err != nil {
+		return storage.Node{}, err
+	}
+	if n.Role != "entry" && n.Role != "both" {
+		return storage.Node{}, errors.New("node is not an entry")
+	}
+	if n.PoolState == StateSuspended {
+		return storage.Node{}, ErrAlreadySuspended
+	}
+	reason := "手动摘除"
+	if err := setPoolState(db, n.ID, StateSuspended, reason); err != nil {
+		return storage.Node{}, err
+	}
+	logger.Printf("pool manual_suspend: node %d %s", n.ID, n.Name)
+	announce(db, logger, Event{NodeID: n.ID, Name: n.Name, Action: "manual_suspend", Reason: reason})
+	n.PoolState, n.PoolReason = StateSuspended, reason
 	now := time.Now()
 	n.PoolChangedAt = &now
 	return n, nil

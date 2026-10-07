@@ -70,6 +70,9 @@ export interface Node {
   isp: string
   transport: string
   last_seen: string | null
+  pool_state: 'active' | 'suspended' | string
+  pool_changed_at: string | null
+  pool_reason: string
 }
 
 /** DimensionStatus 是区域/运营商聚合判定的状态灯（GET /api/dimension-status）。 */
@@ -154,6 +157,15 @@ export interface GroupCost {
   traffic_cents: number
   fixed_cents: number
   projected_cents: number
+}
+
+/** NodeLoad 是节点负载快照：连接数/实测吞吐/带宽利用率（E-25，util_pct=-1 无采样）。 */
+export interface NodeLoad {
+  node_id: number
+  conns: number
+  mbps: number
+  capacity_mbps: number
+  util_pct: number
 }
 
 export interface User {

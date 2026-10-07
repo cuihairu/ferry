@@ -52,6 +52,27 @@ func (h *Handler) listPool(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
+// suspendPoolNode 手动摘除（POST /api/pool/:id/suspend）：立即出池留痕，
+// 订阅入口池即时消失；重复摘除 409，非入口节点 400。
+func (h *Handler) suspendPoolNode(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		return
+	}
+	node, err := pool.Suspend(h.db, uint(id), nil)
+	switch {
+	case err == nil:
+		c.JSON(http.StatusOK, node)
+	case errors.Is(err, pool.ErrAlreadySuspended):
+		c.JSON(http.StatusConflict, gin.H{"error": "节点已在摘除状态"})
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+	default:
+		fail(c, http.StatusBadRequest, err)
+	}
+}
+
 // resumePoolNode 手动复位（POST /api/pool/:id/resume）：仅摘除态可复位，
 // 其余口径（404/409）与防枚举一致。
 func (h *Handler) resumePoolNode(c *gin.Context) {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { get, post, put, del, resolveAlert, upgradeNode, type Node, type DimensionStatus, type NodeShare, type BatchProcResult, type BatchConfigResult, type Alert } from '../api'
+import { get, post, put, del, resolveAlert, upgradeNode, type Node, type DimensionStatus, type NodeShare, type BatchProcResult, type BatchConfigResult, type Alert, type NodeLoad } from '../api'
 import QRCode from 'qrcode'
 import RuleLibDialog from '../components/RuleLibDialog.vue'
 
@@ -54,14 +54,16 @@ const filtered = computed(() =>
 async function load() {
   loading.value = true
   try {
-    const [ns, ds, as] = await Promise.all([
+    const [ns, ds, as, ls] = await Promise.all([
       get<Node[]>('/api/nodes'),
       get<DimensionStatus[]>('/api/dimension-status'),
       get<Alert[]>('/api/alerts?limit=200'),
+      get<NodeLoad[]>('/api/load'),
     ])
     nodes.value = ns
     dims.value = ds
     alerts.value = as
+    loads.value = ls
   } catch (e) {
     ElMessage.error(String(e))
   } finally {
@@ -69,6 +71,46 @@ async function load() {
   }
 }
 onMounted(load)
+
+// ---- 负载看板（E-25）：连接数/实测吞吐/带宽利用率，超 80% 红标 ----
+const loads = ref<NodeLoad[]>([])
+
+function loadOf(id: number): NodeLoad | undefined {
+  return loads.value.find((l) => l.node_id === id)
+}
+
+// loadCell 负载列视图模型：无采样 has=false 展示「—」。
+function loadCell(id: number): { has: boolean; pct: number; over: boolean; status: 'success' | 'warning' | 'exception'; text: string } {
+  const l = loadOf(id)
+  if (!l || l.util_pct < 0) {
+    return { has: false, pct: 0, over: false, status: 'success', text: '' }
+  }
+  return {
+    has: true,
+    pct: Math.min(l.util_pct, 100),
+    over: l.util_pct > 80,
+    status: l.util_pct > 80 ? 'exception' : l.util_pct > 60 ? 'warning' : 'success',
+    text: `${l.conns} 连接 · ${Math.round(l.mbps)} Mbps / ${l.capacity_mbps} Mbps`,
+  }
+}
+
+async function togglePool(row: Node) {
+  const suspending = row.pool_state !== 'suspended'
+  if (suspending) {
+    await ElMessageBox.confirm(
+      `摘除后 ${row.name} 立即退出订阅入口池（agent 连接保持），确认？`,
+      '手动摘除',
+      { type: 'warning' },
+    )
+  }
+  try {
+    await post(`/api/pool/${row.id}/${suspending ? 'suspend' : 'resume'}`)
+    ElMessage.success(suspending ? '已摘除' : '已复位')
+    await load()
+  } catch (e) {
+    ElMessage.error(String(e))
+  }
+}
 
 // ---- 告警（A-22）：活跃告警计数与节点映射 ----
 const activeAlerts = computed(() => alerts.value.filter((a) => a.state === 'active'))
@@ -504,17 +546,45 @@ async function remove(n: Node) {
       <el-table-column prop="region" label="区域" width="90" />
       <el-table-column prop="isp" label="运营商" width="90" />
       <el-table-column prop="line_type" label="线路" width="90" />
+      <el-table-column label="负载" width="150">
+        <template #default="{ row }">
+          <el-tooltip v-if="loadCell(row.id).has" :content="loadCell(row.id).text">
+            <div class="load-cell">
+              <el-progress
+                :percentage="loadCell(row.id).pct"
+                :stroke-width="6"
+                :show-text="false"
+                :status="loadCell(row.id).status"
+              />
+              <span class="load-text" :class="{ over: loadCell(row.id).over }">{{ loadCell(row.id).pct }}%</span>
+            </div>
+          </el-tooltip>
+          <span v-else class="load-na">—</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="入口池" width="90">
+        <template #default="{ row }">
+          <el-tag v-if="row.pool_state === 'suspended'" type="warning" size="small" effect="dark" disable-transitions>已摘除</el-tag>
+          <span v-else-if="row.role === 'entry' || row.role === 'both'" class="pool-ok">在池</span>
+          <span v-else>—</span>
+        </template>
+      </el-table-column>
       <el-table-column label="启用" width="70">
         <template #default="{ row }">
           <el-switch :model-value="row.enabled" @change="(v: boolean) => toggleEnabled(row, v)" />
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="280" fixed="right">
+      <el-table-column label="操作" width="320" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
           <el-button link type="primary" @click="openShare(row)">分享</el-button>
           <el-button link type="primary" @click="openRuleLib(row)">分流</el-button>
           <el-button link type="primary" @click="openUpgrade(row)">升级</el-button>
+          <el-button
+            v-if="(row.role === 'entry' || row.role === 'both') && row.enabled"
+            link :type="row.pool_state === 'suspended' ? 'success' : 'warning'"
+            @click="togglePool(row)"
+          >{{ row.pool_state === 'suspended' ? '复位' : '摘除' }}</el-button>
           <el-button link type="danger" @click="remove(row)">删除</el-button>
         </template>
       </el-table-column>
@@ -862,5 +932,30 @@ async function remove(n: Node) {
   font-size: 13px;
   padding: 24px 0;
   text-align: center;
+}
+.load-cell {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.load-cell .el-progress {
+  flex: 1;
+}
+.load-text {
+  font-size: 12px;
+  color: var(--ferry-text-muted);
+  min-width: 32px;
+  text-align: right;
+}
+.load-text.over {
+  color: var(--ferry-danger);
+  font-weight: 650;
+}
+.load-na {
+  color: var(--ferry-text-muted);
+}
+.pool-ok {
+  color: var(--ferry-text-muted);
+  font-size: 12px;
 }
 </style>
