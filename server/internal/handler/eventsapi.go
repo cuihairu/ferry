@@ -114,5 +114,6 @@ func (h *Handler) eventResult(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
+	h.touchResult(in.EventID, in.Status, in.Detail) // 触达任务联动（TOUCH-5）
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
