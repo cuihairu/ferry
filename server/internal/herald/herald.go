@@ -6,6 +6,7 @@ package herald
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/cuihairu/ferry/server/internal/storage"
@@ -35,8 +36,19 @@ const (
 	KindRecoveryFailed = "recovery_failed" // 恢复流水线全级耗尽（升级人工）
 	KindCertExpiring   = "cert_expiring"   // 证书临近到期
 
+	// 用户触达（HERALD-4，§2.2；站内信照发，本通道供站外投递）。
+	KindExpire = "expire" // 账号到期提醒
+	KindQuota  = "quota"  // 流量预警
+	KindOrder  = "order"  // 发放/订单结果
+	KindNotice = "notice" // 公告
+
 	TargetAdmin = "admin"
 )
+
+// TargetUser 用户维度的 target 取值（user:<id>）。
+func TargetUser(id int64) string {
+	return fmt.Sprintf("user:%d", id)
+}
 
 // ValidSeverity 严重度取值是否合法。
 func ValidSeverity(s string) bool {

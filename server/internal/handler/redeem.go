@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/herald"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -164,11 +165,22 @@ func applyGrant(tx *gorm.DB, orderNo string, u *storage.User, grantType string, 
 	if err := tx.Create(&grant).Error; err != nil {
 		return err
 	}
-	// 事件触发（NT-2）：发放到账落一条 system 站内信，与发放同事务原子。
-	return tx.Create(&storage.Notification{
+	// 事件触发（NT-2）：发放到账落一条 system 站内信，与发放同事务原子；
+	// 站外投递走同一事件接口（HERALD-4），同事务原子（orderNo 做去重键）。
+	if err := tx.Create(&storage.Notification{
 		UserID: int64(u.ID), Type: storage.NotifSystem,
 		Title: grantNotifTitle(grantType, grantValue), CreatedAt: now,
-	}).Error
+	}).Error; err != nil {
+		return err
+	}
+	_, err := herald.Emit(tx, herald.EmitInput{
+		Kind: herald.KindOrder, Severity: herald.SeverityInfo,
+		Title:    grantNotifTitle(grantType, grantValue),
+		Target:   herald.TargetUser(int64(u.ID)),
+		DedupKey: fmt.Sprintf("order:%d:%s", u.ID, orderNo),
+		Meta:     map[string]any{"user_id": u.ID, "order_no": orderNo, "grant_type": grantType, "grant_value": grantValue},
+	})
+	return err
 }
 
 // grantNotifTitle 发放到账通知文案：流量给人类可读量级，时长给天数。

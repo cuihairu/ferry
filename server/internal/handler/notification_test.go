@@ -2,8 +2,10 @@ package handler
 
 import (
 	"encoding/json"
-	"strconv"
+	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,6 +34,14 @@ func TestNotificationCenter(t *testing.T) {
 	}
 	if out.Created != 2 {
 		t.Fatalf("created = %d, want 2", out.Created)
+	}
+	// 站外事件（HERALD-4）：公告同批落 notice 事件，启用用户各一条
+	var evs []storage.Event
+	if err := db.Where("kind = ?", "notice").Find(&evs).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 2 || evs[0].Kind != "notice" || evs[0].Severity != "info" || !strings.HasPrefix(evs[0].Target, "user:") {
+		t.Fatalf("notice events = %+v", evs)
 	}
 
 	// 未读数
@@ -126,6 +136,12 @@ func TestNotificationCenter(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &out)
 	if out.Created != 2 {
 		t.Fatalf("fanout with disabled = %d, want 2", out.Created)
+	}
+	// 禁用用户不落 notice 事件（第二轮 +2=4）
+	var n int64
+	db.Model(&storage.Event{}).Where("kind = ?", "notice").Count(&n)
+	if n != 4 {
+		t.Fatalf("notice events after round2 = %d, want 4", n)
 	}
 
 	// 管理端列表 type 过滤
@@ -248,6 +264,17 @@ func TestGrantNotifiesUser(t *testing.T) {
 	}
 	if notifs[0].Title != "流量已到账：+1 GB" {
 		t.Fatalf("title = %q", notifs[0].Title)
+	}
+	// 站外事件（HERALD-4）：同事务落 order 事件，target=user:<id> 带 order_no
+	var evs []storage.Event
+	if err := db.Where("kind = ?", "order").Find(&evs).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 || evs[0].Target != fmt.Sprintf("user:%d", userID) || evs[0].DedupKey == "" {
+		t.Fatalf("order events = %+v", evs)
+	}
+	if !strings.Contains(evs[0].Meta, "order_no") || !strings.Contains(evs[0].Title, "1 GB") {
+		t.Fatalf("order event = %+v", evs[0])
 	}
 	// 未读数应计上
 	rec = doPanel(t, r, token, "GET", "/api/panel/notifications/unread-count", nil)

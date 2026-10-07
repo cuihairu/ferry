@@ -11,6 +11,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/herald"
 	"github.com/cuihairu/ferry/server/internal/quota"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"gorm.io/gorm"
@@ -71,6 +72,15 @@ func sweepExpiry(db *gorm.DB, now time.Time) error {
 		}).Error; err != nil {
 			return err
 		}
+		// 站外投递走同一事件接口（HERALD-4）：站内信已落才发，去重随通知闸门。
+		// Emit 只在落库失败时返错（与站内信同一 DB），失败不阻断扫描。
+		_, _ = herald.Emit(db, herald.EmitInput{
+			Kind: herald.KindExpire, Severity: herald.SeverityInfo,
+			Title:    expiryText(*u.ExpiresAt, now),
+			Target:   herald.TargetUser(int64(u.ID)),
+			DedupKey: fmt.Sprintf("expire:%d:%s", u.ID, now.Format("20060102")),
+			Meta:     map[string]any{"user_id": u.ID, "expires_at": u.ExpiresAt.Format(time.RFC3339)},
+		})
 	}
 	return nil
 }
@@ -120,12 +130,21 @@ func sweepTraffic(db *gorm.DB, now time.Time) error {
 		if pct < warn {
 			continue
 		}
+		title := fmt.Sprintf("流量预警：本周期已用 %d%%", pct)
 		if err := db.Create(&storage.Notification{
 			UserID: int64(u.ID), Type: storage.NotifTraffic,
-			Title: fmt.Sprintf("流量预警：本周期已用 %d%%", pct), CreatedAt: now,
+			Title: title, CreatedAt: now,
 		}).Error; err != nil {
 			return err
 		}
+		// 站外投递走同一事件接口（HERALD-4），口径同到期扫描。
+		_, _ = herald.Emit(db, herald.EmitInput{
+			Kind: herald.KindQuota, Severity: herald.SeverityInfo,
+			Title:    title,
+			Target:   herald.TargetUser(int64(u.ID)),
+			DedupKey: fmt.Sprintf("quota:%d:%s", u.ID, now.Format("20060102")),
+			Meta:     map[string]any{"user_id": u.ID, "used_percent": pct, "warn_percent": warn},
+		})
 	}
 	return nil
 }

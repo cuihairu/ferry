@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/herald"
 	"github.com/cuihairu/ferry/server/internal/ringlog"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
@@ -18,7 +19,9 @@ import (
 // 已读态挂在行上。面板侧读与已读流转、偏好设置；dash 侧公告扇出与全量列表。
 // 到期/流量预警的定时扫描在 internal/notifyscan；发放到账的事件触发在 applyGrant。
 
-// fanoutAnnouncement 公告扇出：给全部启用用户各落一行，分批写入。
+// fanoutAnnouncement 公告扇出：给全部启用用户各落一行，分批写入；
+// 站外投递走同一事件接口（HERALD-4），事件行同批落 outbox（公告为管理侧
+// 主动动作，不设 dedup_key——每次发布都是有意图的一次触达）。
 // 返回实际落行数（禁用用户不收）。
 func fanoutAnnouncement(db *gorm.DB, title, body string) (int64, error) {
 	var ids []int64
@@ -29,11 +32,24 @@ func fanoutAnnouncement(db *gorm.DB, title, body string) (int64, error) {
 		return 0, nil
 	}
 	rows := make([]storage.Notification, 0, len(ids))
+	events := make([]storage.Event, 0, len(ids))
 	for _, id := range ids {
 		rows = append(rows, storage.Notification{UserID: id, Type: storage.NotifAnnouncement, Title: title, Body: body})
+		events = append(events, storage.Event{
+			Kind: herald.KindNotice, Severity: herald.SeverityInfo,
+			Title: title, Body: body,
+			Target: herald.TargetUser(id), Status: herald.StatusPending,
+			OccurredAt: time.Now(), CreatedAt: time.Now(),
+		})
 	}
 	res := db.CreateInBatches(rows, 500)
-	return res.RowsAffected, res.Error
+	if res.Error != nil {
+		return 0, res.Error
+	}
+	if err := db.CreateInBatches(events, 500).Error; err != nil {
+		return res.RowsAffected, err
+	}
+	return res.RowsAffected, nil
 }
 
 // createAnnouncement 发布公告（POST /api/notifications/announcement，OD 无关，NT-1）：

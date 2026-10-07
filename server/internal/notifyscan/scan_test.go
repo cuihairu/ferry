@@ -1,6 +1,7 @@
 package notifyscan
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -10,10 +11,12 @@ import (
 	"gorm.io/gorm"
 )
 
-// newTestDB 建内存库并迁移全部表。
+// newTestDB 建内存库并迁移全部表。按测试名+时刻隔离：cache=shared 共库
+// 会跨测试残留行（-count=2 串场教训在案）。
 func newTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	dsn := fmt.Sprintf("file:notifyscan-%s-%d?mode=memory&cache=shared", t.Name(), time.Now().UnixNano())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,6 +71,15 @@ func TestSweepExpiry(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("expiry notifications = %d, want 1（仅窗口内启用且开偏好的 exp-3d）", len(rows))
 	}
+	// 站外事件（HERALD-4）：随站内信同落 expire 事件，target=user:<id>
+	var evs []storage.Event
+	if err := db.Where("kind = ?", "expire").Find(&evs).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 || evs[0].Target != fmt.Sprintf("user:%d", users[0].ID) ||
+		evs[0].DedupKey != fmt.Sprintf("expire:%d:%s", users[0].ID, now.Format("20060102")) {
+		t.Fatalf("expire events = %+v", evs)
+	}
 
 	// 同日再扫：去重不发
 	if err := Sweep(db, now); err != nil {
@@ -79,6 +91,11 @@ func TestSweepExpiry(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("same-day sweep should dedup, got %d", len(rows))
 	}
+	var n int64
+	db.Model(&storage.Event{}).Where("kind = ?", "expire").Count(&n)
+	if n != 1 {
+		t.Fatalf("same-day expire events = %d, want 1", n)
+	}
 
 	// 跨日再扫：再发一条
 	if err := Sweep(db, now.Add(24*time.Hour)); err != nil {
@@ -89,6 +106,10 @@ func TestSweepExpiry(t *testing.T) {
 	}
 	if len(rows) != 2 {
 		t.Fatalf("next-day sweep should notify again, got %d", len(rows))
+	}
+	db.Model(&storage.Event{}).Where("kind = ?", "expire").Count(&n)
+	if n != 2 {
+		t.Fatalf("next-day expire events = %d, want 2", n)
 	}
 
 	// 已到期（差值为负）也提醒，文案带「已到期」
@@ -145,6 +166,18 @@ func TestSweepTraffic(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("traffic notifications = %d, want 1（仅 tr-90 达阈值）", len(rows))
 	}
+	// 站外事件（HERALD-4）：随站内信同落 quota 事件
+	var tr storage.User
+	if err := db.Where("username = ?", "tr-90").First(&tr).Error; err != nil {
+		t.Fatal(err)
+	}
+	var evs []storage.Event
+	if err := db.Where("kind = ?", "quota").Find(&evs).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 || evs[0].Target != fmt.Sprintf("user:%d", tr.ID) {
+		t.Fatalf("quota events = %+v", evs)
+	}
 
 	// 同日去重
 	if err := Sweep(db, now); err != nil {
@@ -155,6 +188,11 @@ func TestSweepTraffic(t *testing.T) {
 	}
 	if len(rows) != 1 {
 		t.Fatalf("same-day sweep should dedup, got %d", len(rows))
+	}
+	var n int64
+	db.Model(&storage.Event{}).Where("kind = ?", "quota").Count(&n)
+	if n != 1 {
+		t.Fatalf("same-day quota events = %d, want 1", n)
 	}
 }
 
