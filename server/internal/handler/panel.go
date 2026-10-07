@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/ferry/packages/payment"
+	"github.com/cuihairu/ferry/server/internal/save"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/cuihairu/ferry/server/internal/sub"
 	"github.com/gin-gonic/gin"
@@ -355,48 +356,10 @@ func (h *Handler) panelSavings(c *gin.Context) {
 		return
 	}
 	monthStart := time.Now().UTC().Format("2006-01") + "-01"
-
-	var saves []struct {
-		NodeID   uint
-		Direct   int64
-		CacheHit int64
-		Blocked  int64
-	}
-	if err := h.db.Model(&storage.SaveStat{}).
-		Select("node_id, COALESCE(SUM(direct_bytes),0) AS direct, COALESCE(SUM(cache_hit_bytes),0) AS cache_hit, COALESCE(SUM(blocked_bytes),0) AS blocked").
-		Where("day >= ?", monthStart).
-		Group("node_id").Scan(&saves).Error; err != nil {
+	direct, cacheHit, blocked, err := save.UserSavings(h.db, u.ID, monthStart)
+	if err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
-	}
-
-	var usages []struct {
-		NodeID uint
-		Total  int64
-		Mine   int64
-	}
-	if err := h.db.Model(&storage.TrafficLog{}).
-		Select("node_id, COALESCE(SUM(rx_bytes+tx_bytes),0) AS total, COALESCE(SUM(CASE WHEN user_id = ? THEN rx_bytes+tx_bytes ELSE 0 END),0) AS mine", u.ID).
-		Where("recorded_at >= ? AND node_id IS NOT NULL", monthStart).
-		Group("node_id").Scan(&usages).Error; err != nil {
-		fail(c, http.StatusInternalServerError, err)
-		return
-	}
-
-	byNode := make(map[uint]struct{ total, mine int64 }, len(usages))
-	for _, us := range usages {
-		byNode[us.NodeID] = struct{ total, mine int64 }{us.Total, us.Mine}
-	}
-	var direct, cacheHit, blocked int64
-	for _, s := range saves {
-		us, ok := byNode[s.NodeID]
-		if !ok || us.total <= 0 {
-			continue
-		}
-		share := float64(us.mine) / float64(us.total)
-		direct += int64(float64(s.Direct) * share)
-		cacheHit += int64(float64(s.CacheHit) * share)
-		blocked += int64(float64(s.Blocked) * share)
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"window":          monthStart,

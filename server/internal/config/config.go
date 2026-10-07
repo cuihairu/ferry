@@ -69,6 +69,11 @@ type Config struct {
 	// QuotaLinkIntervalSec 是配额联动判定周期（秒，SAVE-6）；降档状态在订阅
 	// 出口即时生效，周期只影响触发/释放留痕与通知的及时性。
 	QuotaLinkIntervalSec int
+	// TouchDomainsDays 是域名例行邮件周期（天，触达批 TOUCH-4）；0=关。
+	TouchDomainsDays int
+	// TouchIntervalSec 是例行触达调度周期（秒，TOUCH-4）；月账单有月闸门，
+	// 周期只影响发信时机精度。
+	TouchIntervalSec int
 	// SaveStatsIntervalSec 是节省报表聚合周期（秒，SAVE-7）；报表按日汇总，
 	// 周期只影响当日数字的及时性。
 	SaveStatsIntervalSec int
@@ -115,6 +120,8 @@ func Load() Config {
 		NotifyScanIntervalSec: envIntOr("FERRY_NOTIFY_SCAN_SEC", 3600),
 		QuotaLinkIntervalSec:  envIntOr("FERRY_QUOTA_LINK_SEC", 600),
 		SaveStatsIntervalSec:  envIntOr("FERRY_SAVE_STATS_SEC", 600),
+		TouchDomainsDays:      envIntOr("FERRY_TOUCH_DOMAINS_DAYS", 7),
+		TouchIntervalSec:      envIntOr("FERRY_TOUCH_SEC", 3600),
 		EventFlushIntervalSec: envIntOr("FERRY_EVENT_FLUSH_SEC", 30),
 		HeraldURL:             os.Getenv("FERRY_HERALD_URL"),
 		HeraldToken:           os.Getenv("FERRY_HERALD_TOKEN"),
@@ -154,6 +161,8 @@ func Default() Config {
 		NotifyScanIntervalSec: 3600,
 		QuotaLinkIntervalSec:  600,
 		EventFlushIntervalSec: 30,
+		TouchDomainsDays:      7,
+		TouchIntervalSec:      3600,
 	}
 }
 

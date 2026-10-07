@@ -238,6 +238,22 @@ type UserContact struct {
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
+// TouchJob 是一条触达任务与结果（触达批 TOUCH-4）：例行触达先落任务再经
+// Herald 投递（outbox 语义），event_id 关联 outbox 行；投出即 sent（ferry→
+// Herald 腿 2xx），通道分发失败由 TOUCH-5 回执改写并联动 stale。
+type TouchJob struct {
+	ID        int64      `gorm:"primaryKey" json:"id"`
+	UserID    int64      `gorm:"index;not null" json:"user_id"`
+	Channel   string     `gorm:"size:16;not null" json:"channel"`                             // email（ferry 不自建通道，经 Herald 分发）
+	Kind      string     `gorm:"size:16;not null;index:idx_touch_due,priority:2" json:"kind"` // bill/domains
+	Payload   string     `gorm:"type:text;not null" json:"payload"`                           // 渲染内容 JSON {title,body}
+	Status    string     `gorm:"size:16;not null;default:pending;index:idx_touch_due,priority:1" json:"status"` // pending/sent/failed
+	EventID   int64      `gorm:"default:0" json:"event_id"`
+	SentAt    *time.Time `json:"sent_at,omitempty"`
+	Error     string     `gorm:"size:255" json:"error,omitempty"`
+	CreatedAt time.Time  `gorm:"not null" json:"created_at"`
+}
+
 // EntryDomain 是面板入口域名与备用地址（触达批 TOUCH-3）：域名例行邮件与
 // 断联容灾的共同数据源（订阅备用信息、推新入口都取这份清单）。
 type EntryDomain struct {

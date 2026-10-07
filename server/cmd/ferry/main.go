@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	_ "github.com/cuihairu/ferry/payments/alipay" // PAY-10：占位渠道（未启用文案）
@@ -30,6 +31,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/save"
 	"github.com/cuihairu/ferry/server/internal/secret"
 	"github.com/cuihairu/ferry/server/internal/storage"
+	"github.com/cuihairu/ferry/server/internal/toucher"
 	"github.com/cuihairu/ferry/server/internal/xray"
 	"github.com/gin-gonic/gin"
 )
@@ -156,6 +158,10 @@ func main() {
 	// 节省报表聚合（SAVE-7）：流量行按日累计进 save_stats，报表与成本看板
 	// 同页呈现；折算费用在 API 侧按节点流量单价现算。
 	go save.Loop(ctx, db, time.Duration(cfg.SaveStatsIntervalSec)*time.Second, nil)
+	// 例行触达（TOUCH-4）：月账单+域名例行邮件，任务落 touch_jobs 经 Herald 投递。
+	go toucher.Loop(ctx, db, toucher.Config{
+		DomainsDays: cfg.TouchDomainsDays, BaseURL: strings.TrimRight(cfg.BaseURL, "/"),
+	}, time.Duration(cfg.TouchIntervalSec)*time.Second, nil)
 
 	// 事件 outbox（HERALD-1/2）：事件落库即返回，投递循环异步重试；
 	// 配置 FERRY_HERALD_URL 即接 Herald 投递腿，未配置时只落库 dash 可见。

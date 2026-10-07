@@ -45,6 +45,10 @@ const (
 	KindOrder  = "order"  // 发放/订单结果
 	KindNotice = "notice" // 公告
 
+	// 例行触达（TOUCH-4，§5）：账单类默认必收，域名例行可退订。
+	KindBill    = "bill"    // 月账单（用量/状态/到期/续费入口/已省下亮点）
+	KindDomains = "domains" // 入口域名例行清单（保新鲜，可退订）
+
 	TargetAdmin = "admin"
 )
 
