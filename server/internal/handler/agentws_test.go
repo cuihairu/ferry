@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/ferry/packages/agentproto"
+	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gorilla/websocket"
 )
 
@@ -543,5 +544,102 @@ func TestAgentWSTrafficReport(t *testing.T) {
 	}
 	if byProc["xray"]["rx_bytes"].(float64) != 1024 || byProc["xray"]["conns"].(float64) != 7 {
 		t.Fatalf("xray row mismatch: %v", byProc["xray"])
+	}
+}
+
+// TestAgentWSUserTraffic 是 P1-3 逐用户映射：per-user 增量按
+// users.username=邮箱 落 traffic_logs，未注册邮箱丢弃不造用户。
+func TestAgentWSUserTraffic(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	for _, name := range []string{"alice", "bob"} {
+		if rec := doJSON(t, r, "POST", "/api/users", map[string]any{"username": name, "quota_bytes": 1 << 30}); rec.Code != http.StatusCreated {
+			t.Fatalf("create user %s: %d %s", name, rec.Code, rec.Body)
+		}
+	}
+
+	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
+		"name": "ut-1", "address": "us.example.com", "port": 443, "protocol": "vless",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create node: %d %s", rec.Code, rec.Body)
+	}
+	var node map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &node)
+	token := node["token"].(string)
+
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/agent/ws"
+	c, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer c.Close()
+
+	hello, _ := agentproto.NewEnvelope("h1", agentproto.MsgHello, agentproto.Hello{
+		Token: token, AgentID: "ut-1", Version: "test",
+	})
+	if err := c.WriteJSON(hello); err != nil {
+		t.Fatalf("write hello: %v", err)
+	}
+	if env := readEnv(t, c); env.Type != agentproto.MsgHelloAck {
+		t.Fatalf("expected hello_ack, got %s", env.Type)
+	}
+
+	rep, _ := agentproto.NewEnvelope("tr-1", agentproto.MsgTraffic, agentproto.TrafficReport{
+		Items: []agentproto.ProcTraffic{
+			{
+				Proc: "xray", Rx: 300, Tx: 150, At: time.Now(),
+				Users: []agentproto.UserTraffic{
+					{Email: "alice", Rx: 200, Tx: 100},
+					{Email: "bob", Rx: 100, Tx: 50},
+					{Email: "ghost", Rx: 999, Tx: 999}, // 未注册：丢弃
+				},
+			},
+		},
+	})
+	if err := c.WriteJSON(rep); err != nil {
+		t.Fatalf("write traffic report: %v", err)
+	}
+	env := readEnv(t, c)
+	if env.Type != agentproto.MsgTrafficAck {
+		t.Fatalf("expected traffic_ack, got %s", env.Type)
+	}
+
+	// alice/bob 各落一行，ghost 落库即失败
+	var rows []storage.TrafficLog
+	if err := db.Order("user_id ASC").Find(&rows).Error; err != nil {
+		t.Fatalf("query traffic logs: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("traffic_logs rows = %d, want 2 (ghost 丢弃)", len(rows))
+	}
+	var users []storage.User
+	if err := db.Where("username IN ?", []string{"alice", "bob"}).Find(&users).Error; err != nil || len(users) != 2 {
+		t.Fatalf("seed users: %v (n=%d)", err, len(users))
+	}
+	byUser := map[uint]storage.TrafficLog{}
+	for _, row := range rows {
+		byUser[row.UserID] = row
+		if row.NodeID == nil || *row.NodeID != uint(node["id"].(float64)) {
+			t.Fatalf("node_id mismatch: %+v", row)
+		}
+	}
+	if len(byUser) != 2 {
+		t.Fatalf("rows should map to 2 users, got %d", len(byUser))
+	}
+	for _, u := range users {
+		row, ok := byUser[u.ID]
+		if !ok {
+			t.Fatalf("user %s has no traffic row", u.Username)
+		}
+		wantRx, wantTx := int64(200), int64(100)
+		if u.Username == "bob" {
+			wantRx, wantTx = int64(100), int64(50)
+		}
+		if row.RxBytes != wantRx || row.TxBytes != wantTx {
+			t.Fatalf("%s row = %d/%d, want %d/%d", u.Username, row.RxBytes, row.TxBytes, wantRx, wantTx)
+		}
 	}
 }

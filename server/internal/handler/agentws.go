@@ -5,7 +5,9 @@ import (
 	"errors"
 	"log"
 	"net"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cuihairu/ferry/packages/agentproto"
@@ -224,6 +226,63 @@ func (h *Handler) saveNodeTraffic(nodeID int64, items []agentproto.ProcTraffic) 
 	return h.db.Create(&rows).Error
 }
 
+// saveUserTraffic 把 per-user 增量落 traffic_logs（P1-3 逐用户映射）：
+// xray email 按 users.username 匹配，未注册的邮箱记日志丢弃，不静默造用户。
+func (h *Handler) saveUserTraffic(nodeID int64, items []agentproto.ProcTraffic) error {
+	emails := map[string]bool{}
+	for _, it := range items {
+		for _, u := range it.Users {
+			if u.Email != "" {
+				emails[u.Email] = true
+			}
+		}
+	}
+	if len(emails) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(emails))
+	for e := range emails {
+		names = append(names, e)
+	}
+	var users []storage.User
+	if err := h.db.Select("id, username").Where("username IN ?", names).Find(&users).Error; err != nil {
+		return err
+	}
+	byName := make(map[string]uint, len(users))
+	for _, u := range users {
+		byName[u.Username] = u.ID
+	}
+
+	nid := uint(nodeID)
+	rows := make([]storage.TrafficLog, 0, len(names))
+	unknown := map[string]bool{}
+	for _, it := range items {
+		for _, u := range it.Users {
+			uid, ok := byName[u.Email]
+			if !ok {
+				unknown[u.Email] = true
+				continue
+			}
+			rows = append(rows, storage.TrafficLog{
+				UserID: uid, NodeID: &nid,
+				RxBytes: int64(u.Rx), TxBytes: int64(u.Tx), RecordedAt: it.At,
+			})
+		}
+	}
+	if len(unknown) > 0 {
+		missed := make([]string, 0, len(unknown))
+		for e := range unknown {
+			missed = append(missed, e)
+		}
+		sort.Strings(missed)
+		log.Printf("user traffic node=%d: unknown emails dropped: %s", nodeID, strings.Join(missed, ","))
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	return h.db.Create(&rows).Error
+}
+
 // findNodeByAddress 按 host:port 解析节点。
 func (h *Handler) findNodeByAddress(hostport string) *storage.Node {
 	host, portStr, err := net.SplitHostPort(hostport)
@@ -298,6 +357,9 @@ func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID 
 			}
 			if err := h.saveNodeTraffic(nodeID, tr.Items); err != nil {
 				log.Printf("save node traffic node=%d: %v", nodeID, err)
+			}
+			if err := h.saveUserTraffic(nodeID, tr.Items); err != nil {
+				log.Printf("save user traffic node=%d: %v", nodeID, err)
 			}
 			reply, _ := agentproto.NewEnvelope(env.ID, agentproto.MsgTrafficAck, agentproto.TrafficAck{
 				Recorded: len(tr.Items),
