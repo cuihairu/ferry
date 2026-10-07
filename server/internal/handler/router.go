@@ -5,9 +5,11 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/cuihairu/ferry/server/internal/agenthub"
 	"github.com/cuihairu/ferry/server/internal/config"
+	"github.com/cuihairu/ferry/server/internal/ratelimit"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -18,11 +20,19 @@ type Handler struct {
 	db  *gorm.DB
 	cfg config.Config
 	hub *agenthub.Hub
+	// redeemLimiter 是兑换接口的 IP 限流（PAY-5：10 次/分钟，失败 5 次锁 15 分钟）。
+	redeemLimiter *ratelimit.Limiter
 }
 
 // NewRouter 创建 gin 引擎并挂载全部路由。
 func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 	h := &Handler{db: db, cfg: cfg, hub: agenthub.New()}
+	h.redeemLimiter = ratelimit.New(ratelimit.Options{
+		Window:      time.Minute,
+		MaxAttempts: 10,
+		FailLimit:   5,
+		Lockout:     15 * time.Minute,
+	})
 	r := gin.Default()
 
 	r.GET("/api/health", h.health)
@@ -53,6 +63,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		api.GET("/card-batches", h.listCardBatches)
 		api.GET("/card-batches/:id/codes", h.listCardCodes)
 		api.GET("/card-batches/:id/export.csv", h.exportCardBatchCSV)
+		api.POST("/redeem", h.redeem)
 	}
 	return r
 }
