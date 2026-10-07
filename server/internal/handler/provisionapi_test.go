@@ -31,6 +31,7 @@ func TestProvisionRunAPI(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := config.Default()
 	cfg.SecretKey = "test-master-key"
+	cfg.TofuWorkdir = t.TempDir() // 工作目录绝不落相对路径，测试也不污染包目录
 	r, _ := NewRouter(db, cfg)
 	store := secret.NewStore(cfg.SecretKey)
 
