@@ -92,6 +92,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		api.POST("/redeem", h.redeem)
 		// 在线支付回调（PAY-8）：鉴权靠 Provider 验签
 		api.POST("/pay/epusdt/notify", h.epusdtNotify)
+		api.GET("/payments/reconcile", h.listReconcile)
 		// 用户门户（PAY-7）：身份取自订阅令牌，见 panel.go。
 		panel := api.Group("/panel")
 		{
