@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os/exec"
 	"sort"
@@ -53,6 +54,7 @@ type proc struct {
 	desired  bool // 期望运行（true=running）
 	stopping bool // 退出由 stop/reload 指令触发（区别于崩溃）
 	pid      int
+	logs     *logRing // 运行日志环形缓冲（P1-11），stdout/stderr 镜像
 
 	req    chan ctrlReq
 	exited chan struct{} // 当前进程退出后关闭；启动失败时为已关闭通道
@@ -81,6 +83,7 @@ func New(specs []config.ProcSpec, logger *log.Logger) *Manager {
 			mgr:    m,
 			spec:   spec,
 			state:  agentproto.ProcStopped,
+			logs:   newLogRing(procLogCap),
 			req:    make(chan ctrlReq, 8),
 			exited: closedChan(),
 			kill:   func() {},
@@ -146,6 +149,17 @@ func (m *Manager) Control(name, action string) error {
 	case <-time.After(15 * time.Second):
 		return errors.New("control timeout")
 	}
+}
+
+// Logs 返回进程运行日志的最近 limit 行（P1-11）；未知进程报错。
+func (m *Manager) Logs(name string, limit int) ([]string, error) {
+	m.mu.Lock()
+	p := m.procs[name]
+	m.mu.Unlock()
+	if p == nil {
+		return nil, fmt.Errorf("unknown proc %q", name)
+	}
+	return p.logs.snapshot(limit), nil
 }
 
 // supervise 是单进程的监管循环：期望运行则保活，崩溃退避拉起，指令即时响应。
@@ -222,8 +236,9 @@ func (m *Manager) backoffWait(ctx context.Context, p *proc, backoff time.Duratio
 func (m *Manager) launch(p *proc) bool {
 	cmd := exec.Command(p.spec.Exec, p.spec.Args...)
 	cmd.Dir = p.spec.WorkDir
-	cmd.Stdout = m.log.Writer()
-	cmd.Stderr = m.log.Writer()
+	// 运行日志镜像：agent 日志之外写入进程环形缓冲，供面板拉取（P1-11）。
+	cmd.Stdout = io.MultiWriter(m.log.Writer(), p.logs)
+	cmd.Stderr = io.MultiWriter(m.log.Writer(), p.logs)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		m.log.Printf("proc %s launch: %v", p.spec.Name, err)

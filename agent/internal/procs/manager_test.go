@@ -178,3 +178,36 @@ func TestControlErrors(t *testing.T) {
 		t.Fatal("start on running must error")
 	}
 }
+
+// TestProcLogs 覆盖进程日志拉取（P1-11）：stdout 镜像进环形缓冲、
+// limit 取最近 N 行、未知进程报错。
+func TestProcLogs(t *testing.T) {
+	m, _ := testManager(t, []config.ProcSpec{{
+		Name: "logger", Kind: "xray", Exec: "sh", Args: []string{"-c", "echo line-1; echo line-2; sleep 60"},
+	}})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	m.Start(ctx)
+	waitFor(t, m, "logger", agentproto.ProcRunning)
+
+	// 等待两行日志进入环形缓冲
+	deadline := time.Now().Add(3 * time.Second)
+	var lines []string
+	for time.Now().Before(deadline) {
+		lines, _ = m.Logs("logger", 0)
+		if len(lines) >= 2 {
+			break
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	if len(lines) != 2 || lines[0] != "line-1" || lines[1] != "line-2" {
+		t.Fatalf("proc logs = %v", lines)
+	}
+	// limit 取最近 N 行
+	if lines, _ = m.Logs("logger", 1); len(lines) != 1 || lines[0] != "line-2" {
+		t.Fatalf("limited proc logs = %v", lines)
+	}
+	if _, err := m.Logs("nope", 10); err == nil {
+		t.Fatal("unknown proc must error")
+	}
+}

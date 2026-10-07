@@ -20,6 +20,8 @@ const (
 	MsgProcReport   = "agent.proc_report"   // 进程状态事件上报
 	MsgProcCtl      = "panel.proc_ctl"      // 面板进程操作指令
 	MsgProcCtlAck   = "agent.proc_ctl_ack"  // 进程操作应答
+	MsgProcLogs     = "panel.proc_logs"     // 面板进程日志拉取请求（P1-11）
+	MsgProcLogsAck  = "agent.proc_logs_ack" // 进程日志拉取应答
 	MsgConfigPush   = "panel.config_push"   // 配置下发
 	MsgConfigAck    = "agent.config_ack"    // 配置下发应答
 	MsgProbeReport  = "agent.probe_report"  // 边缘探测结论上报

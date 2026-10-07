@@ -158,6 +158,19 @@ type ProcCtlAck struct {
 	Error  string `json:"error,omitempty"`
 }
 
+// ProcLogsReq 是面板拉取进程运行日志的请求（P1-11）。
+type ProcLogsReq struct {
+	Proc  string `json:"proc"`
+	Limit int    `json:"limit"` // 最近 N 行，缺省 200，上限 1000
+}
+
+// ProcLogsAck 是进程运行日志应答；agent 侧内存环形缓冲，重启即空。
+type ProcLogsAck struct {
+	Proc  string   `json:"proc"`
+	Lines []string `json:"lines"`
+	Error string   `json:"error,omitempty"`
+}
+
 // ProcReport 是 agent 主动上报的进程状态变化事件。
 type ProcReport struct {
 	Procs []ProcStatus `json:"procs"`

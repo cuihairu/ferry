@@ -45,7 +45,7 @@
 - [x] P1-8 系统状态：内存/CPU/在线情况展示（来源：3x-ui `check_memory_usage.go`、cpuHistory 路由）
 - [x] P1-9 单节点分享链接/二维码展示（来源：3x-ui `/links/:email` 路由）
 - [x] P1-10 通知渠道：事件外发（如 Telegram/Webhook）（来源：Marzban Telegram Bot；3x-ui discord_notify_job）
-- [ ] P1-11 运行日志查看（来源：Marzban 节点 WebSocket 日志；3x-ui clear_logs_job）
+- [x] P1-11 运行日志查看（来源：Marzban 节点 WebSocket 日志；3x-ui clear_logs_job）
 
 ## ferry-agent —（代理机侧，设计定稿）
 

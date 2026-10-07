@@ -274,6 +274,29 @@ func (a *App) OnMessage(_ context.Context, env agentproto.Envelope, send func(ag
 		}
 		reply, _ := agentproto.NewEnvelope(env.ID, agentproto.MsgProcCtlAck, ack)
 		_ = a.sendIfConnected(reply)
+	case agentproto.MsgProcLogs:
+		// 进程日志拉取（P1-11）：从进程环形缓冲回最近 limit 行。
+		var req agentproto.ProcLogsReq
+		ack := agentproto.ProcLogsAck{}
+		if err := env.Decode(&req); err != nil {
+			ack.Error = err.Error()
+		} else {
+			ack.Proc = req.Proc
+			if req.Limit <= 0 {
+				req.Limit = 200
+			}
+			if req.Limit > 1000 {
+				req.Limit = 1000
+			}
+			lines, err := a.mgr.Logs(req.Proc, req.Limit)
+			if err != nil {
+				ack.Error = err.Error()
+			} else {
+				ack.Lines = lines
+			}
+		}
+		reply, _ := agentproto.NewEnvelope(env.ID, agentproto.MsgProcLogsAck, ack)
+		_ = a.sendIfConnected(reply)
 	case agentproto.MsgConfigPush:
 		// 下发执行耗时（校验命令 + reload），放后台跑避免阻塞读循环；串行化由 Deployer 保证。
 		go a.handleConfigPush(env)

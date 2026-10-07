@@ -64,6 +64,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		api.GET("/nodes/:id/traffic-logs", h.listNodeTraffic)
 		api.GET("/nodes/:id/routing-config", h.renderRoutingConfig)
 		api.GET("/nodes/:id/share", h.nodeShare)
+		api.GET("/nodes/:id/logs", h.nodeProcLogs)
 		api.POST("/nodes/:id/rulelib", h.pushRuleLib)
 		api.GET("/nodes/:id/rulelib", h.listRuleLib)
 		api.GET("/users", h.listUsers)
