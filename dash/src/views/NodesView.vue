@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { get, post, put, del, type Node, type DimensionStatus, type NodeShare, type BatchProcResult, type BatchConfigResult } from '../api'
+import { get, post, put, del, resolveAlert, type Node, type DimensionStatus, type NodeShare, type BatchProcResult, type BatchConfigResult, type Alert } from '../api'
 import QRCode from 'qrcode'
 import RuleLibDialog from '../components/RuleLibDialog.vue'
 
@@ -42,6 +42,7 @@ const DIR_TEXT: Record<string, string> = { out: '出海', in: '回国', both: '�
 // ---- 数据 ----
 const nodes = ref<Node[]>([])
 const dims = ref<DimensionStatus[]>([])
+const alerts = ref<Alert[]>([])
 const loading = ref(false)
 const view = ref<'nodes' | 'region' | 'isp'>('nodes')
 const roleFilter = ref<'all' | 'entry' | 'landing' | 'both'>('all')
@@ -53,9 +54,14 @@ const filtered = computed(() =>
 async function load() {
   loading.value = true
   try {
-    const [ns, ds] = await Promise.all([get<Node[]>('/api/nodes'), get<DimensionStatus[]>('/api/dimension-status')])
+    const [ns, ds, as] = await Promise.all([
+      get<Node[]>('/api/nodes'),
+      get<DimensionStatus[]>('/api/dimension-status'),
+      get<Alert[]>('/api/alerts?limit=200'),
+    ])
     nodes.value = ns
     dims.value = ds
+    alerts.value = as
   } catch (e) {
     ElMessage.error(String(e))
   } finally {
@@ -63,6 +69,54 @@ async function load() {
   }
 }
 onMounted(load)
+
+// ---- 告警（A-22）：活跃告警计数与节点映射 ----
+const activeAlerts = computed(() => alerts.value.filter((a) => a.state === 'active'))
+const alertCountByNode = computed(() => {
+  const m = new Map<number, number>()
+  for (const a of activeAlerts.value) m.set(a.node_id, (m.get(a.node_id) ?? 0) + 1)
+  return m
+})
+const nodeName = computed(() => new Map(nodes.value.map((n) => [n.id, n.name])))
+
+const ALERT_KIND_TEXT: Record<string, string> = {
+  proc_crash: '进程崩溃',
+  cert_expiry: '证书临期',
+  high_load: '高负载',
+  config_error: '配置错误',
+}
+const ALERT_SEV_TYPE: Record<string, 'warning' | 'danger' | 'info'> = {
+  critical: 'danger',
+  warning: 'warning',
+}
+
+// 告警对话框：活跃在前，可过滤状态、手动处理。
+const alertVisible = ref(false)
+const alertFilter = ref<'active' | 'resolved' | 'all'>('active')
+const alertBusy = ref(false)
+
+const alertRows = computed(() => {
+  const rows = alertFilter.value === 'all' ? alerts.value : alerts.value.filter((a) => a.state === alertFilter.value)
+  return rows.map((a) => ({
+    ...a,
+    node_name: nodeName.value.get(a.node_id) ?? String(a.node_id),
+    kind_text: ALERT_KIND_TEXT[a.kind] ?? a.kind,
+  }))
+})
+
+async function resolveOne(a: Alert) {
+  alertBusy.value = true
+  try {
+    await resolveAlert(a.id)
+    a.state = 'resolved'
+    a.resolved_at = new Date().toISOString()
+    ElMessage.success('已处理')
+  } catch (e) {
+    ElMessage.error(String(e))
+  } finally {
+    alertBusy.value = false
+  }
+}
 
 // ---- 视角聚合（区域/运营商同构）----
 interface DimCard {
@@ -345,6 +399,9 @@ async function remove(n: Node) {
         <el-option value="all" label="全部角色" />
         <el-option v-for="r in ROLES" :key="r.value" :value="r.value" :label="r.label" />
       </el-select>
+      <el-badge :value="activeAlerts.length" :hidden="!activeAlerts.length" :max="99">
+        <el-button @click="alertVisible = true">告警</el-button>
+      </el-badge>
       <el-button type="primary" @click="openCreate">新建节点</el-button>
     </div>
 
@@ -368,7 +425,14 @@ async function remove(n: Node) {
       @selection-change="(rows: Node[]) => (selected = rows)"
     >
       <el-table-column type="selection" width="40" />
-      <el-table-column prop="name" label="名称" min-width="120" />
+      <el-table-column prop="name" label="名称" min-width="120">
+        <template #default="{ row }">
+          <span>{{ row.name }}</span>
+          <el-tag v-if="alertCountByNode.get(row.id)" size="small" type="warning" disable-transitions style="margin-left: 6px">
+            告警 {{ alertCountByNode.get(row.id) }}
+          </el-tag>
+        </template>
+      </el-table-column>
       <el-table-column label="角色" width="100">
         <template #default="{ row }">
           <el-tag size="small" :type="ROLE_TYPE[row.role] ?? 'info'" disable-transitions>
@@ -523,6 +587,36 @@ async function remove(n: Node) {
       </template>
     </el-dialog>
 
+    <!-- 告警（A-22）：活跃告警列表，可手动处理 -->
+    <el-dialog v-model="alertVisible" title="异常告警" width="720px">
+      <div class="alert-bar">
+        <el-radio-group v-model="alertFilter">
+          <el-radio-button value="active">活跃（{{ activeAlerts.length }}）</el-radio-button>
+          <el-radio-button value="resolved">已处理</el-radio-button>
+          <el-radio-button value="all">全部</el-radio-button>
+        </el-radio-group>
+      </div>
+      <div v-loading="loading" class="alert-list">
+        <div v-for="a in alertRows" :key="a.id" class="alert-row">
+          <div class="alert-head">
+            <el-tag size="small" :type="ALERT_SEV_TYPE[a.severity] ?? 'info'" disable-transitions>{{ a.severity }}</el-tag>
+            <span class="alert-kind">{{ a.kind_text }}</span>
+            <span class="alert-node">{{ a.node_name }}</span>
+            <span v-if="a.proc" class="alert-proc">{{ a.proc }}</span>
+            <span class="alert-time">{{ new Date(a.created_at).toLocaleString() }}</span>
+          </div>
+          <div class="alert-msg">{{ a.message }}</div>
+          <div class="alert-foot">
+            <el-tag v-if="a.state === 'resolved'" size="small" type="success" disable-transitions>
+              已处理{{ a.resolved_at ? ` · ${new Date(a.resolved_at).toLocaleString()}` : '' }}
+            </el-tag>
+            <el-button v-else link type="primary" :loading="alertBusy" @click="resolveOne(a)">处理</el-button>
+          </div>
+        </div>
+        <div v-if="!alertRows.length" class="alert-empty">暂无告警</div>
+      </div>
+    </el-dialog>
+
     <RuleLibDialog v-model="ruleLibVisible" :node="ruleLibFor" />
   </div>
 </template>
@@ -629,6 +723,62 @@ async function remove(n: Node) {
 }
 .dim-empty {
   grid-column: 1 / -1;
+  color: var(--ferry-text-muted);
+  font-size: 13px;
+  padding: 24px 0;
+  text-align: center;
+}
+
+/* ---- 告警对话框（A-22） ---- */
+.alert-bar {
+  margin-bottom: 12px;
+}
+.alert-list {
+  max-height: 50vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.alert-row {
+  border: 1px solid var(--ferry-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.alert-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.alert-kind {
+  font-weight: 600;
+}
+.alert-node {
+  color: var(--ferry-text-dim);
+  font-size: 13px;
+}
+.alert-proc {
+  color: var(--ferry-text-muted);
+  font-size: 12px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+.alert-time {
+  margin-left: auto;
+  color: var(--ferry-text-muted);
+  font-size: 12px;
+}
+.alert-msg {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--ferry-text-dim);
+  word-break: break-all;
+}
+.alert-foot {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
+}
+.alert-empty {
   color: var(--ferry-text-muted);
   font-size: 13px;
   padding: 24px 0;

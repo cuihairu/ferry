@@ -132,6 +132,34 @@ export interface BatchConfigResult {
   http_status?: number
 }
 
+/** Alert 是一条异常告警（A-22）：agent 上报的进程崩溃/证书临期/高负载/配置错误。 */
+export interface Alert {
+  id: number
+  node_id: number
+  kind: 'proc_crash' | 'cert_expiry' | 'high_load' | 'config_error' | string
+  severity: 'warning' | 'critical' | string
+  proc?: string
+  message: string
+  state: 'active' | 'resolved'
+  created_at: string
+  updated_at: string
+  resolved_at: string | null
+}
+
+export function getAlerts(params?: { state?: string; node_id?: number; kind?: string; limit?: number }): Promise<Alert[]> {
+  const qs = new URLSearchParams()
+  if (params?.state) qs.set('state', params.state)
+  if (params?.node_id) qs.set('node_id', String(params.node_id))
+  if (params?.kind) qs.set('kind', params.kind)
+  if (params?.limit) qs.set('limit', String(params.limit))
+  const q = qs.toString()
+  return get<Alert[]>(`/api/alerts${q ? `?${q}` : ''}`)
+}
+
+export function resolveAlert(id: number): Promise<Alert> {
+  return post<Alert>(`/api/alerts/${id}/resolve`)
+}
+
 /** UserTemplate 是默认用户模板（P1-5）：新建用户可套用的默认配额/时长/重置周期。 */
 export interface UserTemplate {
   quota_bytes: number
