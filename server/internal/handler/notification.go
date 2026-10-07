@@ -22,16 +22,15 @@ import (
 // fanoutAnnouncement 公告扇出：给全部启用用户各落一行，分批写入；
 // 站外投递走同一事件接口（HERALD-4），事件行同批落 outbox（公告为管理侧
 // 主动动作，不设 dedup_key——每次发布都是有意图的一次触达）。
+// 另落一行站级锚点（user_id=0，TOUCH-2）：RSS /feed.xml 的数据源。
 // 返回实际落行数（禁用用户不收）。
 func fanoutAnnouncement(db *gorm.DB, title, body string) (int64, error) {
 	var ids []int64
 	if err := db.Model(&storage.User{}).Where("enabled = ?", true).Pluck("id", &ids).Error; err != nil {
 		return 0, err
 	}
-	if len(ids) == 0 {
-		return 0, nil
-	}
-	rows := make([]storage.Notification, 0, len(ids))
+	// 锚点行先行落库（RSS 数据源）：公告是站级的，没有启用用户也要可见。
+	rows := []storage.Notification{{UserID: 0, Type: storage.NotifAnnouncement, Title: title, Body: body}}
 	events := make([]storage.Event, 0, len(ids))
 	for _, id := range ids {
 		rows = append(rows, storage.Notification{UserID: id, Type: storage.NotifAnnouncement, Title: title, Body: body})
@@ -42,14 +41,16 @@ func fanoutAnnouncement(db *gorm.DB, title, body string) (int64, error) {
 			OccurredAt: time.Now(), CreatedAt: time.Now(),
 		})
 	}
-	res := db.CreateInBatches(rows, 500)
-	if res.Error != nil {
-		return 0, res.Error
+	if err := db.CreateInBatches(rows, 500).Error; err != nil {
+		return 0, err
 	}
-	if err := db.CreateInBatches(events, 500).Error; err != nil {
-		return res.RowsAffected, err
+	if len(events) > 0 {
+		if err := db.CreateInBatches(events, 500).Error; err != nil {
+			return int64(len(ids)), err
+		}
 	}
-	return res.RowsAffected, nil
+	// 返回用户行数（锚点行不入计数）：扇出语义=触达了多少启用用户。
+	return int64(len(ids)), nil
 }
 
 // createAnnouncement 发布公告（POST /api/notifications/announcement，OD 无关，NT-1）：

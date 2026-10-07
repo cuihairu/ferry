@@ -59,6 +59,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 	r.GET("/api/health", h.health)
 	r.GET("/agent/ws", h.agentWS)
 	r.GET("/sub/:token", h.subscription)
+	r.GET("/feed.xml", h.feedXML)
 	r.GET("/api/speedtest/bytes", h.speedtestBytes)
 
 	api := r.Group("/api")

@@ -234,7 +234,7 @@
 口径：多通道触达统一经 Herald 投递，ferry 不自建通道；拆 TOUCH-1..7 原子项按序连做。
 
 - [x] [P1] TOUCH-1 联系绑定与换绑（已落地 2026-10-08）：storage.UserContact（user_id 主键，tg_chat_id/email/routine_emails/bound_at/stale/fail_streak）+ GET/PUT /api/panel/contact（订阅令牌身份，两项都空 400，换绑清 stale 与失败计数，只改偏好不动 BoundAt，首绑 routine_emails 缺省 true 由 handler 置——gorm default 标签吞 Create 零值）；panel 概览引导卡（未绑定或 stale 显示且不可关闭，stale 提示换绑）+ 通知偏好卡例行邮件退订开关；账单类必收无开关（改通道留 Herald 侧路由）；测试 TestPanelContact（都空 400/格式 400/只绑 TG 缺省 true/换绑清 stale 刷 BoundAt/偏好不算换绑/回读/无凭据 404）
-- [ ] [P1] TOUCH-2 RSS 公告输出：/feed.xml 公开订阅（公告站级锚点行，历史公告可见）
+- [x] [P1] TOUCH-2 RSS 公告输出（已落地 2026-10-08）：GET /feed.xml 公开 RSS 2.0（无凭据，内容仅公告不含用户数据），数据源=公告扇出落的站级锚点行（notifications user_id=0，公告无独立表；无启用用户也落——公告是站级的，fanoutAnnouncement 重构为锚点先行；返回值改按用户行数计不入锚点），encoding/xml 标准结构体渲染（channel 小写标签、XML 头、转义交给库），上限 50 条 id 倒序，GUID=行 id、时间 RFC1123Z；测试 TestFeedXML（特殊字符标题转义+item 恰一条断言锚点不重复扇出）+TestFeedXMLEmpty（空公告合法空 feed）+TestNotificationCenter 既有扇出/未读断言不受锚点影响
 - [ ] [P1] TOUCH-3 入口域名数据面：entry_domains 表（primary/backup/区域/启用）+ dash CRUD（域名例行邮件与断联容灾的共同数据源）
 - [ ] [P1] TOUCH-4 月账单与域名例行邮件：toucher 调度器（月账单每月、域名例行可配周期）→ touch_jobs 落任务 → 经 Herald 投递（月账单附「已为你省下」亮点接 SAVE-8 口径；发送结果回写触达记录）
 - [ ] [P1] TOUCH-5 投递失败换绑闭环：Herald 回执 failed → touch_jobs 标 failed + user_contacts 标 stale + 站内提醒换绑，连续失败升级通知（回执 sent 清零）
