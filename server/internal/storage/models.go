@@ -59,6 +59,9 @@ type Node struct {
 	// 不动 enabled（agent 连接与探测保持，复位判定才有依据）。
 	PoolState     string     `gorm:"size:16;default:active;index" json:"pool_state"`
 	PoolChangedAt *time.Time `json:"pool_changed_at"`
+	// 供给入池流水线（OS-4）：provisioning 节点的进度/失败原因注记，
+	// 转 online 时清空；上下线不写此列。
+	ProvisionNote string `gorm:"size:255" json:"provision_note"`
 	PoolReason    string     `gorm:"size:64" json:"pool_reason"`
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
@@ -274,6 +277,7 @@ type ProvisionTemplate struct {
 	LineType          string    `gorm:"size:32" json:"line_type"`         // 163/cn2_gia/cu_vip/cmi/iplc
 	Role              string    `gorm:"size:16;default:entry" json:"role"`   // entry/landing/both/relay
 	Transport         string    `gorm:"size:16" json:"transport"`         // tls/ws-tls/quic/ssh
+	Config            string    `gorm:"type:text" json:"config"`          // 协议配置模板 JSON（OS-4：开服复制到节点行，供自动下发）
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
 }

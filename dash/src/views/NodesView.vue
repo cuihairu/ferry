@@ -534,9 +534,12 @@ async function remove(n: Node) {
       <el-table-column label="地址" min-width="160">
         <template #default="{ row }">{{ row.address }}:{{ row.port }}</template>
       </el-table-column>
-      <el-table-column label="状态" width="80">
+      <el-table-column label="状态" min-width="110">
         <template #default="{ row }">
           <el-tag size="small" :type="STATUS_TYPE[row.status] ?? 'info'" disable-transitions>{{ row.status }}</el-tag>
+          <el-tooltip v-if="row.provision_note" :content="row.provision_note" placement="top" :show-after="200">
+            <span class="provision-note">ⓘ</span>
+          </el-tooltip>
         </template>
       </el-table-column>
       <el-table-column label="Agent 版本" width="110">
@@ -958,5 +961,10 @@ async function remove(n: Node) {
 .pool-ok {
   color: var(--ferry-text-muted);
   font-size: 12px;
+}
+.provision-note {
+  margin-left: 6px;
+  color: var(--ferry-text-muted);
+  cursor: help;
 }
 </style>

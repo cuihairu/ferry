@@ -150,12 +150,20 @@ func TestTemplateAPI(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("missing provider status = %d", rec.Code)
 	}
+	// 配置模板非法 JSON 拒绝（OS-4 随开服落节点行，进不合法的配置毫无意义）
+	rec = doJSON(t, r, "POST", "/api/provision-templates", map[string]any{
+		"name": "bad", "provider_id": prov.ID, "config": "{inbounds:",
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid config status = %d", rec.Code)
+	}
 
-	// 建模板（缺省 direction=out role=entry）
+	// 建模板（缺省 direction=out role=entry；配置模板压缩存档）
 	rec = doJSON(t, r, "POST", "/api/provision-templates", map[string]any{
 		"name": "hk-3t", "provider_id": prov.ID, "plan": "vc2-1c-1gb", "region": "hkg",
 		"bw_mbps": 500, "billing_type": "包月", "monthly_cost_cents": 500,
 		"traffic_price_cents": 0, "line_type": "163", "role": "entry", "transport": "ws-tls",
+		"config": `{ "inbounds": [] }`,
 	})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("create template status = %d body=%s", rec.Code, rec.Body)
@@ -173,6 +181,13 @@ func TestTemplateAPI(t *testing.T) {
 	}
 	if tpl.Direction != "out" || tpl.Role != "entry" || tpl.BillingType != "包月" || tpl.MonthlyCostCents != 500 {
 		t.Fatalf("template = %+v", tpl)
+	}
+	var row storage.ProvisionTemplate
+	if err := db.First(&row, tpl.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if row.Config != `{"inbounds":[]}` {
+		t.Fatalf("template config must be compacted: %q", row.Config)
 	}
 
 	// 改与删

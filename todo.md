@@ -177,7 +177,7 @@
 - [x] [P1] OS-1 dash 提供商配置与机型模板：云凭证录入加密存储（R24 口径），模板含机型/区域/带宽/计费/方向线路标签
 - [x] [P1] OS-2 OpenTofu 供给接入：模板渲染 HCL/调 tofu CLI，state 集中管理与漂移检测（选型对比见设计 §1.2）
 - [x] [P1] OS-3 cloud-init 初始化与注册：装 agent、注入预签发 token，首连注册
-- [ ] [P1] OS-4 入池流水线：provisioning→元数据补全→模板下发→探测通过→online，新节点 5 分钟可用
+- [x] [P1] OS-4 入池流水线：provisioning→元数据补全→模板下发→探测通过→online，新节点 5 分钟可用
 
 ## 被封自动恢复（设计：docs/design/计划扩充设计.md §2，与摘挂同批 P1）
 

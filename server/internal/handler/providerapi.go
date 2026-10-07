@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
@@ -156,6 +158,7 @@ type templateInput struct {
 	LineType          string `json:"line_type"`
 	Role              string `json:"role"`
 	Transport         string `json:"transport"`
+	Config            string `json:"config"` // 协议配置模板 JSON，可选（OS-4 随开服落到节点行）
 }
 
 func validateTemplate(in templateInput) error {
@@ -179,6 +182,9 @@ func validateTemplate(in templateInput) error {
 	case "", "包月", "按流量":
 	default:
 		return errors.New("billing_type must be 包月/按流量")
+	}
+	if strings.TrimSpace(in.Config) != "" && !json.Valid([]byte(in.Config)) {
+		return errors.New("config must be valid JSON")
 	}
 	return nil
 }
@@ -205,7 +211,7 @@ func (h *Handler) createTemplate(c *gin.Context) {
 	row := storage.ProvisionTemplate{
 		Name: in.Name, ProviderID: *in.ProviderID, Plan: in.Plan, Region: in.Region,
 		BillingType: in.BillingType, Direction: in.Direction, LineType: in.LineType,
-		Role: in.Role, Transport: in.Transport,
+		Role: in.Role, Transport: in.Transport, Config: normalizeConfig(in.Config),
 	}
 	if in.BwMbps != nil {
 		row.BwMbps = *in.BwMbps
@@ -258,6 +264,7 @@ func (h *Handler) updateTemplate(c *gin.Context) {
 	row.LineType = in.LineType
 	row.Role = in.Role
 	row.Transport = in.Transport
+	row.Config = normalizeConfig(in.Config)
 	if in.BwMbps != nil {
 		row.BwMbps = *in.BwMbps
 	}

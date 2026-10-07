@@ -93,6 +93,13 @@ func (h *Handler) agentWS(c *gin.Context) {
 	log.Printf("agent online node=%d agent_id=%s hostname=%s", nodeID, hello.AgentID, hello.Hostname)
 	h.setNodeStatus(nodeID, "online", false)
 
+	// OS-4 入池流水线：注册 IP 补地址（供给节点无既定入口地址时），
+	// provisioning 节点异步推进模板配置下发（阻塞等 ack，不占连接读循环）。
+	if ip := c.ClientIP(); ip != "" {
+		h.db.Model(&storage.Node{}).Where("id=? AND address=''", nodeID).Update("address", ip)
+	}
+	go h.pipelineDeploy(uint(nodeID))
+
 	h.readAgentLoop(conn, hc, nodeID)
 
 	h.hub.Unregister(nodeID, hc)
@@ -108,8 +115,15 @@ func (h *Handler) setNodeStatus(nodeID int64, status string, touch bool) {
 	if touch {
 		updates["last_seen"] = time.Now()
 	}
-	if err := h.db.Model(&storage.Node{}).Where("id=?", nodeID).Updates(updates).Error; err != nil {
-		log.Printf("update node status node=%d: %v", nodeID, err)
+	// provisioning（OS-4 供给流水线）的状态迁移归流水线状态机：配置下发生效
+	// 且目标进程 running 上报才转 online，上下线不覆盖；last_seen 照常刷新。
+	res := h.db.Model(&storage.Node{}).Where("id=? AND status != 'provisioning'", nodeID).Updates(updates)
+	if res.Error != nil {
+		log.Printf("update node status node=%d: %v", nodeID, res.Error)
+		return
+	}
+	if res.RowsAffected == 0 && touch {
+		h.db.Model(&storage.Node{}).Where("id=?", nodeID).Update("last_seen", time.Now())
 	}
 }
 
@@ -123,6 +137,28 @@ func (h *Handler) syncNodeMeta(nodeID int64, reported agentproto.NodeMeta) agent
 		return agentproto.NodeMeta{}
 	}
 	if node.MetaInit {
+		// OS-4 元数据补全：面板接管（meta_init）下只补 agent 可探测的空白
+		// 字段（城市/机房/运营商），模板与面板既定值不被注册覆盖。
+		fills := map[string]any{}
+		if node.City == "" && reported.City != "" {
+			fills["city"] = reported.City
+		}
+		if node.Datacenter == "" && reported.Datacenter != "" {
+			fills["datacenter"] = reported.Datacenter
+		}
+		if node.ISP == "" && reported.ISP != "" {
+			fills["isp"] = reported.ISP
+		}
+		if len(fills) > 0 {
+			if err := h.db.Model(&storage.Node{}).Where("id=?", nodeID).Updates(fills).Error; err != nil {
+				log.Printf("fill node meta node=%d: %v", nodeID, err)
+				return nodeMetaFromRow(&node)
+			}
+			var updated storage.Node
+			if err := h.db.Where("id=?", nodeID).First(&updated).Error; err == nil {
+				node = updated
+			}
+		}
 		return nodeMetaFromRow(&node)
 	}
 	m := reported
@@ -356,10 +392,12 @@ func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID 
 			if err := env.Decode(&pr); err != nil {
 				continue
 			}
-			// 进程恢复运行 → 自动消解对应的崩溃告警（A-22）。
+			// 进程恢复运行 → 自动消解对应的崩溃告警（A-22）；
+			// provisioning 节点的目标进程 running 即「探测通过」判定（OS-4）。
 			for _, ps := range pr.Procs {
 				if ps.State == "running" {
 					h.resolveProcCrashAlerts(uint(nodeID), ps.Name)
+					h.pipelineProbePass(uint(nodeID), ps.Name)
 				}
 			}
 		case agentproto.MsgTraffic:

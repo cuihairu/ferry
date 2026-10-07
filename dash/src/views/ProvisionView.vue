@@ -110,6 +110,7 @@ const emptyTpl = () => ({
   name: '', provider_id: 0, plan: '', region: '', bw_mbps: 0,
   billing_type: '包月', monthly_cost_cents: 0, traffic_price_cents: 0,
   direction: 'out', line_type: '163', role: 'entry', transport: 'ws-tls',
+  config: '',
 })
 const tplForm = ref(emptyTpl())
 
@@ -333,6 +334,12 @@ function yuan(cents: number): string {
               <el-option v-for="t in ['tls', 'ws-tls', 'quic', 'ssh']" :key="t" :value="t" :label="t" />
             </el-select>
           </div>
+        </el-form-item>
+        <el-form-item label="配置模板">
+          <el-input
+            v-model="tplForm.config" type="textarea" :rows="4"
+            placeholder='协议配置模板 JSON（可选）。开服后复制到节点行，agent 首连即自动下发，探测通过自动入池'
+          />
         </el-form-item>
       </el-form>
       <template #footer>

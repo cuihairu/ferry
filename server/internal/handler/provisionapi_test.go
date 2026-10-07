@@ -48,7 +48,7 @@ func TestProvisionRunAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	tpl := storage.ProvisionTemplate{Name: "hk-3t", ProviderID: prov.ID, Plan: "vc2-1c-1gb",
-		Region: "hkg", BillingType: "包月", Direction: "out", Role: "entry"}
+		Region: "hkg", BillingType: "包月", Direction: "out", Role: "entry", Config: `{"inbounds":[]}`}
 	if err := db.Create(&tpl).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -92,6 +92,9 @@ func TestProvisionRunAPI(t *testing.T) {
 	}
 	if node.Role != "entry" || node.Direction != "out" {
 		t.Fatalf("node meta from template: %+v", node)
+	}
+	if node.Config != `{"inbounds":[]}` {
+		t.Fatalf("config template must copy to node: %q", node.Config)
 	}
 	// plan 不建节点。
 	before := int64(0)

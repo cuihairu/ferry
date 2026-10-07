@@ -121,21 +121,22 @@ func (h *Handler) ensureProvisionNode(name string, tpl storage.ProvisionTemplate
 	}
 	// Enabled 必须为真：authNode 只认启用节点，首连注册依赖它。
 	node = storage.Node{
-		Name:             name,
-		Port:             443,
-		Protocol:         "vless",
-		Enabled:          true,
-		Token:            token,
-		Status:           "provisioning",
-		Role:             tpl.Role,
-		Direction:        tpl.Direction,
-		LineType:         tpl.LineType,
-		Region:           tpl.Region,
-		Transport:        tpl.Transport,
-		BillingType:      tpl.BillingType,
-		MonthlyCostCents: tpl.MonthlyCostCents,
+		Name:              name,
+		Port:              443,
+		Protocol:          "vless",
+		Enabled:           true,
+		Token:             token,
+		Status:            "provisioning",
+		Role:              tpl.Role,
+		Direction:         tpl.Direction,
+		LineType:          tpl.LineType,
+		Region:            tpl.Region,
+		Transport:         tpl.Transport,
+		BillingType:       tpl.BillingType,
+		MonthlyCostCents:  tpl.MonthlyCostCents,
 		TrafficPriceCents: tpl.TrafficPriceCents,
-		MetaInit:         true,
+		Config:            normalizeConfig(tpl.Config), // OS-4：配置模板随开服落到节点行
+		MetaInit:          true,
 	}
 	if err := h.db.Create(&node).Error; err != nil {
 		return storage.Node{}, err

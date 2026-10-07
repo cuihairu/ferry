@@ -438,6 +438,7 @@ export interface ProvisionTemplate {
   line_type: string
   role: string
   transport: string
+  config: string
 }
 
 export function getTemplates(): Promise<ProvisionTemplate[]> {
