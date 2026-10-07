@@ -66,6 +66,12 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		api.DELETE("/card-batches/:id", h.deleteCardBatch)
 		api.GET("/card-batches/:id/export.csv", h.exportCardBatchCSV)
 		api.POST("/redeem", h.redeem)
+		// 用户门户（PAY-7）：身份取自订阅令牌，见 panel.go。
+		panel := api.Group("/panel")
+		{
+			panel.GET("/me", h.panelMe)
+			panel.POST("/redeem", h.panelRedeem)
+		}
 	}
 	return r
 }

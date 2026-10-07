@@ -1,5 +1,4 @@
 packages:
   - dash
-  # panel（用户面板：兑换/订单）随 PAY-7 加入
-  #- panel
+  - panel
   # dash=管理端（对齐设计稿口径）；panel=用户面板

@@ -104,7 +104,7 @@
 - [x] [P0] PAY-4 兑换接口：原子核销 → 事务写三账（provider=card）→ 执行加配额/延到期，幂等
 - [x] [P0] PAY-5 兑换防爆破：按 IP 滑动窗口限速 + 失败计数锁码 + 统一错误文案
 - [x] [P0] PAY-6 dash 卡密管理页：建批次、批次/卡密列表、导出、禁用
-- [ ] [P0] PAY-7 panel 兑换页：输入卡密兑换并展示结果
+- [x] [P0] PAY-7 panel 兑换页：输入卡密兑换并展示结果
 - [ ] [P1] PAY-8 payments/epusdt Provider：CreateOrder 收银台 + 回调验签 + 到账自动发放
 - [ ] [P1] PAY-9 dash 对账视图：订单/流水/发放三账按订单分组，标出缺失环节
 - [ ] [P1] PAY-10 payments/wechat、payments/alipay Provider stub（返回未启用，等商户资质）

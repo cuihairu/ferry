@@ -1,5 +1,5 @@
 {
-  "name": "ferry-dash",
+  "name": "ferry-panel",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -10,9 +10,7 @@
   },
   "dependencies": {
     "element-plus": "^2.9.0",
-    "pinia": "^3.0.0",
-    "vue": "^3.5.0",
-    "vue-router": "^4.5.0"
+    "vue": "^3.5.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.0",

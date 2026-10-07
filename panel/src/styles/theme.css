@@ -1,0 +1,62 @@
+/* 用户面板主题：与管理端同一套 ferry token 口径（Linear 风格暗色，覆盖 Element Plus 变量）。 */
+:root {
+  --ferry-bg: #0e1015;
+  --ferry-bg-panel: #15171e;
+  --ferry-bg-hover: #1b1e27;
+  --ferry-border: #262a35;
+  --ferry-text: #e8eaee;
+  --ferry-text-dim: #9298a3;
+  --ferry-text-muted: #5c6370;
+  --ferry-accent: #6e79d6;
+  --ferry-accent-hover: #7d87dd;
+  --ferry-ok: #4cb782;
+  --ferry-warn: #f2c94c;
+  --ferry-danger: #eb5757;
+}
+
+html.dark {
+  color-scheme: dark;
+  --el-color-primary: var(--ferry-accent);
+  --el-color-primary-light-3: #5a63bd;
+  --el-color-primary-light-5: #4a52a0;
+  --el-color-primary-light-7: #3a4182;
+  --el-color-primary-light-8: #2f3568;
+  --el-color-primary-light-9: #232752;
+  --el-color-primary-dark-2: var(--ferry-accent-hover);
+  --el-bg-color: var(--ferry-bg-panel);
+  --el-bg-color-page: var(--ferry-bg);
+  --el-bg-color-overlay: #1a1d26;
+  --el-fill-color-blank: var(--ferry-bg-panel);
+  --el-fill-color-light: var(--ferry-bg-hover);
+  --el-border-color: var(--ferry-border);
+  --el-border-color-light: var(--ferry-border);
+  --el-border-color-lighter: var(--ferry-border);
+  --el-text-color-primary: var(--ferry-text);
+  --el-text-color-regular: var(--ferry-text-dim);
+  --el-border-radius-base: 6px;
+}
+
+body {
+  margin: 0;
+  background: var(--ferry-bg);
+  color: var(--ferry-text);
+  font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.page {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 64px 24px 48px;
+}
+.page h1 {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 650;
+}
+.page .page-desc {
+  margin: 0 0 24px;
+  color: var(--ferry-text-muted);
+  font-size: 13px;
+}
