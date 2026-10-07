@@ -141,7 +141,13 @@
 - [x] [P1] E-16b 摘挂热更新换线：config.push 变更列表（落地 relay 重指），随 E-21 分配策略接入
 - [x] [P1] E-17 区域传输判定（internal/transport 存活占比推荐+现行对比换线建议，/api/transport-status，dash 调配页面板；切换执行=改 transport 标注重推配置）
 - [x] [P1] E-18a ws-tls 传输插件（tunnel 注册，TLS+WebSocket 升级伪装浏览器，消息语义适配流 net.Conn，落地侧任意 RFC6455 监听可前置 CDN）
-- [ ] [P1] E-18b QUIC（hysteria2 系）传输插件：需拍板——quic-go 依赖体量 vs E-4 尺寸门禁（独立 plugin 二进制 / 引依赖破门禁 / 延后），真 hysteria2 协议不造，raw QUIC 不冒称 hysteria2
+- [ ] [P1] E-18b QUIC 传输插件（拍板 2026-10-08：独立 plugin 二进制，主仓 E-4 尺寸门禁不动；开源优先修订：不自研协议，封装现成实现——sing-box/Xray-core/hysteria2 二进制适配或 quic-go 库，接入前核 license 传染性（hysteria2=AGPL、sing-box=GPL）并记录取舍于 docs/design/开源选型设计.md，真 hysteria2 不造、raw QUIC 不冒称，文档如实标注）
+
+### 开源优先换件（docs/design/开源选型设计.md 对照表，逐个换）
+
+- [ ] [P1] OSS-1 agent host 采样换 shirou/gopsutil/v4（MIT）：删 /proc 手解析 229 行，跨平台负载/内存/网络/连接数；换后复测 agent 二进制尺寸（E-4 10MB 门禁）
+- [ ] [P1] OSS-2 Cloudflare DNS 客户端换 libdns/cloudflare（MIT）：删手写 REST 155 行；proxied 保持语义核对，dns.Provider 接口不变只换实现
+- [ ] [P1] OSS-3 ACME 换 go-acme/lego/v4（MIT，纯 Go 库）：cert.Manager 去 acme.sh 外部命令依赖，Runner 接缝换 lego 实现；DNS-01 复用 dns_providers 凭证通道；cert 包测试随换重写
 
 ### 分配与成本
 
