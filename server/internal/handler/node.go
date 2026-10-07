@@ -60,6 +60,8 @@ func (h *Handler) createNode(c *gin.Context) {
 		Token:    token,
 		Status:   "unknown",
 	}
+	// 元数据：非空覆盖库默认值，任一出现即 MetaInit（面板接管，注册不再覆盖）。
+	applyMetaInput(&n, &in)
 	if err := h.db.Create(&n).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
@@ -117,6 +119,16 @@ func (h *Handler) updateNode(c *gin.Context) {
 		"protocol": in.Protocol,
 		"config":   normalizeConfig(in.Config),
 		"enabled":  enabled,
+	}
+	// 元数据未提供保持原值（与基础字段同口径），提供则校验后回写。
+	metaProvided := false
+	for k, v := range metaUpdates(&in) {
+		updates[k] = v
+		metaProvided = true
+	}
+	if metaProvided {
+		// 面板改过元数据后，注册上报不再覆盖。
+		updates["meta_init"] = true
 	}
 	if err := h.db.Model(&storage.Node{}).Where("id=?", n.ID).Updates(updates).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
@@ -176,6 +188,58 @@ func normalizeConfig(cfg string) string {
 	return string(compact)
 }
 
+// metaUpdates 把 NodeInput 里非空的元数据字段转成列更新；空串表示保持原值。
+func metaUpdates(in *model.NodeInput) map[string]any {
+	out := map[string]any{}
+	if in.Role != "" {
+		out["role"] = in.Role
+	}
+	if in.Direction != "" {
+		out["direction"] = in.Direction
+	}
+	if in.LineType != "" {
+		out["line_type"] = in.LineType
+	}
+	if in.Region != "" {
+		out["region"] = in.Region
+	}
+	if in.City != "" {
+		out["city"] = in.City
+	}
+	if in.Datacenter != "" {
+		out["datacenter"] = in.Datacenter
+	}
+	if in.ISP != "" {
+		out["isp"] = in.ISP
+	}
+	if in.Transport != "" {
+		out["transport"] = in.Transport
+	}
+	return out
+}
+
+// applyMetaInput 建节点时按请求落元数据；任一元数据出现即视为面板接管。
+func applyMetaInput(n *storage.Node, in *model.NodeInput) {
+	provided := false
+	set := func(dst *string, v string) {
+		if v != "" {
+			*dst = strings.TrimSpace(v)
+			provided = true
+		}
+	}
+	set(&n.Role, in.Role)
+	set(&n.Direction, in.Direction)
+	set(&n.LineType, in.LineType)
+	set(&n.Region, in.Region)
+	set(&n.City, in.City)
+	set(&n.Datacenter, in.Datacenter)
+	set(&n.ISP, in.ISP)
+	set(&n.Transport, in.Transport)
+	if provided {
+		n.MetaInit = true
+	}
+}
+
 func validateNodeInput(in *model.NodeInput, creating bool) error {
 	if creating && strings.TrimSpace(in.Name) == "" {
 		return errors.New("name is required")
@@ -191,6 +255,23 @@ func validateNodeInput(in *model.NodeInput, creating bool) error {
 	}
 	if strings.TrimSpace(in.Config) != "" && !json.Valid([]byte(in.Config)) {
 		return errors.New("config must be valid JSON")
+	}
+	for _, v := range []string{in.Role} {
+		switch v {
+		case "", "entry", "landing", "both":
+		default:
+			return errors.New("role must be entry/landing/both")
+		}
+	}
+	switch in.Direction {
+	case "", "out", "in", "both":
+	default:
+		return errors.New("direction must be out/in/both")
+	}
+	switch in.Transport {
+	case "", "tls", "quic", "ws-tls", "ssh":
+	default:
+		return errors.New("transport must be tls/quic/ws-tls/ssh")
 	}
 	return nil
 }

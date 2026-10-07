@@ -120,3 +120,53 @@ func TestNodeCRUD(t *testing.T) {
 		t.Fatalf("get after delete status = %d", rec.Code)
 	}
 }
+
+func TestNodeMetaInput(t *testing.T) {
+	r := newTestRouter(t)
+
+	// 创建带元数据：按请求落库（E-24 面板可改口径）
+	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
+		"name": "hk-entry", "address": "hk.example.com", "port": 443, "protocol": "vless",
+		"role": "entry", "direction": "out", "region": "香港", "isp": "HKT", "line_type": "cn2_gia",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create meta status = %d body=%s", rec.Code, rec.Body)
+	}
+	var created map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+	for k, want := range map[string]any{
+		"role": "entry", "direction": "out", "region": "香港", "isp": "HKT", "line_type": "cn2_gia",
+	} {
+		if created[k] != want {
+			t.Fatalf("created[%s] = %v, want %v", k, created[k], want)
+		}
+	}
+
+	// 未提供元数据的创建：落库默认（订阅分组口径依赖非空）
+	rec = doJSON(t, r, "POST", "/api/nodes", map[string]any{
+		"name": "plain", "address": "a", "port": 1, "protocol": "vless",
+	})
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+	if created["role"] != "landing" || created["region"] != "未知" || created["isp"] != "未知" {
+		t.Fatalf("defaults = role:%v region:%v isp:%v", created["role"], created["region"], created["isp"])
+	}
+
+	// 更新：只改区域，其余元数据保持
+	rec = doJSON(t, r, "PUT", "/api/nodes/1", map[string]any{"region": "圣何塞"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update meta status = %d body=%s", rec.Code, rec.Body)
+	}
+	var updated map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &updated)
+	if updated["region"] != "圣何塞" || updated["role"] != "entry" || updated["isp"] != "HKT" {
+		t.Fatalf("partial meta update lost fields: %v", updated)
+	}
+
+	// 非法枚举被拒
+	for k, v := range map[string]string{"role": "boss", "direction": "up", "transport": "pigeon"} {
+		rec = doJSON(t, r, "PUT", "/api/nodes/1", map[string]any{k: v})
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("bad %s status = %d", k, rec.Code)
+		}
+	}
+}

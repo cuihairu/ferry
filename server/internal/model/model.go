@@ -30,6 +30,16 @@ type NodeInput struct {
 	Protocol string `json:"protocol"`
 	Config   string `json:"config"`
 	Enabled  *bool  `json:"enabled,omitempty"`
+	// 注册元数据（入口与负载均衡设计 §C.3/C.6）：agent 注册上报初值，
+	// 面板可改且以面板为准；空串=创建时落库默认、更新时保持原值。
+	Role       string `json:"role,omitempty"`        // entry/landing/both
+	Direction  string `json:"direction,omitempty"`   // out/in/both
+	LineType   string `json:"line_type,omitempty"`   // 线路类型，自由文本
+	Region     string `json:"region,omitempty"`      // 区域，故障聚合维度
+	City       string `json:"city,omitempty"`
+	Datacenter string `json:"datacenter,omitempty"`
+	ISP        string `json:"isp,omitempty"`     // 运营商，故障聚合维度
+	Transport  string `json:"transport,omitempty"` // tls/quic/ws-tls/ssh
 }
 
 // User 是一个订阅用户。
