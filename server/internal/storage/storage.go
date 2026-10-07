@@ -91,6 +91,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&CertTask{},
 		&Notification{},
 		&QuotaAction{},
+		&Event{},
+		&EventDelivery{},
 	)
 }
 

@@ -177,6 +177,37 @@ export function putQuotaLink(setting: QuotaLinkSetting): Promise<QuotaLinkSettin
   return put<QuotaLinkSetting>('/api/quota-link', setting)
 }
 
+/** EventRow 是一条事件 outbox 行（HERALD-1，failed=重试超限死信标红）。 */
+export interface EventRow {
+  id: number
+  kind: string
+  severity: 'critical' | 'warning' | 'info'
+  title: string
+  body?: string
+  target: string
+  dedup_key?: string
+  meta?: string
+  status: 'pending' | 'sent' | 'failed'
+  attempts: number
+  next_attempt_at?: string | null
+  occurred_at: string
+  created_at: string
+}
+
+/** EventsData 是事件列表与各状态计数（failed>0 即通道故障未消化）。 */
+export interface EventsData {
+  rows: EventRow[]
+  counts: { pending: number; sent: number; failed: number }
+}
+
+export function getEvents(status = ''): Promise<EventsData> {
+  return get<EventsData>(`/api/events${status ? `?status=${encodeURIComponent(status)}` : ''}`)
+}
+
+export function retryEvent(id: number): Promise<{ ok: boolean }> {
+  return post<{ ok: boolean }>(`/api/events/${id}/retry`)
+}
+
 /** NodeCost 是一个节点的月度成本视图（E-23）。 */
 export interface NodeCost {
   id: number

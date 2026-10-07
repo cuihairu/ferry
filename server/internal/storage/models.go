@@ -421,3 +421,32 @@ type QuotaAction struct {
 	ReleasedAt    *time.Time `json:"released_at"`
 	ReleaseReason string     `gorm:"size:64" json:"release_reason"`
 }
+
+// Event 是一条事件 outbox 行（HERALD-1，《告警通道设计》§4/§5）：事件生产侧
+// 落库即返回，投递由 herald.Loop 异步重试，通道故障不静默丢。
+type Event struct {
+	ID            int64      `gorm:"primaryKey" json:"id"`
+	Kind          string     `gorm:"size:32;index;not null" json:"kind"` // region_fault/node_blocked/cert_expiring/...（§2 清单）
+	Severity      string     `gorm:"size:16;not null" json:"severity"`   // critical/warning/info
+	Title         string     `gorm:"size:255;not null" json:"title"`
+	Body          string     `gorm:"size:1024" json:"body,omitempty"`
+	Target        string     `gorm:"size:32;not null" json:"target"` // admin / user:<id>
+	DedupKey      string     `gorm:"size:128" json:"dedup_key,omitempty"`
+	Meta          string     `gorm:"type:text" json:"meta,omitempty"`                      // JSON
+	Status        string     `gorm:"size:16;index;not null;default:pending" json:"status"` // pending/sent/failed
+	Attempts      int        `gorm:"default:0" json:"attempts"`
+	NextAttemptAt *time.Time `json:"next_attempt_at,omitempty"` // 空=立即可投
+	OccurredAt    time.Time  `gorm:"not null" json:"occurred_at"`
+	CreatedAt     time.Time  `gorm:"not null" json:"created_at"`
+}
+
+// EventDelivery 是一条投递留痕：ferry→Herald 的每次投递尝试结果，以及
+// Herald 异步回投的通道分发回执（HERALD-2 起回填 channel 维度）。
+type EventDelivery struct {
+	ID      int64     `gorm:"primaryKey" json:"id"`
+	EventID int64     `gorm:"index;not null" json:"event_id"`
+	Channel string    `gorm:"size:16;not null" json:"channel"` // herald（ferry→Herald 投递腿）/tg/email/wechat/webhook
+	Status  string    `gorm:"size:16;not null" json:"status"`  // sent/failed
+	Detail  string    `gorm:"size:512" json:"detail,omitempty"`
+	At      time.Time `gorm:"not null" json:"at"`
+}

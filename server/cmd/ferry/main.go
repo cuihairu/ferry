@@ -18,6 +18,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/cost"
 	"github.com/cuihairu/ferry/server/internal/handler"
+	"github.com/cuihairu/ferry/server/internal/herald"
 	"github.com/cuihairu/ferry/server/internal/monitor"
 	"github.com/cuihairu/ferry/server/internal/notifyscan"
 	"github.com/cuihairu/ferry/server/internal/pool"
@@ -150,6 +151,10 @@ func main() {
 	// 配额联动（SAVE-6）：流量/费用超阈值用户订阅自动降档（只出低成本档
 	// 入口），触发/释放留痕与站内信由扫表驱动，订阅出口读留痕即时生效。
 	go quota.LinkLoop(ctx, db, time.Duration(cfg.QuotaLinkIntervalSec)*time.Second, nil)
+
+	// 事件 outbox（HERALD-1）：事件落库即返回，投递循环异步重试；
+	// Herald 通道随 HERALD-2 接入（FERRY_HERALD_URL），未配置时只落库 dash 可见。
+	go herald.Loop(ctx, db, time.Duration(cfg.EventFlushIntervalSec)*time.Second, nil, nil)
 
 	// 面板 Web 证书（P1-7）：settings 里配置了证书即走 HTTPS，
 	// 配置损坏启动中止以免静默降级 HTTP；切换证书需重启生效。

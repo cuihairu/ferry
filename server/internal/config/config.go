@@ -69,6 +69,9 @@ type Config struct {
 	// QuotaLinkIntervalSec 是配额联动判定周期（秒，SAVE-6）；降档状态在订阅
 	// 出口即时生效，周期只影响触发/释放留痕与通知的及时性。
 	QuotaLinkIntervalSec int
+	// EventFlushIntervalSec 是事件 outbox 投递周期（秒，HERALD-1）；未配置
+	// Herald 通道时事件只落库等投递。
+	EventFlushIntervalSec int
 }
 
 // Load 从环境变量读取配置，未设置的项回退到默认值。
@@ -104,6 +107,7 @@ func Load() Config {
 
 		NotifyScanIntervalSec: envIntOr("FERRY_NOTIFY_SCAN_SEC", 3600),
 		QuotaLinkIntervalSec:  envIntOr("FERRY_QUOTA_LINK_SEC", 600),
+		EventFlushIntervalSec: envIntOr("FERRY_EVENT_FLUSH_SEC", 30),
 	}
 }
 
@@ -139,6 +143,7 @@ func Default() Config {
 
 		NotifyScanIntervalSec: 3600,
 		QuotaLinkIntervalSec:  600,
+		EventFlushIntervalSec: 30,
 	}
 }
 
