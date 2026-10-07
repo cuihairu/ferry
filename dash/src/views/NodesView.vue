@@ -170,10 +170,10 @@ function clearSelection() {
 }
 
 // summarizeProc 汇总批量回执：全成功给成功提示，有失败列出节点名与原因。
-function summarizeProc(results: BatchProcResult[], names: Map<number, string>) {
+function summarizeProc(results: BatchProcResult[], names: Map<number, string>, action: string) {
   const fail = results.filter((r) => !r.ok)
   if (!fail.length) {
-    ElMessage.success(`${PROC_TEXT[results[0]?.action ?? 'start']}指令已下发 ${results.length} 个节点`)
+    ElMessage.success(`${PROC_TEXT[action] ?? action}指令已下发 ${results.length} 个节点`)
     return
   }
   const detail = fail
@@ -190,7 +190,7 @@ async function runProc(action: 'start' | 'stop' | 'reload') {
     const ids = selected.value.map((n) => n.id)
     const names = new Map(selected.value.map((n) => [n.id, n.name]))
     const res = await post<BatchProcResult[]>('/api/nodes/batch/proc', { ids, action })
-    summarizeProc(res, names)
+    summarizeProc(res, names, action)
     await load()
   } catch (e) {
     ElMessage.error(String(e))
