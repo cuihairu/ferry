@@ -1,6 +1,6 @@
 // Package traffic 周期采集进程流量并上报（A-19/A-21）。
-// 采集实现按 kind 注册：xray 的 gRPC stats 对接在 P1-3，P0 统一 Noop（标记未实现，
-// 采集不到就不上报，避免零值噪音写进记账）。
+// 采集实现按 kind 注册：xray 走 gRPC stats 采集真实用户流量（P1-3），
+// 其余 kind 仍 Noop（标记未实现，采集不到就不上报，避免零值噪音写进记账）。
 package traffic
 
 import (
@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/ferry/agent/internal/config"
+	"github.com/cuihairu/ferry/agent/internal/xraystats"
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
 
@@ -23,6 +24,13 @@ type Collector interface {
 	Collect(proc string) (rx, tx uint64, conns int, err error)
 }
 
+// UserCollector 能按用户拆分流量增量的采集器（P1-3 xray gRPC stats）；
+// 实现者存在时 Reporter 优先走 per-user 路径，节点级由 per-user 求和。
+type UserCollector interface {
+	Collector
+	CollectUsers(proc string) ([]agentproto.UserTraffic, error)
+}
+
 // Noop 是不做任何事的空实现，对齐面板侧 xray.NoopHandler 的 P0 边界模式。
 type Noop struct{}
 
@@ -30,15 +38,22 @@ func (Noop) Collect(string) (uint64, uint64, int, error) {
 	return 0, 0, 0, errNotImplemented
 }
 
-// CollectorFor 按 kind 返回采集器；P0 全部 Noop，P1-3 起按 kind 接真实实现。
+// CollectorFor 按 kind 返回采集器；未对接的 kind 返回 Noop。
 func CollectorFor(kind string) Collector {
 	return Noop{}
 }
+
+// xray 采集器满足 per-user 口径（编译期断言）。
+var _ UserCollector = (*xraystats.Collector)(nil)
 
 // Dispatch 按进程规格把采集请求路由到对应 kind 的采集器。
 func Dispatch(specs []config.ProcSpec) Collector {
 	byProc := map[string]Collector{}
 	for _, s := range specs {
+		if s.Kind == "xray" && s.StatsAPI != "" {
+			byProc[s.Name] = xraystats.NewCollector(s.StatsAPI, nil)
+			continue
+		}
 		byProc[s.Name] = CollectorFor(s.Kind)
 	}
 	return dispatchCollector(byProc)
@@ -53,6 +68,18 @@ func (d dispatchCollector) Collect(proc string) (uint64, uint64, int, error) {
 	}
 	return c.Collect(proc)
 }
+
+// CollectUsers 把 per-user 采集路由到内部的 UserCollector；
+// 该 proc 未接真实采集（Noop）时返回未实现，调用方按跳过处理。
+func (d dispatchCollector) CollectUsers(proc string) ([]agentproto.UserTraffic, error) {
+	uc, ok := d[proc].(UserCollector)
+	if !ok {
+		return nil, errNotImplemented
+	}
+	return uc.CollectUsers(proc)
+}
+
+var _ UserCollector = dispatchCollector{}
 
 // Reporter 周期采集全部进程并批量上报。
 type Reporter struct {
@@ -114,16 +141,25 @@ func (r *Reporter) Run(ctx context.Context) {
 }
 
 // collectAll 采集全部进程；采集失败的进程跳过（同类错误只记一次日志）。
+// 采集器支持 per-user 口径时优先走 CollectUsers，节点级增量由 per-user 求和
+// （避免为节点级再查一次 reset 统计，把增量清成零）。
 func (r *Reporter) collectAll() []agentproto.ProcTraffic {
 	now := time.Now()
 	items := make([]agentproto.ProcTraffic, 0, len(r.procs))
 	for _, name := range r.procs {
+		if uc, ok := r.collector.(UserCollector); ok {
+			item, err := collectUsers(uc, name, now)
+			if err != nil {
+				r.noteCollectErr(name, err)
+				continue
+			}
+			delete(r.collectErr, name)
+			items = append(items, item)
+			continue
+		}
 		rx, tx, conns, err := r.collector.Collect(name)
 		if err != nil {
-			if !r.collectErr[name] {
-				r.collectErr[name] = true
-				r.log.Printf("collect traffic proc=%s: %v (won't repeat)", name, err)
-			}
+			r.noteCollectErr(name, err)
 			continue
 		}
 		delete(r.collectErr, name)
@@ -132,6 +168,29 @@ func (r *Reporter) collectAll() []agentproto.ProcTraffic {
 		})
 	}
 	return items
+}
+
+// collectUsers 采集 per-user 增量并把节点级增量求和。
+func collectUsers(uc UserCollector, name string, now time.Time) (agentproto.ProcTraffic, error) {
+	users, err := uc.CollectUsers(name)
+	if err != nil {
+		return agentproto.ProcTraffic{}, err
+	}
+	item := agentproto.ProcTraffic{Proc: name, At: now}
+	for _, u := range users {
+		item.Rx += u.Rx
+		item.Tx += u.Tx
+	}
+	item.Users = users
+	return item, nil
+}
+
+// noteCollectErr 记录采集错误：同类只打一次日志。
+func (r *Reporter) noteCollectErr(name string, err error) {
+	if !r.collectErr[name] {
+		r.collectErr[name] = true
+		r.log.Printf("collect traffic proc=%s: %v (won't repeat)", name, err)
+	}
 }
 
 // report 批量上报；离线时静默丢弃（周期性数据，下一轮再报）。

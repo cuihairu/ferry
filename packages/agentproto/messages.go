@@ -189,6 +189,15 @@ type ProcTraffic struct {
 	Tx    uint64    `json:"tx"`
 	Conns int       `json:"conns"` // 采样时刻在线连接数
 	At    time.Time `json:"at"`
+	Users []UserTraffic `json:"users,omitempty"` // per-user 增量（xray gRPC stats，P1-3）
+}
+
+// UserTraffic 是采集周期内单个用户的流量增量（xray stats 采集）。
+// Email 是 xray inbound 用户邮箱，面板按 users.username 映射。
+type UserTraffic struct {
+	Email string `json:"email"`
+	Rx    uint64 `json:"rx"` // 用户收（xray downlink）
+	Tx    uint64 `json:"tx"` // 用户发（xray uplink）
 }
 
 // TrafficReport 一次批量上报多个进程的流量。

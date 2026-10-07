@@ -82,10 +82,58 @@ func TestReporterOfflineDropsSilently(t *testing.T) {
 	}
 }
 
-func TestCollectorForIsNoopInP0(t *testing.T) {
+func TestCollectorForUnintegratedKindsNoop(t *testing.T) {
 	for _, kind := range []string{"xray", "sing-box", "hysteria2"} {
 		if _, _, _, err := CollectorFor(kind).Collect("xray"); err == nil {
 			t.Fatalf("kind %s: P0 must not claim real collection", kind)
 		}
+	}
+}
+
+// fakeUserCollector 带 per-user 明细（对齐 xray gRPC stats 的采集口径）。
+type fakeUserCollector struct{ fakeCollector }
+
+func (fakeUserCollector) CollectUsers(proc string) ([]agentproto.UserTraffic, error) {
+	if proc != "xray" {
+		return nil, errNotImplemented
+	}
+	return []agentproto.UserTraffic{
+		{Email: "alice", Rx: 100, Tx: 40},
+		{Email: "bob", Rx: 60, Tx: 10},
+	}, nil
+}
+
+func TestReporterPerUserPath(t *testing.T) {
+	// per-user 采集器存在时：节点级 = per-user 求和，明细随 items 上报。
+	r := New(specs(), 10*time.Millisecond, fakeUserCollector{}, log.New(io.Discard, "", 0))
+	items := r.collectAll()
+	if len(items) != 1 {
+		t.Fatalf("items = %d, want 1", len(items))
+	}
+	it := items[0]
+	if it.Proc != "xray" || it.Rx != 160 || it.Tx != 50 {
+		t.Fatalf("item = %+v, want rx=160 tx=50 (per-user 求和)", it)
+	}
+	if len(it.Users) != 2 || it.Users[0].Email != "alice" {
+		t.Fatalf("users = %+v", it.Users)
+	}
+}
+
+func TestDispatchRoutesXrayStats(t *testing.T) {
+	// 配了 stats_api 的 xray 进程装配真实采集器；其余回退 Noop。
+	specs := []config.ProcSpec{
+		{Name: "xray", Kind: "xray", StatsAPI: "127.0.0.1:10085"},
+		{Name: "sb", Kind: "sing-box"},
+	}
+	d := Dispatch(specs)
+	uc, ok := d.(UserCollector)
+	if !ok {
+		t.Fatal("dispatcher must satisfy UserCollector")
+	}
+	if _, err := uc.CollectUsers("xray"); err == nil {
+		t.Fatal("xray api 不可达时查询应报错（真实采集器已装配）")
+	}
+	if _, err := uc.CollectUsers("sb"); err != errNotImplemented {
+		t.Fatalf("sb collect users err = %v, want errNotImplemented", err)
 	}
 }
