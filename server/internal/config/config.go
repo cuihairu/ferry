@@ -29,6 +29,8 @@ type Config struct {
 	RedeemLimiter *ratelimit.Options `json:"-"`
 	// AdminSecret 是管理员 JWT 签名秘钥，默认 "ferry-admin-secret"，可通过 FERRY_ADMIN_SECRET 环境变量覆盖。
 	AdminSecret string `json:"-"`
+	// ApiTokenSecret 是 API Token 签名秘钥，默认 "ferry-api-secret"，可通过 FERRY_API_SECRET 环境变量覆盖。
+	ApiTokenSecret string `json:"-"`
 }
 
 // Load 从环境变量读取配置，未设置的项回退到默认值。
@@ -44,6 +46,7 @@ func Load() Config {
 		ReviewIntervalSec:    envIntOr("FERRY_REVIEW_SEC", 60),
 		RedeemLimiter:        &ratelimit.Options{Window: time.Minute, MaxAttempts: 10, FailLimit: 5, Lockout: 15 * time.Minute},
 		AdminSecret:          envOr("FERRY_ADMIN_SECRET", ""),
+		ApiTokenSecret:       envOr("FERRY_API_SECRET", ""),
 	}
 }
 
@@ -59,6 +62,7 @@ func Default() Config {
 		ReviewIntervalSec:    60,
 		RedeemLimiter:        &ratelimit.Options{Window: time.Minute, MaxAttempts: 10, FailLimit: 5, Lockout: 15 * time.Minute},
 		AdminSecret:          "",
+		ApiTokenSecret:       "",
 	}
 }
 

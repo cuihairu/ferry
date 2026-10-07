@@ -12,6 +12,7 @@ type User struct {
 	Enabled     bool       `gorm:"default:true" json:"enabled"`
 	IsAdmin     bool       `gorm:"default:false" json:"is_admin"`
 	Password    string     `gorm:"size:128" json:"-"`
+	ApiToken    string     `gorm:"size:64" json:"api_token"`
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
 }

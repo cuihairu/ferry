@@ -86,6 +86,11 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		}
 	}
 	// P1-1 管理员登录与鉴权
+	api = r.Group("/api", apiAuthMiddleware())
+	{
+		api.GET("/token", h.GetCurrentUser)
+		api.POST("/token", h.AdminGetApiToken)
+	}
 	admin := r.Group("/admin", adminAuthMiddleware())
 	{
 		admin.POST("/login", h.AdminLogin)
