@@ -15,6 +15,7 @@ import (
 	"github.com/cuihairu/ferry/agent/internal/roles"
 	"github.com/cuihairu/ferry/agent/internal/roles/proberole"
 	"github.com/cuihairu/ferry/agent/internal/roles/relay"
+	"github.com/cuihairu/ferry/agent/internal/upgrade"
 )
 
 // version 由构建注入，默认 dev。
@@ -36,6 +37,17 @@ func main() {
 	}
 
 	a := app.New(cfg, version)
+
+	// 自升级验证（A-23）：存在待验证标记说明上次升级后未完成启动验证，
+	// 起看门狗——超时未连上面板则回滚备份；hello 成功即提交。
+	if self, err := upgrade.Self(); err == nil {
+		if upgrade.Pending(self) {
+			log.Printf("pending upgrade verify, watchdog %s", upgrade.RollbackTimeout)
+			go upgrade.Watchdog(self, upgrade.RollbackTimeout, log.Default())
+		}
+		a.OnHelloOK = func() { upgrade.Commit(self) }
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

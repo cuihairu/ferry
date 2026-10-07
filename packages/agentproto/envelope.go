@@ -28,6 +28,8 @@ const (
 	MsgProbeAck     = "panel.probe_ack"     // 探测上报应答
 	MsgCalibrate    = "agent.calibrate"     // 测速校准上报（E-8）
 	MsgCalibrateAck = "panel.calibrate_ack" // 测速校准应答
+	MsgUpgrade      = "panel.upgrade"       // 自升级指令（A-23）
+	MsgUpgradeAck   = "agent.upgrade_ack"   // 自升级应答
 )
 
 // Envelope 是所有消息的统一封装。请求方设置 ID，应答方原样带回。

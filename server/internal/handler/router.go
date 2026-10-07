@@ -63,6 +63,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		api.DELETE("/landings/:id", h.releaseLanding)
 		api.POST("/nodes/:id/config", h.pushConfig)
 		api.POST("/nodes/:id/proc", h.nodeProcOp)
+		api.POST("/nodes/:id/upgrade", h.nodeUpgrade)
 		api.POST("/nodes/batch/proc", h.batchNodeProc)
 		api.POST("/nodes/batch/config", h.batchNodeConfig)
 		api.GET("/nodes/:id/configs", h.listNodeConfigs)

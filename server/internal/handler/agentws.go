@@ -64,6 +64,14 @@ func (h *Handler) agentWS(c *gin.Context) {
 	// hello_ack 回传面板权威值供 agent 校准。
 	meta := h.syncNodeMeta(nodeID, hello.Meta)
 
+	// agent 版本随每次 hello 落库（A-23 自升级结果即版本变化）。
+	if hello.Version != "" {
+		if err := h.db.Model(&storage.Node{}).Where("id=?", nodeID).
+			Update("agent_version", hello.Version).Error; err != nil {
+			log.Printf("update agent_version node=%d: %v", nodeID, err)
+		}
+	}
+
 	// 认证通过：应答、注册、解除读限时。
 	ack, _ := agentproto.NewEnvelope(env.ID, agentproto.MsgHelloAck, agentproto.HelloAck{
 		ServerTime:           time.Now(),

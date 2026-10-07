@@ -20,6 +20,7 @@ import (
 	"github.com/cuihairu/ferry/agent/internal/roles/speedtest"
 	"github.com/cuihairu/ferry/agent/internal/spool"
 	"github.com/cuihairu/ferry/agent/internal/traffic"
+	"github.com/cuihairu/ferry/agent/internal/upgrade"
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
 
@@ -51,6 +52,9 @@ type App struct {
 	alarmMu    sync.Mutex
 	certAlarms map[string]time.Time
 	lw         loadWatch
+
+	// OnHelloOK 在 hello 握手成功时调用（A-23 升级验证提交点）。
+	OnHelloOK func()
 
 	sendMu  sync.Mutex
 	curSend func(agentproto.Envelope) error // 当前连接的发送口；断开即清空
@@ -153,6 +157,18 @@ func (a *App) maybeCalibrate(send func(agentproto.Envelope) error) {
 	}
 }
 
+// doUpgrade 后台执行自升级（A-23）：失败仅记日志，二进制保持原状。
+func (a *App) doUpgrade(up agentproto.Upgrade) {
+	self, err := upgrade.Self()
+	if err != nil {
+		a.log.Printf("upgrade: locate self: %v", err)
+		return
+	}
+	if err := upgrade.Do(context.Background(), self, up, a.log); err != nil {
+		a.log.Printf("upgrade to %s failed: %v", up.Version, err)
+	}
+}
+
 // reportStatus 把进程状态变化推给面板（离线时静默丢弃）。
 func (a *App) reportStatus(status agentproto.ProcStatus) {
 	env, err := agentproto.NewEnvelope("", agentproto.MsgProcReport, agentproto.ProcReport{
@@ -230,6 +246,9 @@ func (a *App) OnConnected(ctx context.Context, send func(agentproto.Envelope) er
 		}
 		a.startHeartbeat(ctx, send)
 		go a.maybeCalibrate(send)
+		if a.OnHelloOK != nil {
+			a.OnHelloOK()
+		}
 		return nil
 	case <-time.After(helloTimeout):
 		return errors.New("hello ack timeout")
@@ -256,6 +275,21 @@ func (a *App) OnMessage(_ context.Context, env agentproto.Envelope, send func(ag
 		if err := env.Decode(&ha); err == nil && ha.NextIntervalSec > 0 {
 			a.setInterval(time.Duration(ha.NextIntervalSec) * time.Second)
 		}
+	case agentproto.MsgUpgrade:
+		// 自升级（A-23）：先应答受理，再后台下载替换重启；拒绝原因随 ack 回传。
+		var up agentproto.Upgrade
+		ack := agentproto.UpgradeAck{}
+		if err := env.Decode(&up); err != nil {
+			ack.Error = err.Error()
+		} else if up.Version == "" || up.URL == "" {
+			ack.Error = "version and url are required"
+		} else {
+			ack.Version = up.Version
+			ack.OK = true
+			go a.doUpgrade(up)
+		}
+		reply, _ := agentproto.NewEnvelope(env.ID, agentproto.MsgUpgradeAck, ack)
+		_ = a.sendIfConnected(reply)
 	case agentproto.MsgProcCtl:
 		var ctl agentproto.ProcCtl
 		ack := agentproto.ProcCtlAck{Proc: ctl.Proc, Action: ctl.Action}

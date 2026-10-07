@@ -296,3 +296,17 @@ type Alarm struct {
 	Message  string    `json:"message"`
 	At       time.Time `json:"at"`
 }
+
+// Upgrade 是面板下发的自升级指令（A-23）：agent 下载新版本二进制替换自身并重启。
+type Upgrade struct {
+	Version string `json:"version"`         // 目标版本号
+	URL     string `json:"url"`             // 新二进制下载地址
+	Sha256  string `json:"sha256"`          // 校验和（十六进制，空则不校验）
+}
+
+// UpgradeAck 是升级指令的即时应答：受理或拒绝（拒绝带原因，不换二进制）。
+type UpgradeAck struct {
+	Version string `json:"version"`
+	OK      bool   `json:"ok"`
+	Error   string `json:"error,omitempty"`
+}
