@@ -161,7 +161,36 @@ func applyGrant(tx *gorm.DB, orderNo string, u *storage.User, grantType string, 
 		GrantType: grantType, GrantValue: grantValue,
 		Snapshot: string(snapJSON), CreatedAt: now,
 	}
-	return tx.Create(&grant).Error
+	if err := tx.Create(&grant).Error; err != nil {
+		return err
+	}
+	// 事件触发（NT-2）：发放到账落一条 system 站内信，与发放同事务原子。
+	return tx.Create(&storage.Notification{
+		UserID: int64(u.ID), Type: storage.NotifSystem,
+		Title: grantNotifTitle(grantType, grantValue), CreatedAt: now,
+	}).Error
+}
+
+// grantNotifTitle 发放到账通知文案：流量给人类可读量级，时长给天数。
+func grantNotifTitle(grantType string, value int64) string {
+	if grantType == "add_quota" {
+		return fmt.Sprintf("流量已到账：+%s", humanBytes(value))
+	}
+	return fmt.Sprintf("时长已到账：+%d 天", value)
+}
+
+// humanBytes 字节量级 humanize（GB 向上取整对齐购买口径，不足 1GB 按 MB）。
+func humanBytes(n int64) string {
+	const gb = 1 << 30
+	const mb = 1 << 20
+	switch {
+	case n >= gb:
+		return fmt.Sprintf("%d GB", (n+gb-1)/gb)
+	case n >= mb:
+		return fmt.Sprintf("%d MB", (n+mb-1)/mb)
+	default:
+		return fmt.Sprintf("%d B", n)
+	}
 }
 
 // normalizeCardCode 归一化输入：统一大写、去杂字符后还原 XXXX-XXXX-XXXX 分组，

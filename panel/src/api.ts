@@ -31,6 +31,10 @@ export function post<T>(path: string, body?: unknown): Promise<T> {
   return request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) })
 }
 
+export function put<T>(path: string, body: unknown): Promise<T> {
+  return request<T>(path, { method: 'PUT', body: JSON.stringify(body) })
+}
+
 // ---- 资源类型（对齐 server 的 JSON 载荷）----
 
 /** Me 是 GET /api/panel/me 的响应：身份、用量与可用状态。 */
@@ -94,4 +98,19 @@ export function markRead(id: number): Promise<{ ok: boolean }> {
 
 export function markAllRead(): Promise<{ updated: number }> {
   return post('/api/panel/notifications/read-all')
+}
+
+/** NotifyPrefs 是 GET/PUT /api/panel/notify-prefs 的载荷（NT-2）。 */
+export interface NotifyPrefs {
+  notify_expiry: boolean
+  notify_traffic: boolean
+  traffic_warn_percent: number
+}
+
+export function getNotifyPrefs(): Promise<NotifyPrefs> {
+  return get<NotifyPrefs>('/api/panel/notify-prefs')
+}
+
+export function updateNotifyPrefs(p: Partial<NotifyPrefs>): Promise<{ ok: boolean }> {
+  return put('/api/panel/notify-prefs', p)
 }

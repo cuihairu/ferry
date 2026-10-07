@@ -14,16 +14,9 @@ import (
 	"gorm.io/gorm"
 )
 
-// 站内信通知中心（NT-1）：四类通知逐用户落行（小用户量扇出成本可忽略），
-// 已读态挂在行上。面板侧读与已读流转；dash 侧公告扇出与全量列表。
-// 到期/流量预警的自动触发在 NT-2，届时直接落 storage.Notification 行即可。
-
-const (
-	NotifAnnouncement = "announcement" // 公告（dash 扇出）
-	NotifExpiry       = "expiry"       // 到期提醒（NT-2 定时扫描）
-	NotifTraffic      = "traffic"      // 流量预警（NT-2 定时扫描）
-	NotifSystem       = "system"       // 系统事件
-)
+// 站内信通知中心（NT-1/NT-2）：四类通知逐用户落行（小用户量扇出成本可忽略），
+// 已读态挂在行上。面板侧读与已读流转、偏好设置；dash 侧公告扇出与全量列表。
+// 到期/流量预警的定时扫描在 internal/notifyscan；发放到账的事件触发在 applyGrant。
 
 // fanoutAnnouncement 公告扇出：给全部启用用户各落一行，分批写入。
 // 返回实际落行数（禁用用户不收）。
@@ -37,7 +30,7 @@ func fanoutAnnouncement(db *gorm.DB, title, body string) (int64, error) {
 	}
 	rows := make([]storage.Notification, 0, len(ids))
 	for _, id := range ids {
-		rows = append(rows, storage.Notification{UserID: id, Type: NotifAnnouncement, Title: title, Body: body})
+		rows = append(rows, storage.Notification{UserID: id, Type: storage.NotifAnnouncement, Title: title, Body: body})
 	}
 	res := db.CreateInBatches(rows, 500)
 	return res.RowsAffected, res.Error
@@ -206,4 +199,67 @@ func (h *Handler) panelMarkAllRead(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"updated": res.RowsAffected})
+}
+
+// ---- 通知偏好（NT-2）----
+
+// panelNotifyPrefs 当前用户的通知偏好（GET /api/panel/notify-prefs）。
+func (h *Handler) panelNotifyPrefs(c *gin.Context) {
+	u, ok := h.panelUser(c)
+	if !ok {
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"notify_expiry":        u.NotifyExpiry,
+		"notify_traffic":       u.NotifyTraffic,
+		"traffic_warn_percent": effectiveWarnPercent(u.TrafficWarnPercent),
+	})
+}
+
+// panelUpdateNotifyPrefs 更新通知偏好（PUT /api/panel/notify-prefs）。
+func (h *Handler) panelUpdateNotifyPrefs(c *gin.Context) {
+	u, ok := h.panelUser(c)
+	if !ok {
+		return
+	}
+	var body struct {
+		NotifyExpiry       *bool `json:"notify_expiry"`
+		NotifyTraffic      *bool `json:"notify_traffic"`
+		TrafficWarnPercent *int  `json:"traffic_warn_percent"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	updates := map[string]any{}
+	if body.NotifyExpiry != nil {
+		updates["notify_expiry"] = *body.NotifyExpiry
+	}
+	if body.NotifyTraffic != nil {
+		updates["notify_traffic"] = *body.NotifyTraffic
+	}
+	if body.TrafficWarnPercent != nil {
+		if *body.TrafficWarnPercent < 1 || *body.TrafficWarnPercent > 100 {
+			fail(c, http.StatusBadRequest, errors.New("traffic_warn_percent must be 1-100"))
+			return
+		}
+		updates["traffic_warn_percent"] = *body.TrafficWarnPercent
+	}
+	if len(updates) == 0 {
+		fail(c, http.StatusBadRequest, errors.New("无可更新字段"))
+		return
+	}
+	if err := h.db.Model(&storage.User{}).Where("id = ?", u.ID).Updates(updates).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// effectiveWarnPercent 归一阈值：未设/越界回落默认 80（历史行与扫描共用口径）。
+func effectiveWarnPercent(v int) int {
+	if v <= 0 || v > 100 {
+		return 80
+	}
+	return v
 }

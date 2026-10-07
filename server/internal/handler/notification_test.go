@@ -158,3 +158,104 @@ func TestNotificationCenter(t *testing.T) {
 		t.Fatalf("no token: %d", rec.Code)
 	}
 }
+
+// TestNotifyPrefs 覆盖 NT-2 偏好：默认值读取、部分更新、阈值校验。
+func TestNotifyPrefs(t *testing.T) {
+	r, _ := newTestRouterWithDB(t)
+	token := panelToken(t, r, "pref-u")
+
+	// 默认：开/开/80
+	rec := doPanel(t, r, token, "GET", "/api/panel/notify-prefs", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get prefs: %d %s", rec.Code, rec.Body)
+	}
+	var prefs struct {
+		NotifyExpiry  bool `json:"notify_expiry"`
+		NotifyTraffic bool `json:"notify_traffic"`
+		WarnPercent   int  `json:"traffic_warn_percent"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &prefs); err != nil {
+		t.Fatal(err)
+	}
+	if !prefs.NotifyExpiry || !prefs.NotifyTraffic || prefs.WarnPercent != 80 {
+		t.Fatalf("default prefs = %+v", prefs)
+	}
+
+	// 部分更新：只关到期提醒，其余不动
+	rec = doPanel(t, r, token, "PUT", "/api/panel/notify-prefs", map[string]any{"notify_expiry": false})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("put prefs: %d %s", rec.Code, rec.Body)
+	}
+	rec = doPanel(t, r, token, "GET", "/api/panel/notify-prefs", nil)
+	_ = json.Unmarshal(rec.Body.Bytes(), &prefs)
+	if prefs.NotifyExpiry || !prefs.NotifyTraffic || prefs.WarnPercent != 80 {
+		t.Fatalf("prefs after partial update = %+v", prefs)
+	}
+
+	// 阈值越界 400；合法阈值生效
+	if rec := doPanel(t, r, token, "PUT", "/api/panel/notify-prefs", map[string]any{"traffic_warn_percent": 0}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("zero percent: %d", rec.Code)
+	}
+	if rec := doPanel(t, r, token, "PUT", "/api/panel/notify-prefs", map[string]any{"traffic_warn_percent": 101}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("101 percent: %d", rec.Code)
+	}
+	rec = doPanel(t, r, token, "PUT", "/api/panel/notify-prefs", map[string]any{"traffic_warn_percent": 95})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("put 95: %d", rec.Code)
+	}
+	rec = doPanel(t, r, token, "GET", "/api/panel/notify-prefs", nil)
+	_ = json.Unmarshal(rec.Body.Bytes(), &prefs)
+	if prefs.WarnPercent != 95 {
+		t.Fatalf("warn percent = %d, want 95", prefs.WarnPercent)
+	}
+}
+
+// TestGrantNotifiesUser 覆盖 NT-2 事件触发：兑换发放成功即落一条 system
+// 站内信（applyGrant 事务内），流量口径给人类可读量级。
+func TestGrantNotifiesUser(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	token := panelToken(t, r, "grant-u")
+	userID := 1
+
+	rec := doJSON(t, r, "POST", "/api/card-batches", map[string]any{
+		"name": "1GB 卡", "grant_type": "add_quota", "grant_value": 1 << 30, "total": 1,
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create batch: %d %s", rec.Code, rec.Body)
+	}
+	var codeRows []struct {
+		Code string `json:"code"`
+	}
+	rec = doJSON(t, r, "GET", "/api/card-batches/1/codes", nil)
+	if err := json.Unmarshal(rec.Body.Bytes(), &codeRows); err != nil {
+		t.Fatal(err)
+	}
+	if len(codeRows) != 1 {
+		t.Fatalf("codes = %+v", codeRows)
+	}
+
+	rec = doJSON(t, r, "POST", "/api/redeem", map[string]any{"code": codeRows[0].Code, "user_id": userID})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("redeem: %d %s", rec.Code, rec.Body)
+	}
+
+	var notifs []storage.Notification
+	if err := db.Where("user_id = ? AND type = ?", userID, storage.NotifSystem).Find(&notifs).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(notifs) != 1 {
+		t.Fatalf("system notifications = %d, want 1", len(notifs))
+	}
+	if notifs[0].Title != "流量已到账：+1 GB" {
+		t.Fatalf("title = %q", notifs[0].Title)
+	}
+	// 未读数应计上
+	rec = doPanel(t, r, token, "GET", "/api/panel/notifications/unread-count", nil)
+	var cnt struct {
+		Count int64 `json:"count"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &cnt)
+	if cnt.Count != 1 {
+		t.Fatalf("unread = %d, want 1", cnt.Count)
+	}
+}

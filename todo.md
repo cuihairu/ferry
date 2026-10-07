@@ -206,7 +206,7 @@
 - [x] [P0] OD-1 panel 订单中心：兑换与购买记录列表（provider=card 归并），随支付批
 - [x] [P1] OD-2 订单详情与状态流转：待付/已完成/已退款（状态枚举补 refunded），套餐/金额/时长/流量明细（三账详情 GET /api/payments/orders/:order_no + 退款流转 POST .../refund 仅 paid→refunded 409 否则，退款留痕 RefundAt/RefundNote 经渠道后台操作口径；reconcile 增退款小计与「已退款但缺支付流水」检查；dash 对账页退款按钮+stats；panel 订单增退款态红标与退款时间）
 - [x] [P1] NT-1 通知中心站内信：notifications 表+未读/列表，公告/到期/流量预警/系统四类（Notification 模型逐用户落行已读态挂行上；面板侧 GET/panel/notifications 列表（unread=1 过滤）+unread-count+单条已读幂等+read-all，他人通知 404 防越权；dash 侧 GET/notifications 全量列表（type/user_id 过滤）+POST announcement 扇出启用用户（CreateInBatches 500，禁用不收）+DELETE，ringlog 留扇出痕；dash 增通知页（发布卡+类型筛选+删除），panel 增通知页（点卡已读+全部已读+未读高亮）与导航未读徽标（壳层进面板/换页刷新，auth store 共享）；自动触发（到期/流量阈值扫描落行）归 NT-2）
-- [ ] [P1] NT-2 通知触发与偏好：定时扫描（到期/阈值）+事件触发，用户按类型×通道开关与阈值
+- [x] [P1] NT-2 通知触发与偏好：定时扫描（到期/阈值）+事件触发，用户按类型×通道开关与阈值（新包 internal/notifyscan——Loop/Sweep 双扫到期（7 天窗口含已到期、文案按整日向上取整）与流量（复用 quota.UsedBytes 窗口口径、达个人阈值才发，未设/越界回落 80），按日去重（type+当日 DISTINCT user_id），main 装配 FERRY_NOTIFY_SCAN_SEC 默认 3600；事件触发：applyGrant 事务内发放到账直落 system 站内信（流量人类可读量级 humanBytes GB 向上取整）；偏好：User 加 notify_expiry/notify_traffic/traffic_warn_percent 列（默认 true/true/80），panel GET/PUT notify-prefs（部分更新、阈值 1-100 校验、归一口径 effectiveWarnPercent）；通知类型常量收敛 storage；panel 概览加通知偏好卡（双开关+阈值下拉+保存）；测试覆盖扫描六态（窗口内/外、关偏好、禁用、同日去重、跨日再发、已到期文案）与流量四态（达/未达/关/个人阈值）、偏好默认/部分更新/越界 400/生效、兑换事件落信+未读计数；seedUser 踩 GORM default 标签 RETURNING 回填 struct 陷阱（map 需先于 Create 取值））
 - [ ] [P2] PROMO-1 优惠码：满减/折扣/指定套餐，dash 配置+panel 下单原子核销
 - [ ] [P2] PROMO-2 限时活动与首单/续费折扣：起止与适用范围配置、panel 活动位
 - [ ] [P2] PROMO-3 优惠账目打通：订单记原价+实付+优惠快照，与三账对得上

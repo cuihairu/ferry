@@ -485,3 +485,34 @@ body {
   text-align: center;
   font-weight: 600;
 }
+
+/* 通知偏好表单（NT-2）。 */
+.pref-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 10px 0;
+  flex-wrap: wrap;
+}
+.pref-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ferry-text);
+  cursor: pointer;
+}
+.pref-select {
+  background: var(--ferry-bg-hover);
+  color: var(--ferry-text);
+  border: 1px solid var(--ferry-border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 13px;
+}
+.pref-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}

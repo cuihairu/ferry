@@ -1,26 +1,30 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { ApiError, get } from '../api'
+import { ApiError, get, getNotifyPrefs, updateNotifyPrefs } from '../api'
 import type { Me } from '../api'
 import { auth, setUser } from '../auth'
 import { formatDate, formatBytes, quotaText } from '../utils/format'
 
-// 概览：用量进度、配额与到期、订阅链接复制。
+// 概览：用量进度、配额与到期、订阅链接复制、通知偏好（NT-2）。
 const loading = ref(false)
 const error = ref('')
 const copied = ref('')
 
 onMounted(async () => {
   if (!auth.token) return
-  if (auth.user) return
-  loading.value = true
-  try {
-    setUser(await get<Me>('/api/panel/me'))
-  } catch (e) {
-    error.value = e instanceof ApiError ? e.message : '网络异常，请稍后再试'
-  } finally {
-    loading.value = false
+  if (!auth.user) {
+    loading.value = true
+    try {
+      setUser(await get<Me>('/api/panel/me'))
+    } catch (e) {
+      error.value = e instanceof ApiError ? e.message : '网络异常，请稍后再试'
+      loading.value = false
+      return
+    } finally {
+      loading.value = false
+    }
   }
+  loadPrefs()
 })
 
 const me = computed(() => auth.user)
@@ -56,6 +60,45 @@ async function copy(text: string, key: string) {
   }
   copied.value = key
   setTimeout(() => (copied.value = ''), 1600)
+}
+
+// ---- 通知偏好（NT-2）：到期提醒 / 流量预警与阈值，站内信通道 ----
+const prefExpiry = ref(true)
+const prefTraffic = ref(true)
+const prefPercent = ref(80)
+const prefSaving = ref(false)
+const prefSaved = ref(false)
+const prefError = ref('')
+
+const percentOptions = [50, 60, 70, 80, 90, 95]
+
+async function loadPrefs() {
+  try {
+    const p = await getNotifyPrefs()
+    prefExpiry.value = p.notify_expiry
+    prefTraffic.value = p.notify_traffic
+    prefPercent.value = p.traffic_warn_percent
+  } catch {
+    /* 偏好读取失败不打扰主流程，保持默认展示 */
+  }
+}
+
+async function savePrefs() {
+  prefSaving.value = true
+  prefError.value = ''
+  try {
+    await updateNotifyPrefs({
+      notify_expiry: prefExpiry.value,
+      notify_traffic: prefTraffic.value,
+      traffic_warn_percent: prefPercent.value,
+    })
+    prefSaved.value = true
+    setTimeout(() => (prefSaved.value = false), 1600)
+  } catch (e) {
+    prefError.value = e instanceof ApiError ? e.message : '网络异常，请稍后再试'
+  } finally {
+    prefSaving.value = false
+  }
 }
 </script>
 
@@ -104,6 +147,26 @@ async function copy(text: string, key: string) {
               {{ copied === 'clash' ? '已复制' : '复制' }}
             </button>
           </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">通知偏好</h2>
+        <p class="muted">站内信提醒（通知页查看）；公告与到账通知不在此列，始终送达。</p>
+        <div class="pref-row">
+          <label class="pref-check"><input v-model="prefExpiry" type="checkbox" /> 到期提醒（到期前 7 天起每日一条）</label>
+        </div>
+        <div class="pref-row">
+          <label class="pref-check"><input v-model="prefTraffic" type="checkbox" /> 流量预警</label>
+          <select v-model="prefPercent" class="pref-select" :disabled="!prefTraffic">
+            <option v-for="p in percentOptions" :key="p" :value="p">用量达 {{ p }}% 时提醒</option>
+          </select>
+        </div>
+        <div class="pref-bar">
+          <button class="btn btn-ghost" :disabled="prefSaving" @click="savePrefs">
+            {{ prefSaving ? '保存中…' : prefSaved ? '已保存' : '保存' }}
+          </button>
+          <span v-if="prefError" class="error-text">{{ prefError }}</span>
         </div>
       </section>
     </template>

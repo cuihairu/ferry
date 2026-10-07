@@ -64,6 +64,8 @@ type Config struct {
 	AcmeWebroot string
 	// CertIntervalSec 是证书到期/续期扫表周期（BR-4）。
 	CertIntervalSec int
+	// NotifyScanIntervalSec 是站内信到期/流量预警扫表周期（NT-2），去重按日，建议小时级。
+	NotifyScanIntervalSec int
 }
 
 // Load 从环境变量读取配置，未设置的项回退到默认值。
@@ -96,6 +98,8 @@ func Load() Config {
 		AcmeHome:             envOr("FERRY_ACME_HOME", "/var/lib/ferry/acme"),
 		AcmeWebroot:          envOr("FERRY_ACME_WEBROOT", "/var/www/acme"),
 		CertIntervalSec:      envIntOr("FERRY_CERT_SEC", 21600),
+
+		NotifyScanIntervalSec: envIntOr("FERRY_NOTIFY_SCAN_SEC", 3600),
 	}
 }
 
@@ -128,6 +132,8 @@ func Default() Config {
 		AcmeHome:             "",
 		AcmeWebroot:          "",
 		CertIntervalSec:      21600,
+
+		NotifyScanIntervalSec: 3600,
 	}
 }
 

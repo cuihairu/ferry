@@ -164,11 +164,13 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 			panel.GET("/products", h.panelProducts)
 			panel.POST("/orders", h.panelCreateOrder)
 			panel.GET("/orders/:order_no", h.panelOrderStatus)
-			// 通知中心（NT-1）
+			// 通知中心（NT-1）与偏好（NT-2）
 			panel.GET("/notifications", h.panelNotifications)
 			panel.GET("/notifications/unread-count", h.panelUnreadCount)
 			panel.POST("/notifications/read-all", h.panelMarkAllRead)
 			panel.POST("/notifications/:id/read", h.panelMarkRead)
+			panel.GET("/notify-prefs", h.panelNotifyPrefs)
+			panel.PUT("/notify-prefs", h.panelUpdateNotifyPrefs)
 		}
 	}
 	// P1-1 管理员登录与鉴权

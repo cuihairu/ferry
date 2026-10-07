@@ -14,8 +14,12 @@ type User struct {
 	IsAdmin    bool       `gorm:"default:false" json:"is_admin"`
 	Password   string     `gorm:"size:128" json:"-"`
 	ApiToken   string     `gorm:"size:64" json:"api_token"`
-	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at"`
+	// 通知偏好（NT-2）：站内信通道内按类型开关；通道维度待第二通道（邮件/TG）落地再扩。
+	NotifyExpiry       bool `gorm:"default:true" json:"notify_expiry"`        // 到期提醒
+	NotifyTraffic      bool `gorm:"default:true" json:"notify_traffic"`       // 流量预警
+	TrafficWarnPercent int  `gorm:"default:80" json:"traffic_warn_percent"` // 流量预警阈值（1-100）
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 // Node 是一台代理节点。Token 供 agent 出站连接认证。
@@ -391,3 +395,12 @@ type Notification struct {
 	ReadAt    *time.Time `json:"read_at,omitempty"`
 	CreatedAt time.Time  `json:"created_at"`
 }
+
+// 通知类型（NT-1/NT-2）：announcement 公告扇出；expiry/traffic 到期与流量
+// 阈值的定时扫描触发；system 事件触发（发放到账等）。
+const (
+	NotifAnnouncement = "announcement"
+	NotifExpiry       = "expiry"
+	NotifTraffic      = "traffic"
+	NotifSystem       = "system"
+)

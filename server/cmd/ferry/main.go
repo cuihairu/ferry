@@ -22,6 +22,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/pool"
 	"github.com/cuihairu/ferry/server/internal/provision"
 	"github.com/cuihairu/ferry/server/internal/recovery"
+	"github.com/cuihairu/ferry/server/internal/notifyscan"
 	"github.com/cuihairu/ferry/server/internal/review"
 	"github.com/cuihairu/ferry/server/internal/ringlog"
 	"github.com/cuihairu/ferry/server/internal/secret"
@@ -140,6 +141,10 @@ func main() {
 
 	// 到期/超限用户停用扫表。
 	go review.Run(ctx, db, time.Duration(cfg.ReviewIntervalSec)*time.Second)
+
+	// 站内信自动触发（NT-2）：到期提醒与流量预警扫表，按日去重；
+	// 发放到账的事件触发在 applyGrant 事务内，公告扇出在管理 API。
+	go notifyscan.Loop(ctx, db, time.Duration(cfg.NotifyScanIntervalSec)*time.Second, nil)
 
 	// 面板 Web 证书（P1-7）：settings 里配置了证书即走 HTTPS，
 	// 配置损坏启动中止以免静默降级 HTTP；切换证书需重启生效。
