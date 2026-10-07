@@ -182,6 +182,36 @@ func TestPolicyPersistence(t *testing.T) {
 	}
 }
 
+// TestDirectionalDefaults 覆盖方向分流缺省档（E-30）：未设置时出海走性价比
+// （cost_first）、回国优先优质线路（perf_first）；空档位保存表示回方向缺省。
+func TestDirectionalDefaults(t *testing.T) {
+	db := newTestDB(t)
+	def := DefaultPolicySetting()
+	if def.Out != PolicyCostFirst || def.In != PolicyPerfFirst {
+		t.Fatalf("directional defaults = %+v", def)
+	}
+
+	if err := SavePolicy(db, PolicySetting{Out: PolicyLeastConn, In: PolicyLeastConn, RebalanceStart: 1, RebalanceEnd: 7}); err != nil {
+		t.Fatal(err)
+	}
+	// 两方向空档位：各自回缺省，窗口保留。
+	if err := SavePolicy(db, PolicySetting{RebalanceStart: 2, RebalanceEnd: 6}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadPolicy(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Out != PolicyCostFirst || got.In != PolicyPerfFirst || got.RebalanceStart != 2 || got.RebalanceEnd != 6 {
+		t.Fatalf("reset to defaults = %+v", got)
+	}
+
+	// 非法档位仍拒绝（空≠任意值）。
+	if err := SavePolicy(db, PolicySetting{Out: "greedy", In: "", RebalanceStart: 1, RebalanceEnd: 7}); err == nil {
+		t.Fatal("invalid out must be rejected")
+	}
+}
+
 func TestSweepAllocatesAndSwitches(t *testing.T) {
 	db := newTestDB(t)
 	seedNode(t, db, "entry", "entry", "out", nil)
@@ -226,7 +256,7 @@ func TestSweepAllocatesAndSwitches(t *testing.T) {
 	if rows[0].ReleasedAt == nil || rows[0].ReleaseReason != "自动换线" || rows[0].Reason == "" {
 		t.Fatalf("released row = %+v", rows[0])
 	}
-	if rows[1].ReleasedAt != nil || rows[1].Strategy != PolicyBalanced {
+	if rows[1].ReleasedAt != nil || rows[1].Strategy != PolicyCostFirst {
 		t.Fatalf("current row = %+v", rows[1])
 	}
 }

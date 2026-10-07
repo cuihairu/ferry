@@ -32,8 +32,10 @@ const settingKey = "alloc_policy"
 
 // 判定口径默认值。
 const (
-	// DefaultPolicy 缺省策略：均衡。
-	DefaultPolicy = PolicyBalanced
+	// DefaultPolicyOut/In 方向分流的缺省档（E-30）：出海走性价比（成本优先），
+	// 回国优先优质线路（性能优先、成本容忍高——晚高峰不拥塞比省几块钱重要）。
+	DefaultPolicyOut = PolicyCostFirst
+	DefaultPolicyIn  = PolicyPerfFirst
 	// ProbeFresh 探测结论参与健康判定的时限，超龄视为无结论（按健康参与）。
 	ProbeFresh = 30 * time.Minute
 	// LoadFresh 连接数采样参与负载判定的时限，超龄视为无采样（按 0 连接）。
@@ -69,7 +71,7 @@ const (
 // DefaultPolicySetting 两方向都取缺省档。
 func DefaultPolicySetting() PolicySetting {
 	return PolicySetting{
-		Out: DefaultPolicy, In: DefaultPolicy,
+		Out: DefaultPolicyOut, In: DefaultPolicyIn,
 		RebalanceStart: DefaultRebalanceStart, RebalanceEnd: DefaultRebalanceEnd,
 	}
 }
@@ -91,10 +93,10 @@ func LoadPolicy(db *gorm.DB) (PolicySetting, error) {
 // normalize 补齐非法字段为缺省档。
 func (s *PolicySetting) normalize() {
 	if !ValidPolicy(s.Out) {
-		s.Out = DefaultPolicy
+		s.Out = DefaultPolicyOut
 	}
 	if !ValidPolicy(s.In) {
-		s.In = DefaultPolicy
+		s.In = DefaultPolicyIn
 	}
 	if !validWindow(s.RebalanceStart, s.RebalanceEnd) {
 		s.RebalanceStart, s.RebalanceEnd = DefaultRebalanceStart, DefaultRebalanceEnd
@@ -108,6 +110,13 @@ func validWindow(start, end int) bool {
 
 // SavePolicy 校验并持久化策略设置。
 func SavePolicy(db *gorm.DB, setting PolicySetting) error {
+	// 空档位表示「按方向缺省」（出海性价比/回国优质），非法档位才拒绝。
+	if setting.Out == "" {
+		setting.Out = DefaultPolicyOut
+	}
+	if setting.In == "" {
+		setting.In = DefaultPolicyIn
+	}
 	if !ValidPolicy(setting.Out) || !ValidPolicy(setting.In) {
 		return fmt.Errorf("policy must be %s/%s/%s/%s", PolicyLeastConn, PolicyCostFirst, PolicyPerfFirst, PolicyBalanced)
 	}

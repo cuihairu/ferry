@@ -19,6 +19,7 @@ const scope = ref<'active' | 'all'>('active')
 
 // E-21：加权最小连接自动分配——出海/回国两池各选档位。
 const POLICY_OPTIONS = [
+  { value: '', label: '按方向缺省' },
   { value: 'least_conn', label: '最小连接' },
   { value: 'cost_first', label: '成本优先' },
   { value: 'perf_first', label: '性能优先' },
@@ -230,6 +231,7 @@ const DIR_TEXT: Record<string, string> = { out: '出海', in: '回国' }
 
     <h3 class="section">自动分配策略（E-21）</h3>
     <p class="section-desc">
+      方向分流（E-30）：出海与回国各自选档，缺省出海走性价比、回国优先优质线路；
       加权最小连接：健康与负载之外按容量分连接（3M 小带宽少分）、按流量计费节点参与成本判定（包月不参与）；
       峰时换线保守（主指标显著更优才动），低峰窗口内按策略全序再平衡。手动分配的入口不受影响。
     </p>

@@ -28,7 +28,7 @@ func TestAllocAPI(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("decode alloc resp: %v", err)
 	}
-	if out.Policy.Out != "balanced" || out.Policy.In != "balanced" || out.Policy.RebalanceStart != 1 || out.Policy.RebalanceEnd != 7 {
+	if out.Policy.Out != "cost_first" || out.Policy.In != "perf_first" || out.Policy.RebalanceStart != 1 || out.Policy.RebalanceEnd != 7 {
 		t.Fatalf("default policy = %+v", out.Policy)
 	}
 
@@ -61,6 +61,21 @@ func TestAllocAPI(t *testing.T) {
 	})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("invalid policy status = %d", rec.Code)
+	}
+
+	// 空档位表示回方向缺省（E-30）：出海 cost_first、回国 perf_first，窗口保留
+	rec = doJSON(t, r, "PUT", "/api/alloc/policy", map[string]any{
+		"out": "", "in": "", "rebalance_start": 3, "rebalance_end": 8,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("empty policy status = %d body=%s", rec.Code, rec.Body)
+	}
+	rec = doJSON(t, r, "GET", "/api/alloc", nil)
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Policy.Out != "cost_first" || out.Policy.In != "perf_first" || out.Policy.RebalanceStart != 3 || out.Policy.RebalanceEnd != 8 {
+		t.Fatalf("policy reset to defaults = %+v", out.Policy)
 	}
 
 	// auto 行入列表，manual 行不混入
