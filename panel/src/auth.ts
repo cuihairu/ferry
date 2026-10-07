@@ -9,6 +9,7 @@ const STORAGE_KEY = 'ferry.panel.token'
 export const auth = reactive({
   token: localStorage.getItem(STORAGE_KEY) ?? '',
   user: null as Me | null,
+  unread: 0, // 站内信未读数（NT-1）：App 壳层拉取，通知页操作后同步
 })
 
 export function setToken(token: string): void {
@@ -23,6 +24,7 @@ export function setUser(user: Me | null): void {
 export function logout(): void {
   auth.token = ''
   auth.user = null
+  auth.unread = 0
   localStorage.removeItem(STORAGE_KEY)
 }
 

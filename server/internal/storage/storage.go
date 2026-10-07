@@ -89,6 +89,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&DNSProvider{},
 		&DNSFront{},
 		&CertTask{},
+		&Notification{},
 	)
 }
 

@@ -632,3 +632,28 @@ export function getRecoveries(limit = 50): Promise<Recovery[]> {
 export function getRecoveryActions(id: number): Promise<RecoveryAction[]> {
   return get<RecoveryAction[]>(`/api/recoveries/${id}/actions`)
 }
+
+// ---- 站内信通知中心（NT-1）----
+
+export interface NotificationRow {
+  id: number
+  user_id: number
+  type: 'announcement' | 'expiry' | 'traffic' | 'system' | string
+  title: string
+  body?: string
+  read_at: string | null
+  created_at: string
+}
+
+export function getNotifications(limit?: number): Promise<NotificationRow[]> {
+  return get<NotificationRow[]>(`/api/notifications${limit ? `?limit=${limit}` : ''}`)
+}
+
+/** 发布公告：扇出给全部启用用户，返回落行数。 */
+export function createAnnouncement(title: string, body: string): Promise<{ created: number }> {
+  return post('/api/notifications/announcement', { title, body })
+}
+
+export function deleteNotification(id: number): Promise<{ ok: boolean }> {
+  return del(`/api/notifications/${id}`)
+}

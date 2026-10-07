@@ -150,6 +150,10 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		// 订单详情与退款流转（OD-2）
 		api.GET("/payments/orders/:order_no", h.adminOrderDetail)
 		api.POST("/payments/orders/:order_no/refund", h.refundOrder)
+		// 站内信通知中心（NT-1）：dash 公告扇出与全量列表。
+		api.GET("/notifications", h.listNotifications)
+		api.POST("/notifications/announcement", h.createAnnouncement)
+		api.DELETE("/notifications/:id", h.deleteNotification)
 		// 用户门户（PAY-7）：身份取自订阅令牌，见 panel.go。
 		panel := api.Group("/panel")
 		{
@@ -160,6 +164,11 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 			panel.GET("/products", h.panelProducts)
 			panel.POST("/orders", h.panelCreateOrder)
 			panel.GET("/orders/:order_no", h.panelOrderStatus)
+			// 通知中心（NT-1）
+			panel.GET("/notifications", h.panelNotifications)
+			panel.GET("/notifications/unread-count", h.panelUnreadCount)
+			panel.POST("/notifications/read-all", h.panelMarkAllRead)
+			panel.POST("/notifications/:id/read", h.panelMarkRead)
 		}
 	}
 	// P1-1 管理员登录与鉴权

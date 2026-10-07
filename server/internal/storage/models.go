@@ -379,3 +379,15 @@ type CertTask struct {
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
 }
+
+// Notification 是一条站内信（NT-1）：面向用户的四类通知（公告/到期/流量
+// 预警/系统），逐用户落行（小用户量扇出成本可忽略），已读态挂在行上。
+type Notification struct {
+	ID        int64      `gorm:"primaryKey" json:"id"`
+	UserID    int64      `gorm:"index;not null" json:"user_id"`     // 收件人
+	Type      string     `gorm:"size:16;index;not null" json:"type"` // announcement/expiry/traffic/system
+	Title     string     `gorm:"size:128;not null" json:"title"`
+	Body      string     `gorm:"size:512" json:"body,omitempty"`
+	ReadAt    *time.Time `json:"read_at,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+}

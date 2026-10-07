@@ -13,6 +13,7 @@ export const router = createRouter({
     { path: '/provision', component: () => import('./views/ProvisionView.vue') },
     { path: '/dns', component: () => import('./views/DnsView.vue') },
     { path: '/recoveries', component: () => import('./views/RecoveryView.vue') },
+    { path: '/notifications', component: () => import('./views/NotificationsView.vue') },
     { path: '/landings', component: () => import('./views/LandingsView.vue') },
     { path: '/settings', component: () => import('./views/SettingsView.vue') },
   ],

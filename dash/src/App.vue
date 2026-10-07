@@ -31,6 +31,7 @@ onMounted(async () => {
         <el-menu-item index="/provision">供给</el-menu-item>
         <el-menu-item index="/dns">域名</el-menu-item>
         <el-menu-item index="/recoveries">恢复</el-menu-item>
+        <el-menu-item index="/notifications">通知</el-menu-item>
         <el-menu-item index="/landings">调配</el-menu-item>
         <el-menu-item index="/settings">设置</el-menu-item>
       </el-menu>

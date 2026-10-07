@@ -68,3 +68,30 @@ export interface OrderRow {
   refund_at: string | null
   grants: Array<{ grant_type: string; grant_value: number }>
 }
+
+// ---- 通知中心（NT-1）----
+
+export interface NotificationRow {
+  id: number
+  type: 'announcement' | 'expiry' | 'traffic' | 'system' | string
+  title: string
+  body?: string
+  read_at: string | null
+  created_at: string
+}
+
+export function getNotifications(unread = false): Promise<NotificationRow[]> {
+  return get<NotificationRow[]>(`/api/panel/notifications${unread ? '?unread=1' : ''}`)
+}
+
+export function getUnreadCount(): Promise<number> {
+  return get<{ count: number }>('/api/panel/notifications/unread-count').then((v) => v.count)
+}
+
+export function markRead(id: number): Promise<{ ok: boolean }> {
+  return post(`/api/panel/notifications/${id}/read`)
+}
+
+export function markAllRead(): Promise<{ updated: number }> {
+  return post('/api/panel/notifications/read-all')
+}

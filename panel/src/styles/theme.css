@@ -470,3 +470,18 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* 通知未读徽标（NT-1）：挂在导航链接内。 */
+.nav-link .badge {
+  display: inline-block;
+  min-width: 16px;
+  margin-left: 5px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--ferry-danger);
+  color: #fff;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+  font-weight: 600;
+}
