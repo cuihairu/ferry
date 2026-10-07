@@ -2,10 +2,17 @@ package recovery
 
 import (
 	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/notify"
 	"github.com/cuihairu/ferry/server/internal/provision"
 	"github.com/cuihairu/ferry/server/internal/secret"
 	"github.com/cuihairu/ferry/server/internal/storage"
@@ -251,5 +258,106 @@ func TestInstanceActionL3(t *testing.T) {
 	bare := &InstanceAction{Manager: m, Store: store}
 	if err := bare.Run(context.Background(), node); err == nil {
 		t.Fatal("unconfigured L3 must fail")
+	}
+}
+
+// TestTraceRowsReplay 覆盖动作留痕（BR-5）：L1/L2 未注册记 skipped、
+// L3 动作失败记 failed 带原因，按级别回放序完整。
+func TestTraceRowsReplay(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Now()
+	n := suspendedNode(t, db, "entry-5", "连续 3 次探测 sick", now.Add(-15*time.Minute))
+	l3 := &fakeAction{name: "new_instance", err: context.DeadlineExceeded}
+	reg := Registry{3: l3}
+
+	// 开线 + 推进：L1 skipped → L2 skipped → L3 启动（goroutine 报错回写）。
+	for i := 0; i < 4; i++ {
+		if err := Sweep(db, now, Options{}, reg, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitRecovery(t, db, n.ID, func(r storage.Recovery) bool { return r.ActionState == ActionFailed })
+	if err := Sweep(db, now, Options{}, reg, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	var traces []storage.RecoveryAction
+	if err := db.Where("recovery_id = ?", 1).Order("id ASC").Find(&traces).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(traces) != 3 {
+		t.Fatalf("traces = %+v", traces)
+	}
+	if traces[0].Level != 1 || traces[0].State != ActionSkipped || traces[0].Detail == "" {
+		t.Fatalf("L1 trace = %+v", traces[0])
+	}
+	if traces[1].Level != 2 || traces[1].State != ActionSkipped {
+		t.Fatalf("L2 trace = %+v", traces[1])
+	}
+	if traces[2].Level != 3 || traces[2].Action != "new_instance" ||
+		traces[2].State != ActionFailed ||
+		!strings.Contains(traces[2].Detail, "context deadline exceeded") ||
+		traces[2].FinishedAt == nil {
+		t.Fatalf("L3 trace = %+v", traces[2])
+	}
+}
+
+// TestFailedEscalationNotify 覆盖失败升级（BR-5）：全级耗尽终态 failed
+// 经通知通道外发一次升级告警；在途留痕行同步收尾 timeout。
+func TestFailedEscalationNotify(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Now()
+	var mu sync.Mutex
+	var events []notify.Event
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var e notify.Event
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &e)
+		mu.Lock()
+		events = append(events, e)
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	if err := storage.SetSetting(db, notify.KeyURL, srv.URL); err != nil {
+		t.Fatal(err)
+	}
+
+	n := suspendedNode(t, db, "entry-6", "连续 3 次探测 sick", now.Add(-15*time.Minute))
+	start := now.Add(-11 * time.Minute) // 超过默认 LevelTimeout
+	rec := storage.Recovery{NodeID: n.ID, NodeName: n.Name, Level: 3, State: StateRunning,
+		Action: "new_instance", ActionState: ActionRunning,
+		LevelStartedAt: start, StartedAt: start, UpdatedAt: start}
+	if err := db.Create(&rec).Error; err != nil {
+		t.Fatal(err)
+	}
+	// 在途留痕行（真实启动动作时会落，这里补齐以验证超时收尾）。
+	if err := db.Create(&storage.RecoveryAction{RecoveryID: rec.ID, NodeID: n.ID,
+		NodeName: n.Name, Level: 3, Action: "new_instance", State: ActionRunning,
+		StartedAt: start, UpdatedAt: start}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Sweep(db, now, Options{}, Registry{3: &fakeAction{name: "new_instance"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// 留痕行收尾 timeout 留原因。
+	var trace storage.RecoveryAction
+	if err := db.Where("recovery_id = ?", rec.ID).First(&trace).Error; err != nil {
+		t.Fatal(err)
+	}
+	if trace.State != ActionTimeout || trace.Detail != "超时未恢复" || trace.FinishedAt == nil {
+		t.Fatalf("trace = %+v", trace)
+	}
+
+	// 升级告警同步外发（Send 在 Sweep 内联执行），恰好一次。
+	mu.Lock()
+	defer mu.Unlock()
+	if len(events) != 1 {
+		t.Fatalf("events = %+v", events)
+	}
+	if events[0].Event != "recovery_failed" || !strings.Contains(events[0].Text, n.Name) {
+		t.Fatalf("event = %+v", events[0])
 	}
 }

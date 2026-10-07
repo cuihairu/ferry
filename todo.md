@@ -185,7 +185,7 @@
 - [x] [P1] BR-2 域名前置与自动 DNS 切换：DNS 商 API 插件位，域名不换 IP 随换
 - [x] [P1] BR-3 IP 池储备与自动补位：预备清单轮换，池空联动一键开服
 - [x] [P1] BR-4 证书 ACME 自动签发与续期：面板编排，复用 acme.sh/certbot 工具位
-- [ ] [P1] BR-5 恢复动作留痕与失败升级：recovery_actions 落表，超时全失败告警升级人工（经 Herald）
+- [x] [P1] BR-5 恢复动作留痕与失败升级：recovery_actions 落表，超时全失败告警升级人工（经 Herald）
 
 ## 分销/代理体系（设计：docs/design/计划扩充设计.md §3）
 

@@ -4,14 +4,17 @@
 // 级别动作经 Registry 注册，未注册级别记 skipped 直接推进：
 // L1 域名前置 DNS 切换（BR-2 插件位）、L2 IP 池补位（BR-3 插件位）、
 // L3 一键开新机（接 §1 供给流水线）。每级超时未恢复进下一级，
-// 全级耗尽记 failed（告警升级人工由 BR-5 承接）。
+// 全级耗尽记 failed 并告警升级人工（BR-5，经通知通道外发）；
+// 每级尝试落 recovery_actions 留痕供回放。
 package recovery
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/notify"
 	"github.com/cuihairu/ferry/server/internal/pool"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"gorm.io/gorm"
@@ -23,12 +26,14 @@ const (
 	StateDone    = "done"
 	StateFailed  = "failed"
 
-	// ActionUnset/ActionRunning 等动作态取值（Recovery.ActionState）。
+	// ActionUnset/ActionRunning 等动作态取值（Recovery.ActionState）；
+	// ActionTimeout 只出现在留痕行（RecoveryAction.State，BR-5）。
 	ActionUnset   = ""
 	ActionRunning = "running"
 	ActionOK      = "ok"
 	ActionFailed  = "failed"
 	ActionSkipped = "skipped"
+	ActionTimeout = "timeout"
 
 	// MaxLevel 是恢复三级上限（L1 域名/DNS → L2 IP 池 → L3 开新机）。
 	MaxLevel = 3
@@ -125,7 +130,7 @@ func Sweep(db *gorm.DB, now time.Time, opts Options, reg Registry, logger *log.L
 			if !activeSet[rec.NodeID] {
 				continue
 			}
-			if err := finishRecovery(db, rec.ID, StateDone, "探测恢复，摘挂复位"); err != nil {
+			if err := finishRecovery(db, rec, StateDone, "探测恢复，摘挂复位"); err != nil {
 				return err
 			}
 			logger.Printf("recovery done: node=%d %s", rec.NodeID, rec.NodeName)
@@ -147,7 +152,7 @@ func Sweep(db *gorm.DB, now time.Time, opts Options, reg Registry, logger *log.L
 		}
 		// 状态行存在而节点被删：直接终态，不悬置。
 		if node == nil {
-			if err := finishRecovery(db, rec.ID, StateFailed, "节点已删除"); err != nil {
+			if err := finishRecovery(db, rec, StateFailed, "节点已删除"); err != nil {
 				return err
 			}
 			continue
@@ -187,7 +192,8 @@ func Sweep(db *gorm.DB, now time.Time, opts Options, reg Registry, logger *log.L
 }
 
 // advance 驱动一行的当前级别：动作未开跑则启动（未注册记 skipped 推进），
-// 等待中则按 LevelTimeout 超时推进；L3 耗尽记 failed。
+// 等待中则按 LevelTimeout 超时推进；L3 耗尽记 failed。每级尝试同步落
+// recovery_actions 留痕（BR-5）。
 func advance(db *gorm.DB, rec storage.Recovery, node storage.Node, now time.Time, opts Options, reg Registry, logger *log.Logger) error {
 	switch rec.ActionState {
 	case ActionUnset:
@@ -198,6 +204,11 @@ func advance(db *gorm.DB, rec storage.Recovery, node storage.Node, now time.Time
 				Updates(map[string]any{"action_state": ActionSkipped, "action": "", "updated_at": now}).Error; err != nil {
 				return err
 			}
+			traceRecovery(db, rec, storage.RecoveryAction{
+				RecoveryID: rec.ID, NodeID: rec.NodeID, NodeName: rec.NodeName,
+				Level: rec.Level, State: ActionSkipped, Detail: "级别未注册",
+				StartedAt: now, UpdatedAt: now, FinishedAt: &now,
+			}, logger)
 			logger.Printf("recovery level skipped: node=%d level=%d", rec.NodeID, rec.Level)
 			return advanceNext(db, rec, now, logger)
 		}
@@ -206,6 +217,11 @@ func advance(db *gorm.DB, rec storage.Recovery, node storage.Node, now time.Time
 			Updates(map[string]any{"action_state": ActionRunning, "action": a.Name(), "updated_at": now}).Error; err != nil {
 			return err
 		}
+		traceRecovery(db, rec, storage.RecoveryAction{
+			RecoveryID: rec.ID, NodeID: rec.NodeID, NodeName: rec.NodeName,
+			Level: rec.Level, Action: a.Name(), State: ActionRunning,
+			StartedAt: now, UpdatedAt: now,
+		}, logger)
 		go runAction(db, a, rec, node, logger)
 		return nil
 	case ActionSkipped, ActionFailed:
@@ -226,16 +242,17 @@ func advance(db *gorm.DB, rec storage.Recovery, node storage.Node, now time.Time
 				"last_err": "超时未恢复", "updated_at": now}).Error; err != nil {
 			return err
 		}
+		finishTrace(db, rec, ActionTimeout, "超时未恢复", now, logger)
 		logger.Printf("recovery level timeout: node=%d level=%d", rec.NodeID, rec.Level)
 		return advanceNext(db, rec, now, logger)
 	}
 	return nil
 }
 
-// advanceNext 推进到下一级；超过 MaxLevel 记 failed（升级人工由 BR-5 承接）。
+// advanceNext 推进到下一级；超过 MaxLevel 记 failed 并告警升级人工（BR-5）。
 func advanceNext(db *gorm.DB, rec storage.Recovery, now time.Time, logger *log.Logger) error {
 	if rec.Level >= MaxLevel {
-		return finishRecovery(db, rec.ID, StateFailed, "L1-L3 全级耗尽仍未恢复")
+		return finishRecovery(db, rec, StateFailed, "L1-L3 全级耗尽仍未恢复")
 	}
 	if err := db.Model(&storage.Recovery{}).Where("id = ?", rec.ID).
 		Updates(map[string]any{"level": rec.Level + 1, "action_state": ActionUnset, "action": "",
@@ -246,10 +263,13 @@ func advanceNext(db *gorm.DB, rec storage.Recovery, now time.Time, logger *log.L
 	return nil
 }
 
-// runAction 执行一级动作并回写结果；流水线已终态则丢弃迟到结果。
+// runAction 执行一级动作并回写结果；流水线已终态则丢弃迟到结果
+// （留痕行按 recovery+level+running 收尾，同样天然丢弃）。
 func runAction(db *gorm.DB, a Action, rec storage.Recovery, node storage.Node, logger *log.Logger) {
 	err := a.Run(context.Background(), node)
-	updates := map[string]any{"action_state": ActionOK, "updated_at": time.Now()}
+	now := time.Now()
+	updates := map[string]any{"action_state": ActionOK, "updated_at": now}
+	traceState, detail := ActionOK, ""
 	if err != nil {
 		updates["action_state"] = ActionFailed
 		msg := err.Error()
@@ -257,6 +277,7 @@ func runAction(db *gorm.DB, a Action, rec storage.Recovery, node storage.Node, l
 			msg = msg[len(msg)-500:]
 		}
 		updates["last_err"] = msg
+		traceState, detail = ActionFailed, msg
 	}
 	res := db.Model(&storage.Recovery{}).
 		Where("id = ? AND state = ? AND level = ?", rec.ID, StateRunning, rec.Level).
@@ -265,6 +286,7 @@ func runAction(db *gorm.DB, a Action, rec storage.Recovery, node storage.Node, l
 		logger.Printf("recovery action result: node=%d %v", rec.NodeID, res.Error)
 		return
 	}
+	finishTrace(db, rec, traceState, detail, now, logger)
 	if res.RowsAffected == 0 {
 		return // 流水线已终态/推进，迟到结果丢弃
 	}
@@ -273,12 +295,52 @@ func runAction(db *gorm.DB, a Action, rec storage.Recovery, node storage.Node, l
 	}
 }
 
-func finishRecovery(db *gorm.DB, id uint, state, reason string) error {
-	updates := map[string]any{"state": state, "finished_at": time.Now(), "updated_at": time.Now()}
+// traceRecovery 落一条动作留痕行（BR-5）；留痕失败只记日志不阻断流水线。
+func traceRecovery(db *gorm.DB, rec storage.Recovery, row storage.RecoveryAction, logger *log.Logger) {
+	if err := db.Create(&row).Error; err != nil {
+		logger.Printf("recovery trace: node=%d %v", rec.NodeID, err)
+	}
+}
+
+// finishTrace 收尾当前级别在途的留痕行（running → 终态）；无在途行忽略。
+func finishTrace(db *gorm.DB, rec storage.Recovery, state, detail string, now time.Time, logger *log.Logger) {
+	updates := map[string]any{"state": state, "finished_at": now, "updated_at": now}
+	if detail != "" {
+		updates["detail"] = detail
+	}
+	res := db.Model(&storage.RecoveryAction{}).
+		Where("recovery_id = ? AND level = ? AND state = ?", rec.ID, rec.Level, ActionRunning).
+		Updates(updates)
+	if res.Error != nil {
+		logger.Printf("recovery trace finish: node=%d %v", rec.NodeID, res.Error)
+	}
+}
+
+// finishRecovery 收尾流水线：failed 翻转时经通知通道外发升级人工
+// （BR-5；现通道 Webhook，HERALD 落地后统一改投同一接口位）。
+func finishRecovery(db *gorm.DB, rec storage.Recovery, state, reason string) error {
+	now := time.Now()
+	updates := map[string]any{"state": state, "finished_at": now, "updated_at": now}
 	if state == StateFailed {
 		updates["last_err"] = reason // 完成态不写 last_err，失败原因在此
 	}
-	return db.Model(&storage.Recovery{}).Where("id = ?", id).Updates(updates).Error
+	if err := db.Model(&storage.Recovery{}).Where("id = ?", rec.ID).Updates(updates).Error; err != nil {
+		return err
+	}
+	if state == StateFailed {
+		if n := notify.FromDB(db); n.Enabled() {
+			_ = n.Send(notify.Event{
+				Event: "recovery_failed",
+				Text: fmt.Sprintf("节点 %s 恢复流水线失败：%s，需人工介入",
+					rec.NodeName, reason),
+				Fields: map[string]any{
+					"recovery_id": rec.ID, "node_id": rec.NodeID,
+					"node_name": rec.NodeName, "level": rec.Level, "reason": reason,
+				},
+			})
+		}
+	}
+	return nil
 }
 
 // nodeByID 查节点；不存在返回 (nil, nil)。

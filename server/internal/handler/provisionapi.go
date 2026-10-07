@@ -140,3 +140,18 @@ func (h *Handler) listRecoveries(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, out)
 }
+
+// listRecoveryActions 返回一条流水线的动作留痕（BR-5 回放，级别升序）。
+func (h *Handler) listRecoveryActions(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id < 1 {
+		fail(c, http.StatusBadRequest, errors.New("invalid id"))
+		return
+	}
+	out := []storage.RecoveryAction{}
+	if err := h.db.Where("recovery_id = ?", id).Order("id ASC").Find(&out).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}

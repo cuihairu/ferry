@@ -90,6 +90,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.POST("/provision-templates/:id/plan", h.planTemplate)
 		api.GET("/provision-jobs", h.listProvisionJobs)
 		api.GET("/recoveries", h.listRecoveries)
+		api.GET("/recoveries/:id/actions", h.listRecoveryActions)
 		// 域名前置（BR-2）：DNS 商凭证与前置记录。
 		api.GET("/dns-providers", h.listDNSProviders)
 		api.POST("/dns-providers", h.createDNSProvider)

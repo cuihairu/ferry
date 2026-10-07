@@ -573,3 +573,42 @@ export function deleteCertTask(id: number): Promise<{ ok: boolean }> {
 export function issueCertTask(id: number): Promise<{ ok: boolean }> {
   return post<{ ok: boolean }>(`/api/cert-tasks/${id}/issue`)
 }
+
+/** Recovery 是一条封禁恢复流水线（BR-1）：一节点同一时间至多一条。 */
+export interface Recovery {
+  id: number
+  node_id: number
+  node_name: string
+  level: number
+  state: 'running' | 'done' | 'failed' | string
+  action: string
+  action_state: '' | 'running' | 'ok' | 'failed' | 'skipped' | string
+  last_error: string
+  level_started_at: string
+  started_at: string
+  updated_at: string
+  finished_at: string | null
+}
+
+/** RecoveryAction 是流水线每级动作的留痕（BR-5）：回放用。 */
+export interface RecoveryAction {
+  id: number
+  recovery_id: number
+  node_id: number
+  node_name: string
+  level: number
+  action: string
+  state: 'running' | 'ok' | 'failed' | 'skipped' | 'timeout' | string
+  detail: string
+  started_at: string
+  updated_at: string
+  finished_at: string | null
+}
+
+export function getRecoveries(limit = 50): Promise<Recovery[]> {
+  return get<Recovery[]>(`/api/recoveries?limit=${limit}`)
+}
+
+export function getRecoveryActions(id: number): Promise<RecoveryAction[]> {
+  return get<RecoveryAction[]>(`/api/recoveries/${id}/actions`)
+}

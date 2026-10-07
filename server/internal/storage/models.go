@@ -313,6 +313,22 @@ type Recovery struct {
 	FinishedAt     *time.Time `json:"finished_at,omitempty"`
 }
 
+// RecoveryAction 是恢复流水线每级动作的留痕（BR-5）：一次推进一条，
+// 回放用——从判封到终态每级谁在跑、成没成、为何失败全可查。
+type RecoveryAction struct {
+	ID         uint       `gorm:"primaryKey" json:"id"`
+	RecoveryID uint       `gorm:"index;not null" json:"recovery_id"`
+	NodeID     uint       `json:"node_id"`
+	NodeName   string     `gorm:"size:64" json:"node_name"`
+	Level      int        `json:"level"`
+	Action     string     `gorm:"size:32" json:"action"`       // 动作名（未注册级为空）
+	State      string     `gorm:"size:16" json:"state"`        // running/ok/failed/skipped/timeout
+	Detail     string     `gorm:"size:512" json:"detail,omitempty"` // 失败/跳过原因
+	StartedAt  time.Time  `json:"started_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+	FinishedAt *time.Time `json:"finished_at,omitempty"`
+}
+
 // DNSProvider 是 DNS 商凭证（BR-2 插件位；BR-4 ACME DNS-01 复用同一通道）。
 // 凭证机密走 R24 加密面口径，接口层只回 has_api_key 不回显明文。
 type DNSProvider struct {
