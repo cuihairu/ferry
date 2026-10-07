@@ -1,5 +1,9 @@
 # ferry 统一入口：make build / make test / make dev
-.PHONY: build build-server build-agent build-dash build-panel test test-pg dev dev-server dev-dash dev-panel fmt
+.PHONY: build build-server build-agent package-agent build-dash build-panel test test-pg dev dev-server dev-dash dev-panel fmt
+
+# AGENT_VERSION 是发布包版本号（package-agent 用，与 deploy/agent-install.sh 的 --version 对应）。
+AGENT_VERSION ?= dev
+GOARCH ?= $(shell go env GOARCH)
 
 build: build-server build-agent build-dash build-panel
 
@@ -13,6 +17,13 @@ build-agent:
 # E-4 门禁：核心静态二进制 ≤10MB（核心最小集口径见 agent/internal/roles）。
 check-agent-size:
 	@test $$(stat -c%s bin/ferry-agent) -le 10485760 || (echo "ferry-agent exceeds 10MB core budget" && exit 1)
+
+# A-24：打 agent 发布包（bin/ 下 tar.gz + .sha256，与 deploy/agent-install.sh 下载约定一致；
+# 跨架构打包：make package-agent GOARCH=arm64）。
+package-agent: build-agent
+	cd bin && tar -czf ferry-agent_$(AGENT_VERSION)_linux_$(GOARCH).tar.gz ferry-agent
+	cd bin && sha256sum ferry-agent_$(AGENT_VERSION)_linux_$(GOARCH).tar.gz > ferry-agent_$(AGENT_VERSION)_linux_$(GOARCH).tar.gz.sha256
+	@ls -l bin/ferry-agent_$(AGENT_VERSION)_linux_$(GOARCH).tar.gz*
 
 build-dash:
 	cd dash && pnpm build
