@@ -27,6 +27,7 @@ onMounted(async () => {
         <el-menu-item index="/users">用户</el-menu-item>
         <el-menu-item index="/cards">卡密</el-menu-item>
         <el-menu-item index="/payments">对账</el-menu-item>
+        <el-menu-item index="/cost">成本</el-menu-item>
         <el-menu-item index="/landings">调配</el-menu-item>
         <el-menu-item index="/settings">设置</el-menu-item>
       </el-menu>

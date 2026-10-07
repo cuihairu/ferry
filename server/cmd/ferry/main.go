@@ -15,11 +15,12 @@ import (
 	_ "github.com/cuihairu/ferry/payments/wechat" // PAY-10：占位渠道（未启用文案）
 	"github.com/cuihairu/ferry/server/internal/alloc"
 	"github.com/cuihairu/ferry/server/internal/config"
+	"github.com/cuihairu/ferry/server/internal/cost"
 	"github.com/cuihairu/ferry/server/internal/handler"
 	"github.com/cuihairu/ferry/server/internal/monitor"
 	"github.com/cuihairu/ferry/server/internal/pool"
-	"github.com/cuihairu/ferry/server/internal/ringlog"
 	"github.com/cuihairu/ferry/server/internal/review"
+	"github.com/cuihairu/ferry/server/internal/ringlog"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/cuihairu/ferry/server/internal/xray"
 	"github.com/gin-gonic/gin"
@@ -62,6 +63,9 @@ func main() {
 
 	// 落地自动分配（E-21）：加权最小连接，策略三档可配，换线留痕并通知。
 	go alloc.Loop(ctx, db, time.Duration(cfg.AllocIntervalSec)*time.Second, nil)
+
+	// 高成本告警（E-23）：按流量节点月花费超阈值单发，回落自动消解。
+	go cost.Loop(ctx, db, time.Duration(cfg.CostIntervalSec)*time.Second, nil)
 
 	// 到期/超限用户停用扫表。
 	go review.Run(ctx, db, time.Duration(cfg.ReviewIntervalSec)*time.Second)

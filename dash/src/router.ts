@@ -9,6 +9,7 @@ export const router = createRouter({
     { path: '/users', component: () => import('./views/UsersView.vue') },
     { path: '/cards', component: () => import('./views/CardsView.vue') },
     { path: '/payments', component: () => import('./views/ReconcileView.vue') },
+    { path: '/cost', component: () => import('./views/CostView.vue') },
     { path: '/landings', component: () => import('./views/LandingsView.vue') },
     { path: '/settings', component: () => import('./views/SettingsView.vue') },
   ],

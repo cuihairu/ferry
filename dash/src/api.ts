@@ -133,6 +133,29 @@ export function putAllocPolicy(policy: AllocPolicy): Promise<AllocPolicy> {
   return put<AllocPolicy>('/api/alloc/policy', policy)
 }
 
+/** NodeCost 是一个节点的月度成本视图（E-23）。 */
+export interface NodeCost {
+  id: number
+  name: string
+  region: string
+  isp: string
+  billing_type: string
+  month_rx_bytes: number
+  month_tx_bytes: number
+  traffic_cost_cents: number
+  fixed_cost_cents: number
+  projected_cents: number
+}
+
+/** GroupCost 是区域/运营商维度的成本汇总（E-23）。 */
+export interface GroupCost {
+  key: string
+  nodes: number
+  traffic_cents: number
+  fixed_cents: number
+  projected_cents: number
+}
+
 export interface User {
   id: number
   username: string

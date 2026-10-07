@@ -29,6 +29,8 @@ type Config struct {
 	PoolIntervalSec int
 	// AllocIntervalSec 是落地自动分配判定周期（秒）。
 	AllocIntervalSec int
+	// CostIntervalSec 是高成本告警检查周期（秒）。
+	CostIntervalSec int
 	// RedeemLimiter 是兑换接口的 IP 限流选项（PAY-5）。
 	RedeemLimiter *ratelimit.Options `json:"-"`
 	// AdminSecret 是管理员 JWT 签名秘钥，默认 "ferry-admin-secret"，可通过 FERRY_ADMIN_SECRET 环境变量覆盖。
@@ -50,6 +52,7 @@ func Load() Config {
 		ReviewIntervalSec:    envIntOr("FERRY_REVIEW_SEC", 60),
 		PoolIntervalSec:      envIntOr("FERRY_POOL_SEC", 60),
 		AllocIntervalSec:     envIntOr("FERRY_ALLOC_SEC", 300),
+		CostIntervalSec:      envIntOr("FERRY_COST_SEC", 3600),
 		RedeemLimiter:        &ratelimit.Options{Window: time.Minute, MaxAttempts: 10, FailLimit: 5, Lockout: 15 * time.Minute},
 		AdminSecret:          envOr("FERRY_ADMIN_SECRET", ""),
 		ApiTokenSecret:       envOr("FERRY_API_SECRET", ""),
@@ -68,6 +71,7 @@ func Default() Config {
 		ReviewIntervalSec:    60,
 		PoolIntervalSec:      60,
 		AllocIntervalSec:     300,
+		CostIntervalSec:      3600,
 		RedeemLimiter:        &ratelimit.Options{Window: time.Minute, MaxAttempts: 10, FailLimit: 5, Lockout: 15 * time.Minute},
 		AdminSecret:          "",
 		ApiTokenSecret:       "",
