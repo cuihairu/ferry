@@ -8,6 +8,11 @@ build-server:
 
 build-agent:
 	cd agent && CGO_ENABLED=0 go build -o ../bin/ferry-agent ./cmd/agent
+	$(MAKE) check-agent-size
+
+# E-4 门禁：核心静态二进制 ≤10MB（核心最小集口径见 agent/internal/roles）。
+check-agent-size:
+	@test $$(stat -c%s bin/ferry-agent) -le 10485760 || (echo "ferry-agent exceeds 10MB core budget" && exit 1)
 
 build-dash:
 	cd dash && pnpm build
