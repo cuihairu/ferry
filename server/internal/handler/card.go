@@ -168,6 +168,57 @@ func cardBatchCSV(batch storage.CardBatch, codes []storage.CardCode) []byte {
 	return []byte(buf.String())
 }
 
+// disableCardCode 手动禁用一张卡密：仅 unused 可禁（used 保留核销事实，
+// disabled 终态不可逆），条件更新原子完成避免与兑换并发竞争。
+func (h *Handler) disableCardCode(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		return
+	}
+	var existing storage.CardCode
+	if err := h.db.First(&existing, uint(id)).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// 可解析但不存在的 id 与不可禁用同归 409，不区分「不存在」（防枚举口径）。
+			c.JSON(http.StatusConflict, gin.H{"error": "仅未使用的卡密可禁用"})
+			return
+		}
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	res := h.db.Model(&storage.CardCode{}).
+		Where("id = ? AND status = ?", uint(id), "unused").
+		Update("status", "disabled")
+	if res.Error != nil {
+		fail(c, http.StatusInternalServerError, res.Error)
+		return
+	}
+	if res.RowsAffected == 0 {
+		c.JSON(http.StatusConflict, gin.H{"error": "仅未使用的卡密可禁用"})
+		return
+	}
+	var code storage.CardCode
+	if err := h.db.First(&code, uint(id)).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, code)
+}
+
+// deleteCardBatch 删除批次：DB 级联连带卡密（《支付设计》§3.1），
+// 导出发放前误建批次可整体回收。
+func (h *Handler) deleteCardBatch(c *gin.Context) {
+	batch, ok := h.findCardBatch(c)
+	if !ok {
+		return
+	}
+	if err := h.db.Delete(&batch).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"deleted": batch.ID})
+}
+
 func (h *Handler) findCardBatch(c *gin.Context) (storage.CardBatch, bool) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

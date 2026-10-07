@@ -32,6 +32,10 @@ export function put<T>(path: string, body: unknown): Promise<T> {
   return request<T>(path, { method: 'PUT', body: JSON.stringify(body) })
 }
 
+export function patch<T>(path: string, body?: unknown): Promise<T> {
+  return request<T>(path, { method: 'PATCH', body: body === undefined ? undefined : JSON.stringify(body) })
+}
+
 export function del<T>(path: string): Promise<T> {
   return request<T>(path, { method: 'DELETE' })
 }
@@ -62,4 +66,26 @@ export interface User {
   expires_at: string | null
   enabled: boolean
   created_at: string
+}
+
+export interface CardBatch {
+  id: number
+  name: string
+  grant_type: 'add_quota' | 'extend_days'
+  grant_value: number
+  total: number
+  expired_at: string | null
+  created_by: string
+  created_at: string
+  remaining: number
+}
+
+export interface CardCode {
+  id: number
+  batch_id: number
+  code: string
+  status: 'unused' | 'used' | 'disabled'
+  fail_count: number
+  used_by: number | null
+  used_at: string | null
 }

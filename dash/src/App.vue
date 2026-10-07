@@ -25,6 +25,7 @@ onMounted(async () => {
       <el-menu router :default-active="route.path" class="nav">
         <el-menu-item index="/nodes">节点</el-menu-item>
         <el-menu-item index="/users">用户</el-menu-item>
+        <el-menu-item index="/cards">卡密</el-menu-item>
         <el-menu-item index="/settings">设置</el-menu-item>
       </el-menu>
     </el-aside>

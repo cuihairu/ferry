@@ -62,6 +62,8 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		api.POST("/card-batches", h.createCardBatch)
 		api.GET("/card-batches", h.listCardBatches)
 		api.GET("/card-batches/:id/codes", h.listCardCodes)
+		api.PATCH("/card-codes/:id/disable", h.disableCardCode)
+		api.DELETE("/card-batches/:id", h.deleteCardBatch)
 		api.GET("/card-batches/:id/export.csv", h.exportCardBatchCSV)
 		api.POST("/redeem", h.redeem)
 	}

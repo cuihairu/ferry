@@ -208,6 +208,50 @@ func TestRedeemDisabledByFails(t *testing.T) {
 	}
 }
 
+func TestDisableCardCode(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	userID, codes := redeemCreate(t, r, "grace", map[string]any{
+		"grant_type": "add_quota", "grant_value": 1 << 30,
+	}, 2)
+
+	var first storage.CardCode
+	if err := db.Where("code = ?", codes[0]).First(&first).Error; err != nil {
+		t.Fatal(err)
+	}
+	// 禁用 unused 码：成功且状态落库
+	rec := doJSON(t, r, "PATCH", "/api/card-codes/"+fmt.Sprint(first.ID)+"/disable", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("disable: %d %s", rec.Code, rec.Body)
+	}
+	var after storage.CardCode
+	db.Where("code = ?", codes[0]).First(&after)
+	if after.Status != "disabled" {
+		t.Fatalf("status = %s", after.Status)
+	}
+	// 禁用后的码不可兑换，兑换走统一失败文案
+	if rec := doJSON(t, r, "POST", "/api/redeem", map[string]any{"code": codes[0], "user_id": userID}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("redeem disabled: %d", rec.Code)
+	}
+	// 再禁一次（disabled 终态）：409
+	if rec := doJSON(t, r, "PATCH", "/api/card-codes/"+fmt.Sprint(first.ID)+"/disable", nil); rec.Code != http.StatusConflict {
+		t.Fatalf("re-disable: %d %s", rec.Code, rec.Body)
+	}
+	// 已用码不可禁用：409
+	rec = doJSON(t, r, "POST", "/api/redeem", map[string]any{"code": codes[1], "user_id": userID})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("redeem: %d %s", rec.Code, rec.Body)
+	}
+	var second storage.CardCode
+	db.Where("code = ?", codes[1]).First(&second)
+	if rec := doJSON(t, r, "PATCH", "/api/card-codes/"+fmt.Sprint(second.ID)+"/disable", nil); rec.Code != http.StatusConflict {
+		t.Fatalf("disable used: %d %s", rec.Code, rec.Body)
+	}
+	// 未知 id：与不可禁用同归 409（防枚举口径，见 card_test.go）
+	if rec := doJSON(t, r, "PATCH", "/api/card-codes/999/disable", nil); rec.Code != http.StatusConflict {
+		t.Fatalf("missing: %d", rec.Code)
+	}
+}
+
 func TestRedeemRateLimited(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	userID, _ := redeemCreate(t, r, "frank", map[string]any{

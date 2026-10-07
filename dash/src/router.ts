@@ -7,6 +7,7 @@ export const router = createRouter({
     { path: '/', redirect: '/nodes' },
     { path: '/nodes', component: () => import('./views/NodesView.vue') },
     { path: '/users', component: () => import('./views/UsersView.vue') },
+    { path: '/cards', component: () => import('./views/CardsView.vue') },
     { path: '/settings', component: () => import('./views/SettingsView.vue') },
   ],
 })
