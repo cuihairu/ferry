@@ -28,9 +28,27 @@ var DirectCN = RuleSet{
 	OutboundTag: "direct",
 }
 
-// Sets 返回内置分流清单。SAVE-2 的静态资源清单在此追加，复用同一渲染与分发机制。
+// StaticCDN 是公共静态资源/CDN 域名直连清单（SAVE-2）：这些域名的资源
+// 国内可达且免费，走隧道纯属浪费落地流量。条目用 domain: 前缀字面域名
+// （含子域匹配），不依赖规则库数据文件。
+var StaticCDN = RuleSet{
+	Name: "static-cdn-direct",
+	Domains: []string{
+		"domain:bootcdn.cn",
+		"domain:bootcdn.net",
+		"domain:staticfile.org",
+		"domain:staticfile.net",
+		"domain:bootcss.com",
+		"domain:jsdelivr.net",
+		"domain:unpkg.com",
+		"domain:npmmirror.com",
+	},
+	OutboundTag: "direct",
+}
+
+// Sets 返回内置分流清单，按声明序渲染进模板。
 func Sets() []RuleSet {
-	return []RuleSet{DirectCN}
+	return []RuleSet{DirectCN, StaticCDN}
 }
 
 // directOutbound 是 freedom 直连出站，直连分流流量的落点。

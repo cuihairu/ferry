@@ -2,6 +2,7 @@ package routing
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -22,8 +23,8 @@ func TestMergeEmptyTemplate(t *testing.T) {
 	m := mustMerge(t, "")
 
 	rules, _ := m["routing"].(map[string]any)["rules"].([]any)
-	if len(rules) != 1 {
-		t.Fatalf("want 1 rule, got %d", len(rules))
+	if len(rules) != 2 {
+		t.Fatalf("want 2 rules (cn-direct + static-cdn), got %d", len(rules))
 	}
 	r0 := rules[0].(map[string]any)
 	if r0["outboundTag"] != "direct" || r0["type"] != "field" {
@@ -33,6 +34,17 @@ func TestMergeEmptyTemplate(t *testing.T) {
 	ips, _ := r0["ip"].([]any)
 	if len(doms) != 1 || doms[0] != "geosite:cn" || len(ips) != 1 || ips[0] != "geoip:cn" {
 		t.Fatalf("cn-direct 清单缺失: %v", r0)
+	}
+	r1 := rules[1].(map[string]any)
+	if r1["outboundTag"] != "direct" {
+		t.Fatalf("rule1 = %v", r1)
+	}
+	cdnDoms, _ := r1["domain"].([]any)
+	if len(cdnDoms) == 0 {
+		t.Fatalf("static-cdn 域名清单缺失: %v", r1)
+	}
+	if _, hasIP := r1["ip"]; hasIP {
+		t.Fatalf("static-cdn 是纯域名清单，不应有 ip 段: %v", r1)
 	}
 
 	obs, _ := m["outbounds"].([]any)
@@ -59,14 +71,15 @@ func TestMergePreservesAndPrepends(t *testing.T) {
 	m := mustMerge(t, tmpl)
 
 	rules, _ := m["routing"].(map[string]any)["rules"].([]any)
-	if len(rules) != 2 {
-		t.Fatalf("want 2 rules (清单前置+模板既有), got %d", len(rules))
+	if len(rules) != 3 {
+		t.Fatalf("want 3 rules (双清单前置+模板既有), got %d", len(rules))
 	}
-	first := rules[0].(map[string]any)
-	if first["outboundTag"] != "direct" {
-		t.Fatalf("清单规则应前置，got %v", first)
+	for i := 0; i < 2; i++ {
+		if rules[i].(map[string]any)["outboundTag"] != "direct" {
+			t.Fatalf("清单规则应前置，rules[%d] = %v", i, rules[i])
+		}
 	}
-	second := rules[1].(map[string]any)
+	second := rules[2].(map[string]any)
 	if second["outboundTag"] != "api" {
 		t.Fatalf("模板既有规则应保留在后，got %v", second)
 	}
@@ -93,18 +106,31 @@ func TestMergeDoesNotDuplicateDirect(t *testing.T) {
 	}
 }
 
-func TestSetsContainsCNDirect(t *testing.T) {
+func TestSetsContainsBuiltinSets(t *testing.T) {
 	sets := Sets()
-	if len(sets) == 0 {
-		t.Fatal("Sets() 不应为空")
+	if len(sets) < 2 {
+		t.Fatalf("内置清单应含 cn-direct 与 static-cdn，got %d", len(sets))
 	}
-	found := false
+	want := map[string]bool{"cn-direct": false, "static-cdn-direct": false}
 	for _, s := range sets {
-		if s.Name == "cn-direct" && s.OutboundTag == "direct" {
-			found = true
+		if _, ok := want[s.Name]; ok && s.OutboundTag == "direct" && len(s.Domains) > 0 {
+			want[s.Name] = true
 		}
 	}
-	if !found {
-		t.Fatal("内置清单应含 cn-direct")
+	for name, found := range want {
+		if !found {
+			t.Fatalf("内置清单缺失或非法: %s", name)
+		}
+	}
+	// static-cdn 条目必须是 domain: 前缀的字面域名，不依赖规则库数据文件。
+	for _, s := range sets {
+		if s.Name != "static-cdn-direct" {
+			continue
+		}
+		for _, d := range s.Domains {
+			if !strings.HasPrefix(d, "domain:") {
+				t.Fatalf("static-cdn 条目应形如 domain:xxx，got %q", d)
+			}
+		}
 	}
 }

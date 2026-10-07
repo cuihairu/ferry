@@ -51,7 +51,7 @@ func TestRoutingConfigRender(t *testing.T) {
 		t.Fatalf("config not JSON: %v", err)
 	}
 	rules := merged["routing"].(map[string]any)["rules"].([]any)
-	if len(rules) != 1 || rules[0].(map[string]any)["outboundTag"] != "direct" {
+	if len(rules) < 2 || rules[0].(map[string]any)["outboundTag"] != "direct" {
 		t.Fatalf("rules = %v", rules)
 	}
 	sum := sha256.Sum256([]byte(res.Config))
