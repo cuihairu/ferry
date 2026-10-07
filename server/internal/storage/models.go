@@ -204,6 +204,7 @@ type NodeTrafficLog struct {
 	Proc         string    `gorm:"size:64;not null" json:"proc"`
 	RxBytes      int64     `gorm:"default:0" json:"rx_bytes"`
 	TxBytes      int64     `gorm:"default:0" json:"tx_bytes"`
+	DirectBytes  int64     `gorm:"default:0" json:"direct_bytes"`  // 直连分流出站字节（SAVE-1/7）
 	BlockedBytes int64     `gorm:"default:0" json:"blocked_bytes"` // 被拦截出站字节（SAVE-4 广告/追踪拦截）
 	Conns        int       `gorm:"default:0" json:"conns"`
 	RecordedAt   time.Time `gorm:"not null;index:idx_node_traffic,priority:2" json:"recorded_at"`
@@ -221,6 +222,20 @@ type NodeProcStatus struct {
 	Restarts  int       `gorm:"default:0" json:"restarts"`
 	Metrics   string    `gorm:"type:text" json:"metrics,omitempty"` // JSON 数字对象（key-value）
 	UpdatedAt time.Time `gorm:"not null" json:"updated_at"`
+}
+
+// SaveStat 是流量节省按日汇总（SAVE-7）：从 node_traffic_logs 聚合，
+// 直连/拦截字节来自 agent 出站计数，缓存命中预留（缓存层字节指标接
+// SAVE-3 metrics 后汇入），折算费用按节点流量单价在 API 侧计算。
+type SaveStat struct {
+	ID            uint      `gorm:"primaryKey" json:"id"`
+	NodeID        uint      `gorm:"uniqueIndex:idx_save_stats;not null" json:"node_id"`
+	Day           string    `gorm:"size:10;not null;uniqueIndex:idx_save_stats" json:"day"` // YYYY-MM-DD（UTC）
+	DirectBytes   int64     `gorm:"default:0" json:"direct_bytes"`
+	CacheHitBytes int64     `gorm:"default:0" json:"cache_hit_bytes"`
+	BlockedBytes  int64     `gorm:"default:0" json:"blocked_bytes"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // PaymentOrder 是订单（三账之一：谁该收多少）。

@@ -138,47 +138,49 @@ func TestDispatchRoutesXrayStats(t *testing.T) {
 	}
 }
 
-// fakeBlockCollector 在 per-user 采集之上带拦截计数（对齐 xraystats.Collector）。
-type fakeBlockCollector struct{ fakeUserCollector }
+// fakeOutboundCollector 在 per-user 采集之上带分流计数（对齐 xraystats.Collector）。
+type fakeOutboundCollector struct{ fakeUserCollector }
 
-func (fakeBlockCollector) CollectBlocked(proc string) (uint64, error) {
+func (fakeOutboundCollector) CollectOutbound(proc string) (uint64, uint64, error) {
 	if proc != "xray" {
-		return 0, errNotImplemented
+		return 0, 0, errNotImplemented
 	}
-	return 77, nil
+	return 55, 77, nil
 }
 
-// TestReporterAttachesBlocked 覆盖拦截增量附带（SAVE-4）：支持
-// BlockCollector 的采集器在同周期把 block 出站增量挂进行上；不支持的
-// 采集器行上无该字段。
-func TestReporterAttachesBlocked(t *testing.T) {
-	// 支持拦截采集：xray 行带 BlockedBytes
-	r := New(specs(), 10*time.Millisecond, fakeBlockCollector{}, log.New(io.Discard, "", 0))
+// TestReporterAttachesOutbound 覆盖分流增量附带（SAVE-4/7）：支持
+// OutboundCollector 的采集器在同周期把直连/拦截增量挂进行上；不支持或
+// 查询报错时字段保持缺省，不影响流量行。
+func TestReporterAttachesOutbound(t *testing.T) {
+	// 支持分流采集：xray 行带 DirectBytes/BlockedBytes
+	r := New(specs(), 10*time.Millisecond, fakeOutboundCollector{}, log.New(io.Discard, "", 0))
 	items := r.collectAll()
 	if len(items) != 1 {
 		t.Fatalf("items = %d, want 1", len(items))
 	}
-	if items[0].Proc != "xray" || items[0].BlockedBytes != 77 {
-		t.Fatalf("item = %+v, want xray blocked=77", items[0])
+	if items[0].Proc != "xray" || items[0].DirectBytes != 55 || items[0].BlockedBytes != 77 {
+		t.Fatalf("item = %+v, want xray direct=55 blocked=77", items[0])
 	}
 
-	// 不支持拦截采集（plain fake）：字段缺省不报错
+	// 不支持分流采集（plain fake）：字段缺省不报错
 	r2 := New(specs(), 10*time.Millisecond, fakeUserCollector{}, log.New(io.Discard, "", 0))
 	for _, it := range r2.collectAll() {
-		if it.BlockedBytes != 0 {
-			t.Fatalf("no BlockCollector must leave blocked zero: %+v", it)
+		if it.DirectBytes != 0 || it.BlockedBytes != 0 {
+			t.Fatalf("no OutboundCollector must leave fields zero: %+v", it)
 		}
 	}
 
-	// 拦截查询报错按缺失处理，不影响流量行
-	r3 := New(specs(), 10*time.Millisecond, fakeBlockErr{}, log.New(io.Discard, "", 0))
+	// 分流查询报错按缺失处理，不影响流量行
+	r3 := New(specs(), 10*time.Millisecond, fakeOutboundErr{}, log.New(io.Discard, "", 0))
 	items = r3.collectAll()
-	if len(items) != 1 || items[0].BlockedBytes != 0 || items[0].Rx != 160 {
-		t.Fatalf("blocked query error must not break traffic row: %+v", items)
+	if len(items) != 1 || items[0].DirectBytes != 0 || items[0].BlockedBytes != 0 || items[0].Rx != 160 {
+		t.Fatalf("outbound query error must not break traffic row: %+v", items)
 	}
 }
 
-// fakeBlockErr 拦截查询恒报错的采集器。
-type fakeBlockErr struct{ fakeUserCollector }
+// fakeOutboundErr 分流查询恒报错的采集器。
+type fakeOutboundErr struct{ fakeUserCollector }
 
-func (fakeBlockErr) CollectBlocked(string) (uint64, error) { return 0, errNotImplemented }
+func (fakeOutboundErr) CollectOutbound(string) (uint64, uint64, error) {
+	return 0, 0, errNotImplemented
+}

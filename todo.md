@@ -225,7 +225,7 @@
 - [x] [P1] SAVE-4 广告/追踪拦截：节点侧 DNS 屏蔽名单（可配、可更新），拦截计数上报（routing 层 ad-block 清单 geosite:category-ads-all 命中发 block 出站（blackhole），Merge 保证 block 出站存在且渲染确定性；dash 开关 PUT /api/routing/ads（settings 键 routing_ads_enabled 缺省开，关后渲染不含屏蔽段）；名单更新走 rulelib 分发 anti-AD 同格式 geosite 文件；拦截计数按字节：agent 同周期查 outbound>>> 取 block 出站增量随流量上报（ProcTraffic.BlockedBytes → node_traffic_logs.blocked_bytes），xray 无条数计数、字节口径免估算，条数估算式作废）
 - [x] [P1] SAVE-5 压缩与连接复用/TLS 会话恢复报表化：复用率随心跳上报进报表——**不可执行，不落**（2026-10-08 核实：复用/会话恢复/压缩均为传输层内核行为，xray/sing-box stats API 只导出流量计数（inbound/outbound/user 上下行字节），无连接复用率/TLS 会话恢复率/压缩量计数；TLS 会话恢复更发生在用户客户端侧，被管内核无从观测。报表不自造数，能力本体随内核版本自然受益，待内核将来导出计数再接同一上报面）
 - [x] [P1] SAVE-6 配额联动：流量/费用超阈值自动降速或切低成本节点（可配、留痕）——落「订阅降档」（降速不可执行：共享凭据无按用户身份，见流量节省设计 §5）
-- [ ] [P1] SAVE-7 节省报表：save_stats 按日汇总，dash 每日/月省下 GB 与折算费用，与成本看板同页
+- [x] [P1] SAVE-7 节省报表：save_stats 按日汇总，dash 每日/月省下 GB 与折算费用，与成本看板同页（save.Loop 按 node_traffic_logs 自增 id 水位增量聚合（水位存 settings，无水位清空重建防重复，FERRY_SAVE_STATS_SEC 缺省 600s）；数据源 agent 出站计数：SAVE-4 查询扩成 QueryOutboundStats 直连+拦截同次取（reset 前缀清零分开查互踩）→ ProcTraffic.DirectBytes → node_traffic_logs.direct_bytes，cache_hit_bytes 列预留；GET /api/save-stats?days=N 按日行+全网合计，折算按节点流量单价现算不入库（仅按流量计费节点，与成本同口径）；dash 成本页「流量节省（近 30 天）」统计卡+按日明细表）
 - [ ] [P1] SAVE-8 panel 用户侧「已为你省下」汇总（月账单邮件附亮点）
 
 ## 告警通道（设计：docs/design/告警通道设计.md，对接 Herald）

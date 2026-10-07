@@ -90,39 +90,54 @@ func ParseUserStats(stats []Stat) map[string]UserBytes {
 	return out
 }
 
-// blockOutboundTag 是屏蔽出站的 tag（SAVE-4 分流清单的拦截落点）。
-const blockOutboundTag = "block"
+// 分流出站的 tag（SAVE-1 直连 / SAVE-4 屏蔽，与 routing.Merge 补的出站一致）。
+const (
+	directOutboundTag = "direct"
+	blockOutboundTag  = "block"
+)
 
-// QueryBlockStats 查询并清零 block 出站的流量计数，返回本周期被拦截
-// 字节增量（blackhole 收到的请求字节；xray 无请求条数计数，节省报表
-// 按字节口径消费）。未配置屏蔽清单时计数恒 0 不报错。
-func (c *Client) QueryBlockStats(ctx context.Context) (uint64, error) {
+// OutboundBytes 是一次查询周期内分流出站的字节增量（节省报表数据源）。
+type OutboundBytes struct {
+	Direct  uint64 // 直连分流出站（SAVE-1：命中国内/静态清单不进隧道）
+	Blocked uint64 // 屏蔽出站（SAVE-4：blackhole 收到的请求字节）
+}
+
+// QueryOutboundStats 查询并清零分流出站的流量计数，返回本周期
+// 直连与拦截的字节增量。reset=true 清零全部 outbound 计数，直连与
+// 屏蔽必须在同一次查询里一起取（分开查会互相清成零）。
+// 未配置对应清单时相应计数恒 0 不报错。
+func (c *Client) QueryOutboundStats(ctx context.Context) (OutboundBytes, error) {
 	payload, err := grpcUnary(ctx, c.addr, queryStatsMethod, encodeQueryStatsReq("outbound>>>", true))
 	if err != nil {
-		return 0, fmt.Errorf("QueryStats %s: %w", c.addr, err)
+		return OutboundBytes{}, fmt.Errorf("QueryStats %s: %w", c.addr, err)
 	}
 	stats, err := decodeQueryStatsResp(payload)
 	if err != nil {
-		return 0, fmt.Errorf("decode QueryStats: %w", err)
+		return OutboundBytes{}, fmt.Errorf("decode QueryStats: %w", err)
 	}
-	return ParseBlockStats(stats), nil
+	return ParseOutboundStats(stats), nil
 }
 
-// ParseBlockStats 聚合 outbound>>><tag>>>traffic>>>uplink|downlink 中
-// block 出站的字节增量（上下行求和；黑洞出站通常只有 uplink）。
-func ParseBlockStats(stats []Stat) uint64 {
-	var total uint64
+// ParseOutboundStats 聚合 outbound>>><tag>>>traffic>>>uplink|downlink 中
+// direct 与 block 出站的字节增量（各自上下行求和；黑洞出站通常只有 uplink）。
+func ParseOutboundStats(stats []Stat) OutboundBytes {
+	var out OutboundBytes
 	for _, s := range stats {
 		parts := strings.SplitN(s.Name, ">>>", 4)
-		if len(parts) != 4 || parts[0] != "outbound" || parts[1] != blockOutboundTag || parts[2] != "traffic" {
+		if len(parts) != 4 || parts[0] != "outbound" || parts[2] != "traffic" {
 			continue
 		}
 		switch parts[3] {
 		case "uplink", "downlink":
-			total += s.Value
+			switch parts[1] {
+			case directOutboundTag:
+				out.Direct += s.Value
+			case blockOutboundTag:
+				out.Blocked += s.Value
+			}
 		}
 	}
-	return total
+	return out
 }
 
 // Collector 把 stats 查询适配为 traffic 包的采集口径（Collector + UserCollector）。
@@ -166,9 +181,10 @@ func (c *Collector) CollectUsers(proc string) ([]agentproto.UserTraffic, error) 
 	return out, nil
 }
 
-// CollectBlocked 返回一次查询周期内被拦截出站的字节增量（SAVE-4）。
-func (c *Collector) CollectBlocked(proc string) (uint64, error) {
+// CollectOutbound 返回一次查询周期内直连与拦截出站的字节增量（SAVE-4/7）。
+func (c *Collector) CollectOutbound(proc string) (direct, blocked uint64, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), collectTimeout)
 	defer cancel()
-	return c.client.QueryBlockStats(ctx)
+	ob, err := c.client.QueryOutboundStats(ctx)
+	return ob.Direct, ob.Blocked, err
 }

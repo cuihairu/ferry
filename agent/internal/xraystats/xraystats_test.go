@@ -203,42 +203,50 @@ func TestParseUserStats(t *testing.T) {
 	}
 }
 
-// TestQueryBlockStats 覆盖拦截计数查询（SAVE-4）：请求 pattern=outbound>>>
-// reset=true，block 出站上下行求和为拦截增量。
-func TestQueryBlockStats(t *testing.T) {
+// TestQueryOutboundStats 覆盖分流出站计数查询（SAVE-4/7）：请求
+// pattern=outbound>>> reset=true，direct 与 block 同一次查询分别取增量。
+func TestQueryOutboundStats(t *testing.T) {
 	resp := []Stat{
 		{Name: "outbound>>>block>>>traffic>>>uplink", Value: 123},
 		{Name: "outbound>>>block>>>traffic>>>downlink", Value: 4},
-		{Name: "outbound>>>direct>>>traffic>>>uplink", Value: 999}, // 非 block 忽略
+		{Name: "outbound>>>direct>>>traffic>>>uplink", Value: 999},
+		{Name: "outbound>>>direct>>>traffic>>>downlink", Value: 1001},
 	}
 	srv, seen := startFakeStats(t, resp)
 	c := New(strings.TrimPrefix(srv.URL, "http://"), log.New(io.Discard, "", 0))
 
-	got, err := c.QueryBlockStats(context.Background())
+	got, err := c.QueryOutboundStats(context.Background())
 	if err != nil {
-		t.Fatalf("QueryBlockStats: %v", err)
+		t.Fatalf("QueryOutboundStats: %v", err)
 	}
 	if seen.pattern != "outbound>>>" || !seen.reset {
 		t.Fatalf("request = %+v, want pattern=outbound>>> reset=true", seen)
 	}
-	if got != 127 {
-		t.Fatalf("blocked = %d, want 127 (uplink+downlink)", got)
+	if got.Blocked != 127 {
+		t.Fatalf("blocked = %d, want 127 (uplink+downlink)", got.Blocked)
+	}
+	if got.Direct != 2000 {
+		t.Fatalf("direct = %d, want 2000", got.Direct)
 	}
 }
 
-// TestParseBlockStats 覆盖拦截计数解析：只认 block 出站的 traffic 计数，
-// 其余出站/入站/段数不符忽略。
-func TestParseBlockStats(t *testing.T) {
-	got := ParseBlockStats([]Stat{
+// TestParseOutboundStats 覆盖分流出站计数解析：只认 direct/block 出站的
+// traffic 计数（上下行各自求和），其余出站/入站/近似名/段数不符忽略。
+func TestParseOutboundStats(t *testing.T) {
+	got := ParseOutboundStats([]Stat{
 		{Name: "outbound>>>block>>>traffic>>>uplink", Value: 10},
 		{Name: "outbound>>>block>>>traffic>>>uplink", Value: 5}, // 同名累加
 		{Name: "outbound>>>block>>>traffic>>>downlink", Value: 2},
-		{Name: "outbound>>>direct>>>traffic>>>uplink", Value: 100}, // 其他出站忽略
+		{Name: "outbound>>>direct>>>traffic>>>uplink", Value: 100},
+		{Name: "outbound>>>direct>>>traffic>>>downlink", Value: 30},
 		{Name: "inbound>>>in-1>>>traffic>>>uplink", Value: 50},     // 入站忽略
 		{Name: "outbound>>>blocked>>>traffic>>>uplink", Value: 30}, // 近似名不误收
 		{Name: "outbound>>>block>>>something", Value: 7},           // 段数不符忽略
 	})
-	if got != 17 {
-		t.Fatalf("blocked = %d, want 17", got)
+	if got.Blocked != 17 {
+		t.Fatalf("blocked = %d, want 17", got.Blocked)
+	}
+	if got.Direct != 130 {
+		t.Fatalf("direct = %d, want 130", got.Direct)
 	}
 }

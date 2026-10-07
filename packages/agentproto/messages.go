@@ -204,8 +204,9 @@ type ProcTraffic struct {
 	Conns int           `json:"conns"` // 采样时刻在线连接数
 	At    time.Time     `json:"at"`
 	Users []UserTraffic `json:"users,omitempty"` // per-user 增量（xray gRPC stats，P1-3）
-	// BlockedBytes 是本周期被拦截出站的流量增量（SAVE-4 广告/追踪拦截，
-	// xray block 出站 blackhole 收到的字节），无拦截采集时缺省。
+	// DirectBytes/BlockedBytes 是本周期分流出站的流量增量（SAVE-1 直连 /
+	// SAVE-4 屏蔽，xray outbound 计数一次查询同取），无采集时缺省。
+	DirectBytes  uint64 `json:"direct_bytes,omitempty"`
 	BlockedBytes uint64 `json:"blocked_bytes,omitempty"`
 }
 

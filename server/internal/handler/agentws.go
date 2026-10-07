@@ -263,6 +263,7 @@ func (h *Handler) saveNodeTraffic(nodeID int64, items []agentproto.ProcTraffic) 
 			Proc:         it.Proc,
 			RxBytes:      int64(it.Rx),
 			TxBytes:      int64(it.Tx),
+			DirectBytes:  int64(it.DirectBytes),
 			BlockedBytes: int64(it.BlockedBytes),
 			Conns:        it.Conns,
 			RecordedAt:   it.At,

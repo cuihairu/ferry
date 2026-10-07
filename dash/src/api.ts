@@ -745,3 +745,32 @@ export interface NodeProcRow {
 export function getNodeProcs(id: number): Promise<NodeProcRow[]> {
   return get<NodeProcRow[]>(`/api/nodes/${id}/procs`)
 }
+
+// ---- 流量节省报表（SAVE-7：save_stats 按日汇总，与成本看板同页）----
+
+/** SaveStatsRow 是一个节点一天的节省汇总（直连/拦截字节 + 折算费用）。 */
+export interface SaveStatsRow {
+  node_id: number
+  name: string
+  day: string
+  direct_bytes: number
+  blocked_bytes: number
+  cache_hit_bytes: number
+  cost_cents: number
+}
+
+/** SaveStatsReport 是节省报表：按日行 + 全网合计（days 窗口内）。 */
+export interface SaveStatsReport {
+  days: number
+  rows: SaveStatsRow[]
+  total: {
+    direct_bytes: number
+    blocked_bytes: number
+    cache_hit_bytes: number
+    cost_cents: number
+  }
+}
+
+export function getSaveStats(days?: number): Promise<SaveStatsReport> {
+  return get<SaveStatsReport>(`/api/save-stats${days ? `?days=${days}` : ''}`)
+}

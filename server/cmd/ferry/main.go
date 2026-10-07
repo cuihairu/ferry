@@ -27,6 +27,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/recovery"
 	"github.com/cuihairu/ferry/server/internal/review"
 	"github.com/cuihairu/ferry/server/internal/ringlog"
+	"github.com/cuihairu/ferry/server/internal/save"
 	"github.com/cuihairu/ferry/server/internal/secret"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/cuihairu/ferry/server/internal/xray"
@@ -151,6 +152,10 @@ func main() {
 	// 配额联动（SAVE-6）：流量/费用超阈值用户订阅自动降档（只出低成本档
 	// 入口），触发/释放留痕与站内信由扫表驱动，订阅出口读留痕即时生效。
 	go quota.LinkLoop(ctx, db, time.Duration(cfg.QuotaLinkIntervalSec)*time.Second, nil)
+
+	// 节省报表聚合（SAVE-7）：流量行按日累计进 save_stats，报表与成本看板
+	// 同页呈现；折算费用在 API 侧按节点流量单价现算。
+	go save.Loop(ctx, db, time.Duration(cfg.SaveStatsIntervalSec)*time.Second, nil)
 
 	// 事件 outbox（HERALD-1/2）：事件落库即返回，投递循环异步重试；
 	// 配置 FERRY_HERALD_URL 即接 Herald 投递腿，未配置时只落库 dash 可见。

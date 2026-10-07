@@ -2,9 +2,10 @@
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
-  get, put, getEvening, getQuotaLink, putQuotaLink,
+  get, put, getEvening, getQuotaLink, putQuotaLink, getSaveStats,
   type EveningReport, type GroupCost, type NodeCost,
   type QuotaLinkData, type QuotaLinkSetting, type QuotaActionRow,
+  type SaveStatsReport,
 } from '../api'
 import { formatBytes } from '../utils/format'
 
@@ -13,6 +14,7 @@ import { formatBytes } from '../utils/format'
 // E-29：晚高峰回程报表同页——24 小时回程质量分段 + 晚高峰（19–23 时）与平峰对比。
 // SAVE-6：配额联动——用户流量/费用超阈值自动订阅降档（只出低成本档入口），
 // 配置与降档留痕同页。
+// SAVE-7：流量节省报表同页——分流直连/广告拦截按日汇总与折算费用（同口径）。
 
 interface CostReport {
   nodes: NodeCost[]
@@ -35,13 +37,17 @@ const linkCostYuan = ref(0)
 const linkPriceYuan = ref(0)
 const linkSaving = ref(false)
 
+// 节省报表（SAVE-7）
+const savings = ref<SaveStatsReport | null>(null)
+
 async function load() {
   loading.value = true
   try {
-    const [r, ev, ql] = await Promise.all([get<CostReport>('/api/cost'), getEvening(7), getQuotaLink()])
+    const [r, ev, ql, sv] = await Promise.all([get<CostReport>('/api/cost'), getEvening(7), getQuotaLink(), getSaveStats(30)])
     rep.value = r
     evening.value = ev
     thresholdYuan.value = Math.round((r?.threshold_cents ?? 0) / 100)
+    savings.value = sv
     link.value = ql
     linkSetting.value = { ...ql.setting }
     linkCostYuan.value = ql.setting.cost_cents / 100
@@ -221,6 +227,48 @@ function eveningRows() {
         </el-table>
       </div>
     </div>
+
+    <h3 class="section">流量节省（近 30 天）</h3>
+    <p class="page-desc">
+      分流直连与广告拦截省下的流量及折算费用（仅按流量计费节点折算，与上方成本同口径）；缓存命中字节随缓存层指标接入后汇入。
+    </p>
+    <div v-if="savings" class="stats">
+      <div class="stat">
+        <div class="stat-value">{{ formatBytes(savings.total.direct_bytes) }}</div>
+        <div class="stat-label">直连分流</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">{{ formatBytes(savings.total.blocked_bytes) }}</div>
+        <div class="stat-label">广告拦截</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">{{ yuan(savings.total.cost_cents) }}</div>
+        <div class="stat-label">折算节省费用</div>
+      </div>
+    </div>
+    <el-table
+      v-if="savings && savings.rows.length"
+      :data="savings.rows"
+      size="small"
+      :header-cell-style="{ background: 'var(--ferry-bg-panel)' }"
+    >
+      <el-table-column label="日期" width="120">
+        <template #default="{ row }">{{ row.day }}</template>
+      </el-table-column>
+      <el-table-column label="节点" min-width="140">
+        <template #default="{ row }">{{ row.name }}</template>
+      </el-table-column>
+      <el-table-column label="直连分流" width="120">
+        <template #default="{ row }">{{ formatBytes(row.direct_bytes) }}</template>
+      </el-table-column>
+      <el-table-column label="广告拦截" width="120">
+        <template #default="{ row }">{{ formatBytes(row.blocked_bytes) }}</template>
+      </el-table-column>
+      <el-table-column label="折算费用" width="110">
+        <template #default="{ row }">{{ yuan(row.cost_cents) }}</template>
+      </el-table-column>
+    </el-table>
+    <p v-else-if="savings" class="page-desc">暂无节省数据——节点 agent 上报分流计数后按日汇总。</p>
 
     <h3 class="section">配额联动</h3>
     <p class="page-desc">

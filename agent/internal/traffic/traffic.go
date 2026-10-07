@@ -31,11 +31,11 @@ type UserCollector interface {
 	CollectUsers(proc string) ([]agentproto.UserTraffic, error)
 }
 
-// BlockCollector 能采集被拦截流量增量的采集器（SAVE-4 广告/追踪拦截，
-// xray block 出站字节）；实现者存在时 Reporter 在同周期附带拦截增量，
-// 报错按缺失处理（拦截计数不影响流量记账主流程）。
-type BlockCollector interface {
-	CollectBlocked(proc string) (uint64, error)
+// OutboundCollector 能采集分流出站字节增量的采集器（SAVE-4 拦截 /
+// SAVE-7 直连，xray outbound 计数一次查询同取）；实现者存在时 Reporter
+// 在同周期附带两组增量，报错按缺失处理（分流计数不影响流量记账主流程）。
+type OutboundCollector interface {
+	CollectOutbound(proc string) (direct, blocked uint64, err error)
 }
 
 // Noop 是不做任何事的空实现，对齐面板侧 xray.NoopHandler 的 P0 边界模式。
@@ -160,7 +160,7 @@ func (r *Reporter) collectAll() []agentproto.ProcTraffic {
 				r.noteCollectErr(name, err)
 				continue
 			}
-			r.attachBlocked(&item)
+			r.attachOutbound(&item)
 			delete(r.collectErr, name)
 			items = append(items, item)
 			continue
@@ -174,21 +174,22 @@ func (r *Reporter) collectAll() []agentproto.ProcTraffic {
 		item := agentproto.ProcTraffic{
 			Proc: name, Rx: rx, Tx: tx, Conns: conns, At: now,
 		}
-		r.attachBlocked(&item)
+		r.attachOutbound(&item)
 		items = append(items, item)
 	}
 	return items
 }
 
-// attachBlocked 给流量行附带本周期拦截增量（SAVE-4）：采集器不支持或
-// 查询报错时保持缺省，不拖累流量记账。
-func (r *Reporter) attachBlocked(item *agentproto.ProcTraffic) {
-	bc, ok := r.collector.(BlockCollector)
+// attachOutbound 给流量行附带本周期分流增量（SAVE-4 拦截/SAVE-7 直连）：
+// 采集器不支持或查询报错时保持缺省，不拖累流量记账。
+func (r *Reporter) attachOutbound(item *agentproto.ProcTraffic) {
+	oc, ok := r.collector.(OutboundCollector)
 	if !ok {
 		return
 	}
-	if n, err := bc.CollectBlocked(item.Proc); err == nil {
-		item.BlockedBytes = n
+	if direct, blocked, err := oc.CollectOutbound(item.Proc); err == nil {
+		item.DirectBytes = direct
+		item.BlockedBytes = blocked
 	}
 }
 
