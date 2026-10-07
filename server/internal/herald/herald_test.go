@@ -32,7 +32,7 @@ func emitOne(t *testing.T, db *gorm.DB, kind string) *storage.Event {
 		Kind: kind, Severity: SeverityCritical,
 		Title: "华东区域入口整体不可达", Body: "3/3 节点 sick",
 		Target: "admin", DedupKey: "region:华东:region_fault",
-		Meta:    map[string]any{"region": "华东", "count": 3},
+		Meta: map[string]any{"region": "华东", "count": 3},
 	})
 	if err != nil {
 		t.Fatal(err)

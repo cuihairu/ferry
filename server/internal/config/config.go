@@ -72,6 +72,10 @@ type Config struct {
 	// EventFlushIntervalSec 是事件 outbox 投递周期（秒，HERALD-1）；未配置
 	// Herald 通道时事件只落库等投递。
 	EventFlushIntervalSec int
+	// HeraldURL/HeraldToken 是 Herald 投递基建的接入地址与 Bearer 令牌
+	//（HERALD-2）；URL 为空=未接 Herald，事件只落本地 outbox。
+	HeraldURL   string
+	HeraldToken string
 }
 
 // Load 从环境变量读取配置，未设置的项回退到默认值。
@@ -108,6 +112,8 @@ func Load() Config {
 		NotifyScanIntervalSec: envIntOr("FERRY_NOTIFY_SCAN_SEC", 3600),
 		QuotaLinkIntervalSec:  envIntOr("FERRY_QUOTA_LINK_SEC", 600),
 		EventFlushIntervalSec: envIntOr("FERRY_EVENT_FLUSH_SEC", 30),
+		HeraldURL:             os.Getenv("FERRY_HERALD_URL"),
+		HeraldToken:           os.Getenv("FERRY_HERALD_TOKEN"),
 	}
 }
 

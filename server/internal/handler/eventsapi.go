@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/cuihairu/ferry/server/internal/herald"
 	"github.com/cuihairu/ferry/server/internal/storage"
@@ -66,6 +67,51 @@ func (h *Handler) retryEvent(c *gin.Context) {
 	}
 	if res.RowsAffected == 0 {
 		fail(c, http.StatusConflict, errors.New("仅失败死信可重投"))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// eventResultInput 是 Herald 异步回投的通道分发回执（《告警通道设计》§3）：
+// event_id 为投递载荷里的 ferry outbox id。
+type eventResultInput struct {
+	EventID int64  `json:"event_id"`
+	Channel string `json:"channel"`
+	Status  string `json:"status"` // sent/failed
+	Detail  string `json:"detail"`
+}
+
+// eventResult 落一条通道维度投递回执；事件本体状态不动（ferry→Herald 腿
+// 2xx 即已置 sent，通道分发与重试由 Herald 管，回执只做留痕）。
+func (h *Handler) eventResult(c *gin.Context) {
+	var in eventResultInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	if in.EventID <= 0 {
+		fail(c, http.StatusBadRequest, errors.New("event_id is required"))
+		return
+	}
+	if in.Channel == "" {
+		fail(c, http.StatusBadRequest, errors.New("channel is required"))
+		return
+	}
+	if in.Status != "sent" && in.Status != "failed" {
+		fail(c, http.StatusBadRequest, errors.New("status must be sent/failed"))
+		return
+	}
+	var ev storage.Event
+	if err := h.db.Select("id").First(&ev, in.EventID).Error; err != nil {
+		fail(c, http.StatusNotFound, errors.New("event not found"))
+		return
+	}
+	row := storage.EventDelivery{
+		EventID: in.EventID, Channel: in.Channel, Status: in.Status,
+		Detail: in.Detail, At: time.Now(),
+	}
+	if err := h.db.Create(&row).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})

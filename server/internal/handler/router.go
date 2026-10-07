@@ -117,6 +117,8 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		// 事件 outbox（HERALD-1）：dash 可见 pending/failed，死信人工重投。
 		api.GET("/events", h.listEvents)
 		api.POST("/events/:id/retry", h.retryEvent)
+		// Herald 异步回投的通道分发回执（HERALD-2，内部接口与 reconcile 同鉴权口径）。
+		api.POST("/internal/event-results", h.eventResult)
 		api.GET("/cost", h.getCost)
 		api.GET("/evening", h.getEvening)
 		api.PUT("/cost/threshold", h.putCostThreshold)

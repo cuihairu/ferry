@@ -231,7 +231,7 @@
 口径：ferry 不自建通道，事件统一投 Herald 分发（管理告警+用户触达同一接口）；本地 outbox 保事件不丢。
 
 - [x] [P1] HERALD-1 事件 outbox：events/event_deliveries 落表，pending→投递→重试，失败标红不静默丢（退避封顶 1h 连败 6 轮死信，dash 通知页 outbox 卡计数标红+死信重投）
-- [ ] [P1] HERALD-2 Herald 集成接口：POST /events（kind/severity/target/dedup_key）+ 回执落库，配置 FERRY_HERALD_URL/TOKEN
+- [x] [P1] HERALD-2 Herald 集成接口：POST /events（kind/severity/target/dedup_key）+ 回执落库，配置 FERRY_HERALD_URL/TOKEN（HTTPSender Bearer+10s 超时，载荷带 outbox id 供回执关联；回执端点 /api/internal/event-results 只留痕不动事件状态，未配置 URL 仍 outbox-only）
 - [ ] [P1] HERALD-3 管理告警接入：区域故障/被封/证书到期三类先行，其余六类随后
 - [ ] [P1] HERALD-4 用户触达事件走同一接口（账单/域名/到期/预警，随触达批）
 

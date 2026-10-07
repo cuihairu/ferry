@@ -152,9 +152,13 @@ func main() {
 	// 入口），触发/释放留痕与站内信由扫表驱动，订阅出口读留痕即时生效。
 	go quota.LinkLoop(ctx, db, time.Duration(cfg.QuotaLinkIntervalSec)*time.Second, nil)
 
-	// 事件 outbox（HERALD-1）：事件落库即返回，投递循环异步重试；
-	// Herald 通道随 HERALD-2 接入（FERRY_HERALD_URL），未配置时只落库 dash 可见。
-	go herald.Loop(ctx, db, time.Duration(cfg.EventFlushIntervalSec)*time.Second, nil, nil)
+	// 事件 outbox（HERALD-1/2）：事件落库即返回，投递循环异步重试；
+	// 配置 FERRY_HERALD_URL 即接 Herald 投递腿，未配置时只落库 dash 可见。
+	var eventSender herald.Sender
+	if cfg.HeraldURL != "" {
+		eventSender = herald.HTTPSender(cfg.HeraldURL, cfg.HeraldToken)
+	}
+	go herald.Loop(ctx, db, time.Duration(cfg.EventFlushIntervalSec)*time.Second, eventSender, nil)
 
 	// 面板 Web 证书（P1-7）：settings 里配置了证书即走 HTTPS，
 	// 配置损坏启动中止以免静默降级 HTTP；切换证书需重启生效。
