@@ -209,7 +209,7 @@
 
 口径：分流直连、缓存、拦截、压缩复用报表化、配额联动、节省报表；MITM 缓存默认不做（自用注释位）。
 
-- [ ] [P0] SAVE-1 GeoIP/geosite 分流进节点配置模板：国内流量直连不进隧道，规则库可经 config.push 更新
+- [x] [P0] SAVE-1 GeoIP/geosite 分流进节点配置模板：国内流量直连不进隧道，规则库可经 config.push 更新
 - [ ] [P0] SAVE-2 静态资源域名清单直连/CDN（与 geosite 同机制）
 - [ ] [P1] SAVE-3 入口缓存层插件位：nginx cache/Squid 作被管进程 kind，命中统计随心跳上报
 - [ ] [P1] SAVE-4 广告/追踪拦截：节点侧 DNS 屏蔽名单（可配、可更新），拦截计数上报

@@ -40,6 +40,15 @@ export function del<T>(path: string): Promise<T> {
   return request<T>(path, { method: 'DELETE' })
 }
 
+// postRaw 以原始请求体 POST（规则库数据文件分发用，SAVE-1）。
+export function postRaw<T>(path: string, body: Blob): Promise<T> {
+  return request<T>(path, {
+    method: 'POST',
+    body,
+    headers: { 'Content-Type': 'application/octet-stream' },
+  })
+}
+
 // ---- 资源类型（对齐 server 的 JSON 载荷）----
 
 export interface Node {
@@ -116,4 +125,33 @@ export interface CardCode {
   fail_count: number
   used_by: number | null
   used_at: string | null
+}
+
+// ---- 分流规则库（SAVE-1）----
+
+export interface RuleSet {
+  name: string
+  domains?: string[]
+  ips?: string[]
+  outbound_tag: string
+}
+
+export interface RoutingConfig {
+  node_id: number
+  sha256: string
+  config: string
+  sets: RuleSet[]
+}
+
+export interface NodeConfigRow {
+  id: number
+  proc: string
+  kind: string
+  version: string
+  sha256: string
+  status: 'pending' | 'applied' | 'failed'
+  reverted: boolean
+  validated: boolean
+  error?: string
+  created_at: string
 }

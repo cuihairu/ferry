@@ -27,6 +27,7 @@ type ProcSpec struct {
 	Args       []string `json:"args"`        // 启动参数
 	WorkDir    string   `json:"work_dir"`    // 工作目录
 	ConfigPath string   `json:"config_path"` // 配置文件路径，配置下发落盘点
+	AssetDir   string   `json:"asset_dir"`   // 规则库资产目录（rulelib 下发落盘点），空则回退 config_path 同级 assets/
 	Reload     string   `json:"reload"`      // reload 策略：restart / signal
 	Validate   string   `json:"validate"`    // 校验命令模板，{config} 占位符；空则跳过校验
 }

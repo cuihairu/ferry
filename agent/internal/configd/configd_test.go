@@ -175,3 +175,100 @@ func TestApplyEmptyConfigPath(t *testing.T) {
 		t.Fatalf("want config_path failure, got %+v", ack)
 	}
 }
+
+func rulelibPush(name, payload string) agentproto.ConfigPush {
+	return agentproto.ConfigPush{
+		Proc:    "xray",
+		Kind:    "rulelib:" + name,
+		Version: wantSha(payload),
+		Sha256:  wantSha(payload),
+		Payload: payload,
+	}
+}
+
+func wantSha(payload string) string {
+	sum := sha256.Sum256([]byte(payload))
+	return hex.EncodeToString(sum[:])
+}
+
+func TestApplyRuleLibFallbackAssetDir(t *testing.T) {
+	spec := testSpec(t, "")
+	d := New(log.New(io.Discard, "", 0))
+
+	calls := 0
+	ack := d.Apply(spec, rulelibPush("geoip.dat", "geo-data-v1"), reloadOK(&calls))
+	if !ack.OK || ack.Reverted {
+		t.Fatalf("want ok, got %+v", ack)
+	}
+	if calls != 1 {
+		t.Fatalf("reload calls = %d, want 1", calls)
+	}
+	// 未配置 AssetDir：回退主配置同级 assets/
+	want := filepath.Join(filepath.Dir(spec.ConfigPath), "assets", "geoip.dat")
+	if got := readFile(t, want); got != "geo-data-v1" {
+		t.Fatalf("rulelib = %q, want payload", got)
+	}
+}
+
+func TestApplyRuleLibExplicitAssetDir(t *testing.T) {
+	spec := testSpec(t, "")
+	spec.AssetDir = filepath.Join(t.TempDir(), "xray-assets")
+	d := New(log.New(io.Discard, "", 0))
+
+	ack := d.Apply(spec, rulelibPush("geosite.dat", "geosite-data"), func() error { return nil })
+	if !ack.OK {
+		t.Fatalf("want ok, got %+v", ack)
+	}
+	if got := readFile(t, filepath.Join(spec.AssetDir, "geosite.dat")); got != "geosite-data" {
+		t.Fatalf("rulelib = %q, want payload", got)
+	}
+}
+
+func TestApplyRuleLibRollback(t *testing.T) {
+	spec := testSpec(t, "")
+	d := New(log.New(io.Discard, "", 0))
+	target := filepath.Join(filepath.Dir(spec.ConfigPath), "assets", "geoip.dat")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("old-geo"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	calls := 0
+	ack := d.Apply(spec, rulelibPush("geoip.dat", "new-geo"), reloadFail(&calls))
+	if ack.OK || !ack.Reverted {
+		t.Fatalf("want reverted failure, got %+v", ack)
+	}
+	if got := readFile(t, target); got != "old-geo" {
+		t.Fatalf("rulelib = %q, want rolled back to old", got)
+	}
+}
+
+func TestApplyRuleLibBadNames(t *testing.T) {
+	spec := testSpec(t, "")
+	d := New(log.New(io.Discard, "", 0))
+
+	for _, name := range []string{"", "..", "a/b", `a\b`, "..geoip.dat", ".geoip.dat"} {
+		ack := d.Apply(spec, rulelibPush(name, "x"), func() error { return nil })
+		if ack.OK || ack.Error == "" {
+			t.Fatalf("name %q: want rejection, got %+v", name, ack)
+		}
+	}
+	// 非法名绝不落盘
+	if _, err := os.Stat(filepath.Join(filepath.Dir(spec.ConfigPath), "assets")); !os.IsNotExist(err) {
+		t.Fatalf("rejected name should not touch disk, stat err = %v", err)
+	}
+}
+
+func TestApplyRuleLibShaMismatch(t *testing.T) {
+	spec := testSpec(t, "")
+	d := New(log.New(io.Discard, "", 0))
+
+	push := rulelibPush("geoip.dat", "data")
+	push.Sha256 = "deadbeef"
+	ack := d.Apply(spec, push, func() error { return nil })
+	if ack.OK || ack.Error == "" {
+		t.Fatalf("want sha failure, got %+v", ack)
+	}
+}

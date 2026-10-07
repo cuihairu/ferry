@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { get, post, put, del, type Node, type DimensionStatus } from '../api'
+import RuleLibDialog from '../components/RuleLibDialog.vue'
 
 // E-24：节点视图——节点列表（入口/落地筛选 + 方向/线路列）、
 // 区域/运营商视角（状态灯 + 节点计数，两者同构）。协议/配置编辑见对话框。
@@ -107,6 +108,8 @@ const STATE_TEXT: Record<string, string> = {
 
 // ---- 编辑 ----
 const dialogVisible = ref(false)
+const ruleLibFor = ref<Node | null>(null)
+const ruleLibVisible = ref(false)
 const editing = ref<Node | null>(null)
 const saving = ref(false)
 const form = reactive({
@@ -125,6 +128,11 @@ const form = reactive({
   line_type: '',
   transport: 'tls',
 })
+
+function openRuleLib(n: Node) {
+  ruleLibFor.value = n
+  ruleLibVisible.value = true
+}
 
 function openCreate() {
   editing.value = null
@@ -274,9 +282,10 @@ async function remove(n: Node) {
           <el-switch :model-value="row.enabled" @change="(v: boolean) => toggleEnabled(row, v)" />
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="130" fixed="right">
+      <el-table-column label="操作" width="190" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+          <el-button link type="primary" @click="openRuleLib(row)">分流</el-button>
           <el-button link type="danger" @click="remove(row)">删除</el-button>
         </template>
       </el-table-column>
@@ -359,6 +368,7 @@ async function remove(n: Node) {
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
       </template>
     </el-dialog>
+    <RuleLibDialog v-model="ruleLibVisible" :node="ruleLibFor" />
   </div>
 </template>
 
