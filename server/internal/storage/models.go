@@ -205,8 +205,11 @@ type PaymentOrder struct {
 	AmountCents int64      `gorm:"default:0" json:"amount_cents"`
 	Product     string     `gorm:"size:128" json:"product"`
 	Status      string     `gorm:"size:16;default:pending;index" json:"status"` // pending/paid/failed/expired
-	CreatedAt   time.Time  `json:"created_at"`
-	PaidAt      *time.Time `json:"paid_at"`
+	// 到账自动发放口径（在线支付用，卡密走批次自带）：add_quota/extend_days，空=不自动发放。
+	GrantType  string     `gorm:"size:16" json:"grant_type,omitempty"`
+	GrantValue int64      `gorm:"default:0" json:"grant_value,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	PaidAt     *time.Time `json:"paid_at"`
 	// 不设 User 关联：财务记录不随用户删除（无外键）。
 }
 

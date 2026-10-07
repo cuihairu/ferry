@@ -91,7 +91,6 @@ func (h *Handler) redeemTx(code string, userID uint, now time.Time) (gin.H, erro
 			}
 			return err
 		}
-		before := grantSnapshot{QuotaBytes: u.QuotaBytes, ExpiresAt: u.ExpiresAt}
 		// 3. 三账：订单（card/0/paid）→ 流水（external_id=码 id，唯一约束兜底幂等）→ 发放。
 		orderNo := fmt.Sprintf("card-%d-%d", codeRow.ID, now.UnixNano())
 		order := storage.PaymentOrder{
@@ -110,32 +109,9 @@ func (h *Handler) redeemTx(code string, userID uint, now time.Time) (gin.H, erro
 		if err := tx.Create(&txn).Error; err != nil {
 			return err
 		}
-		// 4. 执行权益：加配额或延到期；无到期自当下起算。
-		if batch.GrantType == "add_quota" {
-			u.QuotaBytes += batch.GrantValue
-		} else {
-			// 到期为空或已过期自当下起算，否则在现有到期上顺延。
-			base := now
-			if u.ExpiresAt != nil && u.ExpiresAt.After(now) {
-				base = *u.ExpiresAt
-			}
-			ext := base.Add(time.Duration(batch.GrantValue) * 24 * time.Hour)
-			u.ExpiresAt = &ext
-		}
-		if err := tx.Model(&storage.User{}).Where("id = ?", u.ID).
-			Updates(map[string]any{"quota_bytes": u.QuotaBytes, "expires_at": u.ExpiresAt}).Error; err != nil {
-			return err
-		}
-		after := grantSnapshot{QuotaBytes: u.QuotaBytes, ExpiresAt: u.ExpiresAt}
-		snap, _ := json.Marshal(map[string]any{
-			"code": code, "batch_id": batch.ID, "before": before, "after": after,
-		})
-		grant := storage.Grant{
-			OrderNo: orderNo, UserID: userID,
-			GrantType: batch.GrantType, GrantValue: batch.GrantValue,
-			Snapshot: string(snap), CreatedAt: now,
-		}
-		if err := tx.Create(&grant).Error; err != nil {
+		// 4. 执行权益并写发放记录。
+		if err := applyGrant(tx, orderNo, &u, batch.GrantType, batch.GrantValue, now,
+			map[string]any{"code": code, "batch_id": batch.ID}); err != nil {
 			return err
 		}
 		out = gin.H{
@@ -151,6 +127,41 @@ func (h *Handler) redeemTx(code string, userID uint, now time.Time) (gin.H, erro
 type grantSnapshot struct {
 	QuotaBytes int64      `json:"quota_bytes"`
 	ExpiresAt  *time.Time `json:"expires_at"`
+}
+
+// applyGrant 在事务内执行权益并写发放记录（卡密兑换与在线支付回调共用）：
+// add_quota 加配额；其余按 extend_days 口径延到期（无到期自当下起算）。
+// extra 并入快照（卡密的码/批次、在线支付的 trade_id 等），失败回滚整个事务。
+func applyGrant(tx *gorm.DB, orderNo string, u *storage.User, grantType string, grantValue int64, now time.Time, extra map[string]any) error {
+	before := grantSnapshot{QuotaBytes: u.QuotaBytes, ExpiresAt: u.ExpiresAt}
+	if grantType == "add_quota" {
+		u.QuotaBytes += grantValue
+	} else {
+		base := now
+		if u.ExpiresAt != nil && u.ExpiresAt.After(now) {
+			base = *u.ExpiresAt
+		}
+		ext := base.Add(time.Duration(grantValue) * 24 * time.Hour)
+		u.ExpiresAt = &ext
+	}
+	if err := tx.Model(&storage.User{}).Where("id = ?", u.ID).
+		Updates(map[string]any{"quota_bytes": u.QuotaBytes, "expires_at": u.ExpiresAt}).Error; err != nil {
+		return err
+	}
+	snap := map[string]any{
+		"before": before,
+		"after":  grantSnapshot{QuotaBytes: u.QuotaBytes, ExpiresAt: u.ExpiresAt},
+	}
+	for k, v := range extra {
+		snap[k] = v
+	}
+	snapJSON, _ := json.Marshal(snap)
+	grant := storage.Grant{
+		OrderNo: orderNo, UserID: u.ID,
+		GrantType: grantType, GrantValue: grantValue,
+		Snapshot: string(snapJSON), CreatedAt: now,
+	}
+	return tx.Create(&grant).Error
 }
 
 // normalizeCardCode 归一化输入：统一大写、去杂字符后还原 XXXX-XXXX-XXXX 分组，

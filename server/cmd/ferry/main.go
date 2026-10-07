@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	_ "github.com/cuihairu/ferry/payments/epusdt" // PAY-8：init 自注册收款渠道
 	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/handler"
 	"github.com/cuihairu/ferry/server/internal/monitor"
