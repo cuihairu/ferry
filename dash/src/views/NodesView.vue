@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { get, post, put, del, type Node, type DimensionStatus } from '../api'
+import { get, post, put, del, type Node, type DimensionStatus, type NodeShare } from '../api'
+import QRCode from 'qrcode'
 import RuleLibDialog from '../components/RuleLibDialog.vue'
 
 // E-24：节点视图——节点列表（入口/落地筛选 + 方向/线路列）、
@@ -132,6 +133,29 @@ const form = reactive({
 function openRuleLib(n: Node) {
   ruleLibFor.value = n
   ruleLibVisible.value = true
+}
+
+// 分享对话框（P1-9）：单节点分享链接 + 二维码（服务端出链接，本地渲染二维码）。
+const shareVisible = ref(false)
+const shareName = ref('')
+const shareLink = ref('')
+const shareQr = ref('')
+
+async function openShare(n: Node) {
+  try {
+    const s = await get<NodeShare>(`/api/nodes/${n.id}/share`)
+    shareName.value = s.name
+    shareLink.value = s.link
+    shareQr.value = await QRCode.toDataURL(s.link, { width: 220, margin: 1 })
+    shareVisible.value = true
+  } catch (e) {
+    ElMessage.error(String(e))
+  }
+}
+
+async function copyShareLink() {
+  await navigator.clipboard.writeText(shareLink.value)
+  ElMessage.success('分享链接已复制')
 }
 
 function openCreate() {
@@ -282,9 +306,10 @@ async function remove(n: Node) {
           <el-switch :model-value="row.enabled" @change="(v: boolean) => toggleEnabled(row, v)" />
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="190" fixed="right">
+      <el-table-column label="操作" width="240" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+          <el-button link type="primary" @click="openShare(row)">分享</el-button>
           <el-button link type="primary" @click="openRuleLib(row)">分流</el-button>
           <el-button link type="danger" @click="remove(row)">删除</el-button>
         </template>
@@ -368,6 +393,16 @@ async function remove(n: Node) {
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 分享（P1-9）：链接 + 二维码 -->
+    <el-dialog v-model="shareVisible" :title="`分享 ${shareName}`" width="320px">
+      <div class="share-body">
+        <img v-if="shareQr" :src="shareQr" alt="分享二维码" class="share-qr" />
+        <el-input :model-value="shareLink" readonly />
+        <el-button type="primary" @click="copyShareLink">复制链接</el-button>
+      </div>
+    </el-dialog>
+
     <RuleLibDialog v-model="ruleLibVisible" :node="ruleLibFor" />
   </div>
 </template>
@@ -390,6 +425,21 @@ async function remove(n: Node) {
 .config-input :deep(textarea) {
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 12px;
+}
+
+/* ---- 分享对话框 ---- */
+.share-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.share-qr {
+  width: 220px;
+  height: 220px;
+  border-radius: 8px;
+  background: #fff;
+  padding: 6px;
 }
 
 /* ---- 区域/运营商视角 ---- */

@@ -106,6 +106,13 @@ export interface User {
   created_at: string
 }
 
+/** NodeShare 是单节点分享链接（P1-9）。 */
+export interface NodeShare {
+  node_id: number
+  name: string
+  link: string
+}
+
 /** UserTemplate 是默认用户模板（P1-5）：新建用户可套用的默认配额/时长/重置周期。 */
 export interface UserTemplate {
   quota_bytes: number
