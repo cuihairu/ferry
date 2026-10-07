@@ -53,6 +53,10 @@ type Config struct {
 	RecoveryIntervalSec int
 	// RecoveryTemplateID 是恢复 L3 一键开新机用的供给模板 ID（0=不启用 L3）。
 	RecoveryTemplateID uint
+	// ReplenishIntervalSec 是池空保底开服的扫表周期（BR-3）。
+	ReplenishIntervalSec int
+	// PoolTemplateID 是池空保底开服用的供给模板 ID（0=不启用，BR-3）。
+	PoolTemplateID uint
 }
 
 // Load 从环境变量读取配置，未设置的项回退到默认值。
@@ -79,6 +83,8 @@ func Load() Config {
 		AgentVersion:         envOr("FERRY_AGENT_VERSION", "latest"),
 		RecoveryIntervalSec:  envIntOr("FERRY_RECOVERY_SEC", 60),
 		RecoveryTemplateID:   uint(envIntOr("FERRY_RECOVERY_TEMPLATE_ID", 0)),
+		ReplenishIntervalSec: envIntOr("FERRY_REPLENISH_SEC", 300),
+		PoolTemplateID:       uint(envIntOr("FERRY_POOL_TEMPLATE_ID", 0)),
 	}
 }
 
@@ -105,6 +111,8 @@ func Default() Config {
 		AgentVersion:         "latest",
 		RecoveryIntervalSec:  60,
 		RecoveryTemplateID:   0,
+		ReplenishIntervalSec: 300,
+		PoolTemplateID:       0,
 	}
 }
 

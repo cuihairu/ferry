@@ -73,8 +73,8 @@ func (h *Handler) suspendPoolNode(c *gin.Context) {
 	}
 }
 
-// resumePoolNode 手动复位（POST /api/pool/:id/resume）：仅摘除态可复位，
-// 其余口径（404/409）与防枚举一致。
+// resumePoolNode 手动复位（POST /api/pool/:id/resume）：摘除态摘回、
+// 预备态回池，其余口径（404/409）与防枚举一致。
 func (h *Handler) resumePoolNode(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -86,10 +86,31 @@ func (h *Handler) resumePoolNode(c *gin.Context) {
 	case err == nil:
 		c.JSON(http.StatusOK, node)
 	case errors.Is(err, pool.ErrNotSuspended):
-		c.JSON(http.StatusConflict, gin.H{"error": "节点不在摘除状态"})
+		c.JSON(http.StatusConflict, gin.H{"error": "节点不在摘除/预备状态"})
 	case errors.Is(err, gorm.ErrRecordNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 	default:
 		fail(c, http.StatusInternalServerError, err)
+	}
+}
+
+// standbyPoolNode 标记预备（POST /api/pool/:id/standby，BR-3）：在池入口
+// 转入待命——出订阅但保持在线，恢复流水线 L2 补位时升回池；重复标记 409。
+func (h *Handler) standbyPoolNode(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		return
+	}
+	node, err := pool.MarkStandby(h.db, uint(id))
+	switch {
+	case err == nil:
+		c.JSON(http.StatusOK, node)
+	case errors.Is(err, pool.ErrNotActive):
+		c.JSON(http.StatusConflict, gin.H{"error": "节点不在池内（已摘除或已是预备）"})
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+	default:
+		fail(c, http.StatusBadRequest, err)
 	}
 }

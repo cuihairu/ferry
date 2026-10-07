@@ -96,17 +96,40 @@ function loadCell(id: number): { has: boolean; pct: number; over: boolean; statu
 }
 
 async function togglePool(row: Node) {
-  const suspending = row.pool_state !== 'suspended'
-  if (suspending) {
-    await ElMessageBox.confirm(
-      `摘除后 ${row.name} 立即退出订阅入口池（agent 连接保持），确认？`,
-      '手动摘除',
-      { type: 'warning' },
-    )
+  // 摘除/复位/预备回池三态切换：suspended→复位、standby→回池、active→摘除。
+  if (row.pool_state === 'suspended' || row.pool_state === 'standby') {
+    try {
+      await post(`/api/pool/${row.id}/resume`)
+      ElMessage.success(row.pool_state === 'suspended' ? '已复位' : '已回池')
+      await load()
+    } catch (e) {
+      ElMessage.error(String(e))
+    }
+    return
   }
+  await ElMessageBox.confirm(
+    `摘除后 ${row.name} 立即退出订阅入口池（agent 连接保持），确认？`,
+    '手动摘除',
+    { type: 'warning' },
+  )
   try {
-    await post(`/api/pool/${row.id}/${suspending ? 'suspend' : 'resume'}`)
-    ElMessage.success(suspending ? '已摘除' : '已复位')
+    await post(`/api/pool/${row.id}/suspend`)
+    ElMessage.success('已摘除')
+    await load()
+  } catch (e) {
+    ElMessage.error(String(e))
+  }
+}
+
+async function markStandby(row: Node) {
+  await ElMessageBox.confirm(
+    `预备后 ${row.name} 退出订阅入口池待命（agent 连接保持），被封恢复补位或手动回池时再入列，确认？`,
+    '标记预备',
+    { type: 'warning' },
+  )
+  try {
+    await post(`/api/pool/${row.id}/standby`)
+    ElMessage.success('已标记预备')
     await load()
   } catch (e) {
     ElMessage.error(String(e))
@@ -569,6 +592,7 @@ async function remove(n: Node) {
       <el-table-column label="入口池" width="90">
         <template #default="{ row }">
           <el-tag v-if="row.pool_state === 'suspended'" type="warning" size="small" effect="dark" disable-transitions>已摘除</el-tag>
+          <el-tag v-else-if="row.pool_state === 'standby'" type="info" size="small" effect="plain" disable-transitions>预备</el-tag>
           <span v-else-if="row.role === 'entry' || row.role === 'both'" class="pool-ok">在池</span>
           <span v-else>—</span>
         </template>
@@ -586,9 +610,14 @@ async function remove(n: Node) {
           <el-button link type="primary" @click="openUpgrade(row)">升级</el-button>
           <el-button
             v-if="(row.role === 'entry' || row.role === 'both') && row.enabled"
-            link :type="row.pool_state === 'suspended' ? 'success' : 'warning'"
+            link :type="row.pool_state === 'suspended' || row.pool_state === 'standby' ? 'success' : 'warning'"
             @click="togglePool(row)"
-          >{{ row.pool_state === 'suspended' ? '复位' : '摘除' }}</el-button>
+          >{{ row.pool_state === 'suspended' ? '复位' : row.pool_state === 'standby' ? '回池' : '摘除' }}</el-button>
+          <el-button
+            v-if="(row.role === 'entry' || row.role === 'both') && row.enabled && row.pool_state === 'active'"
+            link type="info"
+            @click="markStandby(row)"
+          >预备</el-button>
           <el-button link type="danger" @click="remove(row)">删除</el-button>
         </template>
       </el-table-column>

@@ -119,3 +119,44 @@ func TestPoolAPI(t *testing.T) {
 		t.Fatalf("resume missing should 404: %d", rec.Code)
 	}
 }
+
+// TestPoolStandbyAPI 覆盖预备标记（BR-3）：在池入口标记预备、重复标记 409、
+// 预备态经 resume 回池、非入口节点 400。
+func TestPoolStandbyAPI(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	if err := db.Create(&storage.Node{Name: "sb-entry", Token: "tok-sb", Role: "entry",
+		Enabled: true, Status: "online", PoolState: pool.StateActive}).Error; err != nil {
+		t.Fatal(err)
+	}
+	var n storage.Node
+	db.Where("name = ?", "sb-entry").First(&n)
+	id := strconv.FormatUint(uint64(n.ID), 10)
+
+	if rec := doJSON(t, r, "POST", "/api/pool/"+id+"/standby", nil); rec.Code != http.StatusOK {
+		t.Fatalf("standby: %d %s", rec.Code, rec.Body)
+	}
+	var after storage.Node
+	db.First(&after, n.ID)
+	if after.PoolState != pool.StateStandby {
+		t.Fatalf("after standby = %+v", after)
+	}
+	if rec := doJSON(t, r, "POST", "/api/pool/"+id+"/standby", nil); rec.Code != http.StatusConflict {
+		t.Fatalf("repeat standby: %d", rec.Code)
+	}
+	// 预备态回池。
+	if rec := doJSON(t, r, "POST", "/api/pool/"+id+"/resume", nil); rec.Code != http.StatusOK {
+		t.Fatalf("resume standby: %d %s", rec.Code, rec.Body)
+	}
+	db.First(&after, n.ID)
+	if after.PoolState != pool.StateActive || after.PoolReason != "预备回池" {
+		t.Fatalf("after resume = %+v", after)
+	}
+	// 非入口节点不可标记预备。
+	landing := storage.Node{Name: "ld", Token: "tok-ld", Role: "landing", Enabled: true}
+	if err := db.Create(&landing).Error; err != nil {
+		t.Fatal(err)
+	}
+	if rec := doJSON(t, r, "POST", "/api/pool/"+strconv.FormatUint(uint64(landing.ID), 10)+"/standby", nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("landing standby: %d", rec.Code)
+	}
+}

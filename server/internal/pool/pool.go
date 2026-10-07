@@ -149,7 +149,7 @@ func Sweep(db *gorm.DB, opts Options) ([]Event, error) {
 	return events, nil
 }
 
-// Resume 手动复位（管理端）：探测源全挂等场景下人工摘回，走同一留痕与通知。
+// Resume 手动复位（管理端）：摘除态人工摘回、预备态回池，走同一留痕与通知。
 func Resume(db *gorm.DB, nodeID uint, logger *log.Logger) (storage.Node, error) {
 	if logger == nil {
 		logger = log.Default()
@@ -158,10 +158,17 @@ func Resume(db *gorm.DB, nodeID uint, logger *log.Logger) (storage.Node, error) 
 	if err := db.First(&n, nodeID).Error; err != nil {
 		return storage.Node{}, err
 	}
-	if n.PoolState != StateSuspended {
+	switch n.PoolState {
+	case StateSuspended:
+	case StateStandby:
+		// 预备回池：出待命清单直接入订阅。
+	default:
 		return storage.Node{}, ErrNotSuspended
 	}
 	reason := "手动复位"
+	if n.PoolState == StateStandby {
+		reason = "预备回池"
+	}
 	if err := setPoolState(db, n.ID, StateActive, reason); err != nil {
 		return storage.Node{}, err
 	}
