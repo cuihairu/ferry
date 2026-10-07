@@ -141,7 +141,7 @@
 - [x] [P1] E-16b 摘挂热更新换线：config.push 变更列表（落地 relay 重指），随 E-21 分配策略接入
 - [x] [P1] E-17 区域传输判定（internal/transport 存活占比推荐+现行对比换线建议，/api/transport-status，dash 调配页面板；切换执行=改 transport 标注重推配置）
 - [x] [P1] E-18a ws-tls 传输插件（tunnel 注册，TLS+WebSocket 升级伪装浏览器，消息语义适配流 net.Conn，落地侧任意 RFC6455 监听可前置 CDN）
-- [ ] [P1] E-18b QUIC 传输插件（拍板 2026-10-08：独立 plugin 二进制，主仓 E-4 尺寸门禁不动；开源优先修订：不自研协议，封装现成实现——sing-box/Xray-core/hysteria2 二进制适配或 quic-go 库，接入前核 license 传染性（hysteria2=AGPL、sing-box=GPL）并记录取舍于 docs/design/开源选型设计.md，真 hysteria2 不造、raw QUIC 不冒称，文档如实标注）
+- [x] [P1] E-18b QUIC 传输插件（拍板 2026-10-08：独立 plugin 二进制，主仓 E-4 尺寸门禁不动；开源优先修订：不自研协议，封装现成实现——quic-go v0.63.0（MIT）只落独立 sidecar 二进制 ferry-quic（新 cmd + make build-quic，实测 6.34MB），agent 主程序不携带（实测 7.62MiB 持平门禁不动）；形态：进程内 quic 插件=本地 CONNECT 桥薄拨号（无 QUIC 实现，127.0.0.1:7300/FERRY_QUIC_SIDECAR）+ ferry-quic client（连接按地址|SNI 缓存复用、开流失败清缓存重拨、拨号 10s 快败）与 server（QUIC 逐流转发本机 target）；ALPN ferry-quic，raw QUIC 不冒称 hysteria2；对端校验系统根/--ca，--insecure 仅引导调试；e2e 测试：内存自签证书（IP SAN）全链回环、ERR 快败、请求行解析四态、插件四腿（OK 直通/ERR 带因/异常应答/sidecar 不在）；取舍留档开源选型设计.md §3.1c）
 
 ### 开源优先换件（docs/design/开源选型设计.md 对照表，逐个换）
 

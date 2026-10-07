@@ -1,11 +1,11 @@
 # ferry 统一入口：make build / make test / make dev
-.PHONY: build build-server build-agent package-agent build-dash build-panel test test-pg dev dev-server dev-dash dev-panel fmt
+.PHONY: build build-server build-agent build-quic package-agent build-dash build-panel test test-pg dev dev-server dev-dash dev-panel fmt
 
 # AGENT_VERSION 是发布包版本号（package-agent 用，与 deploy/agent-install.sh 的 --version 对应）。
 AGENT_VERSION ?= dev
 GOARCH ?= $(shell go env GOARCH)
 
-build: build-server build-agent build-dash build-panel
+build: build-server build-agent build-quic build-dash build-panel
 
 build-server:
 	cd server && CGO_ENABLED=0 go build -o ../bin/ferry-server ./cmd/ferry
@@ -13,6 +13,11 @@ build-server:
 build-agent:
 	cd agent && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o ../bin/ferry-agent ./cmd/agent
 	$(MAKE) check-agent-size
+
+# E-18b：QUIC 传输 sidecar（quic-go 只落此二进制，agent 主程序不携带）。
+# 可选发布件：不用 QUIC 传输的部署不装它，agent 主程序尺寸门禁（E-4）不量它。
+build-quic:
+	cd agent && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o ../bin/ferry-quic ./cmd/ferry-quic
 
 # E-4 门禁：核心静态二进制 ≤10MB（核心最小集口径见 agent/internal/roles）。
 check-agent-size:
