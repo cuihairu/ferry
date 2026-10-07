@@ -109,7 +109,7 @@ func TestPackV2RayProbeOrder(t *testing.T) {
 		ventry("slow", "香港", 300),
 		ventry("fast", "香港", 80),
 	}
-	packed, err := PackV2Ray(entries)
+	packed, err := PackV2Ray(entries, nil)
 	if err != nil {
 		t.Fatalf("PackV2Ray: %v", err)
 	}

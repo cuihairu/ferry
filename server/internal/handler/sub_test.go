@@ -155,17 +155,25 @@ func TestSubscriptionAvailability(t *testing.T) {
 		t.Fatalf("seed traffic: %v", err)
 	}
 	rec := getSub(t, r, "/sub/"+quotaTok, "v2rayNG/1.8")
-	if rec.Code != http.StatusOK || rec.Body.String() != "" {
-		t.Fatalf("over-quota should be empty sub: %d %q", rec.Code, rec.Body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("over-quota: %d", rec.Code)
+	}
+	// 空订阅仍带断联容灾注释（TOUCH-7）：无节点链接，逃生通道在手
+	raw, err := base64.StdEncoding.DecodeString(rec.Body.String())
+	if err != nil || strings.Contains(string(raw), "vless://") || !strings.Contains(string(raw), "公告订阅") {
+		t.Fatalf("over-quota should be nodeless sub with notes: %v %q", err, string(raw))
 	}
 	if !strings.Contains(rec.Header().Get("Subscription-Userinfo"), "download=60") {
 		t.Fatalf("over-quota userinfo = %q", rec.Header().Get("Subscription-Userinfo"))
 	}
 
-	// 已到期：空订阅
+	// 已到期：空订阅（仍带断联容灾注释）
 	_, expTok := mkUser("carol", 0, "2020-01-01T00:00:00Z")
-	if rec := getSub(t, r, "/sub/"+expTok, "v2rayNG/1.8"); rec.Code != http.StatusOK || rec.Body.String() != "" {
-		t.Fatalf("expired should be empty sub: %d %q", rec.Code, rec.Body)
+	if rec := getSub(t, r, "/sub/"+expTok, "v2rayNG/1.8"); rec.Code != http.StatusOK {
+		t.Fatalf("expired: %d", rec.Code)
+	} else if raw, err := base64.StdEncoding.DecodeString(rec.Body.String()); err != nil ||
+		strings.Contains(string(raw), "vless://") || !strings.Contains(string(raw), "公告订阅") {
+		t.Fatalf("expired should be nodeless sub with notes: %v %q", err, string(raw))
 	}
 
 	// 不限配额（0）有用量：照常出节点
@@ -177,7 +185,7 @@ func TestSubscriptionAvailability(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("unlimited user: %d", rec.Code)
 	}
-	raw, err := base64.StdEncoding.DecodeString(rec.Body.String())
+	raw, err = base64.StdEncoding.DecodeString(rec.Body.String())
 	if err != nil || !strings.Contains(string(raw), "vless://u-1@a:443") {
 		t.Fatalf("unlimited user should get node: %v %q", err, string(raw))
 	}
@@ -247,7 +255,8 @@ func TestSubResetCycleWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 	r3 := getSub(t, r, "/sub/"+tok, "v2rayNG/1.8")
-	if r3.Body.String() != "" {
-		t.Fatalf("窗口内超限应封订阅: %q", r3.Body)
+	if raw3, err := base64.StdEncoding.DecodeString(r3.Body.String()); err != nil ||
+		strings.Contains(string(raw3), "vless://") || !strings.Contains(string(raw3), "公告订阅") {
+		t.Fatalf("窗口内超限应封订阅（注释仍在）: %v %q", err, r3.Body)
 	}
 }

@@ -98,16 +98,21 @@ func (h *Handler) subscription(c *gin.Context) {
 	c.Header("Profile-Update-Interval", "24")
 	c.Header("Profile-Title", u.Username)
 
+	// 断联容灾（TOUCH-7）：订阅文本注释带备用公告地址与备用域名清单，
+	// 客户端缓存里自带逃生通道（断联前就已下发；空订阅同样附——到期/超限
+	// 用户更要找得回来）。
+	notes := h.outageNotes()
+
 	switch target {
 	case "v2ray":
-		body, err := sub.PackV2Ray(entries)
+		body, err := sub.PackV2Ray(entries, notes)
 		if err != nil {
 			fail(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte(body))
 	case "clash":
-		body, err := sub.PackClash(entries)
+		body, err := sub.PackClash(entries, notes)
 		if err != nil {
 			fail(c, http.StatusInternalServerError, err)
 			return

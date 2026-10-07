@@ -2,6 +2,7 @@ package sub
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"gopkg.in/yaml.v3"
@@ -57,13 +58,15 @@ const (
 
 // PackClash 生成 mihomo/clash 订阅 YAML（P0-5/E-19）：
 // 区域 → url-test 组（组内自选优），顶层 PROXY select 聚合区域组。
-func PackClash(entries []Entry) (string, error) {
+// notes 是备注文本（TOUCH-7 断联容灾）：逐条以 YAML 注释行插在文档头部，
+// 客户端缓存里自带逃生通道。
+func PackClash(entries []Entry, notes []string) (string, error) {
 	doc := clashDoc{
 		Proxies:     []clashProxy{},
 		ProxyGroups: []clashGroup{{Name: "PROXY", Type: "select", Proxies: []string{}}},
 		Rules:       []string{"MATCH,PROXY"},
 	}
-	regionGroup := map[string]int{} // region → proxy-groups 下标
+	regionGroup := map[string]int{}        // region → proxy-groups 下标
 	used := map[string]bool{"PROXY": true} // 已占用的 name（代理与策略组共用命名空间）
 	claim := func(base string) string {
 		name := base
@@ -99,7 +102,12 @@ func PackClash(entries []Entry) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return string(out), nil
+	var b strings.Builder
+	for _, n := range notes {
+		b.WriteString("# " + n + "\n")
+	}
+	b.Write(out)
+	return b.String(), nil
 }
 
 func clashProxyOf(n *storage.Node) (clashProxy, error) {

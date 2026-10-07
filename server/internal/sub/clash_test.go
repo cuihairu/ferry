@@ -17,7 +17,7 @@ func TestPackClash(t *testing.T) {
 		// 与第一个重名：clash 的 name 是唯一键，必须改名输出
 		{Node: storage.Node{Name: "hk", Address: "hk2.example.com", Port: 443, Protocol: "vless", Region: "香港", Config: `{"uuid":"u-2"}`}},
 	}
-	out, err := PackClash(entries)
+	out, err := PackClash(entries, nil)
 	if err != nil {
 		t.Fatalf("PackClash: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestPackClashNameCollisions(t *testing.T) {
 		{Node: storage.Node{Name: "PROXY", Address: "a", Port: 1, Protocol: "vless", Config: `{"uuid":"u1"}`, Region: "香港"}},
 		{Node: storage.Node{Name: "香港", Address: "b", Port: 2, Protocol: "vless", Config: `{"uuid":"u2"}`, Region: "美国"}},
 	}
-	out, err := PackClash(entries)
+	out, err := PackClash(entries, nil)
 	if err != nil {
 		t.Fatalf("PackClash: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestPackClashVmessAndTrojan(t *testing.T) {
 		{Node: storage.Node{Name: "tj", Address: "b", Port: 443, Protocol: "trojan",
 			Config: `{"password":"pw","sni":"s.com"}`}},
 	}
-	out, err := PackClash(entries)
+	out, err := PackClash(entries, nil)
 	if err != nil {
 		t.Fatalf("PackClash: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestPackClashVmessAndTrojan(t *testing.T) {
 }
 
 func TestPackClashErrors(t *testing.T) {
-	if _, err := PackClash([]Entry{{Node: storage.Node{Name: "x", Protocol: "socks"}}}); err == nil {
+	if _, err := PackClash([]Entry{{Node: storage.Node{Name: "x", Protocol: "socks"}}}, nil); err == nil {
 		t.Fatal("expected error for unsupported protocol")
 	}
 }

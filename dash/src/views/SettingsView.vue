@@ -1,10 +1,22 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { get, put, type UserTemplate } from '../api'
+import {
+  get,
+  put,
+  type UserTemplate,
+  type EntryDomain,
+  listEntryDomains,
+  createEntryDomain,
+  updateEntryDomain,
+  deleteEntryDomain,
+  getOutage,
+  putOutage,
+} from '../api'
 import { GB } from '../utils/format'
 
 // P1-5：默认用户模板——新建用户可套用的默认配额/时长/重置周期。
+// TOUCH-7：断联容灾——断联态开关与入口域名维护（订阅注释的备用信息数据源）。
 
 const cycleOptions = [
   { value: 'none', label: '不限' },
@@ -42,6 +54,74 @@ async function save() {
     saving.value = false
   }
 }
+
+// ---- 断联容灾（TOUCH-7）----
+
+const outage = ref(false)
+const domains = ref<EntryDomain[]>([])
+const domainsLoading = ref(false)
+const newDomain = reactive({ domain: '', role: 'backup', region: '' })
+const adding = ref(false)
+
+async function loadDisaster() {
+  try {
+    outage.value = (await getOutage()).enabled
+    domainsLoading.value = true
+    domains.value = await listEntryDomains()
+  } catch (e) {
+    ElMessage.error(String(e))
+  } finally {
+    domainsLoading.value = false
+  }
+}
+onMounted(loadDisaster)
+
+async function toggleOutage(v: boolean) {
+  try {
+    outage.value = (await putOutage(v)).enabled
+    ElMessage.success(v ? '已标记断联态，订阅注释将带警告行' : '已恢复常态')
+  } catch (e) {
+    outage.value = !v
+    ElMessage.error(String(e))
+  }
+}
+
+async function addDomain() {
+  if (!newDomain.domain.trim()) {
+    ElMessage.warning('请填写域名')
+    return
+  }
+  adding.value = true
+  try {
+    await createEntryDomain({ domain: newDomain.domain.trim(), role: newDomain.role, region: newDomain.region.trim() || undefined })
+    newDomain.domain = ''
+    newDomain.role = 'backup'
+    newDomain.region = ''
+    domains.value = await listEntryDomains()
+  } catch (e) {
+    ElMessage.error(String(e))
+  } finally {
+    adding.value = false
+  }
+}
+
+async function toggleDomain(row: EntryDomain) {
+  try {
+    await updateEntryDomain(row.id, { enabled: row.enabled })
+  } catch (e) {
+    row.enabled = !row.enabled
+    ElMessage.error(String(e))
+  }
+}
+
+async function removeDomain(row: EntryDomain) {
+  try {
+    await deleteEntryDomain(row.id)
+    domains.value = await listEntryDomains()
+  } catch (e) {
+    ElMessage.error(String(e))
+  }
+}
 </script>
 
 <template>
@@ -69,6 +149,48 @@ async function save() {
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
       </el-form-item>
     </el-form>
+
+    <h3>断联容灾</h3>
+    <p class="page-desc">
+      面板域名被封或不可达时的逃生通道：订阅文本常附备用公告地址与下方启用的域名清单（客户端缓存里自带）。
+      断联态为人工标记——面板自身域名无探测面，确认不可达时打开，恢复后关闭。
+    </p>
+    <div style="margin-bottom: 12px">
+      <el-switch :model-value="outage" @change="toggleOutage" active-text="断联态" />
+      <span class="form-hint">打开后订阅注释追加断联警告；推新入口走公告扇出（站内信 + Herald 分发）</span>
+    </div>
+    <el-table :data="domains" v-loading="domainsLoading" :header-cell-style="{ background: 'var(--ferry-bg-panel)' }" style="max-width: 760px">
+      <el-table-column prop="domain" label="域名" min-width="200" />
+      <el-table-column label="角色" width="100">
+        <template #default="{ row }">
+          <el-tag :type="row.role === 'primary' ? 'primary' : 'info'" size="small" effect="plain">
+            {{ row.role === 'primary' ? '主入口' : '备用' }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="region" label="区域" width="110">
+        <template #default="{ row }">{{ row.region || '全区域' }}</template>
+      </el-table-column>
+      <el-table-column label="启用" width="90">
+        <template #default="{ row }">
+          <el-switch v-model="row.enabled" size="small" @change="toggleDomain(row)" />
+        </template>
+      </el-table-column>
+      <el-table-column label="" width="80">
+        <template #default="{ row }">
+          <el-button link type="danger" size="small" @click="removeDomain(row)">删除</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+    <div style="margin-top: 12px; display: flex; gap: 8px; align-items: center">
+      <el-input v-model="newDomain.domain" placeholder="入口域名（自动剥离协议前缀）" style="width: 260px" @keyup.enter="addDomain" />
+      <el-select v-model="newDomain.role" style="width: 110px">
+        <el-option label="主入口" value="primary" />
+        <el-option label="备用" value="backup" />
+      </el-select>
+      <el-input v-model="newDomain.region" placeholder="区域（空=全区域）" style="width: 160px" @keyup.enter="addDomain" />
+      <el-button type="primary" :loading="adding" @click="addDomain">添加</el-button>
+    </div>
   </div>
 </template>
 

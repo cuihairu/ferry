@@ -161,18 +161,21 @@ func entryLink(e *Entry) (string, error) {
 }
 
 // PackV2Ray 返回按区域分组排序的链接列表 base64（v2ray 客户端订阅格式，E-19）。
-// 空列表返回空串：无可用节点时订阅仍可刷新，客户端按 0 节点展示。
-// 组内顺序按探测结论重排（E-26）：已知 RTT 升序在前、无数据殿后、
-// 同 RTT 档按轮换窗口轮转。
-func PackV2Ray(entries []Entry) (string, error) {
+// notes 是备注文本（TOUCH-7 断联容灾）：逐条以 "# " 注释行插在解码文本头部，
+// 客户端逐行解析时忽略非链接行——订阅缓存里自带逃生通道。空列表仍输出备注：
+// 无可用节点时订阅可刷新，用户手里留着备用入口与公告地址。
+func PackV2Ray(entries []Entry, notes []string) (string, error) {
 	sorted := orderByProbe(entries, time.Now())
-	links := make([]string, 0, len(sorted))
+	lines := make([]string, 0, len(notes)+len(sorted))
+	for _, n := range notes {
+		lines = append(lines, "# "+n)
+	}
 	for i := range sorted {
 		link, err := entryLink(&sorted[i])
 		if err != nil {
 			return "", fmt.Errorf("node %s: %w", sorted[i].Node.Name, err)
 		}
-		links = append(links, link)
+		lines = append(lines, link)
 	}
-	return base64.StdEncoding.EncodeToString([]byte(strings.Join(links, "\n"))), nil
+	return base64.StdEncoding.EncodeToString([]byte(strings.Join(lines, "\n"))), nil
 }

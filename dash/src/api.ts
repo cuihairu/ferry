@@ -774,3 +774,44 @@ export interface SaveStatsReport {
 export function getSaveStats(days?: number): Promise<SaveStatsReport> {
   return get<SaveStatsReport>(`/api/save-stats${days ? `?days=${days}` : ''}`)
 }
+
+// ---- 入口域名与断联态（TOUCH-3/TOUCH-7：断联容灾数据源与开关）----
+
+/** EntryDomain 是入口域名（断联容灾与域名例行邮件的共同数据源）。 */
+export interface EntryDomain {
+  id: number
+  domain: string
+  role: 'primary' | 'backup' | string
+  region?: string
+  enabled: boolean
+  updated_at: string
+}
+
+export function listEntryDomains(): Promise<EntryDomain[]> {
+  return get('/api/entry-domains')
+}
+
+export function createEntryDomain(body: { domain: string; role: string; region?: string }): Promise<EntryDomain> {
+  return post('/api/entry-domains', body)
+}
+
+export function updateEntryDomain(id: number, body: Partial<EntryDomain>): Promise<EntryDomain> {
+  return put(`/api/entry-domains/${id}`, body)
+}
+
+export function deleteEntryDomain(id: number): Promise<void> {
+  return del(`/api/entry-domains/${id}`)
+}
+
+/** OutageState 是断联态标记（管理员手动开关，订阅注释随之加警告行）。 */
+export interface OutageState {
+  enabled: boolean
+}
+
+export function getOutage(): Promise<OutageState> {
+  return get('/api/outage')
+}
+
+export function putOutage(enabled: boolean): Promise<OutageState> {
+  return put('/api/outage', { enabled })
+}

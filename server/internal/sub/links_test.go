@@ -105,7 +105,7 @@ func TestPackV2Ray(t *testing.T) {
 		{Name: "b", Address: "b", Port: 2, Protocol: "vless", Config: `{"uuid":"u2"}`},
 	}
 	entries := []Entry{{Node: nodes[0]}, {Node: nodes[1]}}
-	packed, err := PackV2Ray(entries)
+	packed, err := PackV2Ray(entries, nil)
 	if err != nil {
 		t.Fatalf("PackV2Ray: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestPackV2Ray(t *testing.T) {
 	}
 
 	// 空列表返回空订阅（无可用节点仍可刷新）。
-	if empty, err := PackV2Ray(nil); err != nil || empty != "" {
+	if empty, err := PackV2Ray(nil, nil); err != nil || empty != "" {
 		t.Fatalf("empty pack = %q, %v", empty, err)
 	}
 }
