@@ -10,7 +10,9 @@ import (
 	"os"
 	"time"
 
+	_ "github.com/cuihairu/ferry/payments/alipay" // PAY-10：占位渠道（未启用文案）
 	_ "github.com/cuihairu/ferry/payments/epusdt" // PAY-8：init 自注册收款渠道
+	_ "github.com/cuihairu/ferry/payments/wechat" // PAY-10：占位渠道（未启用文案）
 	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/handler"
 	"github.com/cuihairu/ferry/server/internal/monitor"
