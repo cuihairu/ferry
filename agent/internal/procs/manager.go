@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os/exec"
 	"sort"
 	"sync"
@@ -25,6 +26,10 @@ const (
 	ReloadSignal  = "signal"
 )
 
+// defaultMetricsInterval 是进程指标采集的缺省间隔（SAVE-3：
+// 命中统计等指标随心跳上报的采样档）。
+const defaultMetricsInterval = 15 * time.Second
+
 // Manager 管理全部被管进程。
 type Manager struct {
 	log *log.Logger
@@ -40,6 +45,9 @@ type Manager struct {
 	minBackoff time.Duration
 	maxBackoff time.Duration
 	stableRun  time.Duration // 连续运行超过该时长后重置退避
+
+	// metricsInterval 是进程指标（MetricsURL）采集间隔。
+	metricsInterval time.Duration
 }
 
 // proc 是单个被管进程的运行态与监管输入。
@@ -59,6 +67,9 @@ type proc struct {
 	req    chan ctrlReq
 	exited chan struct{} // 当前进程退出后关闭；启动失败时为已关闭通道
 	kill   func()        // 终止当前进程
+
+	// metrics 最近一次成功采集的指标快照
+	metrics map[string]uint64
 }
 
 type ctrlReq struct {
@@ -72,11 +83,12 @@ func New(specs []config.ProcSpec, logger *log.Logger) *Manager {
 		logger = log.Default()
 	}
 	m := &Manager{
-		log:        logger,
-		procs:      map[string]*proc{},
-		minBackoff: time.Second,
-		maxBackoff: 30 * time.Second,
-		stableRun:  time.Minute,
+		log:             logger,
+		procs:           map[string]*proc{},
+		metricsInterval: defaultMetricsInterval,
+		minBackoff:      time.Second,
+		maxBackoff:      30 * time.Second,
+		stableRun:       time.Minute,
 	}
 	for _, spec := range specs {
 		m.procs[spec.Name] = &proc{
@@ -105,6 +117,11 @@ func (m *Manager) Start(ctx context.Context) {
 		p.desired = true
 		p.mu.Unlock()
 		go m.supervise(ctx, p)
+		// SAVE-3：带指标接口（MetricsURL）的进程另起采集协程，
+		// 结果挂状态快照随心跳上报。
+		if p.spec.MetricsURL != "" {
+			go m.collectProcMetrics(ctx, p)
+		}
 	}
 }
 
@@ -390,6 +407,7 @@ func (p *proc) snapshotLocked() agentproto.ProcStatus {
 		Since:    p.since,
 		Restarts: p.restarts,
 		PID:      p.pid,
+		Metrics:  p.metrics,
 	}
 }
 
@@ -406,4 +424,43 @@ func (m *Manager) alarm(p *proc, kind, severity, message string) {
 	go m.OnAlarm(agentproto.Alarm{
 		Kind: kind, Severity: severity, Proc: p.spec.Name, Message: message, At: time.Now(),
 	})
+}
+
+// collectProcMetrics 持续轮询单个进程的 MetricsURL 并缓存结果；
+// 采集失败（不可达/非 200/解析错）清空快照，ctx 取消即退出。
+func (m *Manager) collectProcMetrics(ctx context.Context, p *proc) {
+	parser := newMetricsParser()
+	client := &http.Client{Timeout: 10 * time.Second}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(m.metricsInterval):
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.spec.MetricsURL, nil)
+		if err != nil {
+			p.setMetrics(nil)
+			continue
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			p.setMetrics(nil)
+			continue
+		}
+		var metrics map[string]uint64
+		if resp.StatusCode == http.StatusOK {
+			if parsed, err := parser.Parse(resp.Body); err == nil {
+				metrics = parsed
+			}
+		}
+		resp.Body.Close()
+		p.setMetrics(metrics)
+	}
+}
+
+// setMetrics 更新进程指标快照（p.mu 口径，与 status() 读侧一致）。
+func (p *proc) setMetrics(metrics map[string]uint64) {
+	p.mu.Lock()
+	p.metrics = metrics
+	p.mu.Unlock()
 }

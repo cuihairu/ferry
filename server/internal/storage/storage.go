@@ -79,6 +79,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&DimensionStatus{},
 		&NodeConfig{},
 		&NodeTrafficLog{},
+		&NodeProcStatus{},
 		&Alert{},
 		&Setting{},
 		&Provider{},

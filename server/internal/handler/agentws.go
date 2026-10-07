@@ -357,6 +357,11 @@ func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID 
 				continue
 			}
 			h.setNodeStatus(nodeID, "online", true)
+			// 进程快照落库（SAVE-3）：指标（缓存命中统计等）随之更新，
+			// 失败只记日志不阻断心跳应答。
+			if err := h.saveProcStatuses(nodeID, hb.Procs); err != nil {
+				log.Printf("save proc statuses node=%d: %v", nodeID, err)
+			}
 			reply, _ := agentproto.NewEnvelope(env.ID, agentproto.MsgHeartbeatAck, agentproto.HeartbeatAck{
 				NextIntervalSec: h.cfg.HeartbeatIntervalSec,
 			})

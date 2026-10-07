@@ -29,6 +29,7 @@ type ProcSpec struct {
 	ConfigPath string   `json:"config_path"` // 配置文件路径，配置下发落盘点
 	AssetDir   string   `json:"asset_dir"`   // 规则库资产目录（rulelib 下发落盘点），空则回退 config_path 同级 assets/
 	StatsAPI   string   `json:"stats_api"`   // xray gRPC stats API 地址（如 127.0.0.1:10085），空=不采集该进程流量
+	MetricsURL string   `json:"metrics_url"` // HTTP GET 指标接口（文本 key-value 行 / JSON 数字对象），空=不采集
 	Reload     string   `json:"reload"`      // reload 策略：restart / signal
 	Validate   string   `json:"validate"`    // 校验命令模板，{config} 占位符；空则跳过校验
 }

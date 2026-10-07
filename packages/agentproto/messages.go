@@ -130,11 +130,12 @@ const (
 
 // ProcStatus 是单个被管进程的状态快照。
 type ProcStatus struct {
-	Name     string    `json:"name"`
-	State    string    `json:"state"` // running/stopped/crashed
-	Since    time.Time `json:"since"` // 进入当前状态的时间
-	Restarts int       `json:"restarts"`
-	PID      int       `json:"pid,omitempty"`
+	Name     string            `json:"name"`
+	State    string            `json:"state"` // running/stopped/crashed
+	Since    time.Time         `json:"since"` // 进入当前状态的时间
+	Restarts int               `json:"restarts"`
+	PID      int               `json:"pid,omitempty"`
+	Metrics  map[string]uint64 `json:"metrics,omitempty"` // 进程指标（key-value 数字对象，从 MetricsURL 采集）
 }
 
 // 进程操作取值。

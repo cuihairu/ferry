@@ -209,6 +209,19 @@ type NodeTrafficLog struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
+// NodeProcStatus 是被管进程的最近状态快照（SAVE-3）：心跳携带的 ProcStatus
+// 逐节点逐进程 upsert，指标（nginx cache/Squid 命中统计等）JSON 落 metrics。
+type NodeProcStatus struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	NodeID    uint      `gorm:"uniqueIndex:idx_node_proc;not null" json:"node_id"`
+	Proc      string    `gorm:"size:64;not null;uniqueIndex:idx_node_proc" json:"proc"`
+	State     string    `gorm:"size:16;not null" json:"state"` // running/stopped/crashed
+	PID       int       `gorm:"column:pid;default:0" json:"pid,omitempty"`
+	Restarts  int       `gorm:"default:0" json:"restarts"`
+	Metrics   string    `gorm:"type:text" json:"metrics,omitempty"` // JSON 数字对象（key-value）
+	UpdatedAt time.Time `gorm:"not null" json:"updated_at"`
+}
+
 // PaymentOrder 是订单（三账之一：谁该收多少）。
 type PaymentOrder struct {
 	ID          uint   `gorm:"primaryKey" json:"id"`

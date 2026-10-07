@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { get, post, put, del, resolveAlert, upgradeNode, type Node, type DimensionStatus, type NodeShare, type BatchProcResult, type BatchConfigResult, type Alert, type NodeLoad } from '../api'
+import { get, post, put, del, resolveAlert, upgradeNode, getNodeProcs, type Node, type DimensionStatus, type NodeShare, type BatchProcResult, type BatchConfigResult, type Alert, type NodeLoad, type NodeProcRow } from '../api'
 import QRCode from 'qrcode'
 import RuleLibDialog from '../components/RuleLibDialog.vue'
 
@@ -276,6 +276,27 @@ async function openShare(n: Node) {
 async function copyShareLink() {
   await navigator.clipboard.writeText(shareLink.value)
   ElMessage.success('分享链接已复制')
+}
+
+// 进程状态对话框（SAVE-3）：agent 心跳上报的被管进程快照（含缓存命中统计）。
+const procsVisible = ref(false)
+const procsBusy = ref(false)
+const procsFor = ref<Node | null>(null)
+const procsRows = ref<NodeProcRow[]>([])
+
+const PROC_STATE_TYPE: Record<string, string> = { running: 'success', stopped: 'info', crashed: 'danger' }
+
+async function openProcs(n: Node) {
+  procsFor.value = n
+  procsVisible.value = true
+  procsBusy.value = true
+  try {
+    procsRows.value = await getNodeProcs(n.id)
+  } catch (e) {
+    ElMessage.error(String(e))
+  } finally {
+    procsBusy.value = false
+  }
 }
 
 // ---- 批量操作（A-15）：选中节点统一下发 proc 操作与配置 ----
@@ -602,11 +623,12 @@ async function remove(n: Node) {
           <el-switch :model-value="row.enabled" @change="(v: boolean) => toggleEnabled(row, v)" />
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="320" fixed="right">
+      <el-table-column label="操作" width="360" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
           <el-button link type="primary" @click="openShare(row)">分享</el-button>
           <el-button link type="primary" @click="openRuleLib(row)">分流</el-button>
+          <el-button link type="primary" @click="openProcs(row)">进程</el-button>
           <el-button link type="primary" @click="openUpgrade(row)">升级</el-button>
           <el-button
             v-if="(row.role === 'entry' || row.role === 'both') && row.enabled"
@@ -785,6 +807,37 @@ async function remove(n: Node) {
         </div>
         <div v-if="!alertRows.length" class="alert-empty">暂无告警</div>
       </div>
+    </el-dialog>
+
+    <!-- 进程状态（SAVE-3）：心跳快照回读，指标列为缓存命中统计等 -->
+    <el-dialog v-model="procsVisible" :title="`进程 · ${procsFor?.name ?? ''}`" width="680px">
+      <el-table :data="procsRows" v-loading="procsBusy" size="small" empty-text="暂无上报（agent 心跳携带进程快照后出现）">
+        <el-table-column prop="proc" label="进程" width="130" />
+        <el-table-column label="状态" width="90">
+          <template #default="{ row }">
+            <el-tag size="small" effect="plain" :type="PROC_STATE_TYPE[row.state] ?? 'info'" disable-transitions>{{ row.state }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="PID" width="80">
+          <template #default="{ row }">{{ row.pid || '—' }}</template>
+        </el-table-column>
+        <el-table-column prop="restarts" label="重启" width="64" />
+        <el-table-column label="指标">
+          <template #default="{ row }">
+            <span v-if="row.metrics" class="proc-metrics">
+              <span v-for="(v, k) in row.metrics" :key="k" class="proc-metric">{{ k }} {{ v.toLocaleString() }}</span>
+            </span>
+            <span v-else>—</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="更新" width="110">
+          <template #default="{ row }">{{ new Date(row.updated_at).toLocaleTimeString() }}</template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button :disabled="!procsFor" :loading="procsBusy" @click="procsFor && openProcs(procsFor)">刷新</el-button>
+        <el-button @click="procsVisible = false">关闭</el-button>
+      </template>
     </el-dialog>
 
     <RuleLibDialog v-model="ruleLibVisible" :node="ruleLibFor" />
@@ -995,5 +1048,14 @@ async function remove(n: Node) {
   margin-left: 6px;
   color: var(--ferry-text-muted);
   cursor: help;
+}
+.proc-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.proc-metric {
+  color: var(--ferry-text-muted);
+  font-variant-numeric: tabular-nums;
 }
 </style>

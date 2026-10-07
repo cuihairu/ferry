@@ -729,3 +729,19 @@ export function createAnnouncement(title: string, body: string): Promise<{ creat
 export function deleteNotification(id: number): Promise<{ ok: boolean }> {
   return del(`/api/notifications/${id}`)
 }
+
+// ---- 节点被管进程状态（SAVE-3：心跳快照落库，含缓存命中统计）----
+
+/** NodeProcRow 是节点被管进程的最近状态快照（agent 心跳上报）。 */
+export interface NodeProcRow {
+  proc: string
+  state: 'running' | 'stopped' | 'crashed' | string
+  pid?: number
+  restarts: number
+  metrics?: Record<string, number>
+  updated_at: string
+}
+
+export function getNodeProcs(id: number): Promise<NodeProcRow[]> {
+  return get<NodeProcRow[]>(`/api/nodes/${id}/procs`)
+}
