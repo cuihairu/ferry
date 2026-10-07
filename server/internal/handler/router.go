@@ -60,6 +60,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		api.PUT("/nodes/:id", h.updateNode)
 		api.DELETE("/nodes/:id", h.deleteNode)
 		api.GET("/dimension-status", h.listDimensionStatus)
+		api.GET("/transport-status", h.listTransportStatus)
 		api.GET("/probe-reports", h.listProbeReports)
 		api.GET("/alerts", h.listAlerts)
 		api.POST("/alerts/:id/resolve", h.resolveAlert)

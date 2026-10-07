@@ -95,6 +95,22 @@ export interface LandingAssignment {
   release_reason: string
 }
 
+/** TransportHealth 是一种传输在区域内的存活概要（E-17）。 */
+export interface TransportHealth {
+  transport: string
+  total: number
+  alive: number
+}
+
+/** TransportRow 是一个区域的传输判定：现行主流、推荐与换线建议。 */
+export interface TransportRow {
+  region: string
+  transports: TransportHealth[]
+  current: string
+  recommended: string
+  switchneeded: boolean
+}
+
 export interface User {
   id: number
   username: string

@@ -139,7 +139,7 @@
 - [x] [P0] E-15 告警按区域/运营商合并发（「XX 区域入口整体不可达」单条），dash 区域级状态灯
 - [x] [P1] E-16a 自动摘挂状态机：连续 sick 摘除/恢复复位（internal/pool 周期判定），订阅入口池即时生效，pool API（列表+手动复位）与通知
 - [ ] [P1] E-16b 摘挂热更新换线：config.push 变更列表（落地 relay 重指），随 E-21 分配策略接入
-- [ ] [P1] E-17 区域探测结果决定该区域传输类型（哪种活着用哪种），切换=换配置不改架构
+- [x] [P1] E-17 区域传输判定（internal/transport 存活占比推荐+现行对比换线建议，/api/transport-status，dash 调配页面板；切换执行=改 transport 标注重推配置）
 - [ ] [P1] E-18 QUIC（hysteria2 系）与 WS-TLS 传输插件；SSH 仅备选不默认
 
 ### 分配与成本

@@ -1,27 +1,31 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { get, post, put, del, type Node, type LandingAssignment } from '../api'
+import { get, post, put, del, type Node, type LandingAssignment, type TransportRow } from '../api'
 import { formatDate } from '../utils/format'
 
 // E-20：手动落地分配——为入口节点或区域整体指定落地与权重。
 // 分配落库留痕、释放不删行；经 config.push 下发落地列表的生效链路
 // 随 agent relay 配置化（E-5）接入，当前以分配记录为准。
+// E-17：区域传输判定面板——哪种活着用哪种的换线建议。
 
 const rows = ref<LandingAssignment[]>([])
 const nodes = ref<Node[]>([])
+const txRows = ref<TransportRow[]>([])
 const loading = ref(false)
 const scope = ref<'active' | 'all'>('active')
 
 async function load() {
   loading.value = true
   try {
-    const [ls, ns] = await Promise.all([
+    const [ls, ns, ts] = await Promise.all([
       get<LandingAssignment[]>(`/api/landings?scope=${scope.value}`),
       get<Node[]>('/api/nodes'),
+      get<TransportRow[]>('/api/transport-status'),
     ])
     rows.value = ls
     nodes.value = ns
+    txRows.value = ts
   } catch (e) {
     ElMessage.error(String(e))
   } finally {
@@ -29,6 +33,10 @@ async function load() {
   }
 }
 onMounted(load)
+
+function txText(r: TransportRow): string {
+  return r.transports.map((t) => `${t.transport} ${t.alive}/${t.total}`).join(' · ')
+}
 
 const nodeById = computed(() => new Map(nodes.value.map((n) => [n.id, n])))
 
@@ -186,6 +194,25 @@ const DIR_TEXT: Record<string, string> = { out: '出海', in: '回国' }
       </el-table-column>
     </el-table>
 
+    <h3 class="section">区域传输判定（E-17）</h3>
+    <p class="section-desc">区域内各传输形态的探测存活聚合，「哪种活着用哪种」；建议与现行不一致时给出换线提示，切换 = 改节点传输标注并重推配置。</p>
+    <el-table :data="txRows" :header-cell-style="{ background: 'var(--ferry-bg-panel)' }">
+      <el-table-column prop="region" label="区域" width="120" />
+      <el-table-column label="各传输存活" min-width="200">
+        <template #default="{ row }">{{ txText(row) }}</template>
+      </el-table-column>
+      <el-table-column prop="current" label="现行" width="100" />
+      <el-table-column label="建议" width="100">
+        <template #default="{ row }">{{ row.recommended }}</template>
+      </el-table-column>
+      <el-table-column label="换线" width="90">
+        <template #default="{ row }">
+          <el-tag v-if="row.switchneeded" type="warning" size="small" effect="dark" disable-transitions>建议换线</el-tag>
+          <span v-else class="tx-ok">—</span>
+        </template>
+      </el-table-column>
+    </el-table>
+
     <el-dialog v-model="dialogVisible" title="新建落地分配" width="500px">
       <el-form label-width="90px">
         <el-form-item label="分配给">
@@ -239,5 +266,18 @@ const DIR_TEXT: Record<string, string> = { out: '出海', in: '回国' }
 }
 .toolbar .el-button--primary {
   margin-left: auto;
+}
+.section {
+  margin: 28px 0 4px;
+  font-size: 15px;
+  font-weight: 650;
+}
+.section-desc {
+  margin: 0 0 12px;
+  color: var(--ferry-text-muted);
+  font-size: 12px;
+}
+.tx-ok {
+  color: var(--ferry-text-muted);
 }
 </style>
