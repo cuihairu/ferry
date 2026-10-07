@@ -47,6 +47,10 @@ type Options struct {
 	SustainedAfter time.Duration
 	// LevelTimeout 是单级动作的等待窗口：超时未恢复进下一级。
 	LevelTimeout time.Duration
+	// OnDone 是恢复完成（探测恢复收尾，failed 不触发）的钩子，主装配
+	// 注入（BR-2：域名前置回切常态 IP）。同步执行——done 每轮至多几条，
+	// 下游通道自带超时，测试据此可确定断言。
+	OnDone func(nodeID uint, nodeName string)
 }
 
 func (o Options) normalize() Options {
@@ -125,6 +129,9 @@ func Sweep(db *gorm.DB, now time.Time, opts Options, reg Registry, logger *log.L
 				return err
 			}
 			logger.Printf("recovery done: node=%d %s", rec.NodeID, rec.NodeName)
+			if opts.OnDone != nil {
+				opts.OnDone(rec.NodeID, rec.NodeName)
+			}
 		}
 		// 重取：上一步已收掉恢复中的，剩余即待推进的。
 		if err := db.Where("state = ?", StateRunning).Find(&running).Error; err != nil {

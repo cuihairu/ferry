@@ -75,14 +75,25 @@ func main() {
 	go cost.Loop(ctx, db, time.Duration(cfg.CostIntervalSec)*time.Second, nil)
 
 	// 封禁恢复流水线（BR-1）：摘除持续未恢复判封，L1→L2→L3 分级推进、
-	// 每级超时进下一级；L3 一键开新机接供给模板（0=不启用，L1/L2 插件位
-	// 分别由 BR-2/BR-3 注册后自动生效）。
+	// 每级超时进下一级；L1 域名前置切备用 IP（BR-2，未配置则失败推进），
+	// L3 一键开新机接供给模板（0=不启用，L2 插件位由 BR-3 注册后自动生效）。
 	{
 		reg := recovery.Registry{}
+		secrets := secret.NewStore(cfg.SecretKey)
+		// L1（BR-2）：前置域名 A 记录切备用 IP 轮换，探测恢复回切常态。
+		dnsAct := &recovery.DNSAction{DB: db, Store: secrets}
+		reg[1] = dnsAct
+		opts := recovery.Options{
+			OnDone: func(nodeID uint, nodeName string) {
+				if err := dnsAct.Restore(context.Background()); err != nil {
+					log.Printf("recovery dns restore: node=%d %s: %v", nodeID, nodeName, err)
+				}
+			},
+		}
 		if cfg.RecoveryTemplateID > 0 {
 			reg[3] = &recovery.InstanceAction{
 				Manager:    provision.New(db, cfg.TofuBin, cfg.TofuWorkdir, nil),
-				Store:      secret.NewStore(cfg.SecretKey),
+				Store:      secrets,
 				TemplateID: cfg.RecoveryTemplateID,
 				Launch: func(name string) provision.LaunchParams {
 					return provision.LaunchParams{
@@ -94,7 +105,7 @@ func main() {
 				},
 			}
 		}
-		go recovery.Loop(ctx, db, time.Duration(cfg.RecoveryIntervalSec)*time.Second, recovery.Options{}, reg, nil)
+		go recovery.Loop(ctx, db, time.Duration(cfg.RecoveryIntervalSec)*time.Second, opts, reg, nil)
 	}
 
 	// 到期/超限用户停用扫表。

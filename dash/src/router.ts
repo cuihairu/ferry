@@ -11,6 +11,7 @@ export const router = createRouter({
     { path: '/payments', component: () => import('./views/ReconcileView.vue') },
     { path: '/cost', component: () => import('./views/CostView.vue') },
     { path: '/provision', component: () => import('./views/ProvisionView.vue') },
+    { path: '/dns', component: () => import('./views/DnsView.vue') },
     { path: '/landings', component: () => import('./views/LandingsView.vue') },
     { path: '/settings', component: () => import('./views/SettingsView.vue') },
   ],

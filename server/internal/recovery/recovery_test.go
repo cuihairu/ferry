@@ -227,7 +227,7 @@ func TestInstanceActionL3(t *testing.T) {
 				InstanceName: name,
 				PanelWSURL:   provision.PanelWSURL("http://panel.example.com"),
 				AgentBase:    "https://dl.example.com", AgentVersion: "1.0.0",
-				NewToken:     func() (string, error) { return "tok-replace", nil },
+				NewToken: func() (string, error) { return "tok-replace", nil },
 			}
 		},
 	}

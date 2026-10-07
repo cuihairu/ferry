@@ -476,3 +476,61 @@ export function runProvision(templateId: number, action: 'plan' | 'apply', name?
 export function getProvisionJobs(limit?: number): Promise<ProvisionJob[]> {
   return get<ProvisionJob[]>(`/api/provision-jobs${limit ? `?limit=${limit}` : ''}`)
 }
+
+// ---- 域名前置（BR-2）----
+
+/** DNSProvider 是 DNS 商凭证视图：机密不回显，只有 has_api_key。 */
+export interface DNSProvider {
+  id: number
+  name: string
+  type: string
+  enabled: boolean
+  has_api_key: boolean
+}
+
+export function getDNSProviders(): Promise<DNSProvider[]> {
+  return get<DNSProvider[]>('/api/dns-providers')
+}
+
+export function createDNSProvider(body: { name: string; type: string; api_key: string }): Promise<DNSProvider> {
+  return post<DNSProvider>('/api/dns-providers', body)
+}
+
+export function updateDNSProvider(id: number, body: { name?: string; type?: string; api_key?: string; enabled?: boolean }): Promise<DNSProvider> {
+  return put<DNSProvider>(`/api/dns-providers/${id}`, body)
+}
+
+export function deleteDNSProvider(id: number): Promise<{ ok: boolean }> {
+  return del<{ ok: boolean }>(`/api/dns-providers/${id}`)
+}
+
+/** DNSFront 是域名前置记录：常态指向 primary_ip，判封切备用 IP 轮换，恢复回切。 */
+export interface DNSFront {
+  id: number
+  name: string
+  domain: string
+  provider_id: number
+  primary_ip: string
+  backup_ips: string // JSON 字符串数组
+  switched: boolean
+  current_ip: string
+  switch_index: number
+  created_at: string
+  updated_at: string
+}
+
+export function getDNSFronts(): Promise<DNSFront[]> {
+  return get<DNSFront[]>('/api/dns-fronts')
+}
+
+export function createDNSFront(body: Partial<DNSFront>): Promise<DNSFront> {
+  return post<DNSFront>('/api/dns-fronts', body)
+}
+
+export function updateDNSFront(id: number, body: Partial<DNSFront>): Promise<DNSFront> {
+  return put<DNSFront>(`/api/dns-fronts/${id}`, body)
+}
+
+export function deleteDNSFront(id: number): Promise<{ ok: boolean }> {
+  return del<{ ok: boolean }>(`/api/dns-fronts/${id}`)
+}

@@ -312,3 +312,32 @@ type Recovery struct {
 	UpdatedAt      time.Time  `json:"updated_at"`
 	FinishedAt     *time.Time `json:"finished_at,omitempty"`
 }
+
+// DNSProvider 是 DNS 商凭证（BR-2 插件位；BR-4 ACME DNS-01 复用同一通道）。
+// 凭证机密走 R24 加密面口径，接口层只回 has_api_key 不回显明文。
+type DNSProvider struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	Name      string    `gorm:"size:64;not null" json:"name"`
+	Type      string    `gorm:"size:32;not null" json:"type"` // 插件位类型：cloudflare/…
+	APIKey    string    `gorm:"size:512;not null" json:"-"`   // 密文
+	Enabled   bool      `gorm:"default:true" json:"enabled"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// DNSFront 是域名前置记录（BR-2）：常态指向 PrimaryIP，判封 L1 切到
+// 备用 IP 轮换，探测恢复回切——域名不换、IP 随换。BackupIPs 是 JSON
+// 字符串数组，SwitchIndex 为轮换游标。
+type DNSFront struct {
+	ID          uint      `gorm:"primaryKey" json:"id"`
+	Name        string    `gorm:"size:64" json:"name"`                   // 说明（如 主入口域名）
+	Domain      string    `gorm:"size:191;not null;index" json:"domain"` // FQDN
+	ProviderID  uint      `gorm:"index;not null" json:"provider_id"`
+	PrimaryIP   string    `gorm:"size:45;not null" json:"primary_ip"`              // 常态指向（回切目标）
+	BackupIPs   string    `gorm:"size:1024;not null;default:[]" json:"backup_ips"` // JSON 数组
+	Switched    bool      `gorm:"default:false" json:"switched"`                   // 已切离常态（恢复时回切）
+	CurrentIP   string    `gorm:"size:45" json:"current_ip"`
+	SwitchIndex int       `gorm:"default:0" json:"switch_index"` // 备用 IP 轮换游标
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
