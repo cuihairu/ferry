@@ -70,6 +70,13 @@ type TrafficLog struct {
 	Node       *Node     `gorm:"foreignKey:NodeID;references:ID;constraint:OnDelete:SET NULL" json:"-"`
 }
 
+// Setting 是面板设置键值（轻量 KV，Value 存 JSON 文本）。
+type Setting struct {
+	Key       string    `gorm:"primaryKey;size:64" json:"key"`
+	Value     string    `gorm:"type:text" json:"value"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // CardBatch 是一批卡密的权益定义。
 type CardBatch struct {
 	ID         uint       `gorm:"primaryKey" json:"id"`

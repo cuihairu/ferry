@@ -72,6 +72,8 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		api.DELETE("/users/:id", h.deleteUser)
 		api.POST("/users/:id/sub-token", h.resetSubToken)
 		api.GET("/users/:id/traffic", h.userTraffic)
+		api.GET("/user-template", h.getUserTemplate)
+		api.PUT("/user-template", h.putUserTemplate)
 		api.POST("/traffic-logs", h.recordTraffic)
 		api.POST("/card-batches", h.createCardBatch)
 		api.GET("/card-batches", h.listCardBatches)

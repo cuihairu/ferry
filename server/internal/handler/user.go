@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cuihairu/ferry/server/internal/model"
 	"github.com/cuihairu/ferry/server/internal/quota"
@@ -36,6 +37,15 @@ func (h *Handler) createUser(c *gin.Context) {
 	if err := c.ShouldBindJSON(&in); err != nil {
 		fail(c, http.StatusBadRequest, err)
 		return
+	}
+	// 套用默认模板（P1-5）：先补全缺席字段，后续校验与落库走同一管线。
+	if in.UseTemplate != nil && *in.UseTemplate {
+		tpl, err := h.loadUserTemplate()
+		if err != nil {
+			fail(c, http.StatusInternalServerError, err)
+			return
+		}
+		applyUserTemplate(&in, tpl, time.Now())
 	}
 	username := strings.TrimSpace(in.Username)
 	if username == "" || len(username) > 64 {

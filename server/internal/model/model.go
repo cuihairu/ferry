@@ -63,6 +63,8 @@ type UserInput struct {
 	ResetCycle *string    `json:"reset_cycle,omitempty"` // 流量重置周期（P1-4）：none/day/week/month
 	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
 	Enabled    *bool      `json:"enabled,omitempty"`
+	// UseTemplate 置真在创建时套用默认用户模板（P1-5）补全缺席字段（仅创建有效）。
+	UseTemplate *bool `json:"use_template,omitempty"`
 	// ClearExpires 置真清除到期时间（JSON null 与字段缺席无法区分，用显式语义）。
 	ClearExpires *bool `json:"clear_expire,omitempty"`
 }
