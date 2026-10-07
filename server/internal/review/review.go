@@ -3,9 +3,11 @@ package review
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/notify"
 	"github.com/cuihairu/ferry/server/internal/quota"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"gorm.io/gorm"
@@ -27,6 +29,15 @@ func Run(ctx context.Context, db *gorm.DB, interval time.Duration) {
 				log.Printf("review users: %v", err)
 			} else if n > 0 {
 				log.Printf("review users: disabled %d", n)
+				// 事件外发（P1-10）：批量停用汇总一条，失败只记日志。
+				if notifier := notify.FromDB(db); notifier.Enabled() {
+					ev := notify.Event{Event: "review.disabled",
+						Text:   fmt.Sprintf("已停用 %d 个到期/超限用户", n),
+						Fields: map[string]any{"count": n}}
+					if err := notifier.Send(ev); err != nil {
+						log.Printf("notify webhook: %v", err)
+					}
+				}
 			}
 		}
 	}

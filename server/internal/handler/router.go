@@ -106,6 +106,9 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		admin.POST("/web-cert/selfsign", h.selfSignWebCert)
 		admin.DELETE("/web-cert", h.deleteWebCert)
 		admin.GET("/status", h.sysStatus)
+		admin.GET("/notify", h.getNotify)
+		admin.PUT("/notify", h.putNotify)
+		admin.POST("/notify/test", h.testNotify)
 	}
 	return r
 }

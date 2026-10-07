@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/ferry/server/internal/aggregate"
+	"github.com/cuihairu/ferry/server/internal/notify"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"gorm.io/gorm"
 )
@@ -114,6 +115,30 @@ func applyVerdict(db *gorm.DB, logger *log.Logger, v aggregate.Verdict) error {
 		logger.Printf("degraded: %s %s: %s", v.Dimension, v.Scope, reason)
 	case old != "":
 		logger.Printf("recovered: %s %s 恢复正常", v.Dimension, v.Scope)
+	}
+
+	// 事件外发（P1-10）：与日志同条件推送；失败只记日志不阻断聚合。
+	if notifier := notify.FromDB(db); notifier.Enabled() {
+		var ev notify.Event
+		switch {
+		case state == StateFailed:
+			ev = notify.Event{Event: "dimension.failed",
+				Text: fmt.Sprintf("%s %s 整体不可达: %s，同维度一起切走", v.Dimension, v.Scope, reason),
+				Fields: map[string]any{"scope": string(v.Dimension) + "/" + v.Scope, "sick": v.Sick, "total": v.Total}}
+		case state == StateDegraded:
+			ev = notify.Event{Event: "dimension.degraded",
+				Text:   fmt.Sprintf("%s %s: %s", v.Dimension, v.Scope, reason),
+				Fields: map[string]any{"scope": string(v.Dimension) + "/" + v.Scope, "sick": v.Sick, "total": v.Total}}
+		case old != "":
+			ev = notify.Event{Event: "dimension.recovered",
+				Text:   fmt.Sprintf("%s %s 恢复正常", v.Dimension, v.Scope),
+				Fields: map[string]any{"scope": string(v.Dimension) + "/" + v.Scope}}
+		}
+		if ev.Event != "" {
+			if err := notifier.Send(ev); err != nil {
+				logger.Printf("notify webhook: %v", err)
+			}
+		}
 	}
 	return nil
 }
