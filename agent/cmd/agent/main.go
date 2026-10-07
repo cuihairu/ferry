@@ -24,6 +24,7 @@ var version = "dev"
 func main() {
 	cfgPath := flag.String("config", envOr("FERRY_AGENT_CONFIG", "agent.json"), "配置文件路径")
 	role := flag.String("role", "", "角色组件独立进程：probe / relay（空=核心）")
+	relaySpec := flag.String("relay-spec", "", "relay 落地覆盖文件（E-16b）：面板 config.push 写入，SIGHUP 热重指；空=只用本地配置")
 	flag.Parse()
 
 	cfg, err := config.Load(*cfgPath)
@@ -32,7 +33,7 @@ func main() {
 	}
 
 	if *role != "" {
-		runRole(*role, cfg)
+		runRole(*role, cfg, *relaySpec)
 		return
 	}
 
@@ -59,7 +60,7 @@ func main() {
 
 // runRole 以独立进程跑角色组件（E-5/E-7）：与核心只经 spool/配置文件交互，
 // 不直连面板（同节点第二条面板连接会把核心踢下线）。
-func runRole(name string, cfg config.Config) {
+func runRole(name string, cfg config.Config, relaySpecPath string) {
 	if !roles.Standalone(name) {
 		log.Fatalf("unknown standalone role %q (known: probe, relay)", name)
 	}
@@ -72,8 +73,13 @@ func runRole(name string, cfg config.Config) {
 		log.Printf("ferry-agent %s role=probe starting (%d specs)", version, len(cfg.Probes))
 		err = proberole.Run(ctx, cfg, logger)
 	case "relay":
-		log.Printf("ferry-agent %s role=relay starting", version)
-		err = relay.Run(ctx, cfg.Relay, logger)
+		if relaySpecPath != "" {
+			log.Printf("ferry-agent %s role=relay starting (override %s)", version, relaySpecPath)
+			err = relay.RunFile(ctx, cfg.Relay, relaySpecPath, logger)
+		} else {
+			log.Printf("ferry-agent %s role=relay starting", version)
+			err = relay.Run(ctx, cfg.Relay, logger)
+		}
 	}
 	if err != nil && !errors.Is(err, context.Canceled) {
 		log.Fatalf("role %s: %v", name, err)

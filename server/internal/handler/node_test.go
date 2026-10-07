@@ -34,7 +34,8 @@ func newTestRouterWithDB(t *testing.T) (*gin.Engine, *gorm.DB) {
 		}
 	})
 	gin.SetMode(gin.TestMode)
-	return NewRouter(db, config.Default()), db
+	r, _ := NewRouter(db, config.Default())
+	return r, db
 }
 
 func doJSON(t *testing.T, r *gin.Engine, method, path string, body any) *httptest.ResponseRecorder {

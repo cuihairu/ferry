@@ -10,6 +10,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/agenthub"
 	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/ratelimit"
+	"github.com/cuihairu/ferry/server/internal/relaypush"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -20,6 +21,8 @@ type Handler struct {
 	db  *gorm.DB
 	cfg config.Config
 	hub *agenthub.Hub
+	// pusher 是配置推送通道（手动下发与自动换线重指共用，E-16b）。
+	pusher *relaypush.Pusher
 	// redeemLimiter 是兑换接口的 IP 限流（PAY-5：10 次/分钟，失败 5 次锁 15 分钟）。
 	redeemLimiter *ratelimit.Limiter
 	// speedLimiter 是测速字节端点的 IP 限流（30 次/分钟，只 Allow 不记失败）。
@@ -28,8 +31,9 @@ type Handler struct {
 	orderLimiter *ratelimit.Limiter
 }
 
-// NewRouter 创建 gin 引擎并挂载全部路由。
-func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
+// NewRouter 创建 gin 引擎并挂载全部路由，同时交出配置推送器
+// 供后台任务（alloc 自动换线）复用同一条下发链路。
+func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) {
 	h := &Handler{db: db, cfg: cfg, hub: agenthub.New()}
 	h.redeemLimiter = ratelimit.New(ratelimit.Options{
 		Window:      time.Minute,
@@ -45,6 +49,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		Window:      time.Minute,
 		MaxAttempts: 10,
 	})
+	h.pusher = relaypush.New(db, h.hub, nil)
 	r := gin.Default()
 
 	r.GET("/api/health", h.health)
@@ -142,7 +147,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		admin.GET("/logs", h.adminLogs)
 		admin.DELETE("/logs", h.clearAdminLogs)
 	}
-	return r
+	return r, h.pusher
 }
 
 func (h *Handler) health(c *gin.Context) {

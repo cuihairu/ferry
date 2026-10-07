@@ -351,7 +351,9 @@ type SwitchEvent struct {
 }
 
 // Loop 周期执行分配判定直到 ctx 取消；换线记日志并外发事件。
-func Loop(ctx context.Context, db *gorm.DB, interval time.Duration, logger *log.Logger) {
+// Loop 周期执行分配；hooks 在每轮换线后依次收到事件列表
+// （E-16b：主流程挂 relaypush.OnSwitch 做落地重指，测试可不传）。
+func Loop(ctx context.Context, db *gorm.DB, interval time.Duration, logger *log.Logger, hooks ...func([]SwitchEvent)) {
 	if logger == nil {
 		logger = log.Default()
 	}
@@ -366,14 +368,14 @@ func Loop(ctx context.Context, db *gorm.DB, interval time.Duration, logger *log.
 			return
 		case <-t.C:
 		}
-		if err := sweepOnce(db, logger); err != nil {
+		if err := sweepOnce(db, logger, hooks); err != nil {
 			logger.Printf("alloc sweep: %v", err)
 		}
 		t.Reset(interval)
 	}
 }
 
-func sweepOnce(db *gorm.DB, logger *log.Logger) error {
+func sweepOnce(db *gorm.DB, logger *log.Logger, hooks []func([]SwitchEvent)) error {
 	events, err := Sweep(db)
 	if err != nil {
 		return err
@@ -382,6 +384,9 @@ func sweepOnce(db *gorm.DB, logger *log.Logger) error {
 		logger.Printf("alloc switch: entry %d %s %s %s -> %s（%s）",
 			ev.EntryID, ev.EntryName, ev.Direction, ev.FromName, ev.ToName, ev.Reason)
 		announce(db, logger, ev)
+	}
+	for _, hook := range hooks {
+		hook(events)
 	}
 	return nil
 }

@@ -61,8 +61,12 @@ func main() {
 	// 入口池自动摘挂（E-16）：连续 sick 摘除/恢复复位，订阅入口池即时生效。
 	go pool.Loop(ctx, db, time.Duration(cfg.PoolIntervalSec)*time.Second, nil)
 
-	// 落地自动分配（E-21）：加权最小连接，策略三档可配，换线留痕并通知。
-	go alloc.Loop(ctx, db, time.Duration(cfg.AllocIntervalSec)*time.Second, nil)
+	// 路由与配置推送器（E-16b）：自动换线经同一条 config.push 链路重指落地。
+	r, pusher := handler.NewRouter(db, cfg)
+
+	// 落地自动分配（E-21）：加权最小连接，策略三档可配，换线留痕并通知；
+	// 换线即重指（E-16b）：变更列表逐入口下发 relay 落地覆盖 spec。
+	go alloc.Loop(ctx, db, time.Duration(cfg.AllocIntervalSec)*time.Second, nil, pusher.OnSwitch)
 
 	// 高成本告警（E-23）：按流量节点月花费超阈值单发，回落自动消解。
 	go cost.Loop(ctx, db, time.Duration(cfg.CostIntervalSec)*time.Second, nil)
@@ -70,7 +74,6 @@ func main() {
 	// 到期/超限用户停用扫表。
 	go review.Run(ctx, db, time.Duration(cfg.ReviewIntervalSec)*time.Second)
 
-	r := handler.NewRouter(db, cfg)
 	// 面板 Web 证书（P1-7）：settings 里配置了证书即走 HTTPS，
 	// 配置损坏启动中止以免静默降级 HTTP；切换证书需重启生效。
 	cert, hasCert, err := handler.WebTLSCert(db)
