@@ -99,6 +99,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 	admin := r.Group("/admin", adminAuthMiddleware())
 	{
 		admin.POST("/login", h.AdminLogin)
+		admin.GET("/backup/db", h.backupDB)
 	}
 	return r
 }
