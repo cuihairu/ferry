@@ -45,3 +45,6 @@ dist/
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# 本地编译产物（go build ./cmd/ferry 落在 server/ 下）
+server/ferry
