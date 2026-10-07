@@ -35,8 +35,8 @@
 
 ## P1 — 进阶（分期做）
 
-- [ ] P1-1 管理员登录（会话或 JWT）+ 登录失败限速（来源：Marzban `/api/admin/token` 签发 JWT；3x-ui `login_limiter.go`）
-- [ ] P1-2 API Token：程序化调用面板 API（来源：3x-ui ApiToken 模型与 `/apiTokens` 路由）
+[x] P1-1 管理员登录（会话或 JWT）+ 登录失败限速（来源：Marzban `/api/admin/token` 签发 JWT；3x-ui `login_limiter.go`）
+[x] P1-2 API Token：程序化调用面板 API（来源：3x-ui ApiToken 模型与 `/apiTokens` 路由）
 - [ ] P1-3 对接 xray gRPC stats 采集真实流量，替代手工上报（来源：Marzban `xray_api/stats.py` QueryStats）
 - [ ] P1-4 流量重置周期：day/week/month（来源：Marzban data_limit_reset_strategy；Hiddify User.mode）
 - [ ] P1-5 用户模板：新建用户套用默认配额/时长（来源：Marzban `app/routers/user_template.py`）
@@ -123,7 +123,7 @@
 - [x] [P0] E-5 relay 数据面组件（独立进程）：入口角色装配，与核心只经本机 IPC/配置交互，崩不带崩心跳
 - [x] [P0] E-6 传输插件抽象：隧道接口（建立/多路复用/心跳/重连）与传输解耦，首个插件 TLS 伪装（默认）
 - [x] [P0] E-7 边缘探测器组件（独立进程）：入口/落地可开，崩溃不影响进程管理
-… 自动测速校准：注册后跑轻量测速，实测与套餐偏差大以实测为准，记录实测容量与校准时间
+- [x] [P0] E-8 agent 自动测速校准：注册后跑轻量测速，实测与套餐偏差大以实测为准，记录实测容量与校准时间
 
 ### 数据模型
 
