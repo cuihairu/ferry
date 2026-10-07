@@ -198,12 +198,15 @@ type ConfigAck struct {
 
 // ProcTraffic 是单个进程自上次上报以来的流量增量与在线连接数。
 type ProcTraffic struct {
-	Proc  string    `json:"proc"`
-	Rx    uint64    `json:"rx"` // 本次周期内的增量字节
-	Tx    uint64    `json:"tx"`
-	Conns int       `json:"conns"` // 采样时刻在线连接数
-	At    time.Time `json:"at"`
+	Proc  string        `json:"proc"`
+	Rx    uint64        `json:"rx"` // 本次周期内的增量字节
+	Tx    uint64        `json:"tx"`
+	Conns int           `json:"conns"` // 采样时刻在线连接数
+	At    time.Time     `json:"at"`
 	Users []UserTraffic `json:"users,omitempty"` // per-user 增量（xray gRPC stats，P1-3）
+	// BlockedBytes 是本周期被拦截出站的流量增量（SAVE-4 广告/追踪拦截，
+	// xray block 出站 blackhole 收到的字节），无拦截采集时缺省。
+	BlockedBytes uint64 `json:"blocked_bytes,omitempty"`
 }
 
 // UserTraffic 是采集周期内单个用户的流量增量（xray stats 采集）。
@@ -300,9 +303,9 @@ type Alarm struct {
 
 // Upgrade 是面板下发的自升级指令（A-23）：agent 下载新版本二进制替换自身并重启。
 type Upgrade struct {
-	Version string `json:"version"`         // 目标版本号
-	URL     string `json:"url"`             // 新二进制下载地址
-	Sha256  string `json:"sha256"`          // 校验和（十六进制，空则不校验）
+	Version string `json:"version"` // 目标版本号
+	URL     string `json:"url"`     // 新二进制下载地址
+	Sha256  string `json:"sha256"`  // 校验和（十六进制，空则不校验）
 }
 
 // UpgradeAck 是升级指令的即时应答：受理或拒绝（拒绝带原因，不换二进制）。

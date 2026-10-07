@@ -90,6 +90,41 @@ func ParseUserStats(stats []Stat) map[string]UserBytes {
 	return out
 }
 
+// blockOutboundTag 是屏蔽出站的 tag（SAVE-4 分流清单的拦截落点）。
+const blockOutboundTag = "block"
+
+// QueryBlockStats 查询并清零 block 出站的流量计数，返回本周期被拦截
+// 字节增量（blackhole 收到的请求字节；xray 无请求条数计数，节省报表
+// 按字节口径消费）。未配置屏蔽清单时计数恒 0 不报错。
+func (c *Client) QueryBlockStats(ctx context.Context) (uint64, error) {
+	payload, err := grpcUnary(ctx, c.addr, queryStatsMethod, encodeQueryStatsReq("outbound>>>", true))
+	if err != nil {
+		return 0, fmt.Errorf("QueryStats %s: %w", c.addr, err)
+	}
+	stats, err := decodeQueryStatsResp(payload)
+	if err != nil {
+		return 0, fmt.Errorf("decode QueryStats: %w", err)
+	}
+	return ParseBlockStats(stats), nil
+}
+
+// ParseBlockStats 聚合 outbound>>><tag>>>traffic>>>uplink|downlink 中
+// block 出站的字节增量（上下行求和；黑洞出站通常只有 uplink）。
+func ParseBlockStats(stats []Stat) uint64 {
+	var total uint64
+	for _, s := range stats {
+		parts := strings.SplitN(s.Name, ">>>", 4)
+		if len(parts) != 4 || parts[0] != "outbound" || parts[1] != blockOutboundTag || parts[2] != "traffic" {
+			continue
+		}
+		switch parts[3] {
+		case "uplink", "downlink":
+			total += s.Value
+		}
+	}
+	return total
+}
+
 // Collector 把 stats 查询适配为 traffic 包的采集口径（Collector + UserCollector）。
 type Collector struct {
 	client *Client
@@ -129,4 +164,11 @@ func (c *Collector) CollectUsers(proc string) ([]agentproto.UserTraffic, error) 
 		out = append(out, agentproto.UserTraffic{Email: email, Rx: u.Rx, Tx: u.Tx})
 	}
 	return out, nil
+}
+
+// CollectBlocked 返回一次查询周期内被拦截出站的字节增量（SAVE-4）。
+func (c *Collector) CollectBlocked(proc string) (uint64, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), collectTimeout)
+	defer cancel()
+	return c.client.QueryBlockStats(ctx)
 }

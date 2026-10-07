@@ -199,14 +199,15 @@ type Alert struct {
 // NodeTrafficLog 是节点级进程流量记账（A-20）：agent 按进程周期上报的增量。
 // 用户级记账走 traffic_logs（P0-9），需要逐用户统计映射（P1-3）。
 type NodeTrafficLog struct {
-	ID         uint      `gorm:"primaryKey" json:"id"`
-	NodeID     uint      `gorm:"index:idx_node_traffic,priority:1;not null" json:"node_id"`
-	Proc       string    `gorm:"size:64;not null" json:"proc"`
-	RxBytes    int64     `gorm:"default:0" json:"rx_bytes"`
-	TxBytes    int64     `gorm:"default:0" json:"tx_bytes"`
-	Conns      int       `gorm:"default:0" json:"conns"`
-	RecordedAt time.Time `gorm:"not null;index:idx_node_traffic,priority:2" json:"recorded_at"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID           uint      `gorm:"primaryKey" json:"id"`
+	NodeID       uint      `gorm:"index:idx_node_traffic,priority:1;not null" json:"node_id"`
+	Proc         string    `gorm:"size:64;not null" json:"proc"`
+	RxBytes      int64     `gorm:"default:0" json:"rx_bytes"`
+	TxBytes      int64     `gorm:"default:0" json:"tx_bytes"`
+	BlockedBytes int64     `gorm:"default:0" json:"blocked_bytes"` // 被拦截出站字节（SAVE-4 广告/追踪拦截）
+	Conns        int       `gorm:"default:0" json:"conns"`
+	RecordedAt   time.Time `gorm:"not null;index:idx_node_traffic,priority:2" json:"recorded_at"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // NodeProcStatus 是被管进程的最近状态快照（SAVE-3）：心跳携带的 ProcStatus

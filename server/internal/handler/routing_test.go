@@ -161,3 +161,84 @@ func TestRuleLibPush(t *testing.T) {
 		t.Fatalf("missing node 不应落快照，got %d", cnt)
 	}
 }
+
+// TestRoutingAdsToggle 覆盖广告/追踪拦截开关（SAVE-4）：默认开（渲染含
+// ad-block 规则与 block 出站）→ 关闭后渲染不含 → 非法请求 400 → 重开恢复。
+func TestRoutingAdsToggle(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
+		"name": "ads-1", "address": "ads.example.com", "port": 443,
+		"protocol": "vless", "config": `{}`,
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create node: %d %s", rec.Code, rec.Body)
+	}
+
+	hasBlock := func() bool {
+		t.Helper()
+		rec := doJSON(t, r, "GET", "/api/nodes/1/routing-config", nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("render routing-config: %d %s", rec.Code, rec.Body)
+		}
+		var res struct {
+			Config string           `json:"config"`
+			Sets   []map[string]any `json:"sets"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		var merged map[string]any
+		if err := json.Unmarshal([]byte(res.Config), &merged); err != nil {
+			t.Fatalf("config not JSON: %v", err)
+		}
+		hasAdSet := false
+		for _, s := range res.Sets {
+			if s["name"] == "ad-block" {
+				hasAdSet = true
+			}
+		}
+		obs, _ := merged["outbounds"].([]any)
+		hasBlockOut := false
+		for _, ob := range obs {
+			if m, ok := ob.(map[string]any); ok && m["tag"] == "block" {
+				hasBlockOut = true
+			}
+		}
+		if hasAdSet != hasBlockOut {
+			t.Fatalf("ad-block 清单与 block 出站应同进退: sets=%v outbounds=%v", res.Sets, obs)
+		}
+		return hasAdSet
+	}
+
+	// 默认开
+	if !hasBlock() {
+		t.Fatal("ads block should be enabled by default")
+	}
+
+	// 关闭：渲染不再含屏蔽规则段与 block 出站
+	rec = doJSON(t, r, "PUT", "/api/routing/ads", map[string]any{"enabled": false})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("disable ads: %d %s", rec.Code, rec.Body)
+	}
+	if hasBlock() {
+		t.Fatal("ads block should be off after disable")
+	}
+	if v, ok, err := storage.GetSetting(db, adsSettingKey); err != nil || !ok || v != "0" {
+		t.Fatalf("ads setting = %q ok=%v err=%v, want \"0\"", v, ok, err)
+	}
+
+	// 非法请求：缺 enabled 字段 400
+	if rec := doJSON(t, r, "PUT", "/api/routing/ads", map[string]any{}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("missing enabled should 400: %d", rec.Code)
+	}
+
+	// 重开恢复
+	rec = doJSON(t, r, "PUT", "/api/routing/ads", map[string]any{"enabled": true})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("enable ads: %d %s", rec.Code, rec.Body)
+	}
+	if !hasBlock() {
+		t.Fatal("ads block should be back after re-enable")
+	}
+}

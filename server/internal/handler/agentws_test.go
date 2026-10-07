@@ -507,10 +507,10 @@ func TestAgentWSTrafficReport(t *testing.T) {
 		t.Fatalf("expected hello_ack, got %s", env.Type)
 	}
 
-	// 流量上报 → traffic_ack 回执条数
+	// 流量上报 → traffic_ack 回执条数（SAVE-4：xray 行带拦截增量）
 	rep, _ := agentproto.NewEnvelope("tr-1", agentproto.MsgTraffic, agentproto.TrafficReport{
 		Items: []agentproto.ProcTraffic{
-			{Proc: "xray", Rx: 1024, Tx: 2048, Conns: 7, At: time.Now()},
+			{Proc: "xray", Rx: 1024, Tx: 2048, BlockedBytes: 512, Conns: 7, At: time.Now()},
 			{Proc: "hysteria2", Rx: 1, Tx: 2, Conns: 1, At: time.Now()},
 		},
 	})
@@ -544,6 +544,13 @@ func TestAgentWSTrafficReport(t *testing.T) {
 	}
 	if byProc["xray"]["rx_bytes"].(float64) != 1024 || byProc["xray"]["conns"].(float64) != 7 {
 		t.Fatalf("xray row mismatch: %v", byProc["xray"])
+	}
+	// 拦截增量随行落库；无拦截采集的行缺省 0
+	if byProc["xray"]["blocked_bytes"].(float64) != 512 {
+		t.Fatalf("xray blocked_bytes = %v, want 512", byProc["xray"]["blocked_bytes"])
+	}
+	if byProc["hysteria2"]["blocked_bytes"].(float64) != 0 {
+		t.Fatalf("hysteria2 blocked_bytes = %v, want 0", byProc["hysteria2"]["blocked_bytes"])
 	}
 }
 

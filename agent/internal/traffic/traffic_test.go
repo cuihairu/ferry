@@ -137,3 +137,48 @@ func TestDispatchRoutesXrayStats(t *testing.T) {
 		t.Fatalf("sb collect users err = %v, want errNotImplemented", err)
 	}
 }
+
+// fakeBlockCollector 在 per-user 采集之上带拦截计数（对齐 xraystats.Collector）。
+type fakeBlockCollector struct{ fakeUserCollector }
+
+func (fakeBlockCollector) CollectBlocked(proc string) (uint64, error) {
+	if proc != "xray" {
+		return 0, errNotImplemented
+	}
+	return 77, nil
+}
+
+// TestReporterAttachesBlocked 覆盖拦截增量附带（SAVE-4）：支持
+// BlockCollector 的采集器在同周期把 block 出站增量挂进行上；不支持的
+// 采集器行上无该字段。
+func TestReporterAttachesBlocked(t *testing.T) {
+	// 支持拦截采集：xray 行带 BlockedBytes
+	r := New(specs(), 10*time.Millisecond, fakeBlockCollector{}, log.New(io.Discard, "", 0))
+	items := r.collectAll()
+	if len(items) != 1 {
+		t.Fatalf("items = %d, want 1", len(items))
+	}
+	if items[0].Proc != "xray" || items[0].BlockedBytes != 77 {
+		t.Fatalf("item = %+v, want xray blocked=77", items[0])
+	}
+
+	// 不支持拦截采集（plain fake）：字段缺省不报错
+	r2 := New(specs(), 10*time.Millisecond, fakeUserCollector{}, log.New(io.Discard, "", 0))
+	for _, it := range r2.collectAll() {
+		if it.BlockedBytes != 0 {
+			t.Fatalf("no BlockCollector must leave blocked zero: %+v", it)
+		}
+	}
+
+	// 拦截查询报错按缺失处理，不影响流量行
+	r3 := New(specs(), 10*time.Millisecond, fakeBlockErr{}, log.New(io.Discard, "", 0))
+	items = r3.collectAll()
+	if len(items) != 1 || items[0].BlockedBytes != 0 || items[0].Rx != 160 {
+		t.Fatalf("blocked query error must not break traffic row: %+v", items)
+	}
+}
+
+// fakeBlockErr 拦截查询恒报错的采集器。
+type fakeBlockErr struct{ fakeUserCollector }
+
+func (fakeBlockErr) CollectBlocked(string) (uint64, error) { return 0, errNotImplemented }

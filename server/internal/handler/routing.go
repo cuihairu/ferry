@@ -15,6 +15,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/routing"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // rulelibAckTimeout 与 config.push 同口径：覆盖 agent 侧落盘 + reload 最坏耗时。
@@ -26,6 +27,27 @@ var (
 	rulelibTraversal = regexp.MustCompile(`\.\.`)
 )
 
+// adsSettingKey 是广告拦截开关的设置键（SAVE-4）：缺省开，"0"/"false" 关。
+const adsSettingKey = "routing_ads_enabled"
+
+// adsEnabled 读广告拦截开关；未设置按开（设计默认用开源名单）。
+func adsEnabled(db *gorm.DB) bool {
+	v, ok, err := storage.GetSetting(db, adsSettingKey)
+	if err != nil || !ok {
+		return true
+	}
+	return v != "0" && v != "false"
+}
+
+// routingSets 按开关组装渲染用清单：广告拦截关时滤掉 AdBlock。
+func (h *Handler) routingSets() []routing.RuleSet {
+	sets := routing.Sets()
+	if !adsEnabled(h.db) {
+		return routing.WithoutAds(sets)
+	}
+	return sets
+}
+
 // renderRoutingConfig 返回节点配置模板合成分流规则段后的完整配置（SAVE-1）。
 // 只做渲染不落库：下发走既有 POST /api/nodes/:id/config。
 func (h *Handler) renderRoutingConfig(c *gin.Context) {
@@ -34,7 +56,8 @@ func (h *Handler) renderRoutingConfig(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
 		return
 	}
-	merged, err := routing.Merge(n.Config, routing.Sets())
+	sets := h.routingSets()
+	merged, err := routing.Merge(n.Config, sets)
 	if err != nil {
 		fail(c, http.StatusBadRequest, err)
 		return
@@ -44,8 +67,29 @@ func (h *Handler) renderRoutingConfig(c *gin.Context) {
 		"node_id": n.ID,
 		"sha256":  hex.EncodeToString(sum[:]),
 		"config":  merged,
-		"sets":    routing.Sets(),
+		"sets":    sets,
 	})
+}
+
+// putAdsEnabled 广告/追踪拦截开关（PUT /api/routing/ads {enabled}）：
+// 关掉后渲染的配置不再含屏蔽规则段，已下发配置不动（重渲染重发才生效）。
+func (h *Handler) putAdsEnabled(c *gin.Context) {
+	var in struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil || in.Enabled == nil {
+		fail(c, http.StatusBadRequest, errors.New("enabled is required"))
+		return
+	}
+	v := "0"
+	if *in.Enabled {
+		v = "1"
+	}
+	if err := storage.SetSetting(h.db, adsSettingKey, v); err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"enabled": *in.Enabled})
 }
 
 // pushRuleLib 向节点分发一份规则库数据文件（geoip.dat/geosite.dat 等）：

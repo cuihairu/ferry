@@ -259,12 +259,13 @@ func (h *Handler) saveNodeTraffic(nodeID int64, items []agentproto.ProcTraffic) 
 	rows := make([]storage.NodeTrafficLog, 0, len(items))
 	for _, it := range items {
 		rows = append(rows, storage.NodeTrafficLog{
-			NodeID:     uint(nodeID),
-			Proc:       it.Proc,
-			RxBytes:    int64(it.Rx),
-			TxBytes:    int64(it.Tx),
-			Conns:      it.Conns,
-			RecordedAt: it.At,
+			NodeID:       uint(nodeID),
+			Proc:         it.Proc,
+			RxBytes:      int64(it.Rx),
+			TxBytes:      int64(it.Tx),
+			BlockedBytes: int64(it.BlockedBytes),
+			Conns:        it.Conns,
+			RecordedAt:   it.At,
 		})
 	}
 	return h.db.Create(&rows).Error

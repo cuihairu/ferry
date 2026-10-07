@@ -222,7 +222,7 @@
 - [x] [P0] SAVE-1 GeoIP/geosite 分流进节点配置模板：国内流量直连不进隧道，规则库可经 config.push 更新
 - [x] [P0] SAVE-2 静态资源域名清单直连/CDN（与 geosite 同机制）
 - [x] [P1] SAVE-3 入口缓存层插件位：nginx cache/Squid 作被管进程 kind，命中统计随心跳上报（agent ProcSpec 加 metrics_url——HTTP GET 指标接口 JSON 数字对象/文本 key-value 行皆可，Manager 15s 轮询挂状态快照随心跳上报，端点故障清空快照不残留；服务端心跳处理器逐节点逐进程 upsert node_proc_statuses（指标 JSON 落 metrics 列），GET /api/nodes/:id/procs + dash 节点页「进程」对话框回读；缓存本体（命中清单/缓存目录/回源）部署侧自理，kind 仅作标签）
-- [ ] [P1] SAVE-4 广告/追踪拦截：节点侧 DNS 屏蔽名单（可配、可更新），拦截计数上报
+- [x] [P1] SAVE-4 广告/追踪拦截：节点侧 DNS 屏蔽名单（可配、可更新），拦截计数上报（routing 层 ad-block 清单 geosite:category-ads-all 命中发 block 出站（blackhole），Merge 保证 block 出站存在且渲染确定性；dash 开关 PUT /api/routing/ads（settings 键 routing_ads_enabled 缺省开，关后渲染不含屏蔽段）；名单更新走 rulelib 分发 anti-AD 同格式 geosite 文件；拦截计数按字节：agent 同周期查 outbound>>> 取 block 出站增量随流量上报（ProcTraffic.BlockedBytes → node_traffic_logs.blocked_bytes），xray 无条数计数、字节口径免估算，条数估算式作废）
 - [ ] [P1] SAVE-5 压缩与连接复用/TLS 会话恢复报表化：复用率随心跳上报进报表
 - [x] [P1] SAVE-6 配额联动：流量/费用超阈值自动降速或切低成本节点（可配、留痕）——落「订阅降档」（降速不可执行：共享凭据无按用户身份，见流量节省设计 §5）
 - [ ] [P1] SAVE-7 节省报表：save_stats 按日汇总，dash 每日/月省下 GB 与折算费用，与成本看板同页

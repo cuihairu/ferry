@@ -46,14 +46,37 @@ var StaticCDN = RuleSet{
 	OutboundTag: "direct",
 }
 
-// Sets 返回内置分流清单，按声明序渲染进模板。
-func Sets() []RuleSet {
-	return []RuleSet{DirectCN, StaticCDN}
+// AdBlock 是广告/追踪域名屏蔽清单（SAVE-4）：命中即发 block 出站
+// （blackhole 丢弃），省落地流量也少建连。名单数据文件与 geoip/geosite
+// 同机制经 rulelib 分发更新（anti-AD 等开源名单可推同格式 geosite 文件）。
+var AdBlock = RuleSet{
+	Name:        "ad-block",
+	Domains:     []string{"geosite:category-ads-all"},
+	OutboundTag: "block",
 }
 
-// directOutbound 是 freedom 直连出站，直连分流流量的落点。
-func directOutbound() map[string]any {
-	return map[string]any{"tag": "direct", "protocol": "freedom"}
+// Sets 返回内置分流清单，按声明序渲染进模板。
+func Sets() []RuleSet {
+	return []RuleSet{DirectCN, StaticCDN, AdBlock}
+}
+
+// WithoutAds 滤掉广告拦截清单（SAVE-4 开关关时的渲染口径）。
+func WithoutAds(sets []RuleSet) []RuleSet {
+	out := make([]RuleSet, 0, len(sets))
+	for _, s := range sets {
+		if s.Name == AdBlock.Name {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// builtinOutbounds 是分流规则落点的内置出站形态：清单引用的出站
+// 缺失时按此补上（direct=freedom 直连，block=blackhole 丢弃）。
+var builtinOutbounds = map[string]map[string]any{
+	"direct": {"tag": "direct", "protocol": "freedom"},
+	"block":  {"tag": "block", "protocol": "blackhole"},
 }
 
 // Merge 把清单渲染成 routing 规则并注入模板 JSON：
@@ -95,17 +118,37 @@ func Merge(templateJSON string, sets []RuleSet) (string, error) {
 	routingMap["rules"] = merged
 	tmpl["routing"] = routingMap
 
-	// outbounds：无 direct 出站时前置补上（清单规则的落点）。
+	// outbounds：清单规则引用的出站缺失时按内置形态前置补上
+	// （direct=freedom，block=blackhole）。按清单声明序补齐保证渲染稳定。
 	outbounds, _ := tmpl["outbounds"].([]any)
-	hasDirect := false
-	for _, ob := range outbounds {
-		if m, ok := ob.(map[string]any); ok && m["tag"] == "direct" {
-			hasDirect = true
-			break
+	ensured := map[string]bool{}
+	for _, set := range sets {
+		if len(set.Domains) == 0 && len(set.IPs) == 0 {
+			continue
 		}
-	}
-	if !hasDirect {
-		outbounds = append([]any{directOutbound()}, outbounds...)
+		tag := set.OutboundTag
+		if ensured[tag] {
+			continue
+		}
+		ensured[tag] = true
+		builtin, ok := builtinOutbounds[tag]
+		if !ok {
+			continue // 非内置落点（模板自有出站）不代补
+		}
+		found := false
+		for _, ob := range outbounds {
+			if m, ok := ob.(map[string]any); ok && m["tag"] == tag {
+				found = true
+				break
+			}
+		}
+		if !found {
+			cp := map[string]any{}
+			for k, v := range builtin {
+				cp[k] = v
+			}
+			outbounds = append([]any{cp}, outbounds...)
+		}
 	}
 	tmpl["outbounds"] = outbounds
 
