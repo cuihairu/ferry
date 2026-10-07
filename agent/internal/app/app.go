@@ -17,6 +17,7 @@ import (
 	"github.com/cuihairu/ferry/agent/internal/link"
 	"github.com/cuihairu/ferry/agent/internal/probe"
 	"github.com/cuihairu/ferry/agent/internal/procs"
+	"github.com/cuihairu/ferry/agent/internal/spool"
 	"github.com/cuihairu/ferry/agent/internal/traffic"
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
@@ -83,7 +84,15 @@ func New(cfg config.Config, version string) *App {
 // Run 阻塞运行到 ctx 取消：先起进程监管与边缘探测，再维持与面板的连接。
 func (a *App) Run(ctx context.Context) error {
 	a.mgr.Start(ctx)
-	go a.probe.Run(ctx)
+	if a.cfg.SpoolDir != "" {
+		// 角色模式：探测由 -role probe 独立进程跑，经 spool 上报；
+		// 核心不再跑内置探测，避免结论重复。
+		go func() {
+			_ = spool.Watch(ctx, a.cfg.SpoolDir, a.sendIfConnected)
+		}()
+	} else {
+		go a.probe.Run(ctx)
+	}
 	go a.traf.Run(ctx)
 	client := link.New(link.Options{
 		URL:      a.cfg.PanelURL,

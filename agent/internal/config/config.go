@@ -41,6 +41,15 @@ type ProbeSpec struct {
 	IntervalSec int    `json:"interval_sec"`
 }
 
+// RelaySpec 是 relay 数据面（E-5）的运行参数：本机监听 → 经传输插件拨落地。
+type RelaySpec struct {
+	Listen      string `json:"listen"`       // 本地监听，如 127.0.0.1:1080
+	LandingAddr string `json:"landing_addr"` // 落地地址，如 landing.example.com:443
+	Tunnel      string `json:"tunnel"`       // 传输插件名，空=默认 tls-camo
+	ServerName  string `json:"server_name"`  // TLS 伪装域名，空=落地主机名
+	CAFile      string `json:"ca_file"`      // 私有 CA，空=系统根证书
+}
+
 // Config 是 agent 的全部运行参数。
 type Config struct {
 	PanelURL     string              `json:"panel_url"` // 形如 wss://panel.example.com/agent/ws
@@ -48,10 +57,12 @@ type Config struct {
 	Token        string              `json:"token"`
 	HeartbeatSec int                 `json:"heartbeat_sec"`
 	TrafficSec   int                 `json:"traffic_sec"` // 流量采集上报周期，0=关闭
+	SpoolDir     string              `json:"spool_dir"`   // 角色上报 spool 目录，空=不转发（E-5/E-7）
 	TLS          TLSConfig           `json:"tls"`
 	Meta         agentproto.NodeMeta `json:"meta"` // 节点注册元数据初值，注册时随 hello 上报
 	Procs        []ProcSpec          `json:"procs"`
 	Probes       []ProbeSpec         `json:"probes"`
+	Relay        RelaySpec           `json:"relay"` // -role relay 用；核心模式忽略
 }
 
 // Default 返回带默认值的配置。
@@ -93,6 +104,9 @@ func Load(path string) (Config, error) {
 			return cfg, fmt.Errorf("FERRY_TRAFFIC_SEC: %w", err)
 		}
 		cfg.TrafficSec = n
+	}
+	if v := os.Getenv("FERRY_SPOOL_DIR"); v != "" {
+		cfg.SpoolDir = v
 	}
 	if v := os.Getenv("FERRY_NODE_ROLE"); v != "" {
 		cfg.Meta.Role = v
