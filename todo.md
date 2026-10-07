@@ -1,6 +1,6 @@
 # ferry 功能拆解（todo）
 
-- 调研来源：3x-ui（MHSanaei/3x-ui）、Marzban（Gozargah/Marzban）、Hiddify（hiddify/hiddifypanel）；Remnawave 调研中，横向对比附录后补。
+- 调研来源：3x-ui（MHSanaei/3x-ui）、Marzban（Gozargah/Marzban）、Hiddify（hiddify/hiddifypanel）、Remnawave（remnawave/panel，backend 取材 2026-10-08 快照）；横向对比见 [docs/面板横向对比.md](docs/面板横向对比.md)（Remnawave 实为 TS/NestJS，非 Go，附录已纠正存档）。
 - 口径：每条=原子动作，可独立验收；`来源`=参考哪个面板的哪个做法（文件级）。P0=最小可用面板闭环（用户/节点/订阅/流量记账）。
 
 ## P0 — 最小可用闭环
