@@ -12,6 +12,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/herald"
 	"github.com/cuihairu/ferry/server/internal/notify"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"gorm.io/gorm"
@@ -130,7 +131,7 @@ func Build(db *gorm.DB, now time.Time) (*Report, error) {
 		}
 		nc := NodeCost{
 			ID: n.ID, Name: n.Name, Region: n.Region, ISP: n.ISP,
-			BillingType: n.BillingType,
+			BillingType:  n.BillingType,
 			MonthRxBytes: t[0], MonthTxBytes: t[1],
 			TrafficCostCents: trafficCents,
 			FixedCostCents:   n.MonthlyCostCents,
@@ -242,6 +243,18 @@ func CheckAlerts(db *gorm.DB, now time.Time, logger *log.Logger) error {
 				return err
 			}
 			logger.Printf("cost alert: node %d %s: %s", nc.ID, nc.Name, msg)
+			// 告警激活即落事件（HERALD-3 余量）：活跃告警去重闸门沿用，
+			// 重复超阈只刷新消息不再发。失败只记日志不阻断告警。
+			if _, err := herald.Emit(db, herald.EmitInput{
+				Kind: herald.KindCostExceeded, Severity: herald.SeverityWarning,
+				Title:    fmt.Sprintf("节点 %s 流量花费超阈值", nc.Name),
+				Body:     msg,
+				Target:   herald.TargetAdmin,
+				DedupKey: fmt.Sprintf("node:%d:cost_exceeded", nc.ID),
+				Meta:     map[string]any{"node_id": nc.ID, "traffic_cost_cents": nc.TrafficCostCents, "threshold_cents": rep.ThresholdCents},
+			}); err != nil {
+				logger.Printf("herald emit cost_exceeded: node=%d %v", nc.ID, err)
+			}
 			if n.Enabled() {
 				ev := notify.Event{
 					Event: "cost.high",

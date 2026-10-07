@@ -2,12 +2,14 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/cuihairu/ferry/packages/agentproto"
+	"github.com/cuihairu/ferry/server/internal/herald"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -37,6 +39,21 @@ func (h *Handler) recordAlert(nodeID uint, al agentproto.Alarm) {
 		}
 		if err := h.db.Create(&row).Error; err != nil {
 			log.Printf("create alert node=%d kind=%s: %v", nodeID, al.Kind, err)
+			return
+		}
+		// 告警激活即落事件（HERALD-3 余量）：进程崩溃拉起失败投 Herald；
+		// 活跃告警唯一性即去重闸门（恢复消解后复发才再发）。失败只记日志。
+		if al.Kind == agentproto.AlarmKindProcCrash {
+			if _, err := herald.Emit(h.db, herald.EmitInput{
+				Kind: herald.KindProcCrashed, Severity: herald.SeverityCritical,
+				Title:    fmt.Sprintf("节点 %d 进程 %s 崩溃且拉起失败", nodeID, al.Proc),
+				Body:     al.Message,
+				Target:   herald.TargetAdmin,
+				DedupKey: fmt.Sprintf("node:%d:proc_crashed:%s", nodeID, al.Proc),
+				Meta:     map[string]any{"node_id": nodeID, "proc": al.Proc, "severity": sev},
+			}); err != nil {
+				log.Printf("herald emit proc_crashed: node=%d %v", nodeID, err)
+			}
 		}
 	case err != nil:
 		log.Printf("find active alert node=%d kind=%s: %v", nodeID, al.Kind, err)

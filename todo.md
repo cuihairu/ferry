@@ -232,7 +232,7 @@
 
 - [x] [P1] HERALD-1 事件 outbox：events/event_deliveries 落表，pending→投递→重试，失败标红不静默丢（退避封顶 1h 连败 6 轮死信，dash 通知页 outbox 卡计数标红+死信重投）
 - [x] [P1] HERALD-2 Herald 集成接口：POST /events（kind/severity/target/dedup_key）+ 回执落库，配置 FERRY_HERALD_URL/TOKEN（HTTPSender Bearer+10s 超时，载荷带 outbox id 供回执关联；回执端点 /api/internal/event-results 只留痕不动事件状态，未配置 URL 仍 outbox-only）
-- [x] [P1] HERALD-3 管理告警接入：区域故障/被封/证书到期三类先行，其余六类随后（monitor 故障迁移发 region_fault/isp_fault、recovery 判封发 node_blocked+BR-5 失败升级 recovery_failed、cert 进续期窗口发 cert_expiring 同域名同日一条；Emit 失败只记日志不阻断，余四类随生产点接入）
+- [x] [P1] HERALD-3 管理告警接入：区域故障/被封/证书到期三类先行，其余六类随后（九类中八类已接线：monitor 故障迁移 region_fault/isp_fault、recovery 判封 node_blocked+失败升级 recovery_failed、cert 临期 cert_expiring、pool 自动摘除 node_down、cost 告警激活 cost_exceeded、服务端崩溃告警激活 proc_crashed；backup_failed 无后台备份任务暂无生产点；Emit 失败只记日志不阻断）
 - [x] [P1] HERALD-4 用户触达事件走同一接口（账单/域名/到期/预警，随触达批）——已有生产点接线：到期/流量预警（notifyscan 站内信已落才发+日闸门）、发放到账（applyGrant 同事务原子 dedup 带 order_no）、公告扇出（notice 同批落禁用不收）；target=user:<id> severity=info，bill/domains 随触达批调度器接同一接口
 
 ## P2 — 远期或明确不做

@@ -33,6 +33,9 @@ const (
 	KindRegionFault    = "region_fault"    // 区域聚合整体故障
 	KindISPFault       = "isp_fault"       // 运营商聚合整体故障
 	KindNodeBlocked    = "node_blocked"    // 节点判封进恢复流水线
+	KindNodeDown       = "node_down"       // 单点自动摘挂
+	KindCostExceeded   = "cost_exceeded"   // 高成本告警激活
+	KindProcCrashed    = "proc_crashed"    // 进程崩溃拉起失败
 	KindRecoveryFailed = "recovery_failed" // 恢复流水线全级耗尽（升级人工）
 	KindCertExpiring   = "cert_expiring"   // 证书临近到期
 

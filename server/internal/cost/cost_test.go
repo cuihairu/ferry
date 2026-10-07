@@ -2,6 +2,7 @@ package cost
 
 import (
 	"bytes"
+	"fmt"
 	"log"
 	"testing"
 	"time"
@@ -147,6 +148,15 @@ func TestCheckAlerts(t *testing.T) {
 	if len(alerts) != 1 || alerts[0].NodeID != metered.ID || alerts[0].State != "active" {
 		t.Fatalf("alerts = %+v", alerts)
 	}
+	// 告警激活同落 cost_exceeded 事件（HERALD-3 余量），包月不落
+	var evs []storage.Event
+	if err := db.Where("kind = ?", "cost_exceeded").Find(&evs).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 || evs[0].Severity != "warning" ||
+		evs[0].DedupKey != fmt.Sprintf("node:%d:cost_exceeded", metered.ID) {
+		t.Fatalf("cost_exceeded events = %+v", evs)
+	}
 
 	// 复跑去重：仍只有一条。
 	if err := CheckAlerts(db, now, logger); err != nil {
@@ -158,6 +168,11 @@ func TestCheckAlerts(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("duplicate alert, n = %d", n)
+	}
+	var evN int64
+	db.Model(&storage.Event{}).Where("kind = ?", "cost_exceeded").Count(&evN)
+	if evN != 1 {
+		t.Fatalf("duplicate cost_exceeded event, n = %d", evN)
 	}
 
 	// 阈值调高到花费之上 → 回落自动消解。

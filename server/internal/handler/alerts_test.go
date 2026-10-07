@@ -35,6 +35,8 @@ func TestAgentWSAlarm(t *testing.T) {
 	if env := readEnv(t, c); env.Type != agentproto.MsgAlarmAck {
 		t.Fatalf("expected alarm_ack, got %s", env.Type)
 	}
+	// 崩溃告警激活同落 proc_crashed 事件（HERALD-3 余量）；WS 处理异步，轮询等落库
+	waitEventCount(t, db, "proc_crashed", 1)
 
 	var rows []storage.Alert
 	if err := db.Order("id ASC").Find(&rows).Error; err != nil {
@@ -63,6 +65,8 @@ func TestAgentWSAlarm(t *testing.T) {
 	if len(rows) != 1 || rows[0].Message != "xray 再次崩溃" {
 		t.Fatalf("duplicate alarm should refresh: %v", rows)
 	}
+	// 重复上报只刷新：事件不重发
+	waitEventCount(t, db, "proc_crashed", 1)
 
 	// 证书临期告警（无进程）→ 新增一条
 	al3, _ := agentproto.NewEnvelope("a3", agentproto.MsgAlarm, agentproto.Alarm{
@@ -122,6 +126,22 @@ func TestAgentWSAlarm(t *testing.T) {
 	if rec := doJSON(t, r, "POST", "/api/alerts/9999/resolve", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("resolve missing should 404: %d", rec.Code)
 	}
+}
+
+// waitEventCount 轮询直到某 kind 事件行数达标（WS 处理异步，无同步点）。
+func waitEventCount(t *testing.T, db *gorm.DB, kind string, want int64) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		var n int64
+		if err := db.Model(&storage.Event{}).Where("kind = ?", kind).Count(&n).Error; err == nil && n == want {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	var n int64
+	_ = db.Model(&storage.Event{}).Where("kind = ?", kind).Count(&n)
+	t.Fatalf("events kind=%s count = %d, want %d", kind, n, want)
 }
 
 // waitAlertState 轮询直到告警状态符合期望（WS 处理异步，无 ack 同步点）。

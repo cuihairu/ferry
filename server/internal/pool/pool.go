@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/ferry/packages/agentproto"
+	"github.com/cuihairu/ferry/server/internal/herald"
 	"github.com/cuihairu/ferry/server/internal/notify"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"gorm.io/gorm"
@@ -95,6 +96,20 @@ func sweepOnce(db *gorm.DB, logger *log.Logger) error {
 	for _, ev := range events {
 		logger.Printf("pool %s: node %d %s（%s）", ev.Action, ev.NodeID, ev.Name, ev.Reason)
 		announce(db, logger, ev)
+		// 单点摘挂事件（HERALD-3 余量）：仅自动摘除发 node_down，复位/
+		// 手动动作不发（恢复在订阅侧即时生效，无需告警触达）。失败只记日志。
+		if ev.Action == "suspend" {
+			if _, err := herald.Emit(db, herald.EmitInput{
+				Kind: herald.KindNodeDown, Severity: herald.SeverityWarning,
+				Title:    fmt.Sprintf("节点 %s 已从入口池摘除", ev.Name),
+				Body:     ev.Reason + "，订阅入口池即时生效",
+				Target:   herald.TargetAdmin,
+				DedupKey: fmt.Sprintf("node:%d:node_down", ev.NodeID),
+				Meta:     map[string]any{"node_id": ev.NodeID, "reason": ev.Reason},
+			}); err != nil {
+				logger.Printf("herald emit node_down: node=%d %v", ev.NodeID, err)
+			}
+		}
 	}
 	return nil
 }

@@ -1,7 +1,10 @@
 package pool
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
+	"log"
 	"testing"
 	"time"
 
@@ -116,6 +119,36 @@ func TestSweepSuspendAndResume(t *testing.T) {
 	}
 	if n := getPoolState(t, db, sick.ID); n.PoolState != StateActive {
 		t.Fatalf("sick-entry should be active again, got %s", n.PoolState)
+	}
+}
+
+// TestSweepOnceEmitsNodeDown 覆盖单点摘挂事件（HERALD-3 余量）：自动摘除
+// 落 node_down（warning），复位与重复扫不重发。
+func TestSweepOnceEmitsNodeDown(t *testing.T) {
+	db := newDB(t)
+	n := seedNode(t, db, "down-entry", "entry", true)
+	for _, age := range []time.Duration{9 * time.Minute, 6 * time.Minute, 3 * time.Minute} {
+		report(t, db, n.ID, agentproto.ProbeVerdictSick, age)
+	}
+	if err := sweepOnce(db, log.New(&bytes.Buffer{}, "", 0)); err != nil {
+		t.Fatal(err)
+	}
+	var evs []storage.Event
+	if err := db.Where("kind = ?", "node_down").Find(&evs).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 || evs[0].Severity != "warning" || evs[0].Target != "admin" ||
+		evs[0].DedupKey != fmt.Sprintf("node:%d:node_down", n.ID) {
+		t.Fatalf("node_down events = %+v", evs)
+	}
+	// 已摘除再扫：不重发
+	if err := sweepOnce(db, log.New(&bytes.Buffer{}, "", 0)); err != nil {
+		t.Fatal(err)
+	}
+	var cnt int64
+	db.Model(&storage.Event{}).Where("kind = ?", "node_down").Count(&cnt)
+	if cnt != 1 {
+		t.Fatalf("second sweep events = %d, want 1", cnt)
 	}
 }
 
