@@ -49,15 +49,29 @@ func ValidPolicy(p string) bool {
 	return false
 }
 
-// PolicySetting 每方向一档：出海与回国两池策略侧重不同（设计稿 §C.5.2）。
+// PolicySetting 每方向一档：出海与回国两池策略侧重不同（设计稿 §C.5.2）；
+// 低峰窗口（小时，[Start,End) 左闭右开）内做再平衡——换线只需按策略全序
+// 更优；峰时保守换线，防留痕抖动（E-22）。
 type PolicySetting struct {
 	Out string `json:"out"`
 	In  string `json:"in"`
+	// RebalanceStart/RebalanceEnd 低峰窗口小时（0-23），默认 1-7。
+	RebalanceStart int `json:"rebalance_start"`
+	RebalanceEnd   int `json:"rebalance_end"`
 }
+
+// 低峰窗口默认值。
+const (
+	DefaultRebalanceStart = 1
+	DefaultRebalanceEnd   = 7
+)
 
 // DefaultPolicySetting 两方向都取缺省档。
 func DefaultPolicySetting() PolicySetting {
-	return PolicySetting{Out: DefaultPolicy, In: DefaultPolicy}
+	return PolicySetting{
+		Out: DefaultPolicy, In: DefaultPolicy,
+		RebalanceStart: DefaultRebalanceStart, RebalanceEnd: DefaultRebalanceEnd,
+	}
 }
 
 // LoadPolicy 读取策略设置；未设置回缺省。
@@ -70,13 +84,26 @@ func LoadPolicy(db *gorm.DB) (PolicySetting, error) {
 	if err := json.Unmarshal([]byte(raw), &setting); err != nil {
 		return DefaultPolicySetting(), nil // 脏数据按缺省走，不阻断分配
 	}
-	if !ValidPolicy(setting.Out) {
-		setting.Out = DefaultPolicy
-	}
-	if !ValidPolicy(setting.In) {
-		setting.In = DefaultPolicy
-	}
+	setting.normalize()
 	return setting, nil
+}
+
+// normalize 补齐非法字段为缺省档。
+func (s *PolicySetting) normalize() {
+	if !ValidPolicy(s.Out) {
+		s.Out = DefaultPolicy
+	}
+	if !ValidPolicy(s.In) {
+		s.In = DefaultPolicy
+	}
+	if !validWindow(s.RebalanceStart, s.RebalanceEnd) {
+		s.RebalanceStart, s.RebalanceEnd = DefaultRebalanceStart, DefaultRebalanceEnd
+	}
+}
+
+// validWindow 低峰窗口口径：0-23 且 start < end（左闭右开，不支持跨日）。
+func validWindow(start, end int) bool {
+	return start >= 0 && start <= 23 && end >= 0 && end <= 23 && start < end
 }
 
 // SavePolicy 校验并持久化策略设置。
@@ -84,11 +111,21 @@ func SavePolicy(db *gorm.DB, setting PolicySetting) error {
 	if !ValidPolicy(setting.Out) || !ValidPolicy(setting.In) {
 		return fmt.Errorf("policy must be %s/%s/%s/%s", PolicyLeastConn, PolicyCostFirst, PolicyPerfFirst, PolicyBalanced)
 	}
+	if !validWindow(setting.RebalanceStart, setting.RebalanceEnd) {
+		return fmt.Errorf("rebalance window must be 0-23 with start < end")
+	}
 	raw, err := json.Marshal(setting)
 	if err != nil {
 		return err
 	}
 	return storage.SetSetting(db, settingKey, string(raw))
+}
+
+// InOffPeak 判定时刻是否在低峰再平衡窗口内。
+func InOffPeak(now time.Time, s PolicySetting) bool {
+	s.normalize()
+	h := now.Hour()
+	return h >= s.RebalanceStart && h < s.RebalanceEnd
 }
 
 // Candidate 是一个落地候选的打分输入。
@@ -152,16 +189,26 @@ func Pick(policy, direction string, cands []Candidate) (int, bool) {
 	return best, true
 }
 
+// 载荷指标：负载比（连接/容量M）——3M 小带宽按容量少分。
+func loadRatio(c Candidate) float64 {
+	return float64(c.Conns) / float64(c.CapacityMbps())
+}
+
+// costPer 边际流量成本（分/GB）。
+func costPer(c Candidate) float64 {
+	return float64(c.CostPerGB())
+}
+
+// premiumOf 线路档只作用于回国线（设计稿 §C.5.2）；出海线不分线档。
+func premiumOf(c Candidate, direction string) bool {
+	return direction == agentproto.DirectionIn && isPremiumLine(c.Node.LineType)
+}
+
 // lessFor 生成策略比较函数：less(a,b)=a 是否优于 b。
 func lessFor(policy, direction string, cands []Candidate) func(a, b int) bool {
-	load := func(i int) float64 {
-		return float64(cands[i].Conns) / float64(cands[i].CapacityMbps())
-	}
-	cost := func(i int) float64 { return float64(cands[i].CostPerGB()) }
-	premium := func(i int) bool {
-		// 线路档只作用于回国线（设计稿 §C.5.2）；出海线不分线档。
-		return direction == agentproto.DirectionIn && isPremiumLine(cands[i].Node.LineType)
-	}
+	load := func(i int) float64 { return loadRatio(cands[i]) }
+	cost := func(i int) float64 { return costPer(cands[i]) }
+	premium := func(i int) bool { return premiumOf(cands[i], direction) }
 	byName := func(a, b int) bool { return cands[a].Node.Name < cands[b].Node.Name }
 	switch policy {
 	case PolicyCostFirst:
@@ -219,6 +266,40 @@ func lessFor(policy, direction string, cands []Candidate) func(a, b int) bool {
 			}
 			return byName(a, b)
 		}
+	}
+}
+
+// 峰时换线阈值：主指标须显著更优（省 30% 以上）才动，防留痕抖动（E-22）。
+const peakSwitchMargin = 0.7
+
+// shouldSwitch 峰时换线判定（低峰窗口直接按策略全序换，不走此判定）。
+// 现行不在健康候选内（病了/下线）时由调用方强制换线，不进此函数。
+func shouldSwitch(policy, direction string, cands []Candidate, cur, win int) bool {
+	switch policy {
+	case PolicyPerfFirst:
+		// 峰时只允许线档升级（普线→优质线）；降级留到低峰再平衡。
+		return !premiumOf(cands[cur], direction) && premiumOf(cands[win], direction)
+	case PolicyCostFirst:
+		curCost := costPer(cands[cur])
+		return curCost > 0 && costPer(cands[win]) < curCost*peakSwitchMargin
+	case PolicyBalanced:
+		all := make([]int, len(cands))
+		for i := range cands {
+			all[i] = i
+		}
+		loadN := normalize(cands, all, func(i int) float64 { return loadRatio(cands[i]) })
+		costN := normalize(cands, all, func(i int) float64 { return costPer(cands[i]) })
+		score := func(i int) float64 {
+			s := 0.5*loadN(i) + 0.3*costN(i)
+			if premiumOf(cands[i], direction) {
+				s -= 0.2
+			}
+			return s
+		}
+		return score(win) < score(cur)-0.15 // 综合分显著更优
+	default: // least_conn
+		curLoad := loadRatio(cands[cur])
+		return loadRatio(cands[win]) < curLoad*peakSwitchMargin
 	}
 }
 
@@ -298,8 +379,14 @@ func sweepOnce(db *gorm.DB, logger *log.Logger) error {
 
 // Sweep 执行一轮分配：每个可分配入口（enabled、池内 active、无生效中
 // manual 分配）按其方向策略选落地；与现行 auto 行不一致时释放旧行留痕
-// 并新建。返回换线事件。全病候选时该入口本轮不动（保现行，等恢复）。
+// 并新建。峰时换线保守（主指标显著更优才动），低峰窗口按策略全序再平衡。
+// 返回换线事件。全病候选时该入口本轮不动（保现行，等恢复）。
 func Sweep(db *gorm.DB) ([]SwitchEvent, error) {
+	return SweepAt(db, time.Now())
+}
+
+// SweepAt 是 Sweep 的时钟注入版，供测试固定时刻。
+func SweepAt(db *gorm.DB, now time.Time) ([]SwitchEvent, error) {
 	policy, err := LoadPolicy(db)
 	if err != nil {
 		return nil, err
@@ -318,7 +405,7 @@ func Sweep(db *gorm.DB) ([]SwitchEvent, error) {
 	sick := latestSick(db)
 
 	var events []SwitchEvent
-	now := time.Now()
+	offPeak := InOffPeak(now, policy)
 	for _, entry := range entries {
 		direction := entry.Direction
 		if direction == agentproto.DirectionBoth {
@@ -357,8 +444,25 @@ func Sweep(db *gorm.DB) ([]SwitchEvent, error) {
 			continue // 全病或无候选：保现行，等恢复
 		}
 		winner := cands[idx].Node
-		if current != nil && current.LandingNodeID == winner.ID {
-			continue // 无变化不落行，避免留痕抖动
+		// 现行落地在健康候选内时走峰时保守判定；不在（病了/下线/无现行）
+		// 则强制换线——健康问题不排队。
+		curIdx := -1
+		if current != nil {
+			for i := range cands {
+				if cands[i].Healthy && cands[i].Node.ID == current.LandingNodeID {
+					curIdx = i
+					break
+				}
+			}
+		}
+		if curIdx >= 0 {
+			if curIdx == idx {
+				continue // 现行即最优，不落行防抖动
+			}
+			// 峰时须主指标显著更优才动；低峰窗口按策略全序再平衡。
+			if !offPeak && !shouldSwitch(policyFor(policy, direction), direction, cands, curIdx, idx) {
+				continue
+			}
 		}
 		c := cands[idx]
 		reason := fmt.Sprintf("%s 负载 %d 连/%dM", policyFor(policy, direction), c.Conns, c.CapacityMbps())

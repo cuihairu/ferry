@@ -111,10 +111,12 @@ export interface TransportRow {
   switchneeded: boolean
 }
 
-/** AllocPolicy 是落地自动分配的每方向档位（E-21）。 */
+/** AllocPolicy 是落地自动分配的每方向档位与低峰再平衡窗口（E-21/E-22）。 */
 export interface AllocPolicy {
   out: string
   in: string
+  rebalance_start: number
+  rebalance_end: number
 }
 
 /** AllocData 是策略与生效中的 auto 分配行。 */

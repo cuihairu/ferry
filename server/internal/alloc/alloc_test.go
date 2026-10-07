@@ -165,7 +165,7 @@ func TestPolicyPersistence(t *testing.T) {
 		t.Fatalf("default policy = %+v err=%v", setting, err)
 	}
 
-	setting = PolicySetting{Out: PolicyCostFirst, In: PolicyPerfFirst}
+	setting = PolicySetting{Out: PolicyCostFirst, In: PolicyPerfFirst, RebalanceStart: 2, RebalanceEnd: 6}
 	if err := SavePolicy(db, setting); err != nil {
 		t.Fatal(err)
 	}
@@ -174,8 +174,11 @@ func TestPolicyPersistence(t *testing.T) {
 		t.Fatalf("roundtrip = %+v err=%v", got, err)
 	}
 
-	if err := SavePolicy(db, PolicySetting{Out: "greedy", In: PolicyBalanced}); err == nil {
+	if err := SavePolicy(db, PolicySetting{Out: "greedy", In: PolicyBalanced, RebalanceStart: 1, RebalanceEnd: 7}); err == nil {
 		t.Fatal("invalid policy must be rejected")
+	}
+	if err := SavePolicy(db, PolicySetting{Out: PolicyBalanced, In: PolicyBalanced, RebalanceStart: 7, RebalanceEnd: 7}); err == nil {
+		t.Fatal("invalid window must be rejected")
 	}
 }
 
@@ -238,7 +241,7 @@ func TestSweepLoadSignal(t *testing.T) {
 	// least_conn 下新入口分给 land-b（3M 少分）。
 	seedConns(t, db, landA.ID, "relay", 30)
 	seedConns(t, db, landB.ID, "relay", 30)
-	if err := SavePolicy(db, PolicySetting{Out: PolicyLeastConn, In: PolicyLeastConn}); err != nil {
+	if err := SavePolicy(db, PolicySetting{Out: PolicyLeastConn, In: PolicyLeastConn, RebalanceStart: 1, RebalanceEnd: 7}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -345,5 +348,90 @@ func TestSweepAllSickKeepsCurrent(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("rows = %d, want 1", n)
+	}
+}
+
+func TestShouldSwitchPeakMargins(t *testing.T) {
+	// least_conn 峰时：主指标省 30% 以上才动。
+	cur := Candidate{Node: storage.Node{Name: "cur", BwDownMbps: 100}, Conns: 100, Healthy: true}
+	slightly := Candidate{Node: storage.Node{Name: "slightly", BwDownMbps: 100}, Conns: 90, Healthy: true}
+	much := Candidate{Node: storage.Node{Name: "much", BwDownMbps: 100}, Conns: 50, Healthy: true}
+	cands := []Candidate{cur, slightly, much}
+	if shouldSwitch(PolicyLeastConn, "out", cands, 0, 1) {
+		t.Fatal("10% better must not switch on peak")
+	}
+	if !shouldSwitch(PolicyLeastConn, "out", cands, 0, 2) {
+		t.Fatal("50% better must switch on peak")
+	}
+
+	// cost_first 峰时：边际成本降 30% 以上才动；包月零成本现行不换。
+	cheap := Candidate{Node: storage.Node{Name: "cheap", BillingType: "按流量", TrafficPriceCents: 90}, Healthy: true}
+	muchCheap := Candidate{Node: storage.Node{Name: "much-cheap", BillingType: "按流量", TrafficPriceCents: 30}, Healthy: true}
+	pricey := Candidate{Node: storage.Node{Name: "pricey", BillingType: "按流量", TrafficPriceCents: 100}, Healthy: true}
+	free := Candidate{Node: storage.Node{Name: "free", BillingType: "包月"}, Healthy: true}
+	cands = []Candidate{pricey, cheap, muchCheap, free}
+	if shouldSwitch(PolicyCostFirst, "out", cands, 0, 1) {
+		t.Fatal("10% cheaper must not switch on peak")
+	}
+	if !shouldSwitch(PolicyCostFirst, "out", cands, 0, 2) {
+		t.Fatal("70% cheaper must switch on peak")
+	}
+	if !shouldSwitch(PolicyCostFirst, "out", cands, 0, 3) {
+		t.Fatal("monthly free must switch on peak")
+	}
+	if shouldSwitch(PolicyCostFirst, "out", []Candidate{free, pricey}, 0, 1) {
+		t.Fatal("free current must never switch on peak")
+	}
+
+	// perf_first 峰时：只许升档（普线→优质线），不许降级。
+	plain := Candidate{Node: storage.Node{Name: "plain", LineType: "163"}, Healthy: true}
+	gia := Candidate{Node: storage.Node{Name: "gia", LineType: "cn2_gia"}, Healthy: true}
+	cands = []Candidate{plain, gia}
+	if !shouldSwitch(PolicyPerfFirst, "in", cands, 0, 1) {
+		t.Fatal("line upgrade must switch on peak")
+	}
+	if shouldSwitch(PolicyPerfFirst, "in", []Candidate{gia, plain}, 0, 1) {
+		t.Fatal("line downgrade must not switch on peak")
+	}
+}
+
+func TestSweepPeakHysteresisAndOffpeakRebalance(t *testing.T) {
+	db := newTestDB(t)
+	entry := seedNode(t, db, "entry", "entry", "out", nil)
+	landA := seedNode(t, db, "land-a", "landing", "out", nil)
+	landB := seedNode(t, db, "land-b", "landing", "out", nil)
+
+	// 现行 land-a（100M 兜底）。land-b 同容量但连接略少：峰时 10% 优势不动，
+	// 低峰窗口全序更优即再平衡。
+	seedConns(t, db, landA.ID, "relay", 100)
+	seedConns(t, db, landB.ID, "relay", 90)
+	if err := db.Create(&storage.LandingAssignment{
+		EntryNodeID: &entry.ID, LandingNodeID: landA.ID,
+		Direction: "out", Strategy: PolicyLeastConn, AssignedAt: time.Now(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := SavePolicy(db, PolicySetting{Out: PolicyLeastConn, In: PolicyLeastConn, RebalanceStart: 1, RebalanceEnd: 7}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 峰时（12 点）：land-b 仅优 10%，不换。
+	events, err := SweepAt(db, time.Date(2026, 10, 7, 12, 0, 0, 0, time.Local))
+	if err != nil || len(events) != 0 {
+		t.Fatalf("peak slight gain must hold: %+v err=%v", events, err)
+	}
+
+	// 低峰（3 点）：全序更优即再平衡。
+	events, err = SweepAt(db, time.Date(2026, 10, 7, 3, 0, 0, 0, time.Local))
+	if err != nil || len(events) != 1 || events[0].ToName != "land-b" {
+		t.Fatalf("offpeak rebalance = %+v err=%v", events, err)
+	}
+
+	// 峰时大幅更优：land-c 负载比 0.3 vs 现行 0.9，显著更优即动。
+	landC := seedNode(t, db, "land-c", "landing", "out", nil)
+	seedConns(t, db, landC.ID, "relay", 30)
+	events, err = SweepAt(db, time.Date(2026, 10, 7, 12, 0, 0, 0, time.Local))
+	if err != nil || len(events) != 1 || events[0].ToName != "land-c" {
+		t.Fatalf("peak big gain must switch: %+v err=%v", events, err)
 	}
 }

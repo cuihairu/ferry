@@ -18,21 +18,23 @@ func TestAllocAPI(t *testing.T) {
 	}
 	var out struct {
 		Policy struct {
-			Out string `json:"out"`
-			In  string `json:"in"`
+			Out            string `json:"out"`
+			In             string `json:"in"`
+			RebalanceStart int    `json:"rebalance_start"`
+			RebalanceEnd   int    `json:"rebalance_end"`
 		} `json:"policy"`
 		Rows []map[string]any `json:"rows"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("decode alloc resp: %v", err)
 	}
-	if out.Policy.Out != "balanced" || out.Policy.In != "balanced" {
+	if out.Policy.Out != "balanced" || out.Policy.In != "balanced" || out.Policy.RebalanceStart != 1 || out.Policy.RebalanceEnd != 7 {
 		t.Fatalf("default policy = %+v", out.Policy)
 	}
 
-	// 设置档位并回读
+	// 设置档位与低峰窗口并回读
 	rec = doJSON(t, r, "PUT", "/api/alloc/policy", map[string]any{
-		"out": "cost_first", "in": "perf_first",
+		"out": "cost_first", "in": "perf_first", "rebalance_start": 2, "rebalance_end": 6,
 	})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("put policy status = %d body=%s", rec.Code, rec.Body)
@@ -41,8 +43,16 @@ func TestAllocAPI(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.Policy.Out != "cost_first" || out.Policy.In != "perf_first" {
+	if out.Policy.Out != "cost_first" || out.Policy.In != "perf_first" || out.Policy.RebalanceStart != 2 || out.Policy.RebalanceEnd != 6 {
 		t.Fatalf("policy after put = %+v", out.Policy)
+	}
+
+	// 非法窗口拒绝
+	rec = doJSON(t, r, "PUT", "/api/alloc/policy", map[string]any{
+		"out": "balanced", "in": "balanced", "rebalance_start": 9, "rebalance_end": 9,
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid window status = %d", rec.Code)
 	}
 
 	// 非法档位拒绝

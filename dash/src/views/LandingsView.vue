@@ -12,7 +12,7 @@ import { formatDate } from '../utils/format'
 const rows = ref<LandingAssignment[]>([])
 const nodes = ref<Node[]>([])
 const txRows = ref<TransportRow[]>([])
-const allocPolicy = ref<AllocPolicy>({ out: 'balanced', in: 'balanced' })
+const allocPolicy = ref<AllocPolicy>({ out: 'balanced', in: 'balanced', rebalance_start: 1, rebalance_end: 7 })
 const policySaving = ref(false)
 const loading = ref(false)
 const scope = ref<'active' | 'all'>('active')
@@ -231,7 +231,7 @@ const DIR_TEXT: Record<string, string> = { out: '出海', in: '回国' }
     <h3 class="section">自动分配策略（E-21）</h3>
     <p class="section-desc">
       加权最小连接：健康与负载之外按容量分连接（3M 小带宽少分）、按流量计费节点参与成本判定（包月不参与）；
-      无手动分配的入口由策略周期选落地，换线留痕并通知。手动分配的入口不受影响。
+      峰时换线保守（主指标显著更优才动），低峰窗口内按策略全序再平衡。手动分配的入口不受影响。
     </p>
     <div class="policy-bar">
       <span class="policy-item">出海
@@ -243,6 +243,12 @@ const DIR_TEXT: Record<string, string> = { out: '出海', in: '回国' }
         <el-select v-model="allocPolicy.in" style="width: 120px">
           <el-option v-for="o in POLICY_OPTIONS" :key="o.value" :value="o.value" :label="o.label" />
         </el-select>
+      </span>
+      <span class="policy-item">低峰窗口
+        <el-input-number v-model="allocPolicy.rebalance_start" :min="0" :max="23" :controls="false" style="width: 48px" />
+        –
+        <el-input-number v-model="allocPolicy.rebalance_end" :min="0" :max="23" :controls="false" style="width: 48px" />
+        时
       </span>
       <el-button type="primary" :loading="policySaving" @click="savePolicy">保存策略</el-button>
     </div>
