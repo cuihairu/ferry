@@ -192,6 +192,13 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 			panel.GET("/notify-prefs", h.panelNotifyPrefs)
 			panel.PUT("/notify-prefs", h.panelUpdateNotifyPrefs)
 		}
+
+		// TG bot 对接面（TOUCH-6）：服务级令牌鉴权，bot 后端独立部署
+		// （不依赖面板域名存活），按用户 tg_chat_id 定位（TOUCH-1 绑定）。
+		bot := api.Group("/bot")
+		{
+			bot.GET("/summary", h.botSummary)
+		}
 	}
 	// P1-1 管理员登录与鉴权
 	api = r.Group("/api", apiAuthMiddleware())
