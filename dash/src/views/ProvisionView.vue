@@ -3,22 +3,26 @@ import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   createProvider, createTemplate, deleteProvider, deleteTemplate,
-  getProviders, getTemplates, updateProvider, updateTemplate,
-  type CloudProvider, type ProvisionTemplate,
+  getProviders, getProvisionJobs, getTemplates, runProvision, updateProvider, updateTemplate,
+  type CloudProvider, type ProvisionJob, type ProvisionTemplate,
 } from '../api'
 
 // OS-1：供给配置——云提供商凭证与机型模板。
 // 凭证机密加密落库（R24 口径）：表单不回显明文，留空表示保留原值；
 // 模板含机型/区域/带宽/计费/方向线路标签，OS-2 渲染 HCL、OS-4 入池补全元数据。
+// OS-2：模板可触发 plan/apply（后台执行），job 留痕列表看结果与日志尾部。
 
 const providers = ref<CloudProvider[]>([])
 const templates = ref<ProvisionTemplate[]>([])
+const jobs = ref<ProvisionJob[]>([])
 const loading = ref(false)
 
 async function load() {
   loading.value = true
   try {
-    ;[providers.value, templates.value] = await Promise.all([getProviders(), getTemplates()])
+    ;[providers.value, templates.value, jobs.value] = await Promise.all([
+      getProviders(), getTemplates(), getProvisionJobs(30),
+    ])
   } catch (e) {
     ElMessage.error(String(e))
   } finally {
@@ -26,6 +30,31 @@ async function load() {
   }
 }
 onMounted(load)
+
+// ---- 供给执行（OS-2）----
+const running = ref<number[]>([])
+
+async function runTpl(row: ProvisionTemplate, action: 'plan' | 'apply') {
+  if (action === 'apply') {
+    try {
+      await ElMessageBox.confirm(
+        `按模板「${row.name}」执行 apply？将真实创建/变更云资源。`, '供给确认', { type: 'warning' },
+      )
+    } catch {
+      return
+    }
+  }
+  running.value = [...running.value, row.id]
+  try {
+    await runProvision(row.id, action)
+    ElMessage.success(action === 'apply' ? 'apply 已受理，执行中' : 'plan 已受理，执行中')
+    setTimeout(load, 1500) // 稍后刷新 job 状态
+  } catch (e) {
+    ElMessage.error(String(e))
+  } finally {
+    running.value = running.value.filter((id) => id !== row.id)
+  }
+}
 
 // ---- 提供商 ----
 const provDialog = ref(false)
@@ -195,12 +224,39 @@ function yuan(cents: number): string {
       <el-table-column label="角色" width="80">
         <template #default="{ row }">{{ ROLE_TEXT[row.role] ?? row.role }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="140">
+      <el-table-column label="操作" width="230">
         <template #default="{ row }">
+          <el-button link type="primary" size="small" :loading="running.includes(row.id)" @click="runTpl(row, 'plan')">plan</el-button>
+          <el-button link type="success" size="small" :loading="running.includes(row.id)" @click="runTpl(row, 'apply')">apply</el-button>
           <el-button link type="primary" size="small" @click="editTemplate(row)">编辑</el-button>
           <el-button link type="danger" size="small" @click="removeTemplate(row)">删除</el-button>
         </template>
       </el-table-column>
+    </el-table>
+
+    <div class="head-row">
+      <h3 class="section">执行留痕</h3>
+      <el-button size="small" @click="load" :loading="loading">刷新</el-button>
+    </div>
+    <el-table :data="jobs" v-loading="loading" :header-cell-style="{ background: 'var(--ferry-bg-panel)' }">
+      <el-table-column prop="template_name" label="模板" min-width="110" />
+      <el-table-column prop="action" label="动作" width="80" />
+      <el-table-column label="状态" width="90">
+        <template #default="{ row }">
+          <el-tag :type="row.status === 'ok' ? 'success' : row.status === 'failed' ? 'danger' : 'warning'" size="small" effect="plain">
+            {{ row.status === 'ok' ? '成功' : row.status === 'failed' ? '失败' : '执行中' }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="日志尾部" min-width="220">
+        <template #default="{ row }">
+          <el-tooltip v-if="row.log" :content="row.log" raw-content placement="top" :show-after="200">
+            <span class="log-cell">{{ row.log.slice(-60) }}</span>
+          </el-tooltip>
+          <span v-else class="dim">—</span>
+        </template>
+      </el-table-column>
+      <el-table-column prop="created_at" label="时间" width="170" />
     </el-table>
 
     <el-dialog v-model="provDialog" :title="provEditing ? '编辑提供商' : '录入提供商'" width="440px">
@@ -313,5 +369,16 @@ function yuan(cents: number): string {
   display: flex;
   gap: 8px;
   flex: 1;
+}
+.log-cell {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--ferry-text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+  max-width: 240px;
+  vertical-align: bottom;
 }
 </style>

@@ -455,3 +455,23 @@ export function updateTemplate(id: number, body: Partial<ProvisionTemplate>): Pr
 export function deleteTemplate(id: number): Promise<{ ok: boolean }> {
   return del<{ ok: boolean }>(`/api/provision-templates/${id}`)
 }
+
+/** ProvisionJob 是一次供给执行留痕（OS-2）。 */
+export interface ProvisionJob {
+  id: number
+  template_id: number
+  template_name: string
+  action: 'plan' | 'apply' | string
+  status: 'running' | 'ok' | 'failed' | string
+  log: string
+  created_at: string
+  finished_at: string | null
+}
+
+export function runProvision(templateId: number, action: 'plan' | 'apply', name?: string): Promise<ProvisionJob> {
+  return post<ProvisionJob>(`/api/provision-templates/${templateId}/${action}`, name ? { name } : {})
+}
+
+export function getProvisionJobs(limit?: number): Promise<ProvisionJob[]> {
+  return get<ProvisionJob[]>(`/api/provision-jobs${limit ? `?limit=${limit}` : ''}`)
+}

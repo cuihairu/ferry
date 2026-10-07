@@ -40,6 +40,10 @@ type Config struct {
 	// SecretKey 是机密加密主密钥（R24：不入库，部署环境变量/文件注入），
 	// 未配置时云凭证等机密不可录入。可通过 FERRY_SECRET_KEY 覆盖。
 	SecretKey string `json:"-"`
+	// TofuBin 是 OpenTofu 可执行文件路径（供给引擎，OS-2）。
+	TofuBin string `json:"-"`
+	// TofuWorkdir 是供给工作目录根（state 集中存面板侧，每模板一目录）。
+	TofuWorkdir string `json:"-"`
 }
 
 // Load 从环境变量读取配置，未设置的项回退到默认值。
@@ -60,6 +64,8 @@ func Load() Config {
 		AdminSecret:          envOr("FERRY_ADMIN_SECRET", ""),
 		ApiTokenSecret:       envOr("FERRY_API_SECRET", ""),
 		SecretKey:            envOr("FERRY_SECRET_KEY", ""),
+		TofuBin:              envOr("FERRY_TOFU_BIN", "tofu"),
+		TofuWorkdir:          envOr("FERRY_TOFU_DIR", "/var/lib/ferry/tofu"),
 	}
 }
 
@@ -80,6 +86,8 @@ func Default() Config {
 		AdminSecret:          "",
 		ApiTokenSecret:       "",
 		SecretKey:            "",
+		TofuBin:              "tofu",
+		TofuWorkdir:          "",
 	}
 }
 

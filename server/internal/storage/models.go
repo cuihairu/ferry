@@ -265,6 +265,7 @@ type ProvisionTemplate struct {
 	ProviderID        uint      `gorm:"index;not null" json:"provider_id"`
 	Plan              string    `gorm:"size:64" json:"plan"`              // 机型 slug
 	Region            string    `gorm:"size:64" json:"region"`            // 区域
+	Image             string    `gorm:"size:64" json:"image"`             // 系统镜像（provider 各自口径）
 	BwMbps            int       `json:"bw_mbps"`                          // 带宽（Mbps）
 	BillingType       string    `gorm:"size:16" json:"billing_type"`      // 包月 / 按流量
 	MonthlyCostCents  int64     `json:"monthly_cost_cents"`               // 月固定成本（分）
@@ -275,4 +276,17 @@ type ProvisionTemplate struct {
 	Transport         string    `gorm:"size:16" json:"transport"`         // tls/ws-tls/quic/ssh
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+// ProvisionJob 是一次供给执行留痕（OS-2）：plan/apply 受控执行的结果与
+// 日志尾部。单实例不并发 apply；日志不含机密（密钥走 TF_VAR 环境变量）。
+type ProvisionJob struct {
+	ID           uint      `gorm:"primaryKey" json:"id"`
+	TemplateID   uint      `gorm:"index;not null" json:"template_id"`
+	TemplateName string    `gorm:"size:64" json:"template_name"`
+	Action       string    `gorm:"size:8;not null" json:"action"` // plan / apply
+	Status       string    `gorm:"size:8;not null" json:"status"` // running / ok / failed
+	Log          string    `gorm:"type:text" json:"log"`
+	CreatedAt    time.Time `json:"created_at"`
+	FinishedAt   *time.Time `json:"finished_at"`
 }
