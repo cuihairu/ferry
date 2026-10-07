@@ -11,7 +11,7 @@ build-server:
 	cd server && CGO_ENABLED=0 go build -o ../bin/ferry-server ./cmd/ferry
 
 build-agent:
-	cd agent && CGO_ENABLED=0 go build -o ../bin/ferry-agent ./cmd/agent
+	cd agent && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o ../bin/ferry-agent ./cmd/agent
 	$(MAKE) check-agent-size
 
 # E-4 门禁：核心静态二进制 ≤10MB（核心最小集口径见 agent/internal/roles）。

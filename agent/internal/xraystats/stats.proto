@@ -1,22 +1,18 @@
 // xray-core app/stats/command/command.proto 的 QueryStats 子集。
-// 来源：XTLS/Xray-core（字段号与官方定义一致）；只需 QueryStats 一对
-// 消息，service stub 不生成（客户端用 conn.Invoke + 方法名字符串）。
+// 仅作文档：编解码在 grpc.go 手写（E-4 核心尺寸预算，不引 protoc 生成器），
+// 字段号与 XTLS/Xray-core 官方定义一致。
 syntax = "proto3";
-
 package xray.app.stats.command;
 
-option go_package = "github.com/cuihairu/ferry/agent/internal/xraystats";
-
-// QueryStatsRequest 按 pattern 前缀查询统计，reset=true 查后清零。
 message QueryStatsRequest {
   string pattern = 1;
   bool reset = 2;
 }
 
-// Stat 是一条统计项：name 形如 user>>>EMAIL>>>traffic>>>uplink。
 message Stat {
   string name = 1;
-  int64 value = 2;
+  uint64 value = 2;
+  uint32 reset = 3;
 }
 
 message QueryStatsResponse {
