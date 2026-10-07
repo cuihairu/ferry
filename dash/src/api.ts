@@ -136,6 +136,47 @@ export function putAllocPolicy(policy: AllocPolicy): Promise<AllocPolicy> {
   return put<AllocPolicy>('/api/alloc/policy', policy)
 }
 
+/** QuotaLinkSetting 是配额联动配置（SAVE-6）：超阈值自动把该用户订阅降档到低成本档入口。 */
+export interface QuotaLinkSetting {
+  enabled: boolean
+  /** 流量档阈值（1-100）：窗口用量达个人配额的 N% 触发；0=不按流量档触发 */
+  traffic_percent: number
+  /** 费用档阈值（分）：窗口折算费用达 N 分触发；0=不按费用档触发 */
+  cost_cents: number
+  /** 降档成本档线（分/GB）：包月或单价不超线的节点视为低成本档；0=只有包月 */
+  max_price_cents: number
+}
+
+/** QuotaActionRow 是一条配额联动降档留痕（released_at 空=降档生效中）。 */
+export interface QuotaActionRow {
+  id: number
+  user_id: number
+  trigger: 'traffic' | 'cost'
+  used_bytes: number
+  quota_bytes: number
+  cost_cents: number
+  max_price_cents: number
+  reason: string
+  created_at: string
+  released_at: string | null
+  release_reason: string
+}
+
+/** QuotaLinkData 是联动配置、降档留痕（生效中在前）与用户名映射。 */
+export interface QuotaLinkData {
+  setting: QuotaLinkSetting
+  rows: QuotaActionRow[]
+  names: Record<string, string>
+}
+
+export function getQuotaLink(): Promise<QuotaLinkData> {
+  return get<QuotaLinkData>('/api/quota-link')
+}
+
+export function putQuotaLink(setting: QuotaLinkSetting): Promise<QuotaLinkSetting> {
+  return put<QuotaLinkSetting>('/api/quota-link', setting)
+}
+
 /** NodeCost 是一个节点的月度成本视图（E-23）。 */
 export interface NodeCost {
   id: number

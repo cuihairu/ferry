@@ -66,6 +66,9 @@ type Config struct {
 	CertIntervalSec int
 	// NotifyScanIntervalSec 是站内信到期/流量预警扫表周期（NT-2），去重按日，建议小时级。
 	NotifyScanIntervalSec int
+	// QuotaLinkIntervalSec 是配额联动判定周期（秒，SAVE-6）；降档状态在订阅
+	// 出口即时生效，周期只影响触发/释放留痕与通知的及时性。
+	QuotaLinkIntervalSec int
 }
 
 // Load 从环境变量读取配置，未设置的项回退到默认值。
@@ -100,6 +103,7 @@ func Load() Config {
 		CertIntervalSec:      envIntOr("FERRY_CERT_SEC", 21600),
 
 		NotifyScanIntervalSec: envIntOr("FERRY_NOTIFY_SCAN_SEC", 3600),
+		QuotaLinkIntervalSec:  envIntOr("FERRY_QUOTA_LINK_SEC", 600),
 	}
 }
 
@@ -134,6 +138,7 @@ func Default() Config {
 		CertIntervalSec:      21600,
 
 		NotifyScanIntervalSec: 3600,
+		QuotaLinkIntervalSec:  600,
 	}
 }
 

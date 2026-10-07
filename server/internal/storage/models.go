@@ -15,9 +15,9 @@ type User struct {
 	Password   string     `gorm:"size:128" json:"-"`
 	ApiToken   string     `gorm:"size:64" json:"api_token"`
 	// 通知偏好（NT-2）：站内信通道内按类型开关；通道维度待第二通道（邮件/TG）落地再扩。
-	NotifyExpiry       bool `gorm:"default:true" json:"notify_expiry"`        // 到期提醒
-	NotifyTraffic      bool `gorm:"default:true" json:"notify_traffic"`       // 流量预警
-	TrafficWarnPercent int  `gorm:"default:80" json:"traffic_warn_percent"` // 流量预警阈值（1-100）
+	NotifyExpiry       bool      `gorm:"default:true" json:"notify_expiry"`      // 到期提醒
+	NotifyTraffic      bool      `gorm:"default:true" json:"notify_traffic"`     // 流量预警
+	TrafficWarnPercent int       `gorm:"default:80" json:"traffic_warn_percent"` // 流量预警阈值（1-100）
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
 }
@@ -328,8 +328,8 @@ type RecoveryAction struct {
 	NodeID     uint       `json:"node_id"`
 	NodeName   string     `gorm:"size:64" json:"node_name"`
 	Level      int        `json:"level"`
-	Action     string     `gorm:"size:32" json:"action"`       // 动作名（未注册级为空）
-	State      string     `gorm:"size:16" json:"state"`        // running/ok/failed/skipped/timeout
+	Action     string     `gorm:"size:32" json:"action"`            // 动作名（未注册级为空）
+	State      string     `gorm:"size:16" json:"state"`             // running/ok/failed/skipped/timeout
 	Detail     string     `gorm:"size:512" json:"detail,omitempty"` // 失败/跳过原因
 	StartedAt  time.Time  `json:"started_at"`
 	UpdatedAt  time.Time  `json:"updated_at"`
@@ -388,7 +388,7 @@ type CertTask struct {
 // 预警/系统），逐用户落行（小用户量扇出成本可忽略），已读态挂在行上。
 type Notification struct {
 	ID        int64      `gorm:"primaryKey" json:"id"`
-	UserID    int64      `gorm:"index;not null" json:"user_id"`     // 收件人
+	UserID    int64      `gorm:"index;not null" json:"user_id"`      // 收件人
 	Type      string     `gorm:"size:16;index;not null" json:"type"` // announcement/expiry/traffic/system
 	Title     string     `gorm:"size:128;not null" json:"title"`
 	Body      string     `gorm:"size:512" json:"body,omitempty"`
@@ -404,3 +404,20 @@ const (
 	NotifTraffic      = "traffic"
 	NotifSystem       = "system"
 )
+
+// QuotaAction 是一条配额联动留痕（SAVE-6）：用户流量/费用超阈值后订阅自动
+// 降档（只出低成本档入口），released_at 空=降档生效中；阈值字段为触发时刻
+// 快照，降档订阅按快照档线过滤，设置后续调整不影响已生效行。
+type QuotaAction struct {
+	ID            uint       `gorm:"primaryKey" json:"id"`
+	UserID        uint       `gorm:"index;not null" json:"user_id"`
+	Trigger       string     `gorm:"size:16;not null" json:"trigger"`  // traffic/cost
+	UsedBytes     int64      `gorm:"default:0" json:"used_bytes"`      // 触发时窗口用量快照
+	QuotaBytes    int64      `gorm:"default:0" json:"quota_bytes"`     // 触发时个人配额快照（流量档）
+	CostCents     int64      `gorm:"default:0" json:"cost_cents"`      // 触发时折算费用快照（分，费用档）
+	MaxPriceCents int64      `gorm:"default:0" json:"max_price_cents"` // 降档成本档线快照（分/GB）
+	Reason        string     `gorm:"size:255" json:"reason"`
+	CreatedAt     time.Time  `gorm:"not null" json:"created_at"`
+	ReleasedAt    *time.Time `json:"released_at"`
+	ReleaseReason string     `gorm:"size:64" json:"release_reason"`
+}

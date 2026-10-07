@@ -90,6 +90,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&DNSFront{},
 		&CertTask{},
 		&Notification{},
+		&QuotaAction{},
 	)
 }
 

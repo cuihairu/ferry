@@ -1,12 +1,18 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { get, put, getEvening, type EveningReport, type GroupCost, type NodeCost } from '../api'
+import {
+  get, put, getEvening, getQuotaLink, putQuotaLink,
+  type EveningReport, type GroupCost, type NodeCost,
+  type QuotaLinkData, type QuotaLinkSetting, type QuotaActionRow,
+} from '../api'
 import { formatBytes } from '../utils/format'
 
 // E-23：成本看板——节点流量花费（仅按流量计费有边际成本）、区域/运营商
 // 汇总、月度预估（自然月至今折算）与高成本告警阈值；超阈值节点在告警列表单发。
 // E-29：晚高峰回程报表同页——24 小时回程质量分段 + 晚高峰（19–23 时）与平峰对比。
+// SAVE-6：配额联动——用户流量/费用超阈值自动订阅降档（只出低成本档入口），
+// 配置与降档留痕同页。
 
 interface CostReport {
   nodes: NodeCost[]
@@ -22,13 +28,24 @@ const evening = ref<EveningReport | null>(null)
 const thresholdYuan = ref(50)
 const saving = ref(false)
 
+// 配额联动（SAVE-6）
+const link = ref<QuotaLinkData | null>(null)
+const linkSetting = ref<QuotaLinkSetting>({ enabled: false, traffic_percent: 90, cost_cents: 0, max_price_cents: 0 })
+const linkCostYuan = ref(0)
+const linkPriceYuan = ref(0)
+const linkSaving = ref(false)
+
 async function load() {
   loading.value = true
   try {
-    const [r, ev] = await Promise.all([get<CostReport>('/api/cost'), getEvening(7)])
+    const [r, ev, ql] = await Promise.all([get<CostReport>('/api/cost'), getEvening(7), getQuotaLink()])
     rep.value = r
     evening.value = ev
     thresholdYuan.value = Math.round((r?.threshold_cents ?? 0) / 100)
+    link.value = ql
+    linkSetting.value = { ...ql.setting }
+    linkCostYuan.value = ql.setting.cost_cents / 100
+    linkPriceYuan.value = ql.setting.max_price_cents / 100
   } catch (e) {
     ElMessage.error(String(e))
   } finally {
@@ -50,12 +67,41 @@ async function saveThreshold() {
   }
 }
 
+async function saveLink() {
+  linkSaving.value = true
+  try {
+    const payload: QuotaLinkSetting = {
+      ...linkSetting.value,
+      cost_cents: Math.round(linkCostYuan.value * 100),
+      max_price_cents: Math.round(linkPriceYuan.value * 100),
+    }
+    const out = await putQuotaLink(payload)
+    ElMessage.success('联动配置已保存')
+    linkSetting.value = { ...out }
+    linkCostYuan.value = out.cost_cents / 100
+    linkPriceYuan.value = out.max_price_cents / 100
+    await load()
+  } catch (e) {
+    ElMessage.error(String(e))
+  } finally {
+    linkSaving.value = false
+  }
+}
+
 function yuan(cents: number): string {
   return '¥' + (cents / 100).toFixed(2)
 }
 
 function gb(bytes: number): string {
   return formatBytes(bytes)
+}
+
+function linkTrigger(row: QuotaActionRow): string {
+  return row.trigger === 'traffic' ? '流量档' : '费用档'
+}
+
+function linkState(row: QuotaActionRow): string {
+  return row.released_at ? '已恢复' : '降档中'
 }
 
 // 晚高峰回程报表视图：无样本显示 —，避免把 0 当成测过。
@@ -175,6 +221,63 @@ function eveningRows() {
         </el-table>
       </div>
     </div>
+
+    <h3 class="section">配额联动</h3>
+    <p class="page-desc">
+      用户流量/费用超阈值后订阅自动降档——只出低成本档入口（包月或单价不超档线的节点），新连接落到低成本落地，用量回落后自动恢复；动作留痕在下方。
+    </p>
+    <div class="toolbar link-bar">
+      <span class="threshold">
+        <el-switch v-model="linkSetting.enabled" active-text="启用联动" />
+      </span>
+      <span class="threshold">流量档：用量达配额
+        <el-input-number v-model="linkSetting.traffic_percent" :min="0" :max="100" :controls="false" style="width: 60px" />
+        % 触发（0=关）
+      </span>
+      <span class="threshold">费用档：折算费用 ¥
+        <el-input-number v-model="linkCostYuan" :min="0" :precision="0" :controls="false" style="width: 80px" />
+        触发（0=关）
+      </span>
+      <span class="threshold">低成本档线 ¥
+        <el-input-number v-model="linkPriceYuan" :min="0" :precision="0" :controls="false" style="width: 70px" />
+        /GB（0=只有包月）
+      </span>
+      <el-button type="primary" :loading="linkSaving" @click="saveLink">保存联动</el-button>
+    </div>
+    <el-table
+      v-if="link && link.rows.length"
+      :data="link.rows"
+      :header-cell-style="{ background: 'var(--ferry-bg-panel)' }"
+    >
+      <el-table-column label="用户" width="120">
+        <template #default="{ row }">{{ link.names[String(row.user_id)] || '#' + row.user_id }}</template>
+      </el-table-column>
+      <el-table-column label="触发" width="90">
+        <template #default="{ row }">
+          <el-tag :type="row.trigger === 'traffic' ? 'warning' : 'danger'" size="small" effect="plain">
+            {{ linkTrigger(row) }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="触发口径" min-width="200">
+        <template #default="{ row }">{{ row.reason }}</template>
+      </el-table-column>
+      <el-table-column label="降档档线" width="110">
+        <template #default="{ row }">{{ yuan(row.max_price_cents) }}/GB</template>
+      </el-table-column>
+      <el-table-column label="状态" width="100">
+        <template #default="{ row }">
+          <el-tag :type="row.released_at ? 'info' : 'success'" size="small" effect="plain">{{ linkState(row) }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="触发时间" width="170">
+        <template #default="{ row }">{{ new Date(row.created_at).toLocaleString() }}</template>
+      </el-table-column>
+      <el-table-column label="恢复时间" width="170">
+        <template #default="{ row }">{{ row.released_at ? new Date(row.released_at).toLocaleString() : '—' }}</template>
+      </el-table-column>
+    </el-table>
+    <el-empty v-else-if="link" description="暂无降档记录（联动启用后超阈值用户在此留痕）" :image-size="60" />
 
     <template v-if="evening">
       <h3 class="section">晚高峰回程报表（近 {{ evening.days }} 天）</h3>

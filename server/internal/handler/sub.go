@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/ferry/server/internal/pool"
+	"github.com/cuihairu/ferry/server/internal/quota"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/cuihairu/ferry/server/internal/sub"
 	"github.com/gin-gonic/gin"
@@ -62,6 +63,24 @@ func (h *Handler) subscription(c *gin.Context) {
 		entries = make([]sub.Entry, 0, len(nodes))
 		for _, n := range nodes {
 			entries = append(entries, sub.Entry{Node: n, RttMs: rtt[n.ID]})
+		}
+		// 配额联动降档（SAVE-6）：生效中的联动行按其快照档线过滤——只出
+		// 低成本档入口，新连接自然落到低成本落地；无低成本档可用时订阅为空
+		// （与超限空订阅同口径，用户经站内信知情）。
+		action, err := quota.ActiveAction(h.db, u.ID)
+		if err != nil {
+			fail(c, http.StatusInternalServerError, err)
+			return
+		}
+		if action != nil {
+			tier := quota.LinkSetting{MaxPriceCents: action.MaxPriceCents}
+			filtered := entries[:0]
+			for _, e := range entries {
+				if tier.LowCost(e.Node) {
+					filtered = append(filtered, e)
+				}
+			}
+			entries = filtered
 		}
 	}
 
