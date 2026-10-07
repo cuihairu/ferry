@@ -53,9 +53,22 @@ export interface Node {
   token: string
   status: string
   role: string
+  direction: string
+  line_type: string
   region: string
+  city: string
+  datacenter: string
   isp: string
+  transport: string
   last_seen: string | null
+}
+
+/** DimensionStatus 是区域/运营商聚合判定的状态灯（GET /api/dimension-status）。 */
+export interface DimensionStatus {
+  scope: 'region' | 'isp'
+  key: string
+  state: 'healthy' | 'degraded' | 'failed'
+  reason: string
 }
 
 export interface User {
