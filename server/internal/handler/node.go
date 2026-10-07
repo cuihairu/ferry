@@ -41,7 +41,7 @@ func (h *Handler) createNode(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	token, err := randomToken()
+	token, err := RandomToken()
 	if err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return

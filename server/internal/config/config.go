@@ -49,6 +49,10 @@ type Config struct {
 	AgentDownloadBase string `json:"-"`
 	// AgentVersion 是供给节点安装的 agent 版本（对应 release tag vV）。
 	AgentVersion string `json:"-"`
+	// RecoveryIntervalSec 是封禁恢复流水线状态机的扫表周期（BR-1）。
+	RecoveryIntervalSec int
+	// RecoveryTemplateID 是恢复 L3 一键开新机用的供给模板 ID（0=不启用 L3）。
+	RecoveryTemplateID uint
 }
 
 // Load 从环境变量读取配置，未设置的项回退到默认值。
@@ -73,6 +77,8 @@ func Load() Config {
 		TofuWorkdir:          envOr("FERRY_TOFU_DIR", "/var/lib/ferry/tofu"),
 		AgentDownloadBase:    envOr("FERRY_AGENT_BASE", "https://github.com/cuihairu/ferry/releases/download"),
 		AgentVersion:         envOr("FERRY_AGENT_VERSION", "latest"),
+		RecoveryIntervalSec:  envIntOr("FERRY_RECOVERY_SEC", 60),
+		RecoveryTemplateID:   uint(envIntOr("FERRY_RECOVERY_TEMPLATE_ID", 0)),
 	}
 }
 
@@ -97,6 +103,8 @@ func Default() Config {
 		TofuWorkdir:          "",
 		AgentDownloadBase:    "https://github.com/cuihairu/ferry/releases/download",
 		AgentVersion:         "latest",
+		RecoveryIntervalSec:  60,
+		RecoveryTemplateID:   0,
 	}
 }
 

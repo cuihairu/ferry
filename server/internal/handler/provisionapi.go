@@ -5,12 +5,10 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/cuihairu/ferry/server/internal/provision"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
 // 供给执行（OS-2）管理端：模板 plan/apply 受控触发与 job 留痕查询。
@@ -63,85 +61,43 @@ func (h *Handler) runProvision(c *gin.Context, action string) {
 	}
 
 	m := h.getProvisionManager()
-	// OS-3：apply 预签发节点并渲染 cloud-init（token 预写入 agent.json，
-	// 开机装 agent 后首连 hello 即注册）；plan 不动实例与节点。
-	userData := ""
+	var job storage.ProvisionJob
 	if action == "apply" {
-		node, err := h.ensureProvisionNode(name, tpl)
-		if err != nil {
-			fail(c, http.StatusInternalServerError, err)
-			return
-		}
-		cfgJSON, err := provision.AgentConfigJSON(provision.AgentConfigFile{
-			PanelURL: provision.PanelWSURL(h.cfg.BaseURL),
-			AgentID:  name,
-			Token:    node.Token,
+		// OS-3：apply 预签发节点并渲染 cloud-init（token 预写入 agent.json，
+		// 开机装 agent 后首连 hello 即注册）；准备同步秒级，执行入后台。
+		// 同一条 PrepareLaunch 路径与 BR-1 恢复开新机共用。
+		prep, err := m.PrepareLaunch(provision.LaunchParams{
+			Template: tpl, Provider: prov, Store: h.secrets,
+			InstanceName: name,
+			PanelWSURL:   provision.PanelWSURL(h.cfg.BaseURL),
+			AgentBase:    h.cfg.AgentDownloadBase, AgentVersion: h.cfg.AgentVersion,
+			NewToken: RandomToken,
 		})
 		if err != nil {
 			fail(c, http.StatusInternalServerError, err)
 			return
 		}
-		userData = provision.CloudInit(cfgJSON, h.cfg.AgentDownloadBase, h.cfg.AgentVersion)
+		job = *prep.Job
+		go func(p *provision.Prepared) {
+			status, log := m.Execute(context.Background(), p.Params)
+			m.FinishJob(p.Job.ID, status, log)
+		}(prep)
+	} else {
+		// plan：不动实例与节点。
+		job = storage.ProvisionJob{TemplateID: tpl.ID, TemplateName: tpl.Name, Action: "plan", Status: "running"}
+		if err := h.db.Create(&job).Error; err != nil {
+			fail(c, http.StatusInternalServerError, err)
+			return
+		}
+		go func(jobID uint) {
+			status, log := m.Execute(context.Background(), provision.ExecParams{
+				Template: tpl, ProviderType: prov.Type, APIKey: apiKey,
+				InstanceName: name, Action: "plan",
+			})
+			m.FinishJob(jobID, status, log)
+		}(job.ID)
 	}
-	job := storage.ProvisionJob{TemplateID: tpl.ID, TemplateName: tpl.Name, Action: action, Status: "running"}
-	if err := h.db.Create(&job).Error; err != nil {
-		fail(c, http.StatusInternalServerError, err)
-		return
-	}
-	// 后台执行并回填这条留痕；单实例不并发由 Manager 全局锁保证。
-	go func(jobID uint) {
-		status, log := m.Execute(context.Background(), provision.ExecParams{
-			Template: tpl, ProviderType: prov.Type, APIKey: apiKey,
-			InstanceName: name, Action: action, UserData: userData,
-		})
-		now := time.Now()
-		h.db.Model(&storage.ProvisionJob{}).Where("id = ?", jobID).
-			Updates(map[string]any{"status": status, "log": log, "finished_at": now})
-	}(job.ID)
 	c.JSON(http.StatusOK, job)
-}
-
-// ensureProvisionNode 预签发/复用供给节点行：同名节点已存在则复用（token
-// 不变，重放 apply 不重复建行、main.tf 不因新 token 抖动）；否则建行，
-// 元数据取自模板并置 meta_init（面板接管，注册上报不覆盖）。status=provisioning
-// 表示供给中：不入订阅、不参与分配（sub/alloc 查询排除），首连 hello 转 online；
-// apply 失败遗留的 provisioning 孤儿行由 OS-4 状态机收编。
-func (h *Handler) ensureProvisionNode(name string, tpl storage.ProvisionTemplate) (storage.Node, error) {
-	var node storage.Node
-	err := h.db.Where("name = ?", name).First(&node).Error
-	if err == nil {
-		return node, nil
-	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return node, err
-	}
-	token, err := randomToken()
-	if err != nil {
-		return node, err
-	}
-	// Enabled 必须为真：authNode 只认启用节点，首连注册依赖它。
-	node = storage.Node{
-		Name:              name,
-		Port:              443,
-		Protocol:          "vless",
-		Enabled:           true,
-		Token:             token,
-		Status:            "provisioning",
-		Role:              tpl.Role,
-		Direction:         tpl.Direction,
-		LineType:          tpl.LineType,
-		Region:            tpl.Region,
-		Transport:         tpl.Transport,
-		BillingType:       tpl.BillingType,
-		MonthlyCostCents:  tpl.MonthlyCostCents,
-		TrafficPriceCents: tpl.TrafficPriceCents,
-		Config:            normalizeConfig(tpl.Config), // OS-4：配置模板随开服落到节点行
-		MetaInit:          true,
-	}
-	if err := h.db.Create(&node).Error; err != nil {
-		return storage.Node{}, err
-	}
-	return node, nil
 }
 
 func (h *Handler) applyTemplate(c *gin.Context) { h.runProvision(c, "apply") }
@@ -159,6 +115,25 @@ func (h *Handler) listProvisionJobs(c *gin.Context) {
 		limit = n
 	}
 	out := []storage.ProvisionJob{}
+	if err := h.db.Order("id DESC").Limit(limit).Find(&out).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+// listRecoveries 返回封禁恢复流水线状态（BR-1，新在前，默认 50 条）。
+func (h *Handler) listRecoveries(c *gin.Context) {
+	limit := 50
+	if v := c.Query("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 200 {
+			fail(c, http.StatusBadRequest, errors.New("limit must be 1-200"))
+			return
+		}
+		limit = n
+	}
+	out := []storage.Recovery{}
 	if err := h.db.Order("id DESC").Limit(limit).Find(&out).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return

@@ -19,8 +19,11 @@ import (
 	"github.com/cuihairu/ferry/server/internal/handler"
 	"github.com/cuihairu/ferry/server/internal/monitor"
 	"github.com/cuihairu/ferry/server/internal/pool"
+	"github.com/cuihairu/ferry/server/internal/provision"
+	"github.com/cuihairu/ferry/server/internal/recovery"
 	"github.com/cuihairu/ferry/server/internal/review"
 	"github.com/cuihairu/ferry/server/internal/ringlog"
+	"github.com/cuihairu/ferry/server/internal/secret"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/cuihairu/ferry/server/internal/xray"
 	"github.com/gin-gonic/gin"
@@ -70,6 +73,29 @@ func main() {
 
 	// 高成本告警（E-23）：按流量节点月花费超阈值单发，回落自动消解。
 	go cost.Loop(ctx, db, time.Duration(cfg.CostIntervalSec)*time.Second, nil)
+
+	// 封禁恢复流水线（BR-1）：摘除持续未恢复判封，L1→L2→L3 分级推进、
+	// 每级超时进下一级；L3 一键开新机接供给模板（0=不启用，L1/L2 插件位
+	// 分别由 BR-2/BR-3 注册后自动生效）。
+	{
+		reg := recovery.Registry{}
+		if cfg.RecoveryTemplateID > 0 {
+			reg[3] = &recovery.InstanceAction{
+				Manager:    provision.New(db, cfg.TofuBin, cfg.TofuWorkdir, nil),
+				Store:      secret.NewStore(cfg.SecretKey),
+				TemplateID: cfg.RecoveryTemplateID,
+				Launch: func(name string) provision.LaunchParams {
+					return provision.LaunchParams{
+						InstanceName: name,
+						PanelWSURL:   provision.PanelWSURL(cfg.BaseURL),
+						AgentBase:    cfg.AgentDownloadBase, AgentVersion: cfg.AgentVersion,
+						NewToken: handler.RandomToken,
+					}
+				},
+			}
+		}
+		go recovery.Loop(ctx, db, time.Duration(cfg.RecoveryIntervalSec)*time.Second, recovery.Options{}, reg, nil)
+	}
 
 	// 到期/超限用户停用扫表。
 	go review.Run(ctx, db, time.Duration(cfg.ReviewIntervalSec)*time.Second)

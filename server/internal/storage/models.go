@@ -4,18 +4,18 @@ import "time"
 
 // User 是一个订阅用户；SubToken 为订阅链接令牌。
 type User struct {
-	ID          uint       `gorm:"primaryKey" json:"id"`
-	Username    string     `gorm:"size:64;uniqueIndex" json:"username"`
-	SubToken    string     `gorm:"size:64;uniqueIndex" json:"sub_token"`
-	QuotaBytes  int64      `gorm:"default:0" json:"quota_bytes"`
-	ResetCycle  string     `gorm:"size:8;default:none" json:"reset_cycle"` // 流量重置周期（P1-4）：none/day/week/month
-	ExpiresAt   *time.Time `json:"expires_at"`
-	Enabled     bool       `gorm:"default:true" json:"enabled"`
-	IsAdmin     bool       `gorm:"default:false" json:"is_admin"`
-	Password    string     `gorm:"size:128" json:"-"`
-	ApiToken    string     `gorm:"size:64" json:"api_token"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	ID         uint       `gorm:"primaryKey" json:"id"`
+	Username   string     `gorm:"size:64;uniqueIndex" json:"username"`
+	SubToken   string     `gorm:"size:64;uniqueIndex" json:"sub_token"`
+	QuotaBytes int64      `gorm:"default:0" json:"quota_bytes"`
+	ResetCycle string     `gorm:"size:8;default:none" json:"reset_cycle"` // 流量重置周期（P1-4）：none/day/week/month
+	ExpiresAt  *time.Time `json:"expires_at"`
+	Enabled    bool       `gorm:"default:true" json:"enabled"`
+	IsAdmin    bool       `gorm:"default:false" json:"is_admin"`
+	Password   string     `gorm:"size:128" json:"-"`
+	ApiToken   string     `gorm:"size:64" json:"api_token"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
 }
 
 // Node 是一台代理节点。Token 供 agent 出站连接认证。
@@ -53,7 +53,7 @@ type Node struct {
 	Burst                    bool       `gorm:"default:false" json:"burst"`
 	SpeedMeasuredMbps        int        `gorm:"default:0" json:"speed_measured_mbps"` // 测速校准实测容量
 	SpeedCalibratedAt        *time.Time `json:"speed_calibrated_at"`
-	MetaInit                 bool       `gorm:"default:false" json:"-"` // 元数据是否已初始化（面板已接管）
+	MetaInit                 bool       `gorm:"default:false" json:"-"`                  // 元数据是否已初始化（面板已接管）
 	AgentVersion             string     `gorm:"size:64;default:''" json:"agent_version"` // agent 自报版本（A-23）
 	// 入口池摘挂状态（E-16）：suspended=连续 sick 摘除，订阅入口池即时剔除；
 	// 不动 enabled（agent 连接与探测保持，复位判定才有依据）。
@@ -61,10 +61,10 @@ type Node struct {
 	PoolChangedAt *time.Time `json:"pool_changed_at"`
 	// 供给入池流水线（OS-4）：provisioning 节点的进度/失败原因注记，
 	// 转 online 时清空；上下线不写此列。
-	ProvisionNote string `gorm:"size:255" json:"provision_note"`
-	PoolReason    string     `gorm:"size:64" json:"pool_reason"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	ProvisionNote string    `gorm:"size:255" json:"provision_note"`
+	PoolReason    string    `gorm:"size:64" json:"pool_reason"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // TrafficLog 是一条流量记账记录（按用户按节点按周期汇总）。
@@ -90,8 +90,8 @@ type Setting struct {
 type CardBatch struct {
 	ID         uint       `gorm:"primaryKey" json:"id"`
 	Name       string     `gorm:"size:128" json:"name"`
-	GrantType  string     `gorm:"size:16" json:"grant_type"`   // add_quota / extend_days
-	GrantValue int64      `gorm:"not null" json:"grant_value"` // 字节数或天数
+	GrantType  string     `gorm:"size:16" json:"grant_type"`    // add_quota / extend_days
+	GrantValue int64      `gorm:"not null" json:"grant_value"`  // 字节数或天数
 	PriceCents int64      `gorm:"default:0" json:"price_cents"` // 在线售价（分），0=仅兑换不出售
 	Total      int        `gorm:"not null" json:"total"`
 	ExpiredAt  *time.Time `json:"expired_at"` // 卡密有效期，空为永久
@@ -182,8 +182,8 @@ type NodeConfig struct {
 type Alert struct {
 	ID         uint       `gorm:"primaryKey" json:"id"`
 	NodeID     uint       `gorm:"index;not null" json:"node_id"`
-	Kind       string     `gorm:"size:32;not null;index" json:"kind"`             // proc_crash/cert_expiry/high_load/config_error
-	Severity   string     `gorm:"size:16;not null" json:"severity"`               // warning/critical
+	Kind       string     `gorm:"size:32;not null;index" json:"kind"` // proc_crash/cert_expiry/high_load/config_error
+	Severity   string     `gorm:"size:16;not null" json:"severity"`   // warning/critical
 	Proc       string     `gorm:"size:64" json:"proc,omitempty"`
 	Message    string     `gorm:"type:text" json:"message"`
 	State      string     `gorm:"size:16;not null;default:active;index" json:"state"` // active/resolved
@@ -207,13 +207,13 @@ type NodeTrafficLog struct {
 
 // PaymentOrder 是订单（三账之一：谁该收多少）。
 type PaymentOrder struct {
-	ID          uint       `gorm:"primaryKey" json:"id"`
-	OrderNo     string     `gorm:"size:32;uniqueIndex" json:"order_no"`
-	UserID      uint       `gorm:"index;not null" json:"user_id"`
-	Provider    string     `gorm:"size:16" json:"provider"` // card / epusdt / wechat / alipay
-	AmountCents int64      `gorm:"default:0" json:"amount_cents"`
-	Product     string     `gorm:"size:128" json:"product"`
-	Status      string     `gorm:"size:16;default:pending;index" json:"status"` // pending/paid/failed/expired
+	ID          uint   `gorm:"primaryKey" json:"id"`
+	OrderNo     string `gorm:"size:32;uniqueIndex" json:"order_no"`
+	UserID      uint   `gorm:"index;not null" json:"user_id"`
+	Provider    string `gorm:"size:16" json:"provider"` // card / epusdt / wechat / alipay
+	AmountCents int64  `gorm:"default:0" json:"amount_cents"`
+	Product     string `gorm:"size:128" json:"product"`
+	Status      string `gorm:"size:16;default:pending;index" json:"status"` // pending/paid/failed/expired
 	// 到账自动发放口径（在线支付用，卡密走批次自带）：add_quota/extend_days，空=不自动发放。
 	GrantType  string     `gorm:"size:16" json:"grant_type,omitempty"`
 	GrantValue int64      `gorm:"default:0" json:"grant_value,omitempty"`
@@ -266,18 +266,18 @@ type ProvisionTemplate struct {
 	ID                uint      `gorm:"primaryKey" json:"id"`
 	Name              string    `gorm:"size:64;not null" json:"name"`
 	ProviderID        uint      `gorm:"index;not null" json:"provider_id"`
-	Plan              string    `gorm:"size:64" json:"plan"`              // 机型 slug
-	Region            string    `gorm:"size:64" json:"region"`            // 区域
-	Image             string    `gorm:"size:64" json:"image"`             // 系统镜像（provider 各自口径）
-	BwMbps            int       `json:"bw_mbps"`                          // 带宽（Mbps）
-	BillingType       string    `gorm:"size:16" json:"billing_type"`      // 包月 / 按流量
-	MonthlyCostCents  int64     `json:"monthly_cost_cents"`               // 月固定成本（分）
-	TrafficPriceCents int64     `json:"traffic_price_cents"`              // 流量单价（分/GB）
+	Plan              string    `gorm:"size:64" json:"plan"`                 // 机型 slug
+	Region            string    `gorm:"size:64" json:"region"`               // 区域
+	Image             string    `gorm:"size:64" json:"image"`                // 系统镜像（provider 各自口径）
+	BwMbps            int       `json:"bw_mbps"`                             // 带宽（Mbps）
+	BillingType       string    `gorm:"size:16" json:"billing_type"`         // 包月 / 按流量
+	MonthlyCostCents  int64     `json:"monthly_cost_cents"`                  // 月固定成本（分）
+	TrafficPriceCents int64     `json:"traffic_price_cents"`                 // 流量单价（分/GB）
 	Direction         string    `gorm:"size:8;default:out" json:"direction"` // out/in/both
-	LineType          string    `gorm:"size:32" json:"line_type"`         // 163/cn2_gia/cu_vip/cmi/iplc
+	LineType          string    `gorm:"size:32" json:"line_type"`            // 163/cn2_gia/cu_vip/cmi/iplc
 	Role              string    `gorm:"size:16;default:entry" json:"role"`   // entry/landing/both/relay
-	Transport         string    `gorm:"size:16" json:"transport"`         // tls/ws-tls/quic/ssh
-	Config            string    `gorm:"type:text" json:"config"`          // 协议配置模板 JSON（OS-4：开服复制到节点行，供自动下发）
+	Transport         string    `gorm:"size:16" json:"transport"`            // tls/ws-tls/quic/ssh
+	Config            string    `gorm:"type:text" json:"config"`             // 协议配置模板 JSON（OS-4：开服复制到节点行，供自动下发）
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
 }
@@ -285,12 +285,30 @@ type ProvisionTemplate struct {
 // ProvisionJob 是一次供给执行留痕（OS-2）：plan/apply 受控执行的结果与
 // 日志尾部。单实例不并发 apply；日志不含机密（密钥走 TF_VAR 环境变量）。
 type ProvisionJob struct {
-	ID           uint      `gorm:"primaryKey" json:"id"`
-	TemplateID   uint      `gorm:"index;not null" json:"template_id"`
-	TemplateName string    `gorm:"size:64" json:"template_name"`
-	Action       string    `gorm:"size:8;not null" json:"action"` // plan / apply
-	Status       string    `gorm:"size:8;not null" json:"status"` // running / ok / failed
-	Log          string    `gorm:"type:text" json:"log"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID           uint       `gorm:"primaryKey" json:"id"`
+	TemplateID   uint       `gorm:"index;not null" json:"template_id"`
+	TemplateName string     `gorm:"size:64" json:"template_name"`
+	Action       string     `gorm:"size:8;not null" json:"action"` // plan / apply
+	Status       string     `gorm:"size:8;not null" json:"status"` // running / ok / failed
+	Log          string     `gorm:"type:text" json:"log"`
+	CreatedAt    time.Time  `json:"created_at"`
 	FinishedAt   *time.Time `json:"finished_at"`
+}
+
+// Recovery 是封禁恢复流水线状态行（BR-1）：每节点至多一条进行中，
+// L1→L2→L3 分级推进，每级超时未恢复进下一级，探测恢复（摘挂复位）
+// 即完成。动作级留痕与失败升级人工由后续 recovery_actions 承接（BR-5）。
+type Recovery struct {
+	ID             uint       `gorm:"primaryKey" json:"id"`
+	NodeID         uint       `gorm:"uniqueIndex;not null" json:"node_id"`
+	NodeName       string     `gorm:"size:64" json:"node_name"`
+	Level          int        `json:"level"` // 当前推进级别 1-3
+	State          string     `gorm:"size:16" json:"state"`
+	Action         string     `gorm:"size:32" json:"action"`       // 当前级别动作名（空=未开跑）
+	ActionState    string     `gorm:"size:16" json:"action_state"` // running/ok/failed/skipped/空
+	LastErr        string     `gorm:"size:512" json:"last_error,omitempty"`
+	LevelStartedAt time.Time  `json:"level_started_at"`
+	StartedAt      time.Time  `json:"started_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	FinishedAt     *time.Time `json:"finished_at,omitempty"`
 }

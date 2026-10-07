@@ -50,6 +50,9 @@ func New(db *gorm.DB, bin, root string, run Runner) *Manager {
 	return &Manager{db: db, bin: bin, root: root, run: run}
 }
 
+// DB 暴露底层库连接，供编排方（如恢复流水线 L3）做开服前置查询。
+func (m *Manager) DB() *gorm.DB { return m.db }
+
 func realRunner(ctx context.Context, dir string, args []string, env map[string]string) (string, error) {
 	cmd := exec.CommandContext(ctx, "tofu", args...)
 	cmd.Dir = dir

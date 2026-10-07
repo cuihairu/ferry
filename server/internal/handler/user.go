@@ -69,7 +69,7 @@ func (h *Handler) createUser(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
-	token, err := randomToken()
+	token, err := RandomToken()
 	if err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
@@ -196,7 +196,7 @@ func (h *Handler) resetSubToken(c *gin.Context) {
 		replyFind(c, err)
 		return
 	}
-	token, err := randomToken()
+	token, err := RandomToken()
 	if err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
