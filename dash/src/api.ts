@@ -313,11 +313,14 @@ export interface PaymentOrder {
   provider: string
   amount_cents: number
   product: string
-  status: 'pending' | 'paid' | 'failed' | 'expired' | string
+  status: 'pending' | 'paid' | 'failed' | 'expired' | 'refunded' | string
   grant_type?: string
   grant_value?: number
   created_at: string
   paid_at: string | null
+  /** 退款留痕（OD-2）：钱款退回经渠道后台操作，面板只记状态流转。 */
+  refund_at?: string | null
+  refund_note?: string
 }
 
 export interface PaymentTransaction {
@@ -360,11 +363,28 @@ export interface ReconcileOrphan {
 export interface ReconcileData {
   orders: ReconcileRow[]
   orphans: ReconcileOrphan[]
-  summary: { paid_orders: number; paid_cents: number; txn_cents: number; grants: number }
+  summary: {
+    paid_orders: number
+    paid_cents: number
+    refunded_orders: number
+    refunded_cents: number
+    txn_cents: number
+    grants: number
+  }
 }
 
 export function getReconcile(limit?: number): Promise<ReconcileData> {
   return get<ReconcileData>(`/api/payments/reconcile${limit ? `?limit=${limit}` : ''}`)
+}
+
+/** 单笔订单三账详情（OD-2）。 */
+export function getPaymentOrder(orderNo: string): Promise<ReconcileRow> {
+  return get<ReconcileRow>(`/api/payments/orders/${encodeURIComponent(orderNo)}`)
+}
+
+/** 退款流转（OD-2）：仅 paid 可退，钱款退回经渠道后台操作，此处只记留痕。 */
+export function refundOrder(orderNo: string, note: string): Promise<ReconcileRow> {
+  return post<ReconcileRow>(`/api/payments/orders/${encodeURIComponent(orderNo)}/refund`, { note })
 }
 
 // ---- 分流规则库（SAVE-1）----

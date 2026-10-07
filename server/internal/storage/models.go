@@ -213,12 +213,15 @@ type PaymentOrder struct {
 	Provider    string `gorm:"size:16" json:"provider"` // card / epusdt / wechat / alipay
 	AmountCents int64  `gorm:"default:0" json:"amount_cents"`
 	Product     string `gorm:"size:128" json:"product"`
-	Status      string `gorm:"size:16;default:pending;index" json:"status"` // pending/paid/failed/expired
+	Status      string `gorm:"size:16;default:pending;index" json:"status"` // pending/paid/failed/expired/refunded
 	// 到账自动发放口径（在线支付用，卡密走批次自带）：add_quota/extend_days，空=不自动发放。
 	GrantType  string     `gorm:"size:16" json:"grant_type,omitempty"`
 	GrantValue int64      `gorm:"default:0" json:"grant_value,omitempty"`
 	CreatedAt  time.Time  `json:"created_at"`
 	PaidAt     *time.Time `json:"paid_at"`
+	// 退款留痕（OD-2）：面板只做状态流转与记录，钱款退回经渠道后台操作。
+	RefundAt   *time.Time `json:"refund_at,omitempty"`
+	RefundNote string     `gorm:"size:255" json:"refund_note,omitempty"` // 渠道退款单号/原因
 	// 不设 User 关联：财务记录不随用户删除（无外键）。
 }
 

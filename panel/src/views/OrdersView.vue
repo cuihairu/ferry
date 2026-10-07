@@ -47,7 +47,7 @@ function amountText(cents: number): string {
     <section v-for="o in orders" :key="o.order_no" class="card">
       <div class="order-head">
         <code class="mono">{{ o.order_no }}</code>
-        <span class="tag" :class="o.status === 'paid' ? 'tag-ok' : 'tag-dim'">
+        <span class="tag" :class="o.status === 'paid' ? 'tag-ok' : o.status === 'refunded' ? 'tag-danger' : 'tag-dim'">
           {{ statusText[o.status] ?? o.status }}
         </span>
       </div>
@@ -60,6 +60,7 @@ function amountText(cents: number): string {
         </div>
         <div class="kv-row"><dt>下单</dt><dd>{{ formatDate(o.created_at) }}</dd></div>
         <div v-if="o.paid_at" class="kv-row"><dt>支付</dt><dd>{{ formatDate(o.paid_at) }}</dd></div>
+        <div v-if="o.refund_at" class="kv-row"><dt>退款</dt><dd>{{ formatDate(o.refund_at) }}</dd></div>
       </dl>
     </section>
   </div>

@@ -161,6 +161,7 @@ func (h *Handler) panelOrders(c *gin.Context) {
 			"status":       orders[i].Status,
 			"created_at":   orders[i].CreatedAt,
 			"paid_at":      orders[i].PaidAt,
+			"refund_at":    orders[i].RefundAt,
 			"grants":       items,
 		})
 	}
@@ -338,6 +339,7 @@ func (h *Handler) panelOrderStatus(c *gin.Context) {
 		"grant_value":  order.GrantValue,
 		"created_at":   order.CreatedAt,
 		"paid_at":      order.PaidAt,
+		"refund_at":    order.RefundAt,
 		"grants":       items,
 	})
 }

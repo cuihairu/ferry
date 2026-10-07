@@ -130,3 +130,124 @@ func TestReconcile(t *testing.T) {
 
 // mapoke 是测试里只看条数的泛型行。
 type mapoke = map[string]any
+
+// TestOrderRefundAndDetail 覆盖 OD-2：退款流转（仅 paid→refunded，409 否则）、
+// 三账详情接口、reconcile 退款小计与「已退款但缺支付流水」缺失检查。
+func TestOrderRefundAndDetail(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	now := time.Now()
+
+	// d-o1：paid，三账齐全（待退）；
+	// d-o2：pending（不可退）；
+	// d-o3：paid 无流水（退后应标「已退款但缺支付流水」）。
+	seed := []storage.PaymentOrder{
+		{OrderNo: "d-o1", UserID: 1, Provider: "epusdt", AmountCents: 1000, Product: "p1", Status: "paid", PaidAt: &now, GrantType: "add_quota", GrantValue: 1},
+		{OrderNo: "d-o2", UserID: 1, Provider: "epusdt", AmountCents: 2000, Product: "p2", Status: "pending"},
+		{OrderNo: "d-o3", UserID: 1, Provider: "epusdt", AmountCents: 3000, Product: "p3", Status: "paid", PaidAt: &now},
+	}
+	for i := range seed {
+		if err := db.Create(&seed[i]).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Create(&storage.PaymentTransaction{OrderNo: "d-o1", Provider: "epusdt", ExternalID: "t1", AmountCents: 1000, OccurredAt: now}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&storage.Grant{OrderNo: "d-o1", UserID: 1, GrantType: "add_quota", GrantValue: 1}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// 详情：三账齐全
+	rec := doJSON(t, r, "GET", "/api/payments/orders/d-o1", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("detail d-o1: %d %s", rec.Code, rec.Body)
+	}
+	var row struct {
+		OrderNo      string   `json:"order_no"`
+		Status       string   `json:"status"`
+		Transactions []mapoke `json:"transactions"`
+		Grants       []mapoke `json:"grants"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &row); err != nil {
+		t.Fatal(err)
+	}
+	if row.OrderNo != "d-o1" || row.Status != "paid" || len(row.Transactions) != 1 || len(row.Grants) != 1 {
+		t.Fatalf("detail = %+v", row)
+	}
+	// 详情：订单不存在 → 404
+	if rec := doJSON(t, r, "GET", "/api/payments/orders/nope", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("detail missing: %d", rec.Code)
+	}
+
+	// 退款：paid → refunded，回写退款留痕
+	rec = doJSON(t, r, "POST", "/api/payments/orders/d-o1/refund", map[string]any{"note": "C-20261008-001"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("refund d-o1: %d %s", rec.Code, rec.Body)
+	}
+	var order storage.PaymentOrder
+	if err := db.Where("order_no = ?", "d-o1").First(&order).Error; err != nil {
+		t.Fatal(err)
+	}
+	if order.Status != "refunded" || order.RefundAt == nil || order.RefundNote != "C-20261008-001" {
+		t.Fatalf("d-o1 after refund = %s/%v/%q", order.Status, order.RefundAt, order.RefundNote)
+	}
+
+	// 二次退款 → 409；pending 退款 → 409；订单不存在 → 404
+	if rec := doJSON(t, r, "POST", "/api/payments/orders/d-o1/refund", map[string]any{"note": "again"}); rec.Code != http.StatusConflict {
+		t.Fatalf("refund again: %d", rec.Code)
+	}
+	if rec := doJSON(t, r, "POST", "/api/payments/orders/d-o2/refund", map[string]any{"note": "x"}); rec.Code != http.StatusConflict {
+		t.Fatalf("refund pending: %d", rec.Code)
+	}
+	if rec := doJSON(t, r, "POST", "/api/payments/orders/nope/refund", map[string]any{"note": "x"}); rec.Code != http.StatusConflict {
+		t.Fatalf("refund missing: %d", rec.Code)
+	}
+
+	// d-o3 也退掉（无流水），reconcile 应出退款小计与「已退款但缺支付流水」
+	if rec := doJSON(t, r, "POST", "/api/payments/orders/d-o3/refund", nil); rec.Code != http.StatusOK {
+		t.Fatalf("refund d-o3: %d %s", rec.Code, rec.Body)
+	}
+	rec = doJSON(t, r, "GET", "/api/payments/reconcile", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("reconcile: %d %s", rec.Code, rec.Body)
+	}
+	var out struct {
+		Orders []struct {
+			OrderNo string   `json:"order_no"`
+			Status  string   `json:"status"`
+			Missing []string `json:"missing"`
+		} `json:"orders"`
+		Summary struct {
+			PaidOrders    int64 `json:"paid_orders"`
+			PaidCents     int64 `json:"paid_cents"`
+			RefundedOrder int64 `json:"refunded_orders"`
+			RefundedCents int64 `json:"refunded_cents"`
+		} `json:"summary"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	byNo := map[string]struct {
+		Status  string
+		Missing []string
+	}{}
+	for _, o := range out.Orders {
+		byNo[o.OrderNo] = struct {
+			Status  string
+			Missing []string
+		}{o.Status, o.Missing}
+	}
+	if byNo["d-o1"].Status != "refunded" || len(byNo["d-o1"].Missing) != 0 {
+		t.Fatalf("d-o1 = %+v", byNo["d-o1"])
+	}
+	if m := byNo["d-o3"].Missing; len(m) != 1 || m[0] != "已退款但缺支付流水" {
+		t.Fatalf("d-o3 missing = %v", byNo["d-o3"].Missing)
+	}
+	// 小计：退款 2 笔（1000+3000=4000）；paid 归零（d-o2 还是 pending）
+	if out.Summary.RefundedOrder != 2 || out.Summary.RefundedCents != 4000 {
+		t.Fatalf("summary = %+v", out.Summary)
+	}
+	if out.Summary.PaidOrders != 0 || out.Summary.PaidCents != 0 {
+		t.Fatalf("summary = %+v", out.Summary)
+	}
+}

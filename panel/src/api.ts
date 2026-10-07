@@ -64,5 +64,7 @@ export interface OrderRow {
   status: string
   created_at: string
   paid_at: string | null
+  /** 退款时间（OD-2）：退款由管理员在渠道后台操作后在面板留痕。 */
+  refund_at: string | null
   grants: Array<{ grant_type: string; grant_value: number }>
 }

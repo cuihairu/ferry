@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
-import { getReconcile, type Grant, type ReconcileData, type ReconcileRow } from '../api'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { getReconcile, refundOrder, type Grant, type ReconcileData, type ReconcileRow } from '../api'
 import { formatBytes, formatDate } from '../utils/format'
 
 // PAY-9：三账对账——订单/流水/发放按订单分组，标出缺失环节；游离记录单独列出。
+// OD-2：paid 订单可标记退款（钱款退回经渠道后台操作，此处只做状态流转与留痕）。
 
 const loading = ref(false)
 const orders = ref<ReconcileRow[]>([])
 const orphans = ref<ReconcileData['orphans']>([])
-const summary = ref<ReconcileData['summary']>({ paid_orders: 0, paid_cents: 0, txn_cents: 0, grants: 0 })
+const summary = ref<ReconcileData['summary']>({
+  paid_orders: 0, paid_cents: 0, refunded_orders: 0, refunded_cents: 0, txn_cents: 0, grants: 0,
+})
 
 async function load() {
   loading.value = true
@@ -32,6 +35,7 @@ const missingCount = computed(() => orders.value.filter((o) => o.missing.length 
 const stats = computed(() => [
   { label: '已支付订单', value: String(summary.value.paid_orders) },
   { label: '订单金额', value: yuan(summary.value.paid_cents) },
+  { label: '退款订单', value: `${summary.value.refunded_orders} / ${yuan(summary.value.refunded_cents)}` },
   { label: '流水金额', value: yuan(summary.value.txn_cents) },
   { label: '发放笔数', value: String(summary.value.grants) },
   { label: '缺失环节', value: String(missingCount.value) },
@@ -47,6 +51,7 @@ const statusTag: Record<string, { text: string; type: 'success' | 'info' | 'dang
   paid: { text: '已支付', type: 'success' },
   failed: { text: '失败', type: 'danger' },
   expired: { text: '已过期', type: 'info' },
+  refunded: { text: '已退款', type: 'danger' },
 }
 
 const providerText: Record<string, string> = {
@@ -58,6 +63,38 @@ const providerText: Record<string, string> = {
 
 function grantText(g: Grant): string {
   return g.grant_type === 'add_quota' ? `+${formatBytes(g.grant_value)}` : `+${g.grant_value} 天`
+}
+
+const refunding = ref('')
+
+/** onRefund 标记退款：先渠道后台退钱，此处补状态流转与留痕（note 记退款单号/原因）。 */
+async function onRefund(row: ReconcileRow) {
+  let note: string
+  try {
+    const { value } = await ElMessageBox.prompt(
+      '钱款退回需在渠道后台操作，此处仅记录状态流转与留痕。可填渠道退款单号 / 原因：',
+      `退款 ${row.order_no}（¥${yuan(row.amount_cents)}）`,
+      {
+        confirmButtonText: '标记已退款',
+        cancelButtonText: '取消',
+        inputPlaceholder: '退款单号 / 原因（选填）',
+        inputValue: '',
+      },
+    )
+    note = value ?? ''
+  } catch {
+    return
+  }
+  refunding.value = row.order_no
+  try {
+    await refundOrder(row.order_no, note)
+    ElMessage.success('已标记退款')
+    await load()
+  } catch (e) {
+    ElMessage.error(String(e))
+  } finally {
+    refunding.value = ''
+  }
 }
 </script>
 
@@ -81,6 +118,11 @@ function grantText(g: Grant): string {
       <el-table-column type="expand">
         <template #default="{ row }">
           <div class="expand">
+            <div v-if="row.refund_at" class="refund-line">
+              <el-tag type="danger" size="small" effect="dark">已退款</el-tag>
+              <span>{{ formatDate(row.refund_at) }}</span>
+              <span v-if="row.refund_note" class="refund-note">{{ row.refund_note }}</span>
+            </div>
             <div class="expand-col">
               <div class="expand-title">支付流水（{{ row.transactions.length }}）</div>
               <el-table :data="row.transactions" size="small">
@@ -139,6 +181,18 @@ function grantText(g: Grant): string {
       <el-table-column label="支付时间" width="150">
         <template #default="{ row }">{{ formatDate(row.paid_at) }}</template>
       </el-table-column>
+      <el-table-column label="操作" width="90">
+        <template #default="{ row }">
+          <el-button
+            v-if="row.status === 'paid'"
+            size="small"
+            type="danger"
+            plain
+            :loading="refunding === row.order_no"
+            @click="onRefund(row)"
+          >退款</el-button>
+        </template>
+      </el-table-column>
     </el-table>
 
     <template v-if="orphans.length">
@@ -164,7 +218,7 @@ function grantText(g: Grant): string {
 <style scoped>
 .stats {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 12px;
   margin-bottom: 20px;
 }
@@ -197,6 +251,17 @@ function grantText(g: Grant): string {
   grid-template-columns: 1fr 1fr;
   gap: 24px;
   padding: 4px 12px;
+}
+.refund-line {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ferry-text-muted);
+}
+.refund-note {
+  color: var(--ferry-text-dim);
 }
 .expand-title {
   font-size: 12px;
