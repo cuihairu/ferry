@@ -7,9 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
@@ -162,13 +162,10 @@ func entryLink(e *Entry) (string, error) {
 
 // PackV2Ray 返回按区域分组排序的链接列表 base64（v2ray 客户端订阅格式，E-19）。
 // 空列表返回空串：无可用节点时订阅仍可刷新，客户端按 0 节点展示。
+// 组内顺序按探测结论重排（E-26）：已知 RTT 升序在前、无数据殿后、
+// 同 RTT 档按轮换窗口轮转。
 func PackV2Ray(entries []Entry) (string, error) {
-	sorted := make([]Entry, len(entries))
-	copy(sorted, entries)
-	// 稳定排序只按区域归组，组内保持调用方（节点 id）顺序。
-	sort.SliceStable(sorted, func(i, j int) bool {
-		return entryRegion(&sorted[i]) < entryRegion(&sorted[j])
-	})
+	sorted := orderByProbe(entries, time.Now())
 	links := make([]string, 0, len(sorted))
 	for i := range sorted {
 		link, err := entryLink(&sorted[i])
