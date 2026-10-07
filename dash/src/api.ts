@@ -168,6 +168,35 @@ export interface NodeLoad {
   util_pct: number
 }
 
+/** EveningHour 是一个钟点段的回程质量（E-29，availability_pct=-1 无样本）。 */
+export interface EveningHour {
+  hour: number
+  samples: number
+  avg_rtt_ms: number
+  avg_loss_pct: number
+  availability_pct: number
+}
+
+/** EveningWindow 是晚高峰/平峰的汇总对比块。 */
+export interface EveningWindow {
+  samples: number
+  avg_rtt_ms: number
+  avg_loss_pct: number
+  availability_pct: number
+}
+
+/** EveningReport 是晚高峰回程报表：24 小时明细 + 晚高峰（19–23 时）/平峰汇总。 */
+export interface EveningReport {
+  days: number
+  hours: EveningHour[]
+  peak: EveningWindow
+  offpeak: EveningWindow
+}
+
+export function getEvening(days?: number): Promise<EveningReport> {
+  return get<EveningReport>(`/api/evening${days ? `?days=${days}` : ''}`)
+}
+
 export interface User {
   id: number
   username: string

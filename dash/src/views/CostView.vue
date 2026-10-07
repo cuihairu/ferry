@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { get, put, type GroupCost, type NodeCost } from '../api'
+import { get, put, getEvening, type EveningReport, type GroupCost, type NodeCost } from '../api'
 import { formatBytes } from '../utils/format'
 
 // E-23：成本看板——节点流量花费（仅按流量计费有边际成本）、区域/运营商
 // 汇总、月度预估（自然月至今折算）与高成本告警阈值；超阈值节点在告警列表单发。
+// E-29：晚高峰回程报表同页——24 小时回程质量分段 + 晚高峰（19–23 时）与平峰对比。
 
 interface CostReport {
   nodes: NodeCost[]
@@ -17,14 +18,17 @@ interface CostReport {
 
 const loading = ref(false)
 const rep = ref<CostReport | null>(null)
+const evening = ref<EveningReport | null>(null)
 const thresholdYuan = ref(50)
 const saving = ref(false)
 
 async function load() {
   loading.value = true
   try {
-    rep.value = await get<CostReport>('/api/cost')
-    thresholdYuan.value = Math.round((rep.value?.threshold_cents ?? 0) / 100)
+    const [r, ev] = await Promise.all([get<CostReport>('/api/cost'), getEvening(7)])
+    rep.value = r
+    evening.value = ev
+    thresholdYuan.value = Math.round((r?.threshold_cents ?? 0) / 100)
   } catch (e) {
     ElMessage.error(String(e))
   } finally {
@@ -52,6 +56,30 @@ function yuan(cents: number): string {
 
 function gb(bytes: number): string {
   return formatBytes(bytes)
+}
+
+// 晚高峰回程报表视图：无样本显示 —，避免把 0 当成测过。
+function ms(v: number): string {
+  return v > 0 ? v.toFixed(0) + ' ms' : '—'
+}
+function pct(v: number): string {
+  return v < 0 ? '—' : v.toFixed(0) + '%'
+}
+function hourLabel(h: number): string {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(h)}:00–${p((h + 1) % 24)}:00`
+}
+function isPeak(h: number): boolean {
+  return h >= 19 && h < 23
+}
+function peakClass({ row }: { row: { hour: number } }): string {
+  return isPeak(row.hour) ? 'peak-row' : ''
+}
+// 有回程样本才渲染报表，避免全空表。
+const hasEveningData = (): boolean => !!evening.value && evening.value.peak.samples + evening.value.offpeak.samples > 0
+// 小时行含样本才入表，空钟点不占行。
+function eveningRows() {
+  return (evening.value?.hours ?? []).filter((h) => h.samples > 0)
 }
 </script>
 
@@ -147,6 +175,56 @@ function gb(bytes: number): string {
         </el-table>
       </div>
     </div>
+
+    <template v-if="evening">
+      <h3 class="section">晚高峰回程报表（近 {{ evening.days }} 天）</h3>
+      <p class="page-desc">
+        回程探测结论按小时分段：延迟只计可达样本，可用率即可达比例；晚高峰 19:00–23:00 单独汇总与平峰对比。
+      </p>
+      <div v-if="hasEveningData()" class="evening">
+        <div class="compare">
+          <div class="cmp peak">
+            <div class="cmp-title">晚高峰 19–23 时</div>
+            <div class="cmp-row"><span>平均延迟</span><b>{{ ms(evening.peak.avg_rtt_ms) }}</b></div>
+            <div class="cmp-row"><span>平均丢包</span><b>{{ pct(evening.peak.avg_loss_pct) }}</b></div>
+            <div class="cmp-row"><span>可用率</span><b>{{ pct(evening.peak.availability_pct) }}</b></div>
+            <div class="cmp-row"><span>样本</span><b>{{ evening.peak.samples }}</b></div>
+          </div>
+          <div class="cmp">
+            <div class="cmp-title">平峰（其余时段）</div>
+            <div class="cmp-row"><span>平均延迟</span><b>{{ ms(evening.offpeak.avg_rtt_ms) }}</b></div>
+            <div class="cmp-row"><span>平均丢包</span><b>{{ pct(evening.offpeak.avg_loss_pct) }}</b></div>
+            <div class="cmp-row"><span>可用率</span><b>{{ pct(evening.offpeak.availability_pct) }}</b></div>
+            <div class="cmp-row"><span>样本</span><b>{{ evening.offpeak.samples }}</b></div>
+          </div>
+        </div>
+        <el-table
+          :data="eveningRows()"
+          :row-class-name="peakClass"
+          :header-cell-style="{ background: 'var(--ferry-bg-panel)' }"
+        >
+          <el-table-column label="时段" min-width="110">
+            <template #default="{ row }">{{ hourLabel(row.hour) }}</template>
+          </el-table-column>
+          <el-table-column prop="samples" label="样本" width="80" />
+          <el-table-column label="平均延迟" width="110">
+            <template #default="{ row }">{{ ms(row.avg_rtt_ms) }}</template>
+          </el-table-column>
+          <el-table-column label="平均丢包" width="110">
+            <template #default="{ row }">{{ pct(row.avg_loss_pct) }}</template>
+          </el-table-column>
+          <el-table-column label="可用率" width="110">
+            <template #default="{ row }">{{ pct(row.availability_pct) }}</template>
+          </el-table-column>
+          <el-table-column label="时段标注" width="100">
+            <template #default="{ row }">
+              <el-tag v-if="isPeak(row.hour)" type="warning" size="small" effect="plain">晚高峰</el-tag>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+      <el-empty v-else description="暂无回程探测样本（回程探测接入后自动生成）" :image-size="60" />
+    </template>
   </div>
 </template>
 
@@ -197,5 +275,42 @@ function gb(bytes: number): string {
   margin: 20px 0 10px;
   font-size: 15px;
   font-weight: 650;
+}
+.evening {
+  margin-top: 12px;
+}
+.compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.cmp {
+  background: var(--ferry-bg-panel);
+  border: 1px solid var(--ferry-border);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.cmp.peak {
+  border-color: var(--ferry-warn);
+}
+.cmp-title {
+  font-size: 13px;
+  font-weight: 650;
+  margin-bottom: 8px;
+}
+.cmp-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--ferry-text-muted);
+  padding: 3px 0;
+}
+.cmp-row b {
+  color: var(--ferry-text);
+  font-variant-numeric: tabular-nums;
+}
+:deep(.el-table .peak-row) {
+  background: var(--ferry-bg-hover);
 }
 </style>

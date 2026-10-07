@@ -75,6 +75,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		api.GET("/alloc", h.listAlloc)
 		api.PUT("/alloc/policy", h.putAllocPolicy)
 		api.GET("/cost", h.getCost)
+		api.GET("/evening", h.getEvening)
 		api.PUT("/cost/threshold", h.putCostThreshold)
 		api.POST("/nodes/:id/config", h.pushConfig)
 		api.POST("/nodes/:id/proc", h.nodeProcOp)
