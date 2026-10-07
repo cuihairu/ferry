@@ -140,7 +140,8 @@
 - [x] [P1] E-16a 自动摘挂状态机：连续 sick 摘除/恢复复位（internal/pool 周期判定），订阅入口池即时生效，pool API（列表+手动复位）与通知
 - [ ] [P1] E-16b 摘挂热更新换线：config.push 变更列表（落地 relay 重指），随 E-21 分配策略接入
 - [x] [P1] E-17 区域传输判定（internal/transport 存活占比推荐+现行对比换线建议，/api/transport-status，dash 调配页面板；切换执行=改 transport 标注重推配置）
-- [ ] [P1] E-18 QUIC（hysteria2 系）与 WS-TLS 传输插件；SSH 仅备选不默认
+- [x] [P1] E-18a ws-tls 传输插件（tunnel 注册，TLS+WebSocket 升级伪装浏览器，消息语义适配流 net.Conn，落地侧任意 RFC6455 监听可前置 CDN）
+- [ ] [P1] E-18b QUIC（hysteria2 系）传输插件：需拍板——quic-go 依赖体量 vs E-4 尺寸门禁（独立 plugin 二进制 / 引依赖破门禁 / 延后），真 hysteria2 协议不造，raw QUIC 不冒称 hysteria2
 
 ### 分配与成本
 
