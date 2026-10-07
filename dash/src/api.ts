@@ -111,6 +111,26 @@ export interface TransportRow {
   switchneeded: boolean
 }
 
+/** AllocPolicy 是落地自动分配的每方向档位（E-21）。 */
+export interface AllocPolicy {
+  out: string
+  in: string
+}
+
+/** AllocData 是策略与生效中的 auto 分配行。 */
+export interface AllocData {
+  policy: AllocPolicy
+  rows: LandingAssignment[]
+}
+
+export function getAlloc(): Promise<AllocData> {
+  return get<AllocData>('/api/alloc')
+}
+
+export function putAllocPolicy(policy: AllocPolicy): Promise<AllocPolicy> {
+  return put<AllocPolicy>('/api/alloc/policy', policy)
+}
+
 export interface User {
   id: number
   username: string

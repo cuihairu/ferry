@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { get, post, put, del, type Node, type LandingAssignment, type TransportRow } from '../api'
+import { get, post, put, del, getAlloc, putAllocPolicy, type Node, type LandingAssignment, type TransportRow, type AllocPolicy } from '../api'
 import { formatDate } from '../utils/format'
 
 // E-20：手动落地分配——为入口节点或区域整体指定落地与权重。
@@ -12,20 +12,32 @@ import { formatDate } from '../utils/format'
 const rows = ref<LandingAssignment[]>([])
 const nodes = ref<Node[]>([])
 const txRows = ref<TransportRow[]>([])
+const allocPolicy = ref<AllocPolicy>({ out: 'balanced', in: 'balanced' })
+const policySaving = ref(false)
 const loading = ref(false)
 const scope = ref<'active' | 'all'>('active')
+
+// E-21：加权最小连接自动分配——出海/回国两池各选档位。
+const POLICY_OPTIONS = [
+  { value: 'least_conn', label: '最小连接' },
+  { value: 'cost_first', label: '成本优先' },
+  { value: 'perf_first', label: '性能优先' },
+  { value: 'balanced', label: '均衡' },
+]
 
 async function load() {
   loading.value = true
   try {
-    const [ls, ns, ts] = await Promise.all([
+    const [ls, ns, ts, alloc] = await Promise.all([
       get<LandingAssignment[]>(`/api/landings?scope=${scope.value}`),
       get<Node[]>('/api/nodes'),
       get<TransportRow[]>('/api/transport-status'),
+      getAlloc(),
     ])
     rows.value = ls
     nodes.value = ns
     txRows.value = ts
+    allocPolicy.value = alloc.policy
   } catch (e) {
     ElMessage.error(String(e))
   } finally {
@@ -33,6 +45,26 @@ async function load() {
   }
 }
 onMounted(load)
+
+async function savePolicy() {
+  policySaving.value = true
+  try {
+    await putAllocPolicy(allocPolicy.value)
+    ElMessage.success('分配策略已保存')
+  } catch (e) {
+    ElMessage.error(String(e))
+  } finally {
+    policySaving.value = false
+  }
+}
+
+const STRATEGY_TEXT: Record<string, string> = {
+  manual: '手动',
+  least_conn: '最小连接',
+  cost_first: '成本优先',
+  perf_first: '性能优先',
+  balanced: '均衡',
+}
 
 function txText(r: TransportRow): string {
   return r.transports.map((t) => `${t.transport} ${t.alive}/${t.total}`).join(' · ')
@@ -171,7 +203,9 @@ const DIR_TEXT: Record<string, string> = { out: '出海', in: '回国' }
         <template #default="{ row }">{{ DIR_TEXT[row.direction] ?? row.direction }}</template>
       </el-table-column>
       <el-table-column prop="weight" label="权重" width="80" />
-      <el-table-column prop="strategy" label="策略" width="90" />
+      <el-table-column label="策略" width="90">
+        <template #default="{ row }">{{ STRATEGY_TEXT[row.strategy] ?? row.strategy }}</template>
+      </el-table-column>
       <el-table-column prop="reason" label="缘由" min-width="110" />
       <el-table-column label="分配时间" width="150">
         <template #default="{ row }">{{ formatDate(row.assigned_at) }}</template>
@@ -193,6 +227,25 @@ const DIR_TEXT: Record<string, string> = { out: '出海', in: '回国' }
         </template>
       </el-table-column>
     </el-table>
+
+    <h3 class="section">自动分配策略（E-21）</h3>
+    <p class="section-desc">
+      加权最小连接：健康与负载之外按容量分连接（3M 小带宽少分）、按流量计费节点参与成本判定（包月不参与）；
+      无手动分配的入口由策略周期选落地，换线留痕并通知。手动分配的入口不受影响。
+    </p>
+    <div class="policy-bar">
+      <span class="policy-item">出海
+        <el-select v-model="allocPolicy.out" style="width: 120px">
+          <el-option v-for="o in POLICY_OPTIONS" :key="o.value" :value="o.value" :label="o.label" />
+        </el-select>
+      </span>
+      <span class="policy-item">回国
+        <el-select v-model="allocPolicy.in" style="width: 120px">
+          <el-option v-for="o in POLICY_OPTIONS" :key="o.value" :value="o.value" :label="o.label" />
+        </el-select>
+      </span>
+      <el-button type="primary" :loading="policySaving" @click="savePolicy">保存策略</el-button>
+    </div>
 
     <h3 class="section">区域传输判定（E-17）</h3>
     <p class="section-desc">区域内各传输形态的探测存活聚合，「哪种活着用哪种」；建议与现行不一致时给出换线提示，切换 = 改节点传输标注并重推配置。</p>
@@ -271,6 +324,19 @@ const DIR_TEXT: Record<string, string> = { out: '出海', in: '回国' }
   margin: 28px 0 4px;
   font-size: 15px;
   font-weight: 650;
+}
+.policy-bar {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.policy-item {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--ferry-text-muted);
+  font-size: 13px;
 }
 .section-desc {
   margin: 0 0 12px;

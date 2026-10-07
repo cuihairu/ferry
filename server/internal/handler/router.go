@@ -70,6 +70,8 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		api.DELETE("/landings/:id", h.releaseLanding)
 		api.GET("/pool", h.listPool)
 		api.POST("/pool/:id/resume", h.resumePoolNode)
+		api.GET("/alloc", h.listAlloc)
+		api.PUT("/alloc/policy", h.putAllocPolicy)
 		api.POST("/nodes/:id/config", h.pushConfig)
 		api.POST("/nodes/:id/proc", h.nodeProcOp)
 		api.POST("/nodes/:id/upgrade", h.nodeUpgrade)

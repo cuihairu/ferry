@@ -1,0 +1,349 @@
+package alloc
+
+import (
+	"testing"
+	"time"
+
+	"github.com/cuihairu/ferry/packages/agentproto"
+	"github.com/cuihairu/ferry/server/internal/storage"
+	"gorm.io/gorm"
+)
+
+// newTestDB 建内存库并迁移。
+func newTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, err := storage.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.AutoMigrate(db); err != nil {
+		t.Fatal(err)
+	}
+	return db
+}
+
+// seedNode 落一个节点；mutate 在落库前改字段（容量/成本/线档等打分输入）。
+func seedNode(t *testing.T, db *gorm.DB, name, role, direction string, mutate func(*storage.Node)) storage.Node {
+	t.Helper()
+	n := storage.Node{Name: name, Token: "tok-" + name, Role: role, Direction: direction, Enabled: true}
+	if mutate != nil {
+		mutate(&n)
+	}
+	if err := db.Create(&n).Error; err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// seedProbe 记一条互探结论（新鲜）。
+func seedProbe(t *testing.T, db *gorm.DB, target uint, verdict string) {
+	t.Helper()
+	nodeID := &target
+	if err := db.Create(&storage.ProbeReport{
+		NodeID: 999, TargetKind: agentproto.ProbeTargetPeer, TargetNodeID: nodeID,
+		Verdict: verdict, ProbedAt: time.Now(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// seedConns 记一条节点连接数采样（新鲜）。
+func seedConns(t *testing.T, db *gorm.DB, node uint, proc string, conns int) {
+	t.Helper()
+	if err := db.Create(&storage.NodeTrafficLog{
+		NodeID: node, Proc: proc, Conns: conns, RecordedAt: time.Now(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPickLeastConnCapacityWeight(t *testing.T) {
+	// 同连接数下 3M 小带宽负载比高，新连接分给大带宽（容量权重，3M 少分）。
+	cands := []Candidate{
+		{Node: storage.Node{Name: "small", BwDownMbps: 3}, Conns: 12, Healthy: true},
+		{Node: storage.Node{Name: "big", BwDownMbps: 100}, Conns: 12, Healthy: true},
+	}
+	idx, ok := Pick(PolicyLeastConn, "out", cands)
+	if !ok || cands[idx].Node.Name != "big" {
+		t.Fatalf("capacity weight broken: idx=%d ok=%v", idx, ok)
+	}
+
+	// 纯负载口径：连接数少者胜。
+	cands = []Candidate{
+		{Node: storage.Node{Name: "busy", BwDownMbps: 100}, Conns: 50, Healthy: true},
+		{Node: storage.Node{Name: "idle", BwDownMbps: 100}, Conns: 5, Healthy: true},
+	}
+	idx, ok = Pick(PolicyLeastConn, "out", cands)
+	if !ok || cands[idx].Node.Name != "idle" {
+		t.Fatalf("least conn broken: idx=%d ok=%v", idx, ok)
+	}
+}
+
+func TestPickCostFirst(t *testing.T) {
+	// 包月边际成本 0，压过一切按流量档（月固定成本是沉没成本不参与分配）。
+	cands := []Candidate{
+		{Node: storage.Node{Name: "cheap", BillingType: "按流量", TrafficPriceCents: 30}, Conns: 10, Healthy: true},
+		{Node: storage.Node{Name: "pricey", BillingType: "按流量", TrafficPriceCents: 100}, Conns: 0, Healthy: true},
+		{Node: storage.Node{Name: "monthly", BillingType: "包月"}, Conns: 20, Healthy: true},
+	}
+	idx, ok := Pick(PolicyCostFirst, "out", cands)
+	if !ok || cands[idx].Node.Name != "monthly" {
+		t.Fatalf("monthly should win cost_first: idx=%d ok=%v", idx, ok)
+	}
+
+	cands = []Candidate{
+		{Node: storage.Node{Name: "cheap", BillingType: "按流量", TrafficPriceCents: 30}, Healthy: true},
+		{Node: storage.Node{Name: "pricey", BillingType: "按流量", TrafficPriceCents: 100}, Healthy: true},
+	}
+	idx, ok = Pick(PolicyCostFirst, "out", cands)
+	if !ok || cands[idx].Node.Name != "cheap" {
+		t.Fatalf("cheap should win cost_first: idx=%d ok=%v", idx, ok)
+	}
+}
+
+func TestPickPerfFirstInOnly(t *testing.T) {
+	// 回国线：优质线档优先，负载更高也胜。
+	cands := []Candidate{
+		{Node: storage.Node{Name: "plain-busy", LineType: "163", BwDownMbps: 100}, Conns: 80, Healthy: true},
+		{Node: storage.Node{Name: "gia-busy", LineType: "cn2_gia", BwDownMbps: 100}, Conns: 80, Healthy: true},
+	}
+	idx, ok := Pick(PolicyPerfFirst, "in", cands)
+	if !ok || cands[idx].Node.Name != "gia-busy" {
+		t.Fatalf("premium line should win perf_first(in): idx=%d ok=%v", idx, ok)
+	}
+
+	// 出海线不分线档：负载低者胜。
+	cands = []Candidate{
+		{Node: storage.Node{Name: "plain-busy", LineType: "163", BwDownMbps: 100}, Conns: 80, Healthy: true},
+		{Node: storage.Node{Name: "gia-idle", LineType: "cn2_gia", BwDownMbps: 100}, Conns: 8, Healthy: true},
+	}
+	idx, ok = Pick(PolicyPerfFirst, "out", cands)
+	if !ok || cands[idx].Node.Name != "gia-idle" {
+		t.Fatalf("out direction should ignore line tier: idx=%d ok=%v", idx, ok)
+	}
+}
+
+func TestPickBalanced(t *testing.T) {
+	// 均衡档：负载与成本合成，回国优质线作减项。
+	cands := []Candidate{
+		{Node: storage.Node{Name: "cheap-busy", BwDownMbps: 100}, Conns: 90, Healthy: true},
+		{Node: storage.Node{Name: "iplc-loaded", LineType: "iplc", BwDownMbps: 100}, Conns: 60, Healthy: true},
+	}
+	idx, ok := Pick(PolicyBalanced, "in", cands)
+	if !ok || cands[idx].Node.Name != "iplc-loaded" {
+		t.Fatalf("premium should win balanced(in): idx=%d ok=%v", idx, ok)
+	}
+
+	// 无优质线时低负载胜。
+	cands = []Candidate{
+		{Node: storage.Node{Name: "busy", BwDownMbps: 100}, Conns: 90, Healthy: true},
+		{Node: storage.Node{Name: "idle", BwDownMbps: 100}, Conns: 10, Healthy: true},
+	}
+	idx, ok = Pick(PolicyBalanced, "out", cands)
+	if !ok || cands[idx].Node.Name != "idle" {
+		t.Fatalf("idle should win balanced: idx=%d ok=%v", idx, ok)
+	}
+}
+
+func TestPickHealthGate(t *testing.T) {
+	// 全病不分配；病者出局，健康者按策略比较。
+	cands := []Candidate{{Node: storage.Node{Name: "sick"}, Healthy: false}}
+	if _, ok := Pick(PolicyLeastConn, "out", cands); ok {
+		t.Fatal("all-sick candidates must not allocate")
+	}
+	cands = append(cands, Candidate{Node: storage.Node{Name: "well", BwDownMbps: 100}, Conns: 30, Healthy: true})
+	idx, ok := Pick(PolicyLeastConn, "out", cands)
+	if !ok || cands[idx].Node.Name != "well" {
+		t.Fatalf("sick must be excluded: idx=%d ok=%v", idx, ok)
+	}
+}
+
+func TestPolicyPersistence(t *testing.T) {
+	db := newTestDB(t)
+	setting, err := LoadPolicy(db)
+	if err != nil || setting != DefaultPolicySetting() {
+		t.Fatalf("default policy = %+v err=%v", setting, err)
+	}
+
+	setting = PolicySetting{Out: PolicyCostFirst, In: PolicyPerfFirst}
+	if err := SavePolicy(db, setting); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadPolicy(db)
+	if err != nil || got != setting {
+		t.Fatalf("roundtrip = %+v err=%v", got, err)
+	}
+
+	if err := SavePolicy(db, PolicySetting{Out: "greedy", In: PolicyBalanced}); err == nil {
+		t.Fatal("invalid policy must be rejected")
+	}
+}
+
+func TestSweepAllocatesAndSwitches(t *testing.T) {
+	db := newTestDB(t)
+	seedNode(t, db, "entry", "entry", "out", nil)
+	seedNode(t, db, "land-a", "landing", "out", nil)
+	seedNode(t, db, "land-b", "landing", "out", nil)
+
+	// 首轮：零负载零成本全同，名字字典序 land-a 胜。
+	events, err := Sweep(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].ToName != "land-a" || events[0].FromName != "（无）" {
+		t.Fatalf("first sweep events = %+v", events)
+	}
+
+	// 无变化复跑不产生新行（不抖动）。
+	if events, err = Sweep(db); err != nil || len(events) != 0 {
+		t.Fatalf("no-churn sweep = %+v err=%v", events, err)
+	}
+
+	// land-a 病了 → 自动换线到 land-b，旧行释放留痕。
+	var landA storage.Node
+	if err := db.Where("name = ?", "land-a").First(&landA).Error; err != nil {
+		t.Fatal(err)
+	}
+	seedProbe(t, db, landA.ID, agentproto.ProbeVerdictSick)
+	events, err = Sweep(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].ToName != "land-b" || events[0].FromName != "land-a" {
+		t.Fatalf("switch events = %+v", events)
+	}
+
+	var rows []storage.LandingAssignment
+	if err := db.Order("id ASC").Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("rows = %d", len(rows))
+	}
+	if rows[0].ReleasedAt == nil || rows[0].ReleaseReason != "自动换线" || rows[0].Reason == "" {
+		t.Fatalf("released row = %+v", rows[0])
+	}
+	if rows[1].ReleasedAt != nil || rows[1].Strategy != PolicyBalanced {
+		t.Fatalf("current row = %+v", rows[1])
+	}
+}
+
+func TestSweepLoadSignal(t *testing.T) {
+	db := newTestDB(t)
+	seedNode(t, db, "entry", "entry", "out", nil)
+	landA := seedNode(t, db, "land-a", "landing", "out", func(n *storage.Node) { n.BwDownMbps = 3 })
+	landB := seedNode(t, db, "land-b", "landing", "out", func(n *storage.Node) { n.BwDownMbps = 100 })
+
+	// land-a 3M 小带宽吃了 30 条连接（负载比 10），land-b 100M 吃 30 条（0.3）：
+	// least_conn 下新入口分给 land-b（3M 少分）。
+	seedConns(t, db, landA.ID, "relay", 30)
+	seedConns(t, db, landB.ID, "relay", 30)
+	if err := SavePolicy(db, PolicySetting{Out: PolicyLeastConn, In: PolicyLeastConn}); err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := Sweep(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].ToName != "land-b" {
+		t.Fatalf("load-aware events = %+v", events)
+	}
+	var row storage.LandingAssignment
+	if err := db.Where("released_at IS NULL").First(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	if row.Strategy != PolicyLeastConn {
+		t.Fatalf("strategy = %s", row.Strategy)
+	}
+}
+
+func TestSweepManualWins(t *testing.T) {
+	db := newTestDB(t)
+	entry := seedNode(t, db, "entry", "entry", "out", nil)
+	landing := seedNode(t, db, "land", "landing", "out", nil)
+
+	// 入口级手动行挡住自动。
+	if err := db.Create(&storage.LandingAssignment{
+		EntryNodeID: &entry.ID, LandingNodeID: landing.ID,
+		Direction: "out", Strategy: PolicyManual, AssignedAt: time.Now(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	events, err := Sweep(db)
+	if err != nil || len(events) != 0 {
+		t.Fatalf("manual must win: %+v err=%v", events, err)
+	}
+
+	// 区域级手动行同样挡。
+	if err := db.Exec("DELETE FROM landing_assignments").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&storage.Node{}).Where("id = ?", entry.ID).Update("region", "hk").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&storage.LandingAssignment{
+		Region: "hk", LandingNodeID: landing.ID,
+		Direction: "out", Strategy: PolicyManual, AssignedAt: time.Now(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	events, err = Sweep(db)
+	if err != nil || len(events) != 0 {
+		t.Fatalf("region manual must win: %+v err=%v", events, err)
+	}
+}
+
+func TestSweepScopeGuards(t *testing.T) {
+	db := newTestDB(t)
+	entry := seedNode(t, db, "entry", "entry", "out", nil)
+	seedNode(t, db, "land", "landing", "out", nil)
+
+	// 摘除态入口不参与分配。
+	if err := db.Model(&storage.Node{}).Where("id = ?", entry.ID).
+		Update("pool_state", "suspended").Error; err != nil {
+		t.Fatal(err)
+	}
+	events, err := Sweep(db)
+	if err != nil || len(events) != 0 {
+		t.Fatalf("suspended entry must be skipped: %+v err=%v", events, err)
+	}
+
+	// 禁用落地不进候选池：复位入口后唯一落地被禁 → 无候选不动。
+	if err := db.Model(&storage.Node{}).Where("id = ?", entry.ID).
+		Update("pool_state", "active").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("UPDATE nodes SET enabled = 0 WHERE role = 'landing'").Error; err != nil {
+		t.Fatal(err)
+	}
+	events, err = Sweep(db)
+	if err != nil || len(events) != 0 {
+		t.Fatalf("disabled landing must be excluded: %+v err=%v", events, err)
+	}
+}
+
+func TestSweepAllSickKeepsCurrent(t *testing.T) {
+	db := newTestDB(t)
+	seedNode(t, db, "entry", "entry", "out", nil)
+	landing := seedNode(t, db, "land", "landing", "out", nil)
+
+	events, err := Sweep(db)
+	if err != nil || len(events) != 1 {
+		t.Fatalf("initial sweep = %+v err=%v", events, err)
+	}
+
+	// 落地转病：保现行不换线，无新事件无新行。
+	seedProbe(t, db, landing.ID, agentproto.ProbeVerdictSick)
+	events, err = Sweep(db)
+	if err != nil || len(events) != 0 {
+		t.Fatalf("all-sick sweep = %+v err=%v", events, err)
+	}
+	var n int64
+	if err := db.Model(&storage.LandingAssignment{}).Count(&n).Error; err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("rows = %d, want 1", n)
+	}
+}

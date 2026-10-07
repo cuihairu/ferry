@@ -13,6 +13,7 @@ import (
 	_ "github.com/cuihairu/ferry/payments/alipay" // PAY-10：占位渠道（未启用文案）
 	_ "github.com/cuihairu/ferry/payments/epusdt" // PAY-8：init 自注册收款渠道
 	_ "github.com/cuihairu/ferry/payments/wechat" // PAY-10：占位渠道（未启用文案）
+	"github.com/cuihairu/ferry/server/internal/alloc"
 	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/handler"
 	"github.com/cuihairu/ferry/server/internal/monitor"
@@ -58,6 +59,9 @@ func main() {
 
 	// 入口池自动摘挂（E-16）：连续 sick 摘除/恢复复位，订阅入口池即时生效。
 	go pool.Loop(ctx, db, time.Duration(cfg.PoolIntervalSec)*time.Second, nil)
+
+	// 落地自动分配（E-21）：加权最小连接，策略三档可配，换线留痕并通知。
+	go alloc.Loop(ctx, db, time.Duration(cfg.AllocIntervalSec)*time.Second, nil)
 
 	// 到期/超限用户停用扫表。
 	go review.Run(ctx, db, time.Duration(cfg.ReviewIntervalSec)*time.Second)
