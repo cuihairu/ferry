@@ -146,8 +146,8 @@
 ### 开源优先换件（docs/design/开源选型设计.md 对照表，逐个换）
 
 - [x] [P1] OSS-1 agent host 采样换 shirou/gopsutil/v4（MIT）：删 /proc 手解析 229 行，跨平台负载/内存/网络/连接数；换后复测 agent 二进制尺寸（实测 7.33MB→7.61MB，+291KB，E-4 10MB 门禁余量充足）
-- [ ] [P1] OSS-2 Cloudflare DNS 客户端换 libdns/cloudflare（MIT）：删手写 REST 155 行；proxied 保持语义核对，dns.Provider 接口不变只换实现
-- [ ] [P1] OSS-3 ACME 换 go-acme/lego/v4（MIT，纯 Go 库）：cert.Manager 去 acme.sh 外部命令依赖，Runner 接缝换 lego 实现；DNS-01 复用 dns_providers 凭证通道；cert 包测试随换重写
+- [x] [P1] OSS-2 Cloudflare DNS 换 libdns/cloudflare——核验改判保留：v0.2.2 upsert 不保 proxied（A 记录橙云被打回灰云=源站暴露，BR-2 安全语义优先），自有 155 行留档于开源选型设计.md §3.1b
+- [x] [P1] OSS-3 ACME 换 lego——核验改判保留：acme.sh 本就是现成工具位非自研；实测精简 lego 引入即 +7.6MB 二进制（探针，server 现 32.8MB），小内存口径下是坏交易；候选随 E-18b plugin 批再量，留档开源选型设计.md §3.1b
 
 ### 分配与成本
 
