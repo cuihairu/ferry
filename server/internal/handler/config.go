@@ -19,6 +19,13 @@ import (
 // configAckTimeout 覆盖 agent 侧校验命令 + reload 的最坏耗时。
 const configAckTimeout = 60 * time.Second
 
+// configPushInput 是一份配置下发的载荷（单点与批量共用，A-15）。
+type configPushInput struct {
+	Proc    string `json:"proc"`
+	Kind    string `json:"kind"`
+	Payload string `json:"payload"`
+}
+
 // pushConfig 向节点下发一份进程配置（A-18）：
 // 落库 pending → 经 agenthub 等待 config.ack → 按结果置 applied/failed。
 func (h *Handler) pushConfig(c *gin.Context) {
@@ -27,11 +34,7 @@ func (h *Handler) pushConfig(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
 		return
 	}
-	var in struct {
-		Proc    string `json:"proc"`
-		Kind    string `json:"kind"`
-		Payload string `json:"payload"`
-	}
+	var in configPushInput
 	if err := c.ShouldBindJSON(&in); err != nil {
 		fail(c, http.StatusBadRequest, err)
 		return
@@ -40,54 +43,61 @@ func (h *Handler) pushConfig(c *gin.Context) {
 		fail(c, http.StatusBadRequest, errors.New("proc and payload are required"))
 		return
 	}
+	row, status, err := h.deployConfig(uint(id), in)
+	if err != nil {
+		fail(c, status, err)
+		return
+	}
+	c.JSON(http.StatusOK, row)
+}
 
+// deployConfig 执行单节点配置下发全流程，返回最终留痕记录。
+// 返回 err != nil 时 status 为对应 HTTP 状态码（transport 类失败）；
+// agent ack 的 OK=false 属业务失败，记录留痕后按 nil err 返回。
+func (h *Handler) deployConfig(nodeID uint, in configPushInput) (storage.NodeConfig, int, error) {
 	sum := sha256.Sum256([]byte(in.Payload))
 	digest := hex.EncodeToString(sum[:])
 	row := storage.NodeConfig{
-		NodeID: uint(id), Proc: in.Proc, Kind: in.Kind,
+		NodeID: nodeID, Proc: in.Proc, Kind: in.Kind,
 		Version: digest, Sha256: digest, Payload: in.Payload,
 		Status: "pending",
 	}
 	if err := h.db.Create(&row).Error; err != nil {
-		fail(c, http.StatusInternalServerError, err)
-		return
+		return row, http.StatusInternalServerError, err
 	}
 
 	env, err := agentproto.NewEnvelope(
-		fmt.Sprintf("cfg-%d-%d", id, time.Now().UnixNano()),
+		fmt.Sprintf("cfg-%d-%d", nodeID, time.Now().UnixNano()),
 		agentproto.MsgConfigPush,
 		agentproto.ConfigPush{Proc: in.Proc, Kind: in.Kind, Version: digest, Sha256: digest, Payload: in.Payload},
 	)
 	if err != nil {
-		fail(c, http.StatusInternalServerError, err)
-		return
+		return row, http.StatusInternalServerError, err
 	}
-	reply, err := h.hub.Request(int64(id), env, configAckTimeout)
+	reply, err := h.hub.Request(int64(nodeID), env, configAckTimeout)
 	if err != nil {
 		h.finishNodeConfig(&row, "failed", false, false, err.Error())
 		switch {
 		case errors.Is(err, agenthub.ErrOffline):
-			fail(c, http.StatusBadGateway, err)
+			return row, http.StatusBadGateway, err
 		case errors.Is(err, agenthub.ErrTimeout):
-			fail(c, http.StatusGatewayTimeout, err)
+			return row, http.StatusGatewayTimeout, err
 		default:
-			fail(c, http.StatusInternalServerError, err)
+			return row, http.StatusInternalServerError, err
 		}
-		return
 	}
 
 	var ack agentproto.ConfigAck
 	if err := reply.Decode(&ack); err != nil {
 		h.finishNodeConfig(&row, "failed", false, false, "bad config_ack: "+err.Error())
-		fail(c, http.StatusBadGateway, err)
-		return
+		return row, http.StatusBadGateway, err
 	}
 	status := "failed"
 	if ack.OK {
 		status = "applied"
 	}
 	h.finishNodeConfig(&row, status, ack.Reverted, ack.Validated, ack.Error)
-	c.JSON(http.StatusOK, row)
+	return row, 0, nil
 }
 
 // finishNodeConfig 把下发的最终结果写回记录；失败仅记日志（记录本身已可追溯）。
