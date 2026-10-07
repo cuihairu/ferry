@@ -167,6 +167,21 @@ type NodeConfig struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// Alert 是一条异常告警（A-22）：agent 上报的进程崩溃/证书临期/高负载/配置错误，
+// 同节点同类别同进程只保留一条活跃告警（重复上报刷新消息），进程恢复自动消解。
+type Alert struct {
+	ID         uint       `gorm:"primaryKey" json:"id"`
+	NodeID     uint       `gorm:"index;not null" json:"node_id"`
+	Kind       string     `gorm:"size:32;not null;index" json:"kind"`             // proc_crash/cert_expiry/high_load/config_error
+	Severity   string     `gorm:"size:16;not null" json:"severity"`               // warning/critical
+	Proc       string     `gorm:"size:64" json:"proc,omitempty"`
+	Message    string     `gorm:"type:text" json:"message"`
+	State      string     `gorm:"size:16;not null;default:active;index" json:"state"` // active/resolved
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+	ResolvedAt *time.Time `json:"resolved_at,omitempty"`
+}
+
 // NodeTrafficLog 是节点级进程流量记账（A-20）：agent 按进程周期上报的增量。
 // 用户级记账走 traffic_logs（P0-9），需要逐用户统计映射（P1-3）。
 type NodeTrafficLog struct {

@@ -324,8 +324,7 @@ func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID 
 			if err := env.Decode(&al); err != nil {
 				continue
 			}
-			// 告警落库与展示在管理面批次接入，先记录保证不丢日志。
-			log.Printf("alarm node=%d kind=%s severity=%s proc=%s: %s", nodeID, al.Kind, al.Severity, al.Proc, al.Message)
+			h.recordAlert(uint(nodeID), al)
 			reply, _ := agentproto.NewEnvelope(env.ID, agentproto.MsgAlarmAck, nil)
 			if err := hc.Send(reply); err != nil {
 				return
@@ -349,7 +348,12 @@ func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID 
 			if err := env.Decode(&pr); err != nil {
 				continue
 			}
-			log.Printf("proc report node=%d: %d procs", nodeID, len(pr.Procs))
+			// 进程恢复运行 → 自动消解对应的崩溃告警（A-22）。
+			for _, ps := range pr.Procs {
+				if ps.State == "running" {
+					h.resolveProcCrashAlerts(uint(nodeID), ps.Name)
+				}
+			}
 		case agentproto.MsgTraffic:
 			var tr agentproto.TrafficReport
 			if err := env.Decode(&tr); err != nil {
