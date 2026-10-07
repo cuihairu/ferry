@@ -132,3 +132,68 @@ func TestPanelRedeem(t *testing.T) {
 		t.Fatalf("no token: %d", rec.Code)
 	}
 }
+
+func TestPanelOrders(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	userID, codes := redeemCreate(t, r, "erin", map[string]any{
+		"grant_type": "extend_days", "grant_value": 30,
+	}, 1)
+	var u storage.User
+	if err := db.First(&u, userID).Error; err != nil {
+		t.Fatal(err)
+	}
+	// 真实兑换一笔，产生 order + grant
+	if rec := doPanel(t, r, u.SubToken, "POST", "/api/panel/redeem", map[string]any{"code": codes[0]}); rec.Code != http.StatusOK {
+		t.Fatalf("redeem: %d %s", rec.Code, rec.Body)
+	}
+
+	// 订单中心：倒序，发放记录归并进单
+	rec := doPanel(t, r, u.SubToken, "GET", "/api/panel/orders", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("orders: %d %s", rec.Code, rec.Body)
+	}
+	var list []struct {
+		OrderNo  string `json:"order_no"`
+		Provider string `json:"provider"`
+		Status   string `json:"status"`
+		Grants   []struct {
+			GrantType  string `json:"grant_type"`
+			GrantValue int64  `json:"grant_value"`
+		} `json:"grants"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(list) != 1 || list[0].Provider != "card" || list[0].Status != "paid" {
+		t.Fatalf("orders = %+v", list)
+	}
+	if len(list[0].Grants) != 1 || list[0].Grants[0].GrantType != "extend_days" || list[0].Grants[0].GrantValue != 30 {
+		t.Fatalf("grants = %+v", list[0].Grants)
+	}
+
+	// 隔离：别人的单看不见
+	otherID, _ := redeemCreate(t, r, "frank", map[string]any{
+		"grant_type": "add_quota", "grant_value": 1 << 30,
+	}, 1)
+	var ou storage.User
+	if err := db.First(&ou, otherID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&storage.PaymentOrder{OrderNo: "card-9-9", UserID: ou.ID, Provider: "card", Status: "paid"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	rec = doPanel(t, r, u.SubToken, "GET", "/api/panel/orders", nil)
+	var list2 []map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &list2)
+	if len(list2) != 1 {
+		t.Fatalf("leak other order: %+v", list2)
+	}
+
+	// 非法 limit 与无凭据
+	if rec := doPanel(t, r, u.SubToken, "GET", "/api/panel/orders?limit=0", nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad limit: %d", rec.Code)
+	}
+	if rec := doPanel(t, r, "", "GET", "/api/panel/orders", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("no token: %d", rec.Code)
+	}
+}

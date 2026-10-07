@@ -455,3 +455,18 @@ body {
   background: var(--ferry-bg-hover);
   border: 1px solid var(--ferry-border);
 }
+
+/* ---- 订单 ---- */
+.order-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.order-head .mono {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

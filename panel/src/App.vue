@@ -32,6 +32,7 @@ function doLogout() {
       <nav v-if="auth.token" class="nav">
         <RouterLink to="/" class="nav-link" :class="{ active: route.path === '/' }">概览</RouterLink>
         <RouterLink to="/redeem" class="nav-link" :class="{ active: route.path === '/redeem' }">兑换</RouterLink>
+        <RouterLink to="/orders" class="nav-link" :class="{ active: route.path === '/orders' }">订单</RouterLink>
       </nav>
       <div v-if="auth.token" class="topbar-right">
         <span class="uname">{{ auth.user?.username ?? '…' }}</span>

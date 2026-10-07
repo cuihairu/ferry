@@ -71,6 +71,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		{
 			panel.GET("/me", h.panelMe)
 			panel.POST("/redeem", h.panelRedeem)
+			panel.GET("/orders", h.panelOrders)
 		}
 	}
 	return r

@@ -36,12 +36,12 @@ importers:
 
   panel:
     dependencies:
-      element-plus:
-        specifier: ^2.9.0
-        version: 2.14.7(vue@3.5.43(typescript@5.9.3))
       vue:
         specifier: ^3.5.0
         version: 3.5.43(typescript@5.9.3)
+      vue-router:
+        specifier: ^4.5.0
+        version: 4.6.4(vue@3.5.43(typescript@5.9.3))
     devDependencies:
       '@vitejs/plugin-vue':
         specifier: ^6.0.0

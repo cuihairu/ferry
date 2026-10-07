@@ -54,3 +54,15 @@ export interface RedeemResult {
   quota_bytes: number
   expires_at: string | null
 }
+
+/** OrderRow 是 GET /api/panel/orders 的单条：订单 + 归并的发放记录。 */
+export interface OrderRow {
+  order_no: string
+  provider: string
+  product: string
+  amount_cents: number
+  status: string
+  created_at: string
+  paid_at: string | null
+  grants: Array<{ grant_type: string; grant_value: number }>
+}

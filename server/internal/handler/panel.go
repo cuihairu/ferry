@@ -3,6 +3,7 @@ package handler
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -113,4 +114,53 @@ func (h *Handler) panelRedeem(c *gin.Context) {
 	}
 	h.redeemLimiter.Reset(ip)
 	c.JSON(http.StatusOK, result)
+}
+
+// panelOrders 订单中心（GET /api/panel/orders，OD-1）：当前用户的订单按时间倒序，
+// 每单归并其发放记录（provider=card 归并；epusdt 等上线后同形返回，product/金额原样透出）。
+func (h *Handler) panelOrders(c *gin.Context) {
+	u, ok := h.panelUser(c)
+	if !ok {
+		return
+	}
+	limit := 50
+	if v := c.Query("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 200 {
+			fail(c, http.StatusBadRequest, errors.New("limit must be 1-200"))
+			return
+		}
+		limit = n
+	}
+	var orders []storage.PaymentOrder
+	if err := h.db.Where("user_id = ?", u.ID).Order("id DESC").Limit(limit).Find(&orders).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	out := make([]gin.H, 0, len(orders))
+	for i := range orders {
+		var grants []storage.Grant
+		if err := h.db.Where("order_no = ?", orders[i].OrderNo).Order("id").Find(&grants).Error; err != nil {
+			fail(c, http.StatusInternalServerError, err)
+			return
+		}
+		items := make([]gin.H, 0, len(grants))
+		for j := range grants {
+			items = append(items, gin.H{
+				"grant_type":  grants[j].GrantType,
+				"grant_value": grants[j].GrantValue,
+			})
+		}
+		out = append(out, gin.H{
+			"order_no":     orders[i].OrderNo,
+			"provider":     orders[i].Provider,
+			"product":      orders[i].Product,
+			"amount_cents": orders[i].AmountCents,
+			"status":       orders[i].Status,
+			"created_at":   orders[i].CreatedAt,
+			"paid_at":      orders[i].PaidAt,
+			"grants":       items,
+		})
+	}
+	c.JSON(http.StatusOK, out)
 }
