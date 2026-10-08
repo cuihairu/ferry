@@ -4,12 +4,15 @@ go 1.27.1
 
 replace github.com/cuihairu/ferry/packages/agentproto => ../packages/agentproto
 
+replace github.com/cuihairu/ferry/packages/costref => ../packages/costref
+
 replace github.com/cuihairu/ferry/packages/payment => ../packages/payment
 
 replace github.com/cuihairu/ferry/payments => ../payments
 
 require (
 	github.com/cuihairu/ferry/packages/agentproto v0.0.0
+	github.com/cuihairu/ferry/packages/costref v0.0.0
 	github.com/cuihairu/ferry/packages/payment v0.0.0
 	github.com/cuihairu/ferry/payments v0.0.0
 	github.com/gin-gonic/gin v1.12.0

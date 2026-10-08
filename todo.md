@@ -175,7 +175,7 @@
 
 ### 成本参考
 
-- [ ] [P2] E-31 成本参考库插件位：costref.Source 接口，手录成本为准，参考价接开源比价（infracost 类/公开价格表），偏差提示不自动改价
+- [x] [P2] E-31 成本参考库插件位（已落地 2026-10-08：packages/costref 纯 stdlib 独立 module——Source/Query/Quote 契约 + Compare 偏差提示（正=手录贵、超容忍 Off、币种不符/未填显式报错）+ StaticSource/ParseTable 公开价格表（导入层拒脏表）；选型留档：infracost 类库无 VPS 商家口径暂不接，接真实来源另实现 Source 先核 license；server 接线：价格表落 settings costref_static_table，三端点试查（node_id 节点映射=机房→商家/区域/套餐档+手录月固定成本 或自由键，未命中 hit:false，币种不符回 reason）/批量对账 ref-check（机房+月固定齐全节点逐个比，只列命中可比行）/导入 ref-table，容差缺省 ±30%；dash 成本页参考库卡（导入/批量对账偏差表+价格页核对/单点试查）；偏差提示面=成本页对账表，节点卡内嵌提示随 E-32；测试 costref 包单测+handler 端到端）
 - [ ] [P2] E-32 价格变动与促销关注：关注条件（机房/配置/价位）命中的降价促销进 dash 通知
 
 ## 一键开服与自动入池（设计：docs/design/计划扩充设计.md §1）

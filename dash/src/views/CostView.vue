@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   get, put, getEvening, getQuotaLink, putQuotaLink, getSaveStats,
+  checkCostRef, probeCostRef, saveCostRefTable, ApiError,
   type EveningReport, type GroupCost, type NodeCost,
   type QuotaLinkData, type QuotaLinkSetting, type QuotaActionRow,
-  type SaveStatsReport,
+  type SaveStatsReport, type RefCheckReport, type RefProbe,
 } from '../api'
 import { formatBytes } from '../utils/format'
 
@@ -15,6 +16,7 @@ import { formatBytes } from '../utils/format'
 // SAVE-6：配额联动——用户流量/费用超阈值自动订阅降档（只出低成本档入口），
 // 配置与降档留痕同页。
 // SAVE-7：流量节省报表同页——分流直连/广告拦截按日汇总与折算费用（同口径）。
+// E-31：成本参考库同页——公开价格表导入 + 手录价 vs 牌价偏差提示（只提示不改价）。
 
 interface CostReport {
   nodes: NodeCost[]
@@ -59,6 +61,7 @@ async function load() {
   }
 }
 onMounted(load)
+onMounted(() => loadRefCheck())
 
 async function saveThreshold() {
   saving.value = true
@@ -132,6 +135,72 @@ const hasEveningData = (): boolean => !!evening.value && evening.value.peak.samp
 // 小时行含样本才入表，空钟点不占行。
 function eveningRows() {
   return (evening.value?.hours ?? []).filter((h) => h.samples > 0)
+}
+
+// ---- 成本参考库（E-31）----
+
+// 批量对账：机房+月固定成本齐全的节点逐个比对牌价；未导入价格表（400）
+// 静默保持空态，由空态文案指引导入，首访不弹错。
+const refCheck = ref<RefCheckReport | null>(null)
+const refCheckLoading = ref(false)
+
+async function loadRefCheck(quiet = true) {
+  refCheckLoading.value = true
+  try {
+    refCheck.value = await checkCostRef()
+  } catch (e) {
+    if (!quiet || !(e instanceof ApiError && e.status === 400)) ElMessage.error(String(e))
+  } finally {
+    refCheckLoading.value = false
+  }
+}
+
+// 价格表导入：JSON 数组文本原样交给后端校验（脏表拒绝），空串清空停用。
+const refTable = ref('')
+const refSaving = ref(false)
+
+async function saveRefTable() {
+  refSaving.value = true
+  try {
+    const r = await saveCostRefTable(refTable.value)
+    ElMessage.success(r.cleared ? '已清空价格表' : `已导入 ${r.rows ?? 0} 行牌价`)
+    refTable.value = ''
+    await loadRefCheck()
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : String(e))
+  } finally {
+    refSaving.value = false
+  }
+}
+
+// 单点试查：自由键查牌价，可选带手录价比偏差。
+const probeForm = reactive({ provider: '', region: '', spec: '', manual: '', currency: '' })
+const probeResult = ref<RefProbe | null>(null)
+const probeLoading = ref(false)
+
+async function runProbe() {
+  if (!probeForm.provider.trim() || !probeForm.spec.trim()) {
+    ElMessage.warning('商家与配置档必填')
+    return
+  }
+  probeLoading.value = true
+  try {
+    probeResult.value = await probeCostRef({
+      provider: probeForm.provider.trim(),
+      region: probeForm.region.trim(),
+      spec: probeForm.spec.trim(),
+      manual_cents: probeForm.manual.trim() ? Number(probeForm.manual) : '',
+      currency: probeForm.currency.trim(),
+    })
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : String(e))
+  } finally {
+    probeLoading.value = false
+  }
+}
+
+function refPct(pct: number): string {
+  return (pct > 0 ? '+' : '') + pct + '%'
 }
 </script>
 
@@ -327,6 +396,81 @@ function eveningRows() {
     </el-table>
     <el-empty v-else-if="link" description="暂无降档记录（联动启用后超阈值用户在此留痕）" :image-size="60" />
 
+    <h3 class="section">成本参考库</h3>
+    <p class="page-desc">
+      手录成本是唯一权威：导入公开价格表（商家/区域/配置档 → 月付牌价）后按节点比对，
+      偏差超容差提示人工复核——参考价只提示，不会自动改价。
+    </p>
+    <div class="toolbar ref-import">
+      <el-input
+        v-model="refTable" type="textarea" :rows="4"
+        placeholder='价格表 JSON 数组：[{"provider":"vultr","region":"tokyo","spec":"100M-500G","monthly_cents":600,"currency":"CNY","url":"https://…}]（留空提交=清空停用）'
+        class="ref-textarea"
+      />
+      <el-button type="primary" :loading="refSaving" @click="saveRefTable">导入价格表</el-button>
+    </div>
+    <div class="toolbar">
+      <el-button :loading="refCheckLoading" @click="loadRefCheck(false)">对账手录价（批量）</el-button>
+      <span v-if="refCheck" class="threshold">
+        容差 ±{{ refCheck.tolerance_pct }}% · 参查 {{ refCheck.checked }} 台 · 命中 {{ refCheck.hits }} ·
+        币种不符 {{ refCheck.mismatches }}
+      </span>
+    </div>
+    <el-table
+      v-if="refCheck && refCheck.items.length"
+      :data="refCheck.items"
+      :header-cell-style="{ background: 'var(--ferry-bg-panel)' }"
+    >
+      <el-table-column label="节点" min-width="110">
+        <template #default="{ row }">{{ row.node_name }}</template>
+      </el-table-column>
+      <el-table-column label="牌价键" min-width="200">
+        <template #default="{ row }">{{ row.query.provider }} / {{ row.query.region || '—' }} / {{ row.query.spec || '—' }}</template>
+      </el-table-column>
+      <el-table-column label="牌价" width="110">
+        <template #default="{ row }">{{ row.quote.monthly_cents / 100 }} {{ row.quote.currency }}</template>
+      </el-table-column>
+      <el-table-column label="手录" width="110">
+        <template #default="{ row }">{{ row.manual_cents / 100 }} {{ row.currency }}</template>
+      </el-table-column>
+      <el-table-column label="偏差" width="110">
+        <template #default="{ row }">
+          <el-tag :type="row.deviation.off ? 'danger' : 'success'" size="small" effect="plain">
+            {{ refPct(row.deviation.pct) }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="价格页" width="90">
+        <template #default="{ row }">
+          <a v-if="row.quote.url" :href="row.quote.url" target="_blank" rel="noopener">核对</a>
+          <span v-else>—</span>
+        </template>
+      </el-table-column>
+    </el-table>
+    <p v-else-if="refCheck" class="page-desc">偏差都在容差内，或暂无可比牌价（先导入价格表并补齐节点机房与月固定成本）。</p>
+    <p v-else class="page-desc">尚未导入价格表——在上方导入后即可对账。</p>
+
+    <div class="toolbar">
+      <el-input v-model="probeForm.provider" placeholder="商家" style="width: 130px" @keyup.enter="runProbe" />
+      <el-input v-model="probeForm.region" placeholder="区域（可空）" style="width: 120px" @keyup.enter="runProbe" />
+      <el-input v-model="probeForm.spec" placeholder="配置档（如 100M-500G）" style="width: 170px" @keyup.enter="runProbe" />
+      <el-input v-model="probeForm.manual" placeholder="手录价（分/月，可选）" style="width: 150px" @keyup.enter="runProbe" />
+      <el-input v-model="probeForm.currency" placeholder="币种（有手录价必填）" style="width: 150px" @keyup.enter="runProbe" />
+      <el-button :loading="probeLoading" @click="runProbe">试查牌价</el-button>
+    </div>
+    <p v-if="probeResult" class="page-desc probe-box">
+      <template v-if="probeResult.hit">
+        牌价 {{ (probeResult.quote?.monthly_cents ?? 0) / 100 }} {{ probeResult.quote?.currency }}
+        <template v-if="probeResult.quote?.traffic_price">（流量 {{ probeResult.quote.traffic_price / 100 }} {{ probeResult.quote.currency }}/GB）</template>
+        ——
+        <template v-if="probeResult.deviation">
+          手录价{{ probeResult.deviation.pct > 0 ? '高于' : '低于' }}牌价 {{ Math.abs(probeResult.deviation.pct) }}%，{{ probeResult.deviation.off ? '超容差，建议人工复核' : '在容差内' }}。
+        </template>
+        <template v-else>{{ probeResult.reason }}。</template>
+      </template>
+      <template v-else>牌价表无此键（{{ probeResult.query.provider }} / {{ probeResult.query.region || '—' }} / {{ probeResult.query.spec || '—' }}）。</template>
+    </p>
+
     <template v-if="evening">
       <h3 class="section">晚高峰回程报表（近 {{ evening.days }} 天）</h3>
       <p class="page-desc">
@@ -463,5 +607,19 @@ function eveningRows() {
 }
 :deep(.el-table .peak-row) {
   background: var(--ferry-bg-hover);
+}
+.ref-import {
+  align-items: flex-start;
+}
+.ref-textarea {
+  max-width: 720px;
+  font-family: monospace;
+}
+.probe-box {
+  max-width: 860px;
+  padding: 8px 12px;
+  border: 1px solid var(--ferry-border);
+  border-radius: 8px;
+  background: var(--ferry-bg-panel);
 }
 </style>

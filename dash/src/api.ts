@@ -862,3 +862,72 @@ export interface LoginLogRow {
 export function getLoginLogs(page: number, pageSize: number): Promise<{ items: LoginLogRow[]; total: number; page: number; page_size: number }> {
   return get(`/admin/login-logs?page=${page}&page_size=${pageSize}`)
 }
+
+// ---- 成本参考库（E-31，套餐与成本设计 §4）----
+// 手录成本唯一权威，参考价只产偏差提示不改价。
+
+/** RefQuery 是一次牌价试查的定位键（商家/区域/配置档）。 */
+export interface RefQuery {
+  provider: string
+  region: string
+  spec: string
+}
+
+/** RefQuote 是一条参考牌价（快照口径）。 */
+export interface RefQuote {
+  monthly_cents: number
+  traffic_price: number
+  currency: string
+  url?: string
+  at: string
+}
+
+/** RefDeviation 是手录价 vs 牌价的偏差结论（pct 正=手录贵）。 */
+export interface RefDeviation {
+  pct: number
+  off: boolean
+}
+
+/** RefProbe 是单点试查结果；未命中 hit=false，不可比时给 reason。 */
+export interface RefProbe {
+  source: string
+  query: RefQuery
+  hit: boolean
+  quote?: RefQuote
+  deviation?: RefDeviation
+  reason?: string
+}
+
+/** RefCheckReport 是批量对账报告（只列命中且可比的行）。 */
+export interface RefCheckReport {
+  source: string
+  tolerance_pct: number
+  checked: number
+  hits: number
+  mismatches: number
+  items: Array<{
+    node_id: number
+    node_name: string
+    query: RefQuery
+    quote: RefQuote
+    manual_cents: number
+    currency: string
+    deviation: RefDeviation
+  }>
+}
+
+export function probeCostRef(params: Record<string, string | number>): Promise<RefProbe> {
+  const qs = new URLSearchParams()
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== '' && v !== undefined) qs.set(k, String(v))
+  }
+  return get(`/api/cost/ref?${qs}`)
+}
+
+export function checkCostRef(): Promise<RefCheckReport> {
+  return get('/api/cost/ref-check')
+}
+
+export function saveCostRefTable(table: string): Promise<{ saved?: boolean; cleared?: boolean; rows?: number }> {
+  return put('/api/cost/ref-table', { table })
+}
