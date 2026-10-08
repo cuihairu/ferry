@@ -63,7 +63,7 @@
 
 ### 骨架 + 心跳
 
-- [x] [P0] A-8 `apps/agent` 入口：静态编译产出单文件二进制，`make build-agent` 验收
+- [x] [P0] A-8 `agent/cmd/agent` 入口：静态编译产出单文件二进制，`make build-agent` 验收
 - [x] [P0] A-9 agent 配置文件：面板地址、节点令牌、agent ID、证书路径、心跳与重连参数
 - [x] [P0] A-10 连接层：只出站 WebSocket、指数退避自动重连、按消息类型分发
 - [x] [P0] A-11 面板侧 `/agent/ws` 接入：读 hello 校验令牌、注册在线连接、心跳更新在线状态

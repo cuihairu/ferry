@@ -63,8 +63,8 @@
 ### 3.3 本机 IPC 契约
 
 ```
-核心 unix socket：/run/ferry/agent.sock
-组件 → 核心：component.register {name, version, endpoints}
+核心 unix socket：/run/ferry/agent.sock（未实现：当前组件为进程内角色调用，IPC v1 待定）
+组件 → 核心：component.register {name, version, endpoints}（未实现，同上）
              probe.report / relay.status 等上报（核心聚合进心跳或转发面板）
 核心 → 组件：本机配置文件下发（原子写 + SIGHUP 重载），指令转发（panel.* → 组件）
 ```
@@ -92,8 +92,8 @@
 ```
 agent/
 ├─ cmd/agent/        # 核心（现有）
-├─ cmd/relayd/       # relay 数据面（P0 随 relay 批）
-├─ cmd/probed/       # 边缘探测器（P0 随探测批）
+├─ cmd/relayd/       # relay 数据面（未单列：当前角色库形态 agent/internal/roles/relay，独立进程为后续演进）
+├─ cmd/probed/       # 边缘探测器（未单列：同上，当前进程内角色）
 ├─ internal/         # 共享实现（config/link/procs/host…）
 packages/agentproto/ # 契约（组件与核心共用）
 ```

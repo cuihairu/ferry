@@ -11,6 +11,10 @@
 	handle /agent/* {
 		reverse_proxy ferry-server:8080
 	}
+	# 公告 RSS（订阅注释里的逃生通道地址）
+	handle /feed.xml {
+		reverse_proxy ferry-server:8080
+	}
 
 	# 面板静态资源，history 路由回退 index.html
 	handle {

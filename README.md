@@ -21,7 +21,7 @@ ferry/
 ├── agent/      # 节点代理（Go 静态二进制，常驻代理机，只出站连服务端）
 ├── panel/      # 用户面板（Vue 3：自助订阅链接、流量查询、使用说明）
 ├── dash/       # 管理后台（Vue 3：用户/节点/配置/统计看板）
-├── payments/   # 支付网关插件（卡密、USDT、商户直连预留）
+├── payments/   # 支付渠道插件（epusdt USDT 已接入；微信/支付宝为占位，等商户资质）
 ├── packages/   # 共享契约（agentproto、支付 Provider 接口）
 ├── deploy/     # 部署文件（compose、脚本）
 ├── docs/       # 设计文档
@@ -37,4 +37,11 @@ ferry 是一个**代理集群管理工具**，部署与运营的合规责任在�
 
 ## 开发
 
-待补充（Node 统一使用 24）。
+```bash
+make build   # 全量构建（server/agent/quic/dash/panel）
+make test    # Go 测试（server/agent/packages/payments）+ 前端构建检查
+make dev     # 本地联调（dev-server / dev-dash / dev-panel 可单跑）
+make fmt     # gofmt
+```
+
+前端构建需要 Node 24（dash 与 panel 均为 Vite）。环境变量配置项全集见 `server/internal/config/config.go`；HTTP API 以 `server/internal/handler/router.go` 的路由注册为准，各能力落地口径见 [docs/design/](docs/design/) 对应设计文档（文档末尾「落地口径」段）。
