@@ -331,7 +331,8 @@ function yuan(cents: number): string {
               <el-option value="relay" label="relay" />
             </el-select>
             <el-select v-model="tplForm.transport" style="width: 130px">
-              <el-option v-for="t in ['tls', 'ws-tls', 'quic', 'ssh']" :key="t" :value="t" :label="t" />
+              <el-option v-for="t in ['tls', 'ws-tls', 'quic', 'ssh']" :key="t" :value="t"
+                :label="t === 'ssh' ? 'ssh（备选）' : t" />
             </el-select>
           </div>
         </el-form-item>

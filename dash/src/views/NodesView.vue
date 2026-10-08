@@ -710,7 +710,8 @@ async function remove(n: Node) {
         </el-form-item>
         <el-form-item label="传输">
           <el-select v-model="form.transport" style="width: 200px">
-            <el-option v-for="t in TRANSPORTS" :key="t" :value="t" :label="t" />
+            <el-option v-for="t in TRANSPORTS" :key="t" :value="t"
+              :label="t === 'ssh' ? 'ssh（备选·特征独特）' : t" />
           </el-select>
         </el-form-item>
         <el-form-item label="启用">

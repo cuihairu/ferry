@@ -49,8 +49,15 @@ type RelaySpec struct {
 	Listen      string `json:"listen"`       // 本地监听，如 127.0.0.1:1080
 	LandingAddr string `json:"landing_addr"` // 落地地址，如 landing.example.com:443
 	Tunnel      string `json:"tunnel"`       // 传输插件名，空=默认 tls-camo
-	ServerName  string `json:"server_name"`  // TLS 伪装域名，空=落地主机名
+	ServerName  string `json:"server_name"`  // TLS 伪装域名，空=落地主机名；ssh=sshd 地址
 	CAFile      string `json:"ca_file"`      // 私有 CA，空=系统根证书
+
+	// ssh 插件参数（E-28，其他传输忽略）：密钥与 known_hosts 是本机文件
+	// 路径引用，密钥内容不进配置不进库（凭据加密面 R24 只覆盖库内机密）。
+	SSHUser        string `json:"ssh_user,omitempty"`         // SSH 登录用户，publickey 认证
+	SSHKeyFile     string `json:"ssh_key_file,omitempty"`     // 私钥文件路径
+	SSHKnownHosts  string `json:"ssh_known_hosts,omitempty"`  // known_hosts 路径，空=跳过 host key 校验（仅引导期）
+	SSHForwardAddr string `json:"ssh_forward_addr,omitempty"` // direct-tcpip 目标（落地本机 relay 监听）
 }
 
 // Config 是 agent 的全部运行参数。

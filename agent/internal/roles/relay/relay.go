@@ -21,6 +21,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -189,7 +190,8 @@ func serveConn(ctx context.Context, tn tunnel.Tunnel, landing string, front net.
 }
 
 // mergeSpec 以 agent 本地配置为基底叠加面板覆盖（E-16b）：listen 等
-// 本机参数不归面板管，只吃落地指向相关字段的非空值。
+// 本机参数不归面板管，只吃落地指向相关字段的非空值。ssh 四参是本机
+// 文件引用与认证面（E-28），与 listen 同口径不归面板管（面板只换传输名）。
 func mergeSpec(base, ov config.RelaySpec) config.RelaySpec {
 	s := base
 	if ov.LandingAddr != "" {
@@ -244,16 +246,25 @@ func newTunnelCache(logger *log.Logger) *tunnelCache {
 }
 
 func (c *tunnelCache) get(spec config.RelaySpec) (tunnel.Tunnel, error) {
-	key := tunnelPluginOf(spec) + "|" + spec.ServerName + "|" + spec.CAFile
+	// 缓存键含插件全部实例参数：同插件名不同参数（如 ssh 换用户/密钥/
+	// 目标）必须分开实例，否则复用串配置。
+	key := strings.Join([]string{
+		tunnelPluginOf(spec), spec.ServerName, spec.CAFile,
+		spec.SSHUser, spec.SSHKeyFile, spec.SSHKnownHosts, spec.SSHForwardAddr,
+	}, "|")
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if tn, ok := c.m[key]; ok {
 		return tn, nil
 	}
 	tn, err := tunnel.Open(tunnelPluginOf(spec), tunnel.Options{
-		ServerName: spec.ServerName,
-		CAFile:     spec.CAFile,
-		Timeout:    dialTimeout,
+		ServerName:     spec.ServerName,
+		CAFile:         spec.CAFile,
+		Timeout:        dialTimeout,
+		AuthUser:       spec.SSHUser,
+		KeyFile:        spec.SSHKeyFile,
+		KnownHostsFile: spec.SSHKnownHosts,
+		ForwardAddr:    spec.SSHForwardAddr,
 	})
 	if err != nil {
 		return nil, err
