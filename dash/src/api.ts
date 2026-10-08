@@ -931,3 +931,53 @@ export function checkCostRef(): Promise<RefCheckReport> {
 export function saveCostRefTable(table: string): Promise<{ saved?: boolean; cleared?: boolean; rows?: number }> {
   return put('/api/cost/ref-table', { table })
 }
+
+// ---- 价格关注（E-32，套餐与成本设计 §4.2）----
+// 关注条件盯一个牌价键，扫描命中降价/到位经 Herald price_alert 提示。
+
+/** PriceWatch 是一条关注条件（含扫描动态：最新/上次快照与涨跌）。 */
+export interface PriceWatch {
+  id: number
+  provider: string
+  region: string
+  spec: string
+  target_price: number
+  enabled: boolean
+  latest_cents?: number
+  prev_cents?: number
+  change_pct?: number
+  at_target: boolean
+  latest_url?: string
+  captured_at?: string
+  snapshot_done: boolean
+}
+
+/** PriceSnapshot 是一次关注键的牌价快照。 */
+export interface PriceSnapshot {
+  id: number
+  watch_id: number
+  monthly_cents: number
+  source: string
+  url?: string
+  captured_at: string
+}
+
+export function listPriceWatches(): Promise<PriceWatch[]> {
+  return get('/api/cost/watches')
+}
+
+export function createPriceWatch(input: { provider: string; region: string; spec: string; target_price?: number }): Promise<PriceWatch> {
+  return post('/api/cost/watches', input)
+}
+
+export function updatePriceWatch(id: number, input: { target_price?: number; enabled?: boolean }): Promise<PriceWatch> {
+  return put(`/api/cost/watches/${id}`, input)
+}
+
+export function deletePriceWatch(id: number): Promise<{ deleted: boolean }> {
+  return del(`/api/cost/watches/${id}`)
+}
+
+export function listPriceSnapshots(id: number, limit = 20): Promise<PriceSnapshot[]> {
+  return get(`/api/cost/watches/${id}/snapshots?limit=${limit}`)
+}

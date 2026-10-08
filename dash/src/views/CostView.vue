@@ -4,9 +4,10 @@ import { ElMessage } from 'element-plus'
 import {
   get, put, getEvening, getQuotaLink, putQuotaLink, getSaveStats,
   checkCostRef, probeCostRef, saveCostRefTable, ApiError,
+  listPriceWatches, createPriceWatch, updatePriceWatch, deletePriceWatch,
   type EveningReport, type GroupCost, type NodeCost,
   type QuotaLinkData, type QuotaLinkSetting, type QuotaActionRow,
-  type SaveStatsReport, type RefCheckReport, type RefProbe,
+  type SaveStatsReport, type RefCheckReport, type RefProbe, type PriceWatch,
 } from '../api'
 import { formatBytes } from '../utils/format'
 
@@ -62,6 +63,7 @@ async function load() {
 }
 onMounted(load)
 onMounted(() => loadRefCheck())
+onMounted(loadWatches)
 
 async function saveThreshold() {
   saving.value = true
@@ -201,6 +203,68 @@ async function runProbe() {
 
 function refPct(pct: number): string {
   return (pct > 0 ? '+' : '') + pct + '%'
+}
+
+// ---- 价格关注（E-32）：条件 CRUD；扫描与告警在服务端小时级跑 ----
+
+const watches = ref<PriceWatch[]>([])
+const watchesLoading = ref(false)
+const newWatch = reactive({ provider: '', region: '', spec: '', target: 0 })
+const addingWatch = ref(false)
+
+async function loadWatches() {
+  watchesLoading.value = true
+  try {
+    watches.value = await listPriceWatches()
+  } catch (e) {
+    ElMessage.error(String(e))
+  } finally {
+    watchesLoading.value = false
+  }
+}
+
+async function addWatch() {
+  if (!newWatch.provider.trim() || !newWatch.spec.trim()) {
+    ElMessage.warning('商家与配置档必填')
+    return
+  }
+  addingWatch.value = true
+  try {
+    await createPriceWatch({
+      provider: newWatch.provider.trim(),
+      region: newWatch.region.trim(),
+      spec: newWatch.spec.trim(),
+      target_price: Math.round(newWatch.target * 100) || undefined,
+    })
+    newWatch.provider = ''
+    newWatch.region = ''
+    newWatch.spec = ''
+    newWatch.target = 0
+    watches.value = await listPriceWatches()
+    ElMessage.success('已添加关注，扫描器下轮开始抓快照')
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : String(e))
+  } finally {
+    addingWatch.value = false
+  }
+}
+
+async function toggleWatch(row: PriceWatch) {
+  try {
+    await updatePriceWatch(row.id, { enabled: row.enabled })
+  } catch (e) {
+    row.enabled = !row.enabled
+    ElMessage.error(String(e))
+  }
+}
+
+async function removeWatch(row: PriceWatch) {
+  try {
+    await deletePriceWatch(row.id)
+    watches.value = await listPriceWatches()
+  } catch (e) {
+    ElMessage.error(String(e))
+  }
 }
 </script>
 
@@ -470,6 +534,58 @@ function refPct(pct: number): string {
       </template>
       <template v-else>牌价表无此键（{{ probeResult.query.provider }} / {{ probeResult.query.region || '—' }} / {{ probeResult.query.spec || '—' }}）。</template>
     </p>
+
+    <h3 class="section">价格关注</h3>
+    <p class="page-desc">
+      关注一个牌价键（与参考价表同词表）：扫描器小时级抓快照，命中降价或现价到位经告警通道（Herald，
+      未配置时站内事件）提示——「到位」只在从高于目标价跨到目标价内时发一次。
+    </p>
+    <div class="toolbar">
+      <el-input v-model="newWatch.provider" placeholder="商家" style="width: 130px" @keyup.enter="addWatch" />
+      <el-input v-model="newWatch.region" placeholder="区域（可空）" style="width: 120px" @keyup.enter="addWatch" />
+      <el-input v-model="newWatch.spec" placeholder="配置档（如 100m-500g）" style="width: 170px" @keyup.enter="addWatch" />
+      <el-input-number v-model="newWatch.target" :min="0" :precision="0" :controls="false" placeholder="目标价 元/月（0=只盯降价）" style="width: 210px" />
+      <el-button type="primary" :loading="addingWatch" @click="addWatch">添加关注</el-button>
+    </div>
+    <el-table
+      v-if="watches.length" :data="watches" v-loading="watchesLoading"
+      :header-cell-style="{ background: 'var(--ferry-bg-panel)' }"
+    >
+      <el-table-column label="关注键" min-width="200">
+        <template #default="{ row }">{{ row.provider }} / {{ row.region || '—' }} / {{ row.spec || '—' }}</template>
+      </el-table-column>
+      <el-table-column label="目标价" width="110">
+        <template #default="{ row }">{{ row.target_price > 0 ? row.target_price / 100 : '—' }}</template>
+      </el-table-column>
+      <el-table-column label="最新牌价" width="110">
+        <template #default="{ row }">{{ row.latest_cents != null ? row.latest_cents / 100 : '—' }}</template>
+      </el-table-column>
+      <el-table-column label="动态" min-width="150">
+        <template #default="{ row }">
+          <template v-if="row.snapshot_done">
+            <el-tag v-if="row.change_pct != null && row.change_pct < 0" type="success" size="small" effect="plain">降 {{ -row.change_pct }}%</el-tag>
+            <el-tag v-else-if="row.change_pct != null && row.change_pct > 0" type="info" size="small" effect="plain">涨 {{ row.change_pct }}%</el-tag>
+            <el-tag v-if="row.at_target" type="warning" size="small" effect="plain">到位</el-tag>
+            <span v-if="row.change_pct == null && !row.at_target">无变化</span>
+          </template>
+          <span v-else>待首扫</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="快照时间" width="160">
+        <template #default="{ row }">{{ row.captured_at || '—' }}</template>
+      </el-table-column>
+      <el-table-column label="启用" width="80">
+        <template #default="{ row }">
+          <el-switch v-model="row.enabled" size="small" @change="toggleWatch(row)" />
+        </template>
+      </el-table-column>
+      <el-table-column label="" width="80">
+        <template #default="{ row }">
+          <el-button link type="danger" size="small" @click="removeWatch(row)">删除</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+    <p v-else class="page-desc">暂无关注条件——添加后扫描器开始抓快照并盯变化。</p>
 
     <template v-if="evening">
       <h3 class="section">晚高峰回程报表（近 {{ evening.days }} 天）</h3>

@@ -25,7 +25,7 @@ const (
 // Open 按方言打开数据库并执行全部 AutoMigrate。
 // sqlite 的 dsn 为文件路径（默认 ferry.db），postgres/mysql 为连接串。
 func Open(driver, dsn string) (*gorm.DB, error) {
-	cfg := &gorm.Config{Logger: logger.Default.LogMode(logger.Warn)}
+	cfg := &gorm.Config{Logger: logger.Default.LogMode(logger.Warn), TranslateError: true}
 	var dialector gorm.Dialector
 	switch driver {
 	case "", DriverSQLite:
@@ -101,6 +101,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&Backup{},
 		&RecoveryCode{},
 		&LoginLog{},
+		&PriceWatch{},
+		&PriceSnapshot{},
 	)
 }
 

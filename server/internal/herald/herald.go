@@ -40,6 +40,7 @@ const (
 	KindCertExpiring   = "cert_expiring"   // 证书临近到期
 	KindBackupFailed   = "backup_failed"   // 备份失败（面板可用性 §2.2，P1 周期备份接生产点）
 	KindLoginAlert     = "login_alert"     // 管理员登录异常（安全设计 §1：连续失败/新网段，登录审计接生产点）
+	KindPriceAlert     = "price_alert"     // 价格关注命中降价/到位（套餐与成本设计 §4.2，E-32 参考库批接生产点）
 
 	// 用户触达（HERALD-4，§2.2；站内信照发，本通道供站外投递）。
 	KindExpire = "expire" // 账号到期提醒

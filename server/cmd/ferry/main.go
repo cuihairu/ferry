@@ -171,6 +171,8 @@ func main() {
 	// 配额联动（SAVE-6）：流量/费用超阈值用户订阅自动降档（只出低成本档
 	// 入口），触发/释放留痕与站内信由扫表驱动，订阅出口读留痕即时生效。
 	go quota.LinkLoop(ctx, db, time.Duration(cfg.QuotaLinkIntervalSec)*time.Second, nil)
+	// 价格关注扫描（E-32）：降价/到位经 Herald price_alert，未配 Herald 落本地 outbox。
+	go cost.WatchLoop(ctx, db, time.Duration(cfg.PriceWatchIntervalSec)*time.Second, nil)
 
 	// 节省报表聚合（SAVE-7）：流量行按日累计进 save_stats，报表与成本看板
 	// 同页呈现；折算费用在 API 侧按节点流量单价现算。
