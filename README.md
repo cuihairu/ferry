@@ -4,6 +4,13 @@
 
 <h1 align="center">ferry</h1>
 
+<p align="center">
+  <img src="docs/public/badges/go.svg" alt="Go 1.27" />
+  <img src="docs/public/badges/vue.svg" alt="Vue 3" />
+  <img src="docs/public/badges/db.svg" alt="SQLite / PostgreSQL / MySQL" />
+  <img src="docs/public/badges/license.svg" alt="Apache-2.0" />
+</p>
+
 ferry 是一个轻量级代理管理面板，面向小内存 VPS，提供用户、节点、订阅链接与流量记账管理。
 
 ## 目录结构
