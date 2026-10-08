@@ -86,48 +86,70 @@ func (h *Handler) DistributorLogin(c *gin.Context) {
 	})
 }
 
-// distributorView 是代理列表行：附未结算余额。
+// distributorView 是代理列表行：附对账四元组（售卡收入/佣金/已结算/未结算）。
 type distributorView struct {
 	storage.Distributor
-	BalanceCents int64 `json:"balance_cents"` // Σcommission + Σadjust − Σpayout
+	SaleCents       int64 `json:"sale_cents"`       // Σsale（留痕统计）
+	CommissionCents int64 `json:"commission_cents"` // Σcommission（分润）
+	PayoutCents     int64 `json:"payout_cents"`     // Σpayout（已结算打款）
+	BalanceCents    int64 `json:"balance_cents"`    // 未结算 = Σcommission + Σadjust − Σpayout
 }
 
-// listDistributors 代理列表（DS-1）：附未结算余额，供 dash 建号/停用与对账。
+// listDistributors 代理列表（DS-1）：附对账四元组汇总，供 dash 代理管理卡与
+// 对账视图代理维度（DS-2）。
 func (h *Handler) listDistributors(c *gin.Context) {
 	var dists []storage.Distributor
 	if err := h.db.Order("id DESC").Find(&dists).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
-	balances, err := h.distributorBalances()
+	totals, err := h.distributorTotals()
 	if err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
 	out := make([]distributorView, 0, len(dists))
 	for _, d := range dists {
-		out = append(out, distributorView{Distributor: d, BalanceCents: balances[d.ID]})
+		t := totals[d.ID]
+		out = append(out, distributorView{
+			Distributor: d, SaleCents: t.Sale, CommissionCents: t.Commission,
+			PayoutCents: t.Payout, BalanceCents: t.Balance,
+		})
 	}
 	c.JSON(http.StatusOK, gin.H{"distributors": out})
 }
 
-// distributorBalances 按代理汇总未结算余额：sale 只留痕不进余额，
+// distributorTotals 是按代理汇总的对账四元组（DS-2）：sale 只留痕不进余额，
 // commission/adjust 按正负直加，payout 反向扣减。
-func (h *Handler) distributorBalances() (map[uint]int64, error) {
+type distributorTotals struct {
+	Sale       int64
+	Commission int64
+	Payout     int64
+	Balance    int64
+}
+
+func (h *Handler) distributorTotals() (map[uint]distributorTotals, error) {
 	var rows []struct {
 		DistributorID uint
+		Sale          int64
+		Commission    int64
+		Payout        int64
 		Balance       int64
 	}
 	err := h.db.Model(&storage.DistributorLedger{}).
-		Select("distributor_id, COALESCE(SUM(CASE WHEN kind IN ('commission','adjust') THEN amount_cents " +
+		Select("distributor_id, " +
+			"COALESCE(SUM(CASE WHEN kind = 'sale' THEN amount_cents ELSE 0 END), 0) AS sale, " +
+			"COALESCE(SUM(CASE WHEN kind = 'commission' THEN amount_cents ELSE 0 END), 0) AS commission, " +
+			"COALESCE(SUM(CASE WHEN kind = 'payout' THEN amount_cents ELSE 0 END), 0) AS payout, " +
+			"COALESCE(SUM(CASE WHEN kind IN ('commission','adjust') THEN amount_cents " +
 			"WHEN kind = 'payout' THEN -amount_cents ELSE 0 END), 0) AS balance").
 		Group("distributor_id").Scan(&rows).Error
 	if err != nil {
 		return nil, err
 	}
-	out := make(map[uint]int64, len(rows))
+	out := make(map[uint]distributorTotals, len(rows))
 	for _, r := range rows {
-		out[r.DistributorID] = r.Balance
+		out[r.DistributorID] = distributorTotals{Sale: r.Sale, Commission: r.Commission, Payout: r.Payout, Balance: r.Balance}
 	}
 	return out, nil
 }
@@ -260,8 +282,7 @@ func (h *Handler) updateDistributor(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"distributor": d})
 }
 
-// distributorLedger 代理账目流水（DS-1）：id DESC 分页，附未结算余额；
-// payout 结算与 adjust 人工调随 DS-2 管理面接生产点。
+// distributorLedger 代理账目流水（DS-1）：id DESC 分页，附未结算余额。
 func (h *Handler) distributorLedger(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -294,10 +315,80 @@ func (h *Handler) distributorLedger(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
-	balances, err := h.distributorBalances()
+	totals, err := h.distributorTotals()
 	if err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ledger": rows, "balance_cents": balances[uint(id)]})
+	c.JSON(http.StatusOK, gin.H{"ledger": rows, "balance_cents": totals[uint(id)].Balance})
+}
+
+// distributorPayout 结算打款（DS-2）：落 payout 行，未结算余额随之扣减。
+// 打款为线下手动动作（账期线下约定，面板只记账，不自动打款）；金额不得
+// 超过余额——超发先 adjust 入账，保余额域不为负。
+func (h *Handler) distributorPayout(c *gin.Context) {
+	h.writeLedgerOp(c, "payout")
+}
+
+// distributorAdjust 人工调整（DS-2）：±金额纠错/补偿，0 金额无意义拒收。
+func (h *Handler) distributorAdjust(c *gin.Context) {
+	h.writeLedgerOp(c, "adjust")
+}
+
+// writeLedgerOp 处理 payout/adjust 两类人工账目操作：校验代理存在、金额
+// 语义与余额约束，落一行 ledger 后回新余额。
+func (h *Handler) writeLedgerOp(c *gin.Context, kind string) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	var d storage.Distributor
+	if err := h.db.First(&d, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			fail(c, http.StatusNotFound, errors.New("distributor not found"))
+		} else {
+			fail(c, http.StatusInternalServerError, err)
+		}
+		return
+	}
+	var in struct {
+		AmountCents int64  `json:"amount_cents"`
+		Note        string `json:"note"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	if kind == "payout" && in.AmountCents <= 0 {
+		fail(c, http.StatusBadRequest, errors.New("amount_cents must be > 0"))
+		return
+	}
+	if kind == "adjust" && in.AmountCents == 0 {
+		fail(c, http.StatusBadRequest, errors.New("amount_cents must be nonzero"))
+		return
+	}
+	totals, err := h.distributorTotals()
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	balance := totals[uint(id)].Balance
+	if kind == "payout" && in.AmountCents > balance {
+		fail(c, http.StatusBadRequest, errors.New("payout exceeds unsettled balance"))
+		return
+	}
+	row := storage.DistributorLedger{
+		DistributorID: uint(id), Kind: kind, AmountCents: in.AmountCents,
+		Note: strings.TrimSpace(in.Note), CreatedAt: time.Now(),
+	}
+	if err := h.db.Create(&row).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	newBalance := balance + in.AmountCents
+	if kind == "payout" {
+		newBalance = balance - in.AmountCents
+	}
+	c.JSON(http.StatusCreated, gin.H{"ledger": row, "balance_cents": newBalance})
 }

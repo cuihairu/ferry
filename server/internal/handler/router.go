@@ -180,6 +180,9 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.POST("/distributors", h.createDistributor)
 		api.PUT("/distributors/:id", h.updateDistributor)
 		api.GET("/distributors/:id/ledger", h.distributorLedger)
+		// 结算打款与人工调（DS-2）：手动落账，不自动打款。
+		api.POST("/distributors/:id/payout", h.distributorPayout)
+		api.POST("/distributors/:id/adjust", h.distributorAdjust)
 		// 在线支付回调（PAY-8）：鉴权靠 Provider 验签
 		api.POST("/pay/epusdt/notify", h.epusdtNotify)
 		api.GET("/payments/reconcile", h.listReconcile)

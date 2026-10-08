@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getReconcile, refundOrder, type Grant, type ReconcileData, type ReconcileRow } from '../api'
+import { getReconcile, refundOrder, listDistributors, type Grant, type ReconcileData, type ReconcileRow, type Distributor } from '../api'
 import { formatBytes, formatDate } from '../utils/format'
 
 // PAY-9：三账对账——订单/流水/发放按订单分组，标出缺失环节；游离记录单独列出。
 // OD-2：paid 订单可标记退款（钱款退回经渠道后台操作，此处只做状态流转与留痕）。
+// DS-2：代理维度汇总——售卡收入/佣金/已结算/未结算四元组（数据同卡密页代理卡）。
 
 const loading = ref(false)
 const orders = ref<ReconcileRow[]>([])
@@ -27,7 +28,22 @@ async function load() {
     loading.value = false
   }
 }
-onMounted(load)
+
+const distributors = ref<Distributor[]>([])
+
+async function loadDistributors() {
+  try {
+    const res = await listDistributors()
+    distributors.value = res.distributors
+  } catch (e) {
+    ElMessage.error(String(e))
+  }
+}
+
+onMounted(() => {
+  load()
+  loadDistributors()
+})
 
 // 缺失环节的订单数（一眼看出账面健康度）。
 const missingCount = computed(() => orders.value.filter((o) => o.missing.length > 0).length)
@@ -113,6 +129,35 @@ async function onRefund(row: ReconcileRow) {
     <div class="toolbar">
       <el-button @click="load" :loading="loading">刷新</el-button>
     </div>
+
+    <template v-if="distributors.length > 0">
+      <h3 class="dist-title">代理维度（DS-2）</h3>
+      <el-table :data="distributors" size="small" :header-cell-style="{ background: 'var(--ferry-bg-panel)' }">
+        <el-table-column prop="username" label="代理" min-width="120" />
+        <el-table-column label="佣金比例" width="90">
+          <template #default="{ row }">{{ row.discount_percent }}%</template>
+        </el-table-column>
+        <el-table-column label="售卡收入" width="110">
+          <template #default="{ row }">¥{{ yuan(row.sale_cents) }}</template>
+        </el-table-column>
+        <el-table-column label="佣金" width="110">
+          <template #default="{ row }">¥{{ yuan(row.commission_cents) }}</template>
+        </el-table-column>
+        <el-table-column label="已结算" width="110">
+          <template #default="{ row }">¥{{ yuan(row.payout_cents) }}</template>
+        </el-table-column>
+        <el-table-column label="未结算" width="110">
+          <template #default="{ row }">¥{{ yuan(row.balance_cents) }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="80">
+          <template #default="{ row }">
+            <el-tag :type="row.enabled ? 'success' : 'danger'" size="small" effect="dark">
+              {{ row.enabled ? '启用' : '停用' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+    </template>
 
     <el-table :data="orders" v-loading="loading" row-key="order_no" :header-cell-style="{ background: 'var(--ferry-bg-panel)' }">
       <el-table-column type="expand">
@@ -221,6 +266,10 @@ async function onRefund(row: ReconcileRow) {
   grid-template-columns: repeat(6, 1fr);
   gap: 12px;
   margin-bottom: 20px;
+}
+.dist-title {
+  margin: 4px 0 10px;
+  font-size: 15px;
 }
 .stat {
   background: var(--ferry-bg-panel);

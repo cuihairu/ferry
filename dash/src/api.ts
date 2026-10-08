@@ -374,6 +374,7 @@ export interface CardBatch {
   created_by: string
   created_at: string
   remaining: number
+  distributor_id: number // DS-1：0=面板自营
 }
 
 export interface CardCode {
@@ -980,4 +981,54 @@ export function deletePriceWatch(id: number): Promise<{ deleted: boolean }> {
 
 export function listPriceSnapshots(id: number, limit = 20): Promise<PriceSnapshot[]> {
   return get(`/api/cost/watches/${id}/snapshots?limit=${limit}`)
+}
+
+// 分销代理（DS-1 账目层 / DS-2 管理面）。
+export interface Distributor {
+  id: number
+  username: string
+  discount_percent: number
+  note: string
+  enabled: boolean
+  created_at: string
+  updated_at: string
+  sale_cents?: number
+  commission_cents?: number
+  payout_cents?: number
+  balance_cents?: number
+}
+
+export interface DistributorLedger {
+  id: number
+  distributor_id: number
+  order_no: string
+  kind: 'sale' | 'commission' | 'payout' | 'adjust'
+  amount_cents: number
+  note: string
+  created_at: string
+}
+
+export function listDistributors(): Promise<{ distributors: Distributor[] }> {
+  return get('/api/distributors')
+}
+
+export function createDistributor(input: { username: string; password: string; discount_percent?: number; note?: string }): Promise<{ distributor: Distributor }> {
+  return post('/api/distributors', input)
+}
+
+export function updateDistributor(id: number, input: { password?: string; discount_percent?: number; note?: string; enabled?: boolean }): Promise<{ distributor: Distributor }> {
+  return put(`/api/distributors/${id}`, input)
+}
+
+export function distributorLedger(id: number, limit = 50): Promise<{ ledger: DistributorLedger[]; balance_cents: number }> {
+  return get(`/api/distributors/${id}/ledger?limit=${limit}`)
+}
+
+// payout 结算打款（金额不超未结算余额）、adjust 人工调（±金额，0 拒）。
+export function distributorPayout(id: number, input: { amount_cents: number; note?: string }): Promise<{ balance_cents: number }> {
+  return post(`/api/distributors/${id}/payout`, input)
+}
+
+export function distributorAdjust(id: number, input: { amount_cents: number; note?: string }): Promise<{ balance_cents: number }> {
+  return post(`/api/distributors/${id}/adjust`, input)
 }

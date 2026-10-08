@@ -270,4 +270,80 @@ func TestRedeemDistributorLedger(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("ghost distributor batch: %d %s", rec.Code, rec.Body)
 	}
+
+	// 对账四元组（DS-2 代理维度）：d1 两笔代理卡 → sale=2000、commission=600。
+	rec = doJSON(t, r, "GET", "/api/distributors", nil)
+	var list struct {
+		Distributors []struct {
+			Username        string `json:"username"`
+			SaleCents       int64  `json:"sale_cents"`
+			CommissionCents int64  `json:"commission_cents"`
+			PayoutCents     int64  `json:"payout_cents"`
+			BalanceCents    int64  `json:"balance_cents"`
+		} `json:"distributors"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &list)
+	for _, d := range list.Distributors {
+		if d.Username == "d1" {
+			if d.SaleCents != 2000 || d.CommissionCents != 600 || d.PayoutCents != 0 || d.BalanceCents != 600 {
+				t.Fatalf("d1 totals: %+v", d)
+			}
+		}
+	}
+}
+
+func TestDistributorPayoutAdjust(t *testing.T) {
+	r, _ := newTestRouterWithDB(t)
+	rec := doJSON(t, r, "POST", "/api/distributors", map[string]any{"username": "d1", "password": "secret123"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body)
+	}
+	id := uint(mustJSON(t, rec)["distributor"].(map[string]any)["id"].(float64))
+
+	// 空余额打款超余额拒、adjust 0 拒。
+	rec = doJSON(t, r, "POST", "/api/distributors/"+utoa(id)+"/payout", map[string]any{"amount_cents": 100})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("payout over balance: %d %s", rec.Code, rec.Body)
+	}
+	rec = doJSON(t, r, "POST", "/api/distributors/"+utoa(id)+"/adjust", map[string]any{"amount_cents": 0, "note": "无效"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("adjust zero: %d %s", rec.Code, rec.Body)
+	}
+
+	// adjust +500 入账 → balance 500。
+	rec = doJSON(t, r, "POST", "/api/distributors/"+utoa(id)+"/adjust", map[string]any{"amount_cents": 500, "note": "补偿"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("adjust: %d %s", rec.Code, rec.Body)
+	}
+	if got := mustJSON(t, rec)["balance_cents"].(float64); got != 500 {
+		t.Fatalf("balance after adjust: %v", got)
+	}
+
+	// 打款 800 超余额拒、500 恰好 → balance 0。
+	rec = doJSON(t, r, "POST", "/api/distributors/"+utoa(id)+"/payout", map[string]any{"amount_cents": 800})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("payout exceed: %d %s", rec.Code, rec.Body)
+	}
+	rec = doJSON(t, r, "POST", "/api/distributors/"+utoa(id)+"/payout", map[string]any{"amount_cents": 500, "note": "10 月结算"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("payout: %d %s", rec.Code, rec.Body)
+	}
+	if got := mustJSON(t, rec)["balance_cents"].(float64); got != 0 {
+		t.Fatalf("balance after payout: %v", got)
+	}
+
+	// 流水两行、404 面。
+	rec = doJSON(t, r, "GET", "/api/distributors/"+utoa(id)+"/ledger", nil)
+	var led struct {
+		Ledger       []map[string]any `json:"ledger"`
+		BalanceCents float64          `json:"balance_cents"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &led)
+	if len(led.Ledger) != 2 || led.BalanceCents != 0 {
+		t.Fatalf("ledger rows: %s", rec.Body)
+	}
+	rec = doJSON(t, r, "POST", "/api/distributors/999/payout", map[string]any{"amount_cents": 100})
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("payout 404: %d %s", rec.Code, rec.Body)
+	}
 }
