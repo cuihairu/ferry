@@ -1,4 +1,4 @@
-import { auth, logout } from './auth'
+import { auth, logout, logoutDist } from './auth'
 
 // API 客户端：统一解析后端 {error} 错误载荷；管理员 JWT 随身携带，管理面
 // 401（令牌过期）清会话回登录页。code 是后端机器可读错误码（如登录的
@@ -16,14 +16,23 @@ export class ApiError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = { ...((init?.headers as Record<string, string>) ?? {}) }
   if (init?.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json'
-  if (auth.token) headers['Authorization'] = `Bearer ${auth.token}`
+  // DS-3：代理自面端点注入独立代理令牌，管理面沿用管理员令牌。
+  const isDist = path.startsWith('/distributor/api') || path === '/distributor/login'
+  const token = isDist ? auth.distToken : auth.token
+  if (token) headers['Authorization'] = `Bearer ${token}`
   const res = await fetch(path, { ...init, headers })
   const text = await res.text()
   const body = text ? JSON.parse(text) : null
   if (!res.ok) {
-    if (res.status === 401 && auth.token && path !== '/admin/login') {
-      logout()
-      window.location.assign('/login')
+    if (res.status === 401) {
+      if (isDist && auth.distToken && path !== '/distributor/login') {
+        // 代理令牌过期或被停用（停用即踢）——清代理会话回代理登录页。
+        logoutDist()
+        window.location.assign('/dist-login')
+      } else if (!isDist && auth.token && path !== '/admin/login') {
+        logout()
+        window.location.assign('/login')
+      }
     }
     throw new ApiError(res.status, body?.error ?? res.statusText, body?.code ?? '')
   }
@@ -1031,4 +1040,71 @@ export function distributorPayout(id: number, input: { amount_cents: number; not
 
 export function distributorAdjust(id: number, input: { amount_cents: number; note?: string }): Promise<{ balance_cents: number }> {
   return post(`/api/distributors/${id}/adjust`, input)
+}
+
+// 代理自面（DS-3）：只读视图，结算动作在管理员面（DS-2）。
+export function distLogin(input: { username: string; password: string }): Promise<{ token: string; id: number; username: string; discount_percent: number }> {
+  return post('/distributor/login', input)
+}
+
+export interface DistMe {
+  id: number
+  username: string
+  discount_percent: number
+  note: string
+  enabled: boolean
+  created_at: string
+  sale_cents: number
+  commission_cents: number
+  payout_cents: number
+  balance_cents: number
+}
+
+export interface DistCustomer {
+  id: number
+  username: string
+  redeemed_cnt: number
+  quota_bytes: number
+  used_bytes: number
+  expires_at: string | null
+  active: boolean
+  over_quota: boolean
+  redeemed_last: string | null
+}
+
+export interface DistOrderRow {
+  order_no: string
+  user_id: number
+  username: string
+  provider: string
+  amount_cents: number
+  product: string
+  status: string
+  distributor_id: number
+  created_at: string
+  paid_at: string | null
+}
+
+export function getDistMe(): Promise<DistMe> {
+  return get('/distributor/api/me')
+}
+
+export function getDistBatches(): Promise<CardBatch[]> {
+  return get('/distributor/api/batches')
+}
+
+export function getDistBatchCodes(id: number): Promise<CardCode[]> {
+  return get(`/distributor/api/batches/${id}/codes`)
+}
+
+export function getDistCustomers(): Promise<{ customers: DistCustomer[] }> {
+  return get('/distributor/api/customers')
+}
+
+export function getDistOrders(limit = 50): Promise<{ orders: DistOrderRow[] }> {
+  return get(`/distributor/api/orders?limit=${limit}`)
+}
+
+export function getDistLedger(limit = 100): Promise<{ ledger: DistributorLedger[]; balance_cents: number }> {
+  return get(`/distributor/api/ledger?limit=${limit}`)
 }

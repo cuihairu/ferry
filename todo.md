@@ -203,7 +203,7 @@
 
 - [x] [P2] DS-1 代理层级与折扣：distributors 表、二级卡批次归属、分润入三账按 order_no 串联（设计定稿 2026-10-08《计划扩充设计》§3.1/§3.4——佣金口径 sale 留痕不入余额/commission=面价×比例入余额/payout 结算扣/adjust 人工调，余额=Σcommission+Σadjust−Σpayout；随 DS 批开工。已落地 2026-10-08：distributors/distributor_ledger 落表 + card_batches/orders 增列 distributor_id；代理 CRUD 四端点+POST /distributor/login（bcrypt 同管理员口径/复用兑换限速/role=distributor JWT 与管理员互不越界）；redeemTx 单改点落账——订单带归属、代理批次有面价落 sale+commission 同 order_no、自营/零面价不落、停用代理分润照记；建批次载荷增 distributor_id 归属建时定；payout/adjust 随 DS-2）
 - [x] [P2] DS-2 代理结算账目：售卡收入/分润/未结算汇总，对账视图加代理维度（口径同上，dash 管理面结算打款落 payout。已落地 2026-10-08：列表/流水附对账四元组 sale/commission/payout/balance 单条聚合；POST /:id/payout（>0 不超余额）与 /:id/adjust（±非零）两人工账目端点，线下打款面板只记账；卡密页代理卡=建号/编辑（密码留空不重置）/停用确认/流水弹窗（余额+四类流水+打款调整行），新建批次表单增归属代理下拉+批次表归属列；对账页代理维度汇总表。payout 落正金额由余额公式反向扣）
-- [ ] [P2] DS-3 代理面板视图：自己的客户/卡密/用量/结算；与优惠码不叠加取优（独立登录 /distributor/login JWT role=distributor，dash 框架角色裁剪）
+- [x] [P2] DS-3 代理面板视图：自己的客户/卡密/用量/结算；与优惠码不叠加取优（独立登录 /distributor/login JWT role=distributor，dash 框架角色裁剪。已落地 2026-10-08：distAuthMiddleware 回库校验停用即踢；/distributor/api 六只读端点 me/batches/batches:id:codes（归属校验 404 互不可见）/customers（用量与门户口径同源，内存聚合张数与最近兑换）/orders/ledger；dash ferry.dist.token 独立键+role 派生+按路径注入令牌+代理面 401 清会话回 /dist-login+路由守卫角色分流+侧栏裁剪；代理工作台单页四 tab；不叠加取优候 PROMO 开工再落兑换链路）
 
 ## 用户面板运营（设计：docs/design/用户面板运营设计.md）
 

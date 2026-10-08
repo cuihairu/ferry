@@ -1,14 +1,19 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { get } from './api'
-import { logout } from './auth'
+import { logout, logoutDist, role } from './auth'
 
 // P0-14：侧边导航 + 顶栏 + 内容区。顶栏常驻面板健康灯；安全批（§1）起
-// 登录页独占视口（藏侧栏），顶栏右侧退出登录。
+// 登录页独占视口（藏侧栏），顶栏右侧退出登录。DS-3：代理角色侧栏只渲染
+// 代理工作台一项，退出清代理会话。
 const route = useRoute()
 const router = useRouter()
 const healthOk = ref(false)
+
+// 登录页独占视口；代理登录页同理。
+const bareView = computed(() => route.path === '/login' || route.path === '/dist-login')
+const isDistributor = computed(() => role.value === 'distributor')
 
 onMounted(async () => {
   try {
@@ -20,6 +25,11 @@ onMounted(async () => {
 })
 
 function doLogout() {
+  if (isDistributor.value) {
+    logoutDist()
+    router.push('/dist-login')
+    return
+  }
   logout()
   router.push('/login')
 }
@@ -27,10 +37,13 @@ function doLogout() {
 
 <template>
   <el-container class="layout">
-    <el-aside v-if="route.path !== '/login'" width="220px" class="layout-aside">
+    <el-aside v-if="!bareView" width="220px" class="layout-aside">
       <div class="logo">ferry</div>
       <div class="logo-sub">轻量级代理管理面板</div>
-      <el-menu router :default-active="route.path" class="nav">
+      <el-menu v-if="isDistributor" router :default-active="route.path" class="nav">
+        <el-menu-item index="/dist">代理工作台</el-menu-item>
+      </el-menu>
+      <el-menu v-else router :default-active="route.path" class="nav">
         <el-menu-item index="/nodes">节点</el-menu-item>
         <el-menu-item index="/users">用户</el-menu-item>
         <el-menu-item index="/cards">卡密</el-menu-item>
@@ -50,7 +63,7 @@ function doLogout() {
           <span class="dot" :class="{ ok: healthOk }"></span>
           {{ healthOk ? '面板在线' : '面板离线' }}
         </span>
-        <el-button v-if="route.path !== '/login'" link @click="doLogout">退出登录</el-button>
+        <el-button v-if="!bareView" link @click="doLogout">退出登录</el-button>
       </el-header>
       <el-main>
         <RouterView />

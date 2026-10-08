@@ -233,6 +233,16 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 	r.POST("/admin/login", h.AdminLogin)
 	// DS-1 代理登录：独立端点公开挂载，role=distributor 令牌与管理员互不越界。
 	r.POST("/distributor/login", h.DistributorLogin)
+	// DS-3 代理自面：只读视图（自有批次/卡密/客户/订单/结算）。
+	dist := r.Group("/distributor/api", h.distAuthMiddleware())
+	{
+		dist.GET("/me", h.distMe)
+		dist.GET("/batches", h.distBatches)
+		dist.GET("/batches/:id/codes", h.distBatchCodes)
+		dist.GET("/customers", h.distCustomers)
+		dist.GET("/orders", h.distOrders)
+		dist.GET("/ledger", h.distLedger)
+	}
 	admin := r.Group("/admin", adminAuthMiddleware())
 	{
 		admin.GET("/backup/db", h.backupDB)
