@@ -147,6 +147,32 @@ func (c *Cloudflare) Upsert(ctx context.Context, name, rtype, value string) erro
 	return err
 }
 
+// Delete 删除 name 的全部 rtype 记录（E-27 全挂撤记录）；无记录直接成功。
+func (c *Cloudflare) Delete(ctx context.Context, name, rtype string) error {
+	zoneID, err := c.findZone(ctx, name)
+	if err != nil {
+		return err
+	}
+	result, err := c.do(ctx, http.MethodGet,
+		fmt.Sprintf("/zones/%s/dns_records?type=%s&name=%s", zoneID, rtype, name), nil)
+	if err != nil {
+		return err
+	}
+	var records []struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(result, &records); err != nil {
+		return err
+	}
+	for _, r := range records {
+		if _, err := c.do(ctx, http.MethodDelete,
+			fmt.Sprintf("/zones/%s/dns_records/%s", zoneID, r.ID), nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s

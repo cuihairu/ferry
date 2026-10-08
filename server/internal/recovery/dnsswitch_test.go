@@ -25,6 +25,13 @@ func (f *fakeDNS) Upsert(ctx context.Context, name, rtype, value string) error {
 	f.upserts = append(f.upserts, name+"|"+rtype+"|"+value)
 	return nil
 }
+func (f *fakeDNS) Delete(ctx context.Context, name, rtype string) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.upserts = append(f.upserts, "del:"+name+"|"+rtype)
+	return nil
+}
 
 // setupDNSAction 入库一条启用 DNS 商与一条前置记录，返回注入 fake 的动作。
 func setupDNSAction(t *testing.T, backups string, fake *fakeDNS) *DNSAction {

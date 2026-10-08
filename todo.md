@@ -165,7 +165,7 @@
 - [x] [P1] E-25 dash 负载看板与手动调配（/api/load 负载快照=最新采样连接数+双采样差分吞吐/容量利用率，节点表负载列进度条超 80% 红标；pool 手动摘除 API+节点表在池/摘除态与摘除/复位按钮；强制切区域=调配页区域级手动分配（E-20 已有））
 
 - [x] [P2] E-26 入口轮换：按探测结论轮换订阅入口顺序（v2ray 订阅口径——客户端直接消费列表序；clash 的 url-test 组由客户端按自测延迟选优、服务端排序无消费方，不动；rotate.go：区域归组口径不变，组内已知 RTT 升序在前、无数据（0）殿后且保持原序、同 RTT 档按 10 分钟轮换窗口轮转一位——轮换位由时间无状态派生不持久化，全无数据时整体保持原序与 E-19 一致；测试覆盖 RTT 排序/同档轮转三窗口/全无数据稳定/跨区域不混排/空与单条目/v2ray 集成解码断言低 RTT 在前）
-- [ ] [P2] E-27 智能 DNS 分地域：按解析来源地域下发就近区域入口（设计已落 2026-10-08《入口与负载均衡设计》§C.8——ferry 不自建权威 DNS 不做 geoip 判定，职责收敛为区域代表入口选取（与 E-26 orderByProbe 同源）+GeoDNS 提供商对接位（子域名方案先落/分线路 UpsertLine 横扩位，复用 DNSProvider 凭证通道与 DNSFront 父域）+事件驱动对账同步不回写清单；实现仍预留）
+- [x] [P2] E-27 智能 DNS 分地域：按解析来源地域下发就近区域入口（设计已落 2026-10-08《入口与负载均衡设计》§C.8；实现已落 2026-10-09 §C.8.6——`geodns.Syncer` 三件：RegionReps 代表入口选取（nodes entry/both+池内 active+非 provisioning，30min 可达隧道 RTT 区域归组升序无数据殿后，与 E-26 同源）+Slug 归一（小写/空白下划线转-/只留 [a0-9-]，纯中文区域不产记录，词表建议 ASCII）+Sync 对账（启用 DNS 商名下 DNSFront 期望集对 GeoDNSRecord diff，新增/变更 Upsert `{slug}.{domain}` A 记录、消失 Delete 撤记录，单条失败 herald 告警按日 dedup 继续其余）；`dns.Provider` 增 Delete；触发=pool.OnChange 包级钩子（摘挂扫迁移+手动摘挂/复位/预备异步触发，换线/探测翻转后续按需挂）+POST /api/dns-fronts/geo-sync 补偿入口（dash「分地域对账」按钮）；同步不回写 entry_domains 清单）
 
 ### 方向与回国线（出海/回国两篇，见设计稿）
 
@@ -266,6 +266,6 @@
 - [ ] P2-2（不做）多级管理员/子管理员配额：自用面板单管理员即可，表结构预留空间（来源：Hiddify Role 四级；Marzban is_sudo 两级）
 - [ ] P2-3（不做）按用户带宽限速：Marzban/3x-ui 均未见实现，Hiddify 仅全局参数，收益低（来源：三家调研）
 - [ ] P2-4（不做）HWID/设备数/IP 数限制：依赖客户端配合上报，复杂度高（来源：3x-ui ClientHwid、check_client_ip_job）
-- [ ] P2-5（观察项）公告 announcement：四家均未见成熟实现（来源：各家 grep 无命中）
+- [ ] P2-5（观察项）公告 announcement：四家均未见成熟实现（来源：各家 grep 无命中；2026-10-09 注：基础公告发布/用户站内可见已随 NT-1 通知批与触达批落地（dash createAnnouncement/panel 公告通知），本项观察的「成熟公告体系」剩余部分维持观察）
 - [ ] P2-6（观察项）系统级操作审计日志：各家未见独立审计表（来源：各家 grep 无命中）
 - [ ] P2-7（收窄）协议支持范围：只做 vless/vmess/trojan/shadowsocks 四种，Hiddify 19 种协议的全家桶不符合小面板定位（来源：Hiddify `models/proxy.py` ProxyProto 枚举）

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/cuihairu/ferry/server/internal/dns"
+	"github.com/cuihairu/ferry/server/internal/geodns"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
 )
@@ -286,4 +287,17 @@ func (h *Handler) deleteDNSFront(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// geoSync 手动分地域对账（POST /api/dns-fronts/geo-sync，E-27 设计 §C.7
+// 补偿入口）：事件驱动同步的兜底——自动钩子（池摘挂）失败或人工改库后，
+// 管理员可在此补一轮对齐；changed 为本次实际变更记录数。
+func (h *Handler) geoSync(c *gin.Context) {
+	s := &geodns.Syncer{DB: h.db, Store: h.secrets}
+	n, err := s.Sync(c.Request.Context())
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"changed": n})
 }

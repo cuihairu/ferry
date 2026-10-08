@@ -59,6 +59,11 @@ type Event struct {
 	Reason string
 }
 
+// OnChange 摘挂状态迁移的进程内钩子（E-27 分地域对账的事件驱动挂点，
+// 设计 §C.8 不建轮询）：sweepOnce 产生迁移或手动摘挂成功后回调（同进程
+// main 装配一次）；nil 安全，异步触发不阻断摘挂主流程。
+var OnChange func(db *gorm.DB)
+
 // ErrNotSuspended 手动复位时节点不在摘除状态。
 var ErrNotSuspended = errors.New("node not suspended")
 
@@ -110,6 +115,9 @@ func sweepOnce(db *gorm.DB, logger *log.Logger) error {
 				logger.Printf("herald emit node_down: node=%d %v", ev.NodeID, err)
 			}
 		}
+	}
+	if len(events) > 0 && OnChange != nil {
+		OnChange(db)
 	}
 	return nil
 }

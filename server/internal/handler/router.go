@@ -102,6 +102,8 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.POST("/dns-fronts", h.createDNSFront)
 		api.PUT("/dns-fronts/:id", h.updateDNSFront)
 		api.DELETE("/dns-fronts/:id", h.deleteDNSFront)
+		// 分地域对账补偿入口（E-27）：事件驱动同步失败/人工改库后手动对齐。
+		api.POST("/dns-fronts/geo-sync", h.geoSync)
 		// 证书任务（BR-4）：编排与手动触发。
 		api.GET("/cert-tasks", h.listCertTasks)
 		api.POST("/cert-tasks", h.createCertTask)

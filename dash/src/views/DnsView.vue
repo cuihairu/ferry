@@ -3,7 +3,7 @@ import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   createCertTask, createDNSFront, createDNSProvider, deleteCertTask, deleteDNSFront,
-  deleteDNSProvider, getCertTasks, getDNSFronts, getDNSProviders, issueCertTask,
+  deleteDNSProvider, geoSyncDns, getCertTasks, getDNSFronts, getDNSProviders, issueCertTask,
   updateCertTask, updateDNSFront, updateDNSProvider,
   type CertTask, type DNSFront, type DNSProvider,
 } from '../api'
@@ -153,6 +153,22 @@ async function removeFront(row: DNSFront) {
   }
 }
 
+// ---- 分地域对账（E-27）----
+// 池摘挂自动触发同步，这里是补偿入口：自动同步失败或人工改库后手动对齐
+// {区域slug}.{前置域名} A 记录到各区域代表入口。
+const syncing = ref(false)
+async function syncGeo() {
+  syncing.value = true
+  try {
+    const out = await geoSyncDns()
+    ElMessage.success(out.changed > 0 ? `对账完成：${out.changed} 条记录变更` : '对账完成：无变更')
+  } catch (e) {
+    ElMessage.error(String(e))
+  } finally {
+    syncing.value = false
+  }
+}
+
 // ---- 证书任务（BR-4）----
 const certDialog = ref(false)
 const certEditing = ref<CertTask | null>(null)
@@ -267,9 +283,12 @@ function fmtDate(v: string | null): string {
 
     <div class="head-row">
       <h3 class="section">前置记录</h3>
-      <el-button type="primary" size="small" :disabled="providers.length === 0" @click="newFront">
-        新建记录
-      </el-button>
+      <div>
+        <el-button size="small" :loading="syncing" @click="syncGeo">分地域对账</el-button>
+        <el-button type="primary" size="small" :disabled="providers.length === 0" @click="newFront">
+          新建记录
+        </el-button>
+      </div>
     </div>
     <el-table :data="fronts" v-loading="loading" :header-cell-style="{ background: 'var(--ferry-bg-panel)' }">
       <el-table-column prop="name" label="说明" min-width="110" />

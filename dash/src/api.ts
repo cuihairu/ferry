@@ -647,6 +647,11 @@ export function deleteDNSFront(id: number): Promise<{ ok: boolean }> {
   return del<{ ok: boolean }>(`/api/dns-fronts/${id}`)
 }
 
+/** 分地域对账补偿入口（E-27）：把 {区域slug}.{前置域名} A 记录对齐各区域代表入口。 */
+export function geoSyncDns(): Promise<{ changed: number }> {
+  return post<{ changed: number }>('/api/dns-fronts/geo-sync', {})
+}
+
 // ---- 证书任务（BR-4）----
 
 /** CertTask 是一张证书的编排任务：面板管编排与到期，签发执行 acme.sh。 */

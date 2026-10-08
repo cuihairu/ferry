@@ -63,6 +63,9 @@ func (h *Handler) suspendPoolNode(c *gin.Context) {
 	node, err := pool.Suspend(h.db, uint(id), nil)
 	switch {
 	case err == nil:
+		if pool.OnChange != nil {
+			go pool.OnChange(h.db) // E-27 分地域对账：池态迁移即对账
+		}
 		c.JSON(http.StatusOK, node)
 	case errors.Is(err, pool.ErrAlreadySuspended):
 		c.JSON(http.StatusConflict, gin.H{"error": "节点已在摘除状态"})
@@ -84,6 +87,9 @@ func (h *Handler) resumePoolNode(c *gin.Context) {
 	node, err := pool.Resume(h.db, uint(id), nil)
 	switch {
 	case err == nil:
+		if pool.OnChange != nil {
+			go pool.OnChange(h.db) // E-27 分地域对账：池态迁移即对账
+		}
 		c.JSON(http.StatusOK, node)
 	case errors.Is(err, pool.ErrNotSuspended):
 		c.JSON(http.StatusConflict, gin.H{"error": "节点不在摘除/预备状态"})
@@ -105,6 +111,9 @@ func (h *Handler) standbyPoolNode(c *gin.Context) {
 	node, err := pool.MarkStandby(h.db, uint(id))
 	switch {
 	case err == nil:
+		if pool.OnChange != nil {
+			go pool.OnChange(h.db) // E-27 分地域对账：池态迁移即对账
+		}
 		c.JSON(http.StatusOK, node)
 	case errors.Is(err, pool.ErrNotActive):
 		c.JSON(http.StatusConflict, gin.H{"error": "节点不在池内（已摘除或已是预备）"})

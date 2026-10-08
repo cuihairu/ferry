@@ -30,17 +30,18 @@ const ChannelHerald = "herald"
 
 // 事件 kind 与 target 取值（《告警通道设计》§2 清单，HERALD-3 起按类接入）。
 const (
-	KindRegionFault    = "region_fault"    // 区域聚合整体故障
-	KindISPFault       = "isp_fault"       // 运营商聚合整体故障
-	KindNodeBlocked    = "node_blocked"    // 节点判封进恢复流水线
-	KindNodeDown       = "node_down"       // 单点自动摘挂
-	KindCostExceeded   = "cost_exceeded"   // 高成本告警激活
-	KindProcCrashed    = "proc_crashed"    // 进程崩溃拉起失败
-	KindRecoveryFailed = "recovery_failed" // 恢复流水线全级耗尽（升级人工）
-	KindCertExpiring   = "cert_expiring"   // 证书临近到期
-	KindBackupFailed   = "backup_failed"   // 备份失败（面板可用性 §2.2，P1 周期备份接生产点）
-	KindLoginAlert     = "login_alert"     // 管理员登录异常（安全设计 §1：连续失败/新网段，登录审计接生产点）
-	KindPriceAlert     = "price_alert"     // 价格关注命中降价/到位（套餐与成本设计 §4.2，E-32 参考库批接生产点）
+	KindRegionFault    = "region_fault"       // 区域聚合整体故障
+	KindISPFault       = "isp_fault"          // 运营商聚合整体故障
+	KindNodeBlocked    = "node_blocked"       // 节点判封进恢复流水线
+	KindNodeDown       = "node_down"          // 单点自动摘挂
+	KindCostExceeded   = "cost_exceeded"      // 高成本告警激活
+	KindProcCrashed    = "proc_crashed"       // 进程崩溃拉起失败
+	KindRecoveryFailed = "recovery_failed"    // 恢复流水线全级耗尽（升级人工）
+	KindCertExpiring   = "cert_expiring"      // 证书临近到期
+	KindBackupFailed   = "backup_failed"      // 备份失败（面板可用性 §2.2，P1 周期备份接生产点）
+	KindLoginAlert     = "login_alert"        // 管理员登录异常（安全设计 §1：连续失败/新网段，登录审计接生产点）
+	KindPriceAlert     = "price_alert"        // 价格关注命中降价/到位（套餐与成本设计 §4.2，E-32 参考库批接生产点）
+	KindGeoSyncFailed  = "geodns_sync_failed" // 智能 DNS 分地域对账失败（入口与负载均衡 §C.8，E-27 接生产点）
 
 	// 用户触达（HERALD-4，§2.2；站内信照发，本通道供站外投递）。
 	KindExpire = "expire" // 账号到期提醒

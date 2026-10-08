@@ -93,3 +93,44 @@ func TestDNSAPI(t *testing.T) {
 		t.Fatalf("delete front status = %d body=%s", rec.Code, rec.Body)
 	}
 }
+
+// TestGeoSync 覆盖分地域对账补偿入口（E-27）：无启用 DNS 商 no-op 回
+// changed=0；停用商名下前置不参与对账（通道行为由 geodns 包假通道覆盖，
+// 这里不外呼）。
+func TestGeoSync(t *testing.T) {
+	r, db := newTestRouterWithMasterKey(t)
+
+	rec := doJSON(t, r, "POST", "/api/dns-fronts/geo-sync", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("no provider status = %d body=%s", rec.Code, rec.Body)
+	}
+	var out struct {
+		Changed int `json:"changed"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || out.Changed != 0 {
+		t.Fatalf("body=%s err=%v", rec.Body, err)
+	}
+
+	// 停用商 + 归属前置：不参与对账，仍 no-op。
+	store := secret.NewStore("test-master-key")
+	sealed, err := store.Encrypt("tok-x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prov := storage.DNSProvider{Name: "cf-off", Type: "cloudflare", APIKey: sealed, Enabled: false}
+	if err := db.Create(&prov).Error; err != nil {
+		t.Fatal(err)
+	}
+	front := storage.DNSFront{Name: "主入口", Domain: "edge.example.com", ProviderID: prov.ID,
+		PrimaryIP: "10.0.0.1", BackupIPs: `["10.0.0.2"]`}
+	if err := db.Create(&front).Error; err != nil {
+		t.Fatal(err)
+	}
+	rec = doJSON(t, r, "POST", "/api/dns-fronts/geo-sync", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("disabled provider status = %d body=%s", rec.Code, rec.Body)
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || out.Changed != 0 {
+		t.Fatalf("body=%s err=%v", rec.Body, err)
+	}
+}

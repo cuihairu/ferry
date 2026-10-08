@@ -17,6 +17,9 @@ type Provider interface {
 	Kind() string
 	// Upsert 幂等地把 name 的 rtype 记录写为 value（有则改、无则建）。
 	Upsert(ctx context.Context, name, rtype, value string) error
+	// Delete 删除 name 的全部 rtype 记录（无记录视同成功）——区域全挂
+	// 撤记录用（E-27），同名多条全删保撤干净。
+	Delete(ctx context.Context, name, rtype string) error
 }
 
 // kinds 是已接入的插件位类型（KnownKind/New 共用，加一家在此登记）。

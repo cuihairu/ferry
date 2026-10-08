@@ -105,6 +105,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&PriceSnapshot{},
 		&Distributor{},
 		&DistributorLedger{},
+		&GeoDNSRecord{},
 	)
 }
 

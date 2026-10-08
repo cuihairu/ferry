@@ -21,6 +21,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/cert"
 	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/cost"
+	"github.com/cuihairu/ferry/server/internal/geodns"
 	"github.com/cuihairu/ferry/server/internal/handler"
 	"github.com/cuihairu/ferry/server/internal/herald"
 	"github.com/cuihairu/ferry/server/internal/monitor"
@@ -37,6 +38,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/toucher"
 	"github.com/cuihairu/ferry/server/internal/xray"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 func main() {
@@ -85,7 +87,15 @@ func main() {
 	defer cancel()
 	go monitor.Run(ctx, db, time.Duration(cfg.MonitorIntervalSec)*time.Second, nil)
 
-	// 入口池自动摘挂（E-16）：连续 sick 摘除/恢复复位，订阅入口池即时生效。
+	// 入口池自动摘挂（E-16）：连续 sick 摘除/恢复复位，订阅入口池即时生效；
+	// 池态迁移经 OnChange 钩子触发分地域对账（E-27 §C.8：事件驱动不建
+	// 轮询，摘挂换代表入口即同步 {区域slug}.{前置域名} A 记录）。
+	pool.OnChange = func(db *gorm.DB) {
+		s := &geodns.Syncer{DB: db, Store: secret.NewStore(cfg.SecretKey)}
+		if _, err := s.Sync(ctx); err != nil {
+			log.Printf("geodns sync: %v", err)
+		}
+	}
 	go pool.Loop(ctx, db, time.Duration(cfg.PoolIntervalSec)*time.Second, nil)
 
 	// 路由与配置推送器（E-16b）：自动换线经同一条 config.push 链路重指落地。
