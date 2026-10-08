@@ -97,9 +97,32 @@ func (h *Handler) redeemTx(code string, userID uint, now time.Time) (gin.H, erro
 		order := storage.PaymentOrder{
 			OrderNo: orderNo, UserID: userID, Provider: "card", AmountCents: 0,
 			Product: "卡密 " + batch.Name, Status: "paid", PaidAt: &now, CreatedAt: now,
+			DistributorID: batch.DistributorID, // DS-1：归属随卡批次带入，三账串联
 		}
 		if err := tx.Create(&order).Error; err != nil {
 			return err
+		}
+		// DS-1 代理落账：代理批次且有面价 → sale（留痕不进余额）+ commission
+		//（面价×佣金比例，进余额）两行，同 order_no 与三账串联；自营批次不落。
+		// 代理停用不影响落账——卡已售出权益必兑现，分润照记账目保留。
+		if batch.DistributorID > 0 && batch.PriceCents > 0 {
+			var dist storage.Distributor
+			if err := tx.First(&dist, batch.DistributorID).Error; err != nil {
+				return err
+			}
+			ledger := []storage.DistributorLedger{{
+				DistributorID: dist.ID, OrderNo: orderNo, Kind: "sale",
+				AmountCents: batch.PriceCents, Note: "售卡 " + batch.Name, CreatedAt: now,
+			}}
+			if commission := batch.PriceCents * int64(dist.DiscountPercent) / 100; commission > 0 {
+				ledger = append(ledger, storage.DistributorLedger{
+					DistributorID: dist.ID, OrderNo: orderNo, Kind: "commission",
+					AmountCents: commission, Note: "佣金 " + batch.Name, CreatedAt: now,
+				})
+			}
+			if err := tx.Create(&ledger).Error; err != nil {
+				return err
+			}
 		}
 		raw, _ := json.Marshal(map[string]string{"code": code, "channel": "redeem"})
 		txn := storage.PaymentTransaction{

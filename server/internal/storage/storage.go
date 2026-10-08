@@ -103,6 +103,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&LoginLog{},
 		&PriceWatch{},
 		&PriceSnapshot{},
+		&Distributor{},
+		&DistributorLedger{},
 	)
 }
 

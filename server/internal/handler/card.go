@@ -19,13 +19,14 @@ const maxCardsPerBatch = 10000
 
 // cardBatchInput 是建批次的请求载荷（PAY-3，授权面随 P1-1 登录收敛）。
 type cardBatchInput struct {
-	Name       string     `json:"name"`
-	GrantType  string     `json:"grant_type"` // add_quota / extend_days
-	GrantValue int64      `json:"grant_value"`
-	PriceCents int64      `json:"price_cents"` // 在线售价（分），0=仅兑换不出售（PAY-11）
-	Total      int        `json:"total"`
-	ExpiredAt  *time.Time `json:"expired_at,omitempty"`
-	CreatedBy  string     `json:"created_by"`
+	Name          string     `json:"name"`
+	GrantType     string     `json:"grant_type"` // add_quota / extend_days
+	GrantValue    int64      `json:"grant_value"`
+	PriceCents    int64      `json:"price_cents"` // 在线售价（分），0=仅兑换不出售（PAY-11）
+	Total         int        `json:"total"`
+	ExpiredAt     *time.Time `json:"expired_at,omitempty"`
+	CreatedBy     string     `json:"created_by"`
+	DistributorID uint       `json:"distributor_id"` // DS-1：代理归属，0=面板自营
 }
 
 // createCardBatch 生成一批卡密：批次与卡密同事务落库，任一失败整批回滚。
@@ -68,6 +69,14 @@ func (h *Handler) createCardBatch(c *gin.Context) {
 	if in.CreatedBy == "" {
 		in.CreatedBy = "admin"
 	}
+	// DS-1：代理归属须指向真实代理（批次归属建时定，代理不可自改）。
+	if in.DistributorID > 0 {
+		var cnt int64
+		if err := h.db.Model(&storage.Distributor{}).Where("id = ?", in.DistributorID).Count(&cnt).Error; err != nil || cnt == 0 {
+			fail(c, http.StatusBadRequest, errors.New("distributor_id not found"))
+			return
+		}
+	}
 
 	codes, err := cardcode.Generate(in.Total)
 	if err != nil {
@@ -77,6 +86,7 @@ func (h *Handler) createCardBatch(c *gin.Context) {
 	batch := storage.CardBatch{
 		Name: in.Name, GrantType: in.GrantType, GrantValue: in.GrantValue,
 		PriceCents: in.PriceCents, Total: in.Total, ExpiredAt: in.ExpiredAt, CreatedBy: in.CreatedBy,
+		DistributorID: in.DistributorID,
 	}
 	rows := make([]storage.CardCode, 0, len(codes))
 	for _, code := range codes {

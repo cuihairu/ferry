@@ -175,6 +175,11 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.DELETE("/card-batches/:id", h.deleteCardBatch)
 		api.GET("/card-batches/:id/export.csv", h.exportCardBatchCSV)
 		api.POST("/redeem", h.redeem)
+		// 分销代理（DS-1）：建号/停用/佣金比例与账目流水，payout 随 DS-2。
+		api.GET("/distributors", h.listDistributors)
+		api.POST("/distributors", h.createDistributor)
+		api.PUT("/distributors/:id", h.updateDistributor)
+		api.GET("/distributors/:id/ledger", h.distributorLedger)
 		// 在线支付回调（PAY-8）：鉴权靠 Provider 验签
 		api.POST("/pay/epusdt/notify", h.epusdtNotify)
 		api.GET("/payments/reconcile", h.listReconcile)
@@ -223,6 +228,8 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 	// P1-1 管理员登录是获取首个令牌的唯一入口，公开挂在鉴权组外
 	//（此前误挂组内导致登录面 401 不可达，安全批修复）。
 	r.POST("/admin/login", h.AdminLogin)
+	// DS-1 代理登录：独立端点公开挂载，role=distributor 令牌与管理员互不越界。
+	r.POST("/distributor/login", h.DistributorLogin)
 	admin := r.Group("/admin", adminAuthMiddleware())
 	{
 		admin.GET("/backup/db", h.backupDB)

@@ -104,8 +104,10 @@ type CardBatch struct {
 	PriceCents int64      `gorm:"default:0" json:"price_cents"` // 在线售价（分），0=仅兑换不出售
 	Total      int        `gorm:"not null" json:"total"`
 	ExpiredAt  *time.Time `json:"expired_at"` // 卡密有效期，空为永久
-	CreatedBy  string     `gorm:"size:64" json:"created_by"`
-	CreatedAt  time.Time  `json:"created_at"`
+	// 代理归属（DS-1）：0=面板自营；>0=代理名下批次，兑换时带入订单与账目。
+	DistributorID uint      `gorm:"default:0;index" json:"distributor_id"`
+	CreatedBy     string    `gorm:"size:64" json:"created_by"`
+	CreatedAt     time.Time `json:"created_at"`
 	// 删批次连带删卡密（《支付设计》§3.1），导出发放前误建批次可整体回收。
 	Codes []CardCode `gorm:"foreignKey:BatchID;references:ID;constraint:OnDelete:CASCADE" json:"-"`
 }
@@ -294,6 +296,8 @@ type PaymentOrder struct {
 	AmountCents int64  `gorm:"default:0" json:"amount_cents"`
 	Product     string `gorm:"size:128" json:"product"`
 	Status      string `gorm:"size:16;default:pending;index" json:"status"` // pending/paid/failed/expired/refunded
+	// 代理归属（DS-1）：兑换/下单时从卡批次或商品带来，0=自营。
+	DistributorID uint `gorm:"default:0;index" json:"distributor_id"`
 	// 到账自动发放口径（在线支付用，卡密走批次自带）：add_quota/extend_days，空=不自动发放。
 	GrantType  string     `gorm:"size:16" json:"grant_type,omitempty"`
 	GrantValue int64      `gorm:"default:0" json:"grant_value,omitempty"`
@@ -328,6 +332,31 @@ type Grant struct {
 	Snapshot   string    `gorm:"type:text" json:"snapshot"`   // 变更前后快照 JSON
 	CreatedAt  time.Time `json:"created_at"`
 	// 不设 User 关联：发放记录不随用户删除（无外键）。
+}
+
+// Distributor 是代理账号（DS 分销，独立登录体系，非 users：无配额/订阅语义）。
+// 停用即禁登录，账目保留。佣金比例=面板让利部分归代理。
+type Distributor struct {
+	ID              uint      `gorm:"primaryKey" json:"id"`
+	Username        string    `gorm:"size:64;uniqueIndex;not null" json:"username"`
+	PasswordHash    string    `gorm:"size:128;not null" json:"-"`
+	DiscountPercent int       `gorm:"default:0" json:"discount_percent"` // 佣金比例 0-100
+	Note            string    `gorm:"size:255" json:"note"`
+	Enabled         bool      `gorm:"default:true" json:"enabled"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// DistributorLedger 是代理账目流水：sale（售卡留痕不进余额）/commission（入余额）/
+// payout（结算扣减）/adjust（人工调）。未结算余额 = Σcommission + Σadjust − Σpayout。
+type DistributorLedger struct {
+	ID            uint      `gorm:"primaryKey" json:"id"`
+	DistributorID uint      `gorm:"index;not null" json:"distributor_id"`
+	OrderNo       string    `gorm:"size:32;index" json:"order_no"` // sale/commission 与三账订单串联
+	Kind          string    `gorm:"size:16;not null" json:"kind"`  // sale/commission/payout/adjust
+	AmountCents   int64     `gorm:"not null" json:"amount_cents"`  // 接口层以正负区分入账/扣减
+	Note          string    `gorm:"size:255" json:"note"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 // Provider 是云提供商凭证（OS-1）：接入 OpenTofu 供给引擎的 provider
