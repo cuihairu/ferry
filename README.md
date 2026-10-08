@@ -1,3 +1,5 @@
+[English](README.md) | [中文](README.zh.md)
+
 <p align="center">
   <img src="docs/public/logo.svg" width="64" alt="ferry logo" />
 </p>
@@ -11,37 +13,37 @@
   <img src="docs/public/badges/license.svg" alt="Apache-2.0" />
 </p>
 
-ferry 是一个轻量级代理管理面板，面向小内存 VPS，提供用户、节点、订阅链接与流量记账管理。
+ferry is a lightweight proxy management panel for small-memory VPS, covering users, nodes, subscription links, and traffic accounting.
 
-## 目录结构
+## Repository Layout
 
 ```
 ferry/
-├── server/     # Go 服务端（gin + 纯 Go SQLite，免 CGO）
-├── agent/      # 节点代理（Go 静态二进制，常驻代理机，只出站连服务端）
-├── panel/      # 用户面板（Vue 3：自助订阅链接、流量查询、使用说明）
-├── dash/       # 管理后台（Vue 3：用户/节点/配置/统计看板）
-├── payments/   # 支付渠道插件（epusdt USDT 已接入；微信/支付宝为占位，等商户资质）
-├── packages/   # 共享契约（agentproto、支付 Provider 接口）
-├── deploy/     # 部署文件（compose、脚本）
-├── docs/       # 设计文档
-├── todo.md     # 功能拆解与排期
-└── Makefile    # build / test / dev 统一入口
+├── server/     # Go backend (gin + pure-Go SQLite, no CGO)
+├── agent/      # Node agent (static Go binary, resident on proxy machines, outbound-only to the server)
+├── panel/      # User portal (Vue 3: self-service subscription links, traffic lookup, usage instructions)
+├── dash/       # Admin dashboard (Vue 3: users/nodes/configuration/statistics)
+├── payments/   # Payment channel plugins (epusdt USDT integrated; WeChat/Alipay are placeholders pending merchant credentials)
+├── packages/   # Shared contracts (agentproto, payment provider interfaces)
+├── deploy/     # Deployment files (compose, scripts)
+├── docs/       # Design documents
+├── todo.md     # Feature breakdown and scheduling
+└── Makefile    # Unified entry point for build / test / dev
 ```
 
-## 合规定位与责任边界
+## Compliance Positioning and Responsibility Boundary
 
-ferry 是一个**代理集群管理工具**，部署与运营的合规责任在部署者。工具不提供代理服务本身、不运营网络接入、不内置默认目标；部署者对其所在辖区的法律法规与服务商条款的合规负责。详见 [docs/design/合规定位声明.md](docs/design/合规定位声明.md)。
+ferry is a **proxy cluster management tool**; compliance responsibility for deployment and operation rests with the deployer. The tool does not provide proxy services itself, does not operate network access, and ships with no default destinations. Deployers are responsible for compliance with the laws and regulations of their jurisdiction and with their service providers' terms of service. See [docs/design/合规定位声明.md](docs/design/合规定位声明.md) (compliance positioning statement, in Chinese).
 
-同类面板调研（3x-ui / Marzban / Hiddify / Remnawave）见 [docs/面板横向对比.md](docs/面板横向对比.md)。
+A survey of comparable panels (3x-ui / Marzban / Hiddify / Remnawave) is available at [docs/面板横向对比.md](docs/面板横向对比.md) (in Chinese).
 
-## 开发
+## Development
 
 ```bash
-make build   # 全量构建（server/agent/quic/dash/panel）
-make test    # Go 测试（server/agent/packages/payments）+ 前端构建检查
-make dev     # 本地联调（dev-server / dev-dash / dev-panel 可单跑）
+make build   # Full build (server/agent/quic/dash/panel)
+make test    # Go tests (server/agent/packages/payments) + frontend build checks
+make dev     # Local development (dev-server / dev-dash / dev-panel can run individually)
 make fmt     # gofmt
 ```
 
-前端构建需要 Node 24（dash 与 panel 均为 Vite）。环境变量配置项全集见 `server/internal/config/config.go`；HTTP API 以 `server/internal/handler/router.go` 的路由注册为准，各能力落地口径见 [docs/design/](docs/design/) 对应设计文档（文档末尾「落地口径」段）。
+Frontend builds require Node 24 (both dash and panel use Vite). The full set of environment variables is documented in `server/internal/config/config.go`; the HTTP API is defined by the route registrations in `server/internal/handler/router.go`. Implementation details for each capability are recorded in the corresponding design documents under [docs/design/](docs/design/) (see the "落地口径" implementation-notes section at the end of each document, in Chinese).
