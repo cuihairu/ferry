@@ -44,3 +44,17 @@ deploy/agent-install.sh --panel ... --token ... \
   --ca deploy/mtls/ca.crt --cert deploy/mtls/hk1.crt --key deploy/mtls/hk1.key
 ```
 
+## 一键恢复与迁移（面板可用性 §3/§4）
+
+```sh
+deploy/restore.sh --backup ferry-backup-*.db.enc --data-dir /data \
+  --ferry-bin /usr/local/bin/ferry-server --key "$FERRY_SECRET_KEY" \
+  --start-cmd "systemctl restart ferry" --health-url http://127.0.0.1:8080/api/health
+```
+
+六步：部署检查→解密（`.enc` 经 ferry 自身 `backup-decrypt` 子命令，openssl 无
+AES-GCM 能力）→导入（SQLite 留底+原子覆盖 / `--pg-dsn` 走 pg_restore）→证书
+目录→启动→健康冒烟；缺参/解密失败明确报错非 0，可复跑幂等。
+换机迁移五步操作化（DNS 切换、agent 自动重连核对、回滚）见
+[MIGRATION-RUNBOOK.md](MIGRATION-RUNBOOK.md)。
+
