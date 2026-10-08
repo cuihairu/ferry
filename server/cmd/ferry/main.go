@@ -4,6 +4,8 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"flag"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -38,6 +40,12 @@ import (
 )
 
 func main() {
+	// 备份解包子命令（面板可用性 §3 恢复②，deploy/restore.sh 调用）：.enc
+	// 档是主密钥派生钥 AES-256-GCM 的紧凑二进制，openssl enc 无 GCM 能力，
+	// 恢复时借本二进制自身的 secret 包还原明文；不带子命令时照常起服务。
+	if len(os.Args) > 1 && os.Args[1] == "backup-decrypt" {
+		os.Exit(backupDecrypt(os.Args[2:]))
+	}
 	cfg := config.Load()
 
 	// 运行日志（P1-11）：std log 与 gin 输出镜像进环形缓冲，供管理端查看。
@@ -203,4 +211,50 @@ func main() {
 	if err := r.Run(cfg.Addr); err != nil {
 		log.Fatalf("serve: %v", err)
 	}
+}
+
+// backupDecrypt 解密周期备份的 .enc 档为明文（面板可用性 §3 恢复②），返回
+// 退出码：-key 缺省取 FERRY_SECRET_KEY，-out 缺省去掉 .enc 后缀；缺参、未配
+// 主密钥、解密失败（错钥/档损坏）都明确报错非 0 退出，供 restore.sh 判定。
+func backupDecrypt(args []string) int {
+	fs := flag.NewFlagSet("backup-decrypt", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	key := fs.String("key", os.Getenv("FERRY_SECRET_KEY"), "主密钥（缺省取 FERRY_SECRET_KEY）")
+	in := fs.String("in", "", "待解密的 .enc 备份档路径")
+	out := fs.String("out", "", "还原的明文输出路径（缺省去掉 .enc 后缀）")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *in == "" {
+		fmt.Fprintln(os.Stderr, "backup-decrypt: 缺 -in（待解密的备份档路径）")
+		return 2
+	}
+	store := secret.NewStore(*key)
+	if !store.Enabled() {
+		fmt.Fprintln(os.Stderr, "backup-decrypt: 未配置主密钥（-key 或 FERRY_SECRET_KEY）")
+		return 1
+	}
+	raw, err := os.ReadFile(*in)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "backup-decrypt: 读档失败: %v\n", err)
+		return 1
+	}
+	plain, err := store.DecryptBytes(raw)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "backup-decrypt: 解密失败（主密钥不符或档损坏）: %v\n", err)
+		return 1
+	}
+	target := *out
+	if target == "" {
+		target = strings.TrimSuffix(*in, ".enc")
+		if target == *in {
+			target = *in + ".plain"
+		}
+	}
+	if err := os.WriteFile(target, plain, 0o600); err != nil {
+		fmt.Fprintf(os.Stderr, "backup-decrypt: 写出失败: %v\n", err)
+		return 1
+	}
+	fmt.Printf("backup-decrypt: 已还原 %s -> %s（%d 字节）\n", *in, target, len(plain))
+	return 0
 }
