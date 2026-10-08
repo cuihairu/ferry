@@ -13,6 +13,13 @@ docker compose --env-file deploy/ferry.env -f deploy/docker-compose.yml up -d --
 
 agent 部署在节点上，不经此 compose（见《agent架构设计》）。
 
+## dash 登录与管理员引导（安全设计 §1）
+
+dash 全部页面走管理员登录（JWT），绑定两步验证后登录再验 6 位 TOTP/恢复码。
+部署侧在 `ferry.env` 配 `FERRY_ADMIN_PASSWORD`：库内无管理员时启动按
+`FERRY_ADMIN_USER`（缺省 admin）建号，已有管理员则忽略且不覆盖密码。
+建议建号后进「设置 → 两步验证」绑定 TOTP（需先配 `FERRY_SECRET_KEY`）。
+
 ## agent 节点一键安装（A-24）
 
 节点机 root 执行（或面板机上 `--register` 顺手建节点拿令牌）：

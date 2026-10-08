@@ -69,6 +69,14 @@ func main() {
 		log.Fatalf("reset node status: %v", err)
 	}
 
+	// 管理员首启引导（安全设计 §1）：FERRY_ADMIN_PASSWORD 非空且库内无管理员
+	// 时按 FERRY_ADMIN_USER（缺省 admin）建号；已有管理员则忽略，不覆盖密码。
+	if created, err := handler.EnsureAdmin(db, cfg.AdminUser, cfg.AdminPassword); err != nil {
+		log.Fatalf("bootstrap admin: %v", err)
+	} else if created {
+		log.Printf("bootstrap admin: created admin user %q", cfg.AdminUser)
+	}
+
 	// Xray 内核对接未启用前使用空实现，接口保持稳定。
 	_ = xray.NoopHandler{}
 

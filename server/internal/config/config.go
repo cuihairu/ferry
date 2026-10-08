@@ -38,6 +38,10 @@ type Config struct {
 	AdminSecret string `json:"-"`
 	// ApiTokenSecret 是 API Token 签名秘钥，默认 "ferry-api-secret"，可通过 FERRY_API_SECRET 环境变量覆盖。
 	ApiTokenSecret string `json:"-"`
+	// AdminUser/AdminPassword 是管理员首启引导（安全设计 §1）：库内无管理员时
+	// 启动建号（FERRY_ADMIN_USER 缺省 admin），已有管理员则忽略不覆盖。
+	AdminUser     string `json:"-"`
+	AdminPassword string `json:"-"`
 	// SecretKey 是机密加密主密钥（R24：不入库，部署环境变量/文件注入），
 	// 未配置时云凭证等机密不可录入。可通过 FERRY_SECRET_KEY 覆盖。
 	SecretKey string `json:"-"`
@@ -126,6 +130,8 @@ func Load() Config {
 		RedeemLimiter:        &ratelimit.Options{Window: time.Minute, MaxAttempts: 10, FailLimit: 5, Lockout: 15 * time.Minute},
 		AdminSecret:          envOr("FERRY_ADMIN_SECRET", ""),
 		ApiTokenSecret:       envOr("FERRY_API_SECRET", ""),
+		AdminUser:            envOr("FERRY_ADMIN_USER", "admin"),
+		AdminPassword:        os.Getenv("FERRY_ADMIN_PASSWORD"),
 		SecretKey:            envOr("FERRY_SECRET_KEY", ""),
 		TofuBin:              envOr("FERRY_TOFU_BIN", "tofu"),
 		TofuWorkdir:          envOr("FERRY_TOFU_DIR", "/var/lib/ferry/tofu"),
@@ -180,6 +186,8 @@ func Default() Config {
 		RedeemLimiter:        &ratelimit.Options{Window: time.Minute, MaxAttempts: 10, FailLimit: 5, Lockout: 15 * time.Minute},
 		AdminSecret:          "",
 		ApiTokenSecret:       "",
+		AdminUser:            "admin",
+		AdminPassword:        "",
 		SecretKey:            "",
 		TofuBin:              "tofu",
 		TofuWorkdir:          "",
