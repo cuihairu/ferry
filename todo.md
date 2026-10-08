@@ -46,6 +46,8 @@
 - [x] P1-9 单节点分享链接/二维码展示（来源：3x-ui `/links/:email` 路由）
 - [x] P1-10 通知渠道：事件外发（如 Telegram/Webhook）（来源：Marzban Telegram Bot；3x-ui discord_notify_job）
 - [x] P1-11 运行日志查看（来源：Marzban 节点 WebSocket 日志；3x-ui clear_logs_job）
+- [x] P1-12 两步验证 2FA（TOTP）（已落地 2026-10-08，安全设计 §1，对齐 3x-ui 做法）：handler/twofa.go 四端点——GET /admin/2fa 状态、POST setup（totp.Generate 30s/6 位/SHA1 产密钥，经主密钥 sealSecret 加密暂存 settings `admin_2fa_pending`，未配 FERRY_SECRET_KEY 明确 400 密钥永不明文落库）、POST enable（校验一次 TOTP 才落 user.TOTPSecret（v1: 密文）+生成 8 枚 xxxx-xxxx 恢复码（只存 sha256，UPDATE used_at IS NULL 条件消费，用一个销一个）+清暂存，两步绑定避免半绑定态）、POST disable（bcrypt 密码确认后清密钥/恢复码/暂存）；AdminLogin 二次校验（checkTwoFA：绑定者缺码回 totp_required、错码回 totp_invalid，6 位 TOTP ±1 周期容差或恢复码任一通过，未绑定者行为不变）；接入 pquerna/otp v1.5.0（Apache-2.0 已核 license）；dash 登录页 /login（全页守卫+redirect 回跳，机器码驱动验证码输入位）与设置页两步验证卡（二维码渲染 qrcode 已有依赖/密钥串/恢复码一次性展示+复制/密码确认关闭）；管理员首启引导 FERRY_ADMIN_USER/FERRY_ADMIN_PASSWORD（EnsureAdmin 库内无管理员时启动建号，存在忽略不覆盖——此前全仓无生产路径能造 IsAdmin 账号）；路由修复 /admin/login 误挂鉴权组内 401 不可达；测试 TestTwoFABindLoginRecovery（绑定/校验/恢复码重放/解绑全链路）/TestTwoFASetupNeedsMasterKey/TestEnsureAdmin
+- [x] P1-13 登录审计 login_logs（已落地 2026-10-08，安全设计 §1）：按设计 DDL 落表（storage.LoginLog：时间/IP/UA/结果，username/created_at 带索引，AutoMigrate 增量），每次登录尝试落行（UA 截 255，落行失败只记日志不阻断登录），GET /admin/login-logs 分页查询（id DESC，page 缺省 1/20、page_size 上限 100），dash 设置页登录日志分页卡；连续失败与异网段成功告警经既有 Herald login_alert（KindLoginAlert，warning/admin，未配 Herald 落本地 outbox 站内可见不自建通道）——连续失败=同 IP 15min 窗口 login_logs 失败≥5 行（对齐限速 FailLimit），异网段=与上次成功登录不同网段（netip v4 /24、v6 /64、Unmap，首次成功无基线不判），emitLoginAlert 本地按 kind+dedup_key 自查重同日至多一条（dedup_key 再供 Herald 侧窗口合并）；测试 TestLoginUnboundDirectPass（直过+落行 IP/UA 断言）/TestLoginLogsQuery（失败成功两行+分页两页）/TestLoginAlerts（新网段同日去重+爆破恰 5 次触发，事件恰 2 条）
 
 ## ferry-agent —（代理机侧，设计定稿）
 

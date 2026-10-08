@@ -1,21 +1,31 @@
-// API 客户端：统一解析后端 {error} 错误载荷。
+import { auth, logout } from './auth'
+
+// API 客户端：统一解析后端 {error} 错误载荷；管理员 JWT 随身携带，管理面
+// 401（令牌过期）清会话回登录页。code 是后端机器可读错误码（如登录的
+// totp_required/totp_invalid，安全设计 §1）。
 export class ApiError extends Error {
   status: number
-  constructor(status: number, message: string) {
+  code: string
+  constructor(status: number, message: string, code = '') {
     super(message)
     this.status = status
+    this.code = code
   }
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
-    ...init,
-  })
+  const headers: Record<string, string> = { ...((init?.headers as Record<string, string>) ?? {}) }
+  if (init?.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json'
+  if (auth.token) headers['Authorization'] = `Bearer ${auth.token}`
+  const res = await fetch(path, { ...init, headers })
   const text = await res.text()
   const body = text ? JSON.parse(text) : null
   if (!res.ok) {
-    throw new ApiError(res.status, body?.error ?? res.statusText)
+    if (res.status === 401 && auth.token && path !== '/admin/login') {
+      logout()
+      window.location.assign('/login')
+    }
+    throw new ApiError(res.status, body?.error ?? res.statusText, body?.code ?? '')
   }
   return body as T
 }
@@ -814,4 +824,41 @@ export function getOutage(): Promise<OutageState> {
 
 export function putOutage(enabled: boolean): Promise<OutageState> {
   return put('/api/outage', { enabled })
+}
+
+// ---- 管理员登录与两步验证（安全设计 §1）----
+
+export function adminLogin(body: { username: string; password: string; totp?: string }): Promise<{ token: string }> {
+  return post<{ token: string }>('/admin/login', body)
+}
+
+export function getTwoFAStatus(): Promise<{ enabled: boolean }> {
+  return get('/admin/2fa')
+}
+
+export function setupTwoFA(): Promise<{ secret: string; otpauth_url: string }> {
+  return post('/admin/2fa/setup')
+}
+
+/** 绑定确认：校验一次 TOTP 后生效，明文恢复码只此一次返回。 */
+export function enableTwoFA(code: string): Promise<{ recovery_codes: string[] }> {
+  return post('/admin/2fa/enable', { code })
+}
+
+export function disableTwoFA(password: string): Promise<{ ok: boolean }> {
+  return post('/admin/2fa/disable', { password })
+}
+
+/** LoginLogRow 是一条登录审计（login_logs，安全设计 §1）。 */
+export interface LoginLogRow {
+  id: number
+  username: string
+  ip: string
+  ua: string
+  ok: boolean
+  created_at: string
+}
+
+export function getLoginLogs(page: number, pageSize: number): Promise<{ items: LoginLogRow[]; total: number; page: number; page_size: number }> {
+  return get(`/admin/login-logs?page=${page}&page_size=${pageSize}`)
 }

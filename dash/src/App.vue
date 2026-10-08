@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { get } from './api'
+import { logout } from './auth'
 
-// P0-14：侧边导航 + 顶栏 + 内容区。顶栏常驻面板健康灯。
+// P0-14：侧边导航 + 顶栏 + 内容区。顶栏常驻面板健康灯；安全批（§1）起
+// 登录页独占视口（藏侧栏），顶栏右侧退出登录。
 const route = useRoute()
+const router = useRouter()
 const healthOk = ref(false)
 
 onMounted(async () => {
@@ -15,11 +18,16 @@ onMounted(async () => {
     healthOk.value = false
   }
 })
+
+function doLogout() {
+  logout()
+  router.push('/login')
+}
 </script>
 
 <template>
   <el-container class="layout">
-    <el-aside width="220px" class="layout-aside">
+    <el-aside v-if="route.path !== '/login'" width="220px" class="layout-aside">
       <div class="logo">ferry</div>
       <div class="logo-sub">轻量级代理管理面板</div>
       <el-menu router :default-active="route.path" class="nav">
@@ -42,6 +50,7 @@ onMounted(async () => {
           <span class="dot" :class="{ ok: healthOk }"></span>
           {{ healthOk ? '面板在线' : '面板离线' }}
         </span>
+        <el-button v-if="route.path !== '/login'" link @click="doLogout">退出登录</el-button>
       </el-header>
       <el-main>
         <RouterView />
