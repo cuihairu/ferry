@@ -99,6 +99,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&Event{},
 		&EventDelivery{},
 		&Backup{},
+		&RecoveryCode{},
+		&LoginLog{},
 	)
 }
 

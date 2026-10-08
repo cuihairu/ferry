@@ -22,6 +22,7 @@ func adminJWT(t *testing.T) string {
 	claims := adminClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   "1",
+			ID:        "1", // adminUserID 取 Jti，对齐 AdminLogin 真实令牌形状
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 		},
 		IsAdmin: true,

@@ -18,10 +18,13 @@ type adminClaims struct {
 	IsAdmin bool `json:"is_admin"`
 }
 
-// AdminLogin 管理员登录（P1-1）：验证用户名/密码，返回 signed JWT。
-// 登录失败按 IP 滑动窗口计数，达到阈值进入 15 分钟锁定。
+// AdminLogin 管理员登录（P1-1 + 安全设计 §1）：验证用户名/密码，绑定两步
+// 验证者再校验 TOTP/恢复码，返回 signed JWT。失败按 IP 滑动窗口计数达阈值
+// 锁定（复用兑换限速思路），每次尝试落 login_logs 审计，连续失败与新网段
+// 成功经 Herald login_alert 告警；未绑定 2FA 者登录行为不变。
 func (h *Handler) AdminLogin(c *gin.Context) {
 	ip := c.ClientIP()
+	ua := c.Request.UserAgent()
 	// 速率限流：每 60 秒最多 5 次尝试，失败 5 次进入 15 分钟锁定
 	if !h.redeemLimiter.Allow(ip) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "尝试过于频繁，请稍后再试"})
@@ -30,6 +33,7 @@ func (h *Handler) AdminLogin(c *gin.Context) {
 	var in struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
+		TOTP     string `json:"totp"` // 6 位 TOTP 或一次性恢复码（绑定者必填）
 	}
 	if err := c.ShouldBindJSON(&in); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
@@ -38,24 +42,30 @@ func (h *Handler) AdminLogin(c *gin.Context) {
 	u, err := h.findUserByUsername(in.Username)
 	if err != nil {
 		// 无论用户是否存在，均记录一次失败以防止枚举
-		h.redeemLimiter.RecordFailure(ip)
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
+		h.loginFailed(c, in.Username, ip, ua, "用户名或密码错误", "")
 		return
 	}
 	if !u.Enabled {
-		h.redeemLimiter.RecordFailure(ip)
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "账户已停用"})
+		h.loginFailed(c, in.Username, ip, ua, "账户已停用", "")
 		return
 	}
 	if !u.IsAdmin {
-		h.redeemLimiter.RecordFailure(ip)
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "无管理员权限"})
+		h.loginFailed(c, in.Username, ip, ua, "无管理员权限", "")
 		return
 	}
 	// password 校验：bcrypt 比对
 	if err := bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(in.Password)); err != nil {
-		h.redeemLimiter.RecordFailure(ip)
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
+		h.loginFailed(c, in.Username, ip, ua, "用户名或密码错误", "")
+		return
+	}
+	// 二次因子（安全设计 §1）：绑定者必须给 6 位 TOTP 或恢复码；
+	// 空值单独回码让 dash 补出验证码输入位，未绑定者直过。
+	if u.TOTPEnabled && strings.TrimSpace(in.TOTP) == "" {
+		h.loginFailed(c, in.Username, ip, ua, "需要两步验证码", "totp_required")
+		return
+	}
+	if !h.checkTwoFA(&u, in.TOTP) {
+		h.loginFailed(c, in.Username, ip, ua, "两步验证码错误", "totp_invalid")
 		return
 	}
 	now := time.Now()
@@ -80,7 +90,23 @@ func (h *Handler) AdminLogin(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "内部错误"})
 		return
 	}
+	// 审计落行 + 新网段告警（排除自身行取上次成功基线）。
+	row := h.writeLoginLog(u.Username, ip, ua, true)
+	h.alertLoginNewIP(u.Username, ip, row.ID)
 	c.JSON(http.StatusOK, gin.H{"token": ss})
+}
+
+// loginFailed 登录失败统一收尾：限速计数、审计落行、连续失败告警检查，
+// 然后回 401（code 可选机器可读标记，如 totp_required/totp_invalid）。
+func (h *Handler) loginFailed(c *gin.Context, username, ip, ua, msg, code string) {
+	h.redeemLimiter.RecordFailure(ip)
+	h.writeLoginLog(username, ip, ua, false)
+	h.alertLoginBrute(ip)
+	body := gin.H{"error": msg}
+	if code != "" {
+		body["code"] = code
+	}
+	c.JSON(http.StatusUnauthorized, body)
 }
 
 // adminAuthMiddleware 管理员身份中间件：从 Authorization: Bearer <token> 解析并验证。

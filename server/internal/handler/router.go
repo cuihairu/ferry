@@ -210,9 +210,11 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.GET("/token", h.GetCurrentUser)
 		api.POST("/token", h.AdminGetApiToken)
 	}
+	// P1-1 管理员登录是获取首个令牌的唯一入口，公开挂在鉴权组外
+	//（此前误挂组内导致登录面 401 不可达，安全批修复）。
+	r.POST("/admin/login", h.AdminLogin)
 	admin := r.Group("/admin", adminAuthMiddleware())
 	{
-		admin.POST("/login", h.AdminLogin)
 		admin.GET("/backup/db", h.backupDB)
 		admin.GET("/web-cert", h.getWebCert)
 		admin.PUT("/web-cert", h.putWebCert)
@@ -224,6 +226,12 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		admin.POST("/notify/test", h.testNotify)
 		admin.GET("/logs", h.adminLogs)
 		admin.DELETE("/logs", h.clearAdminLogs)
+		// 两步验证与登录审计（安全设计 §1，P1）
+		admin.GET("/2fa", h.twofaStatus)
+		admin.POST("/2fa/setup", h.twofaSetup)
+		admin.POST("/2fa/enable", h.twofaEnable)
+		admin.POST("/2fa/disable", h.twofaDisable)
+		admin.GET("/login-logs", h.loginLogs)
 	}
 	return r, h.pusher
 }

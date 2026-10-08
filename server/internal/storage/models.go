@@ -14,6 +14,11 @@ type User struct {
 	IsAdmin    bool       `gorm:"default:false" json:"is_admin"`
 	Password   string     `gorm:"size:128" json:"-"`
 	ApiToken   string     `gorm:"size:64" json:"api_token"`
+	// 两步验证（安全设计 §1，P1）：TOTP 密钥经 secret_store 加密落库
+	//（v1:nonce:ct 密文，主密钥不入库）；绑定后登录需 6 位 TOTP 或一次性
+	// 恢复码，未绑定者登录行为不变。
+	TOTPSecret  string `gorm:"size:256" json:"-"`
+	TOTPEnabled bool   `gorm:"default:false" json:"-"`
 	// 通知偏好（NT-2）：站内信通道内按类型开关；通道维度待第二通道（邮件/TG）落地再扩。
 	NotifyExpiry       bool      `gorm:"default:true" json:"notify_expiry"`      // 到期提醒
 	NotifyTraffic      bool      `gorm:"default:true" json:"notify_traffic"`     // 流量预警
@@ -533,4 +538,26 @@ type Backup struct {
 	SizeBytes int64     `json:"size_bytes"`
 	Uploaded  bool      `gorm:"default:false" json:"uploaded"`
 	CreatedAt time.Time `gorm:"not null" json:"created_at"`
+}
+
+// RecoveryCode 是两步验证的一次性恢复码（安全设计 §1，P1）：只存 sha256
+// 哈希不存明文（明文仅绑定完成时一次性下发展示），用一个销一个——used_at
+// 非空即已消费，比对与销毁同事务防重放。
+type RecoveryCode struct {
+	ID        uint       `gorm:"primaryKey" json:"id"`
+	UserID    uint       `gorm:"index;not null" json:"user_id"`
+	CodeHash  string     `gorm:"size:64;not null" json:"-"`
+	UsedAt    *time.Time `json:"used_at"`
+	CreatedAt time.Time  `json:"created_at"`
+}
+
+// LoginLog 是管理员登录审计（安全设计 §1，P1，对齐设计 DDL）：时间/IP/
+// UA/结果，dash 分页可查；连续失败与新网段登录经 Herald login_alert 告警。
+type LoginLog struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	Username  string    `gorm:"size:64;index" json:"username"`
+	IP        string    `gorm:"size:64" json:"ip"`
+	UA        string    `gorm:"size:255" json:"ua"`
+	OK        bool      `json:"ok"`
+	CreatedAt time.Time `gorm:"index" json:"created_at"` // 设计 DDL idx_login_logs_time
 }
