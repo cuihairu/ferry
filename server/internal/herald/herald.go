@@ -38,6 +38,7 @@ const (
 	KindProcCrashed    = "proc_crashed"    // 进程崩溃拉起失败
 	KindRecoveryFailed = "recovery_failed" // 恢复流水线全级耗尽（升级人工）
 	KindCertExpiring   = "cert_expiring"   // 证书临近到期
+	KindBackupFailed   = "backup_failed"   // 备份失败（面板可用性 §2.2，P1 周期备份接生产点）
 
 	// 用户触达（HERALD-4，§2.2；站内信照发，本通道供站外投递）。
 	KindExpire = "expire" // 账号到期提醒

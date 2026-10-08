@@ -1,42 +1,34 @@
 package handler
 
 import (
-	"errors"
 	"net/http"
-	"os"
+	"path/filepath"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/backup"
+	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
 )
 
-// 备份导出（P1-6，对齐 3x-ui dump_sqlite 与 export 路由）。
+// 备份导出（P1-6 手动备份；P1 周期备份批起同面落档留痕）。
 
-// backupDB 导出 SQLite 数据库快照（GET /admin/backup/db）：
-// VACUUM INTO 落到临时文件生成一致性快照（含 WAL 已合并内容），
-// 以附件下载，请求结束即删；仅 SQLite 方言支持（postgres/mysql 走各自备份设施）。
+// backupDB 导出当前数据库快照（GET /admin/backup/db）：VACUUM INTO 在线
+// 一致性快照落备份目录（配置了主密钥时为加密档 .enc），落 manual 行
+// （uploaded 恒 0——外发位本批未接真实实现）并按 KEEP 滚动清理，然后以
+// 附件下载该档；postgres/mysql 方言不支持（走各自备份设施）。
 func (h *Handler) backupDB(c *gin.Context) {
-	if h.db.Dialector.Name() != "sqlite" {
-		fail(c, http.StatusBadRequest, errors.New("backup download only supports sqlite"))
-		return
-	}
-	tmp, err := os.CreateTemp("", "ferry-backup-*.db")
+	path, size, err := backup.Snapshot(h.db, h.cfg.BackupDir, h.secrets)
 	if err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
-	path := tmp.Name()
-	tmp.Close()
-	// VACUUM INTO 要求目标文件不存在，CreateTemp 只为抢占一个安全路径。
-	if err := os.Remove(path); err != nil {
+	row := storage.Backup{Kind: backup.KindManual, Path: path, SizeBytes: size, CreatedAt: time.Now()}
+	if err := h.db.Create(&row).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
-	defer os.Remove(path)
-	if err := h.db.Exec("VACUUM INTO ?", path).Error; err != nil {
-		fail(c, http.StatusInternalServerError, err)
-		return
-	}
-	name := "ferry-backup-" + time.Now().Format("20060102-150405") + ".db"
+	backup.Prune(h.db, h.cfg.BackupKeep)
+	name := filepath.Base(path)
 	c.Header("Content-Disposition", `attachment; filename="`+name+`"`)
 	c.File(path)
 }

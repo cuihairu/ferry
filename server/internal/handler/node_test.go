@@ -24,6 +24,14 @@ func newTestRouter(t *testing.T) *gin.Engine {
 // newTestRouterWithDB 额外返回 db 句柄，供直接插入流量等关联数据的用例使用。
 func newTestRouterWithDB(t *testing.T) (*gin.Engine, *gorm.DB) {
 	t.Helper()
+	r, db := newTestRouterCfg(t, nil)
+	return r, db
+}
+
+// newTestRouterCfg 在默认配置上叠加用例定制（备份目录、主密钥等需要
+// 临时路径的项），其余口径与 newTestRouterWithDB 一致。
+func newTestRouterCfg(t *testing.T, mutate func(*config.Config)) (*gin.Engine, *gorm.DB) {
+	t.Helper()
 	db, err := storage.Open(storage.DriverSQLite, filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("open db: %v", err)
@@ -34,7 +42,11 @@ func newTestRouterWithDB(t *testing.T) (*gin.Engine, *gorm.DB) {
 		}
 	})
 	gin.SetMode(gin.TestMode)
-	r, _ := NewRouter(db, config.Default())
+	cfg := config.Default()
+	if mutate != nil {
+		mutate(&cfg)
+	}
+	r, _ := NewRouter(db, cfg)
 	return r, db
 }
 

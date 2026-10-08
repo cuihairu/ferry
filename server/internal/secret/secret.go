@@ -112,3 +112,50 @@ func newAEAD(key []byte) (cipher.AEAD, error) {
 	}
 	return cipher.NewGCM(block)
 }
+
+// EncryptBytes 以当前版本钥加密任意字节（文件级，如备份档）：
+// 输出格式 = 版本字节 + nonce + 密文（紧凑二进制，不走 v1:… 文本格式）。
+// DecryptBytes 是其逆运算；字符串机密仍走 Encrypt/Decrypt。
+func (s *Store) EncryptBytes(plain []byte) ([]byte, error) {
+	key, ok := s.keys[Version]
+	if !ok {
+		return nil, errors.New("secret: master key not configured (FERRY_SECRET_KEY)")
+	}
+	aead, err := newAEAD(key)
+	if err != nil {
+		return nil, err
+	}
+	nonce := make([]byte, aead.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, err
+	}
+	out := make([]byte, 0, 1+len(nonce)+len(plain)+aead.Overhead())
+	out = append(out, byte(Version))
+	out = append(out, nonce...)
+	return aead.Seal(out, nonce, plain, nil), nil
+}
+
+// DecryptBytes 解密 EncryptBytes 产物；版本未置钥或认证失败报错。
+func (s *Store) DecryptBytes(data []byte) ([]byte, error) {
+	if len(data) < 1 {
+		return nil, errors.New("secret: empty cipher")
+	}
+	ver := int(data[0])
+	key, ok := s.keys[ver]
+	if !ok {
+		return nil, fmt.Errorf("secret: no key for cipher version v%d", ver)
+	}
+	aead, err := newAEAD(key)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) < 1+aead.NonceSize() {
+		return nil, errors.New("secret: malformed cipher")
+	}
+	nonce := data[1 : 1+aead.NonceSize()]
+	plain, err := aead.Open(nil, nonce, data[1+aead.NonceSize():], nil)
+	if err != nil {
+		return nil, errors.New("secret: decrypt failed (wrong key or tampered cipher)")
+	}
+	return plain, nil
+}

@@ -15,6 +15,7 @@ import (
 	_ "github.com/cuihairu/ferry/payments/epusdt" // PAY-8：init 自注册收款渠道
 	_ "github.com/cuihairu/ferry/payments/wechat" // PAY-10：占位渠道（未启用文案）
 	"github.com/cuihairu/ferry/server/internal/alloc"
+	"github.com/cuihairu/ferry/server/internal/backup"
 	"github.com/cuihairu/ferry/server/internal/cert"
 	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/cost"
@@ -170,6 +171,15 @@ func main() {
 		eventSender = herald.HTTPSender(cfg.HeraldURL, cfg.HeraldToken)
 	}
 	go herald.Loop(ctx, db, time.Duration(cfg.EventFlushIntervalSec)*time.Second, eventSender, nil)
+
+	// 本地周期备份（面板可用性 §2，P1）：VACUUM INTO 在线快照打包加密落
+	// FERRY_BACKUP_DIR（主密钥派生钥，主密钥不进备份包），滚动保留
+	// FERRY_BACKUP_KEEP 份，失败经 Herald backup_failed 告警；外发位
+	// S3_* 只留配置面（本批不接真实外发，开启时日志明示数据范围）。
+	go backup.Loop(ctx, db, backup.Options{
+		Dir: cfg.BackupDir, Cron: cfg.BackupCron, Keep: cfg.BackupKeep,
+		S3Enabled: cfg.BackupS3Enabled,
+	}, secret.NewStore(cfg.SecretKey))
 
 	// 面板 Web 证书（P1-7）：settings 里配置了证书即走 HTTPS，
 	// 配置损坏启动中止以免静默降级 HTTP；切换证书需重启生效。

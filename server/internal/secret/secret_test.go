@@ -58,3 +58,43 @@ func TestStoreDisabled(t *testing.T) {
 		t.Fatal("encrypt without master key must fail")
 	}
 }
+
+// TestStoreBytesRoundtrip 覆盖文件级字节加密（备份档口径，面板可用性 §2）：
+// roundtrip 还原、篡改报错、空钥禁用、密文头为版本字节。
+func TestStoreBytesRoundtrip(t *testing.T) {
+	s := NewStore("k1")
+	data := []byte("\x00\x01ferry-backup-bytes\xff")
+	ct, err := s.EncryptBytes(data)
+	if err != nil {
+		t.Fatalf("encrypt: %v", err)
+	}
+	if len(ct) < 2 || ct[0] != Version {
+		t.Fatalf("cipher head = %v, want version byte %d", ct[:1], Version)
+	}
+	got, err := s.DecryptBytes(ct)
+	if err != nil {
+		t.Fatalf("decrypt: %v", err)
+	}
+	if string(got) != string(data) {
+		t.Fatal("roundtrip mismatch")
+	}
+	// 同明文两次密文不同（随机 nonce）
+	ct2, _ := s.EncryptBytes(data)
+	if string(ct) == string(ct2) {
+		t.Fatal("nonce reuse: identical ciphertext for same plaintext")
+	}
+	// 篡改必须失败
+	bad := append([]byte{}, ct...)
+	bad[len(bad)-1] ^= 0xff
+	if _, err := s.DecryptBytes(bad); err == nil {
+		t.Fatal("tampered cipher must fail")
+	}
+	// 空钥仓禁用
+	if _, err := NewStore("").EncryptBytes(data); err == nil {
+		t.Fatal("encrypt bytes without master key must fail")
+	}
+	// 换钥后旧版本仅解密可用（v1 头仍由 v1 钥解）
+	if _, err := NewStore("k1").DecryptBytes(ct); err != nil {
+		t.Fatalf("old cipher decrypt with same key: %v", err)
+	}
+}

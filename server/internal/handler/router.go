@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/ferry/server/internal/agenthub"
+	"github.com/cuihairu/ferry/server/internal/backup"
 	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/ratelimit"
 	"github.com/cuihairu/ferry/server/internal/relaypush"
@@ -227,8 +228,50 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 	return r, h.pusher
 }
 
+// errProbeRollback 是 DB 可写探针的回滚哨兵：事务内 INSERT 成功即证明
+// 可写，随后回滚不留行；探针真实失败（只读盘/连接断）才计不可写。
+var errProbeRollback = errors.New("health probe rollback")
+
+// health 健康自检（面板可用性 §5，P1）：DB 可写、agent 在线数、备份
+// 新鲜度（距最近落档时长，超 FreshHours 视为不新鲜）。检查项异常不静默：
+// status 置 degraded 如实上报（仍 200，探活方不误杀）。
 func (h *Handler) health(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	status := "ok"
+	dbWritable := true
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&storage.Setting{Key: "_health_probe", Value: "1"}).Error; err != nil {
+			return err
+		}
+		return errProbeRollback
+	}); err != nil && !errors.Is(err, errProbeRollback) {
+		dbWritable = false
+		status = "degraded"
+	}
+
+	backupView := gin.H{"last_at": nil, "age_hours": nil, "fresh": false}
+	var last storage.Backup
+	switch err := h.db.Order("created_at DESC, id DESC").First(&last).Error; {
+	case err == nil:
+		age := time.Since(last.CreatedAt).Hours()
+		backupView["last_at"] = last.CreatedAt
+		backupView["age_hours"] = age
+		backupView["fresh"] = age <= backup.FreshHours
+		backupView["last_kind"] = last.Kind
+		if age > backup.FreshHours {
+			status = "degraded"
+		}
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		status = "degraded" // 从未备份过
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status": status,
+		"checks": gin.H{
+			"db_writable":   dbWritable,
+			"agents_online": h.hub.OnlineCount(),
+			"backup":        backupView,
+		},
+	})
 }
 
 // listDimensionStatus 返回区域/运营商维度的状态灯数据。

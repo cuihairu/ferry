@@ -9,6 +9,8 @@ services:
       FERRY_DB_DRIVER: ${FERRY_DB_DRIVER:-sqlite}
       FERRY_DB_DSN: ${FERRY_DB_DSN:-/data/ferry.db}
       FERRY_BASE_URL: ${FERRY_BASE_URL:-http://localhost:8080}
+      # 备份目录缺省落数据卷（容器重建不丢档；env 指定则覆盖）。
+      FERRY_BACKUP_DIR: ${FERRY_BACKUP_DIR:-/data/backups}
     volumes:
       - ferry-data:/data
 

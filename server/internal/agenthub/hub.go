@@ -103,6 +103,13 @@ func (h *Hub) IsOnline(nodeID int64) bool {
 	return ok
 }
 
+// OnlineCount 返回当前在线 agent 连接数（health 自检口径）。
+func (h *Hub) OnlineCount() int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.conns)
+}
+
 // Request 向节点发送请求并等待同 ID 应答。
 func (h *Hub) Request(nodeID int64, env agentproto.Envelope, timeout time.Duration) (agentproto.Envelope, error) {
 	h.mu.RLock()

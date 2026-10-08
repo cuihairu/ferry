@@ -244,9 +244,9 @@ type UserContact struct {
 type TouchJob struct {
 	ID        int64      `gorm:"primaryKey" json:"id"`
 	UserID    int64      `gorm:"index;not null" json:"user_id"`
-	Channel   string     `gorm:"size:16;not null" json:"channel"`                             // email（ferry 不自建通道，经 Herald 分发）
-	Kind      string     `gorm:"size:16;not null;index:idx_touch_due,priority:2" json:"kind"` // bill/domains
-	Payload   string     `gorm:"type:text;not null" json:"payload"`                           // 渲染内容 JSON {title,body}
+	Channel   string     `gorm:"size:16;not null" json:"channel"`                                               // email（ferry 不自建通道，经 Herald 分发）
+	Kind      string     `gorm:"size:16;not null;index:idx_touch_due,priority:2" json:"kind"`                   // bill/domains
+	Payload   string     `gorm:"type:text;not null" json:"payload"`                                             // 渲染内容 JSON {title,body}
 	Status    string     `gorm:"size:16;not null;default:pending;index:idx_touch_due,priority:1" json:"status"` // pending/sent/failed
 	EventID   int64      `gorm:"default:0" json:"event_id"`
 	SentAt    *time.Time `json:"sent_at,omitempty"`
@@ -520,4 +520,17 @@ type EventDelivery struct {
 	Status  string    `gorm:"size:16;not null" json:"status"`  // sent/failed
 	Detail  string    `gorm:"size:512" json:"detail,omitempty"`
 	At      time.Time `gorm:"not null" json:"at"`
+}
+
+// Backup 是一条备份留痕（面板可用性 §6，P1）：kind=manual 为手动下载
+// 端点落档、scheduled 为周期备份 Loop 落档；path 指向备份目录内的档文件
+// （配置了主密钥时为加密档 .enc）。uploaded 是外发位成功标记——外发
+// 插件（FERRY_BACKUP_S3_*，仅配置面）接入并上传成功才置 1，本批恒 0。
+type Backup struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	Kind      string    `gorm:"size:16;index;not null" json:"kind"` // manual / scheduled
+	Path      string    `gorm:"size:255" json:"path"`
+	SizeBytes int64     `json:"size_bytes"`
+	Uploaded  bool      `gorm:"default:false" json:"uploaded"`
+	CreatedAt time.Time `gorm:"not null" json:"created_at"`
 }

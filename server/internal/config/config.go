@@ -4,6 +4,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cuihairu/ferry/server/internal/ratelimit"
@@ -92,6 +93,20 @@ type Config struct {
 	// 设置的 32 字节 secret（FERRY_HERALD_CALLBACK_SECRET）；空=不验签
 	//（沿用 HERALD-2 的网络边界隔离口径，配置后回执端点强制验签）。
 	HeraldCallbackSecret string
+	// BackupDir/BackupCron/BackupKeep 是本地周期备份（面板可用性 §2，P1）：
+	// 落档目录、调度（cron 表达式或 "daily"/"HH:MM" 别名，缺省每日）、
+	// 本地滚动保留份数（含手动落档，超窗连文件带行删）。
+	BackupDir  string
+	BackupCron string
+	BackupKeep int
+	// BackupS3* 是备份外发插件位的配置面（FERRY_BACKUP_S3_*）：默认关闭，
+	// 显式 ENABLED=1 才视为开启；本批仅预留配置与接口位，未接真实外发
+	//（开启时启动日志明示数据范围=备份目录全部落档文件）。
+	BackupS3Enabled   bool
+	BackupS3Endpoint  string
+	BackupS3Bucket    string
+	BackupS3AccessKey string
+	BackupS3SecretKey string `json:"-"`
 }
 
 // Load 从环境变量读取配置，未设置的项回退到默认值。
@@ -128,6 +143,17 @@ func Load() Config {
 		NotifyScanIntervalSec: envIntOr("FERRY_NOTIFY_SCAN_SEC", 3600),
 		QuotaLinkIntervalSec:  envIntOr("FERRY_QUOTA_LINK_SEC", 600),
 		SaveStatsIntervalSec:  envIntOr("FERRY_SAVE_STATS_SEC", 600),
+
+		// 本地周期备份（面板可用性 §2）：dir 落档目录，cron 缺省每日，
+		// keep 滚动保留份数；S3_* 为外发插件位（默认关闭，本批未接真实外发）。
+		BackupDir:             envOr("FERRY_BACKUP_DIR", "backups"),
+		BackupCron:            envOr("FERRY_BACKUP_CRON", "daily"),
+		BackupKeep:            envIntOr("FERRY_BACKUP_KEEP", 7),
+		BackupS3Enabled:       envBoolOr("FERRY_BACKUP_S3_ENABLED", false),
+		BackupS3Endpoint:      os.Getenv("FERRY_BACKUP_S3_ENDPOINT"),
+		BackupS3Bucket:        os.Getenv("FERRY_BACKUP_S3_BUCKET"),
+		BackupS3AccessKey:     os.Getenv("FERRY_BACKUP_S3_ACCESS_KEY"),
+		BackupS3SecretKey:     os.Getenv("FERRY_BACKUP_S3_SECRET_KEY"),
 		BotToken:              os.Getenv("FERRY_BOT_TOKEN"),
 		TouchDomainsDays:      envIntOr("FERRY_TOUCH_DOMAINS_DAYS", 7),
 		TouchIntervalSec:      envIntOr("FERRY_TOUCH_SEC", 3600),
@@ -188,6 +214,17 @@ func envIntOr(key string, fallback int) int {
 		if n, err := strconv.Atoi(v); err == nil {
 			return n
 		}
+	}
+	return fallback
+}
+
+// envBoolOr 读取布尔环境变量（"1"/"true"/"yes"/"on" 为真，不区分大小写）。
+func envBoolOr(key string, fallback bool) bool {
+	switch strings.ToLower(os.Getenv(key)) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off", "":
+		return fallback
 	}
 	return fallback
 }

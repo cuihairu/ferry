@@ -98,6 +98,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&QuotaAction{},
 		&Event{},
 		&EventDelivery{},
+		&Backup{},
 	)
 }
 
