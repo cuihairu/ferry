@@ -19,7 +19,8 @@ import (
 
 // Handlers 是 link 回调给上层（app）的消息入口。
 type Handlers interface {
-	// OnConnected 在连接建立、读循环启动前调用，用于发送握手；返回错误触发退避重连。
+	// OnConnected 在连接建立后调用，用于发送握手；期间读循环已在运行，
+	// 握手应答（hello_ack）经 OnMessage 送达；返回错误触发退避重连。
 	OnConnected(ctx context.Context, send func(agentproto.Envelope) error) error
 	// OnMessage 处理面板下发的消息。
 	OnMessage(ctx context.Context, env agentproto.Envelope, send func(agentproto.Envelope) error)
@@ -108,12 +109,18 @@ func (c *Client) connectOnce(ctx context.Context, h Handlers) error {
 		conn.Close()
 	}()
 
+	// 读循环先于 OnConnected 启动：握手应答（hello_ack）要在 OnConnected
+	// 阻塞等待期间被读进来并经 OnMessage 送达，后启动会让握手必超时。
+	readErr := make(chan error, 1)
+	go func() { readErr <- c.readLoop(connCtx, h, send, conn) }()
 	if err := h.OnConnected(connCtx, send); err != nil {
+		cancel() // 关连接解除读阻塞，读循环随 connCtx 退出
+		<-readErr
 		return err
 	}
-	readErr := c.readLoop(connCtx, h, send, conn)
+	err = <-readErr
 	h.OnDisconnected()
-	return readErr
+	return err
 }
 
 func (c *Client) tlsConfig() (*tls.Config, error) {
