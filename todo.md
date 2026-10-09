@@ -272,8 +272,8 @@
 - [ ] P2-2（不做）多级管理员/子管理员配额：自用面板单管理员即可，表结构预留空间（来源：Hiddify Role 四级；Marzban is_sudo 两级）
 - [ ] P2-3（不做）按用户带宽限速：Marzban/3x-ui 均未见实现，Hiddify 仅全局参数，收益低（来源：三家调研）
 - [ ] P2-4（不做）HWID/设备数/IP 数限制：依赖客户端配合上报，复杂度高（来源：3x-ui ClientHwid、check_client_ip_job）
-- [ ] P2-5（观察项）公告 announcement：四家均未见成熟实现（来源：各家 grep 无命中；2026-10-09 注：基础公告发布/用户站内可见已随 NT-1 通知批与触达批落地（dash createAnnouncement/panel 公告通知），本项观察的「成熟公告体系」剩余部分维持观察）
-- [ ] P2-6（观察项）系统级操作审计日志：各家未见独立审计表（来源：各家 grep 无命中）
+- [ ] P2-5（观察项）公告 announcement：四家均未见成熟实现（来源：各家 grep 无命中；2026-10-09 注：基础公告发布/用户站内可见已随 NT-1 通知批与触达批落地（dash createAnnouncement/panel 公告通知），本项观察的「成熟公告体系」剩余部分维持观察。**2026-10-09 验收批复评**：基础件已覆盖单管理员场景（扇出+notice 事件外发+panel 展示+已读态）；开工条件=以下三条有真实需求再做——①公告起止时间/定时撤下 ②扇出与已读触达统计回流（发 n/读 m）③公告外通道重发位（Herald notice 限频重发）。触发任一再派，不自行开工）
+- [ ] P2-6（观察项）系统级操作审计日志：各家未见独立审计表（来源：各家 grep 无命中。**2026-10-09 验收批复评**：现状=LoginLog 登录审计（P1 安全批）+ringlog 运行日志（内存环，P1-11），无持久操作审计表；开工条件=①admin 写操作统一审计表（who/when/what/target/before-after，middleware 捕获）②dash 审计查询页（按操作者/对象/时间过滤）③保留与轮转策略。触发条件=多管理员/DS 代理并管或合规要求出现时派工，单管理员自用场景现有两件已够，不自行开工）
 - [ ] P2-7（收窄）协议支持范围：只做 vless/vmess/trojan/shadowsocks 四种，Hiddify 19 种协议的全家桶不符合小面板定位（来源：Hiddify `models/proxy.py` ProxyProto 枚举）
 
 拍板（2026-10-09 审计刷新）：docs/审计-文档一致性.md 全表复核——复核 39 行、已落地/已修 35 行、维持原判 2 行、新增缺口 8 行。35 行=2026-10-08 修法全部确认执行到位，其中出表后按拍板落地的行随刷新改记「已落地」：C-05（2FA/登录审计）、C-07（订阅限频，安全设计 §4 已写落地口径）、C-09（周期备份/恢复三件套+S3 真实外发 3eb290a）、C-10（health 三 checks）、C-12（alloc 权重 dash 可配）、O-03（订单来源筛选）；维持原判 2 行=C-03 unix socket IPC、C-06 token 轮换/CRL（源码仍零实现、文档均已标「未实现」与源码一致；拍板依据=2026-10-09 安全巡检：维持原状不重开）；修法未执行仍成立 2 行=C-04 入口设计双接口代码块未替换（:134 注释「packages/ 共享类型、agent/internal/relay」路径双过时）、C-11 README Node 24 硬性表述无 engines/.nvmrc 支撑——均待派。新增缺口 8 条 N-01..N-08 只登记待派本批未修（P1 2：N-05 notifications DDL 幽灵外键 CASCADE+复合索引主张、N-06 card_codes 批次删除实为 DB 级联而 §3.1 写「应用层关联」且 handler/card.go:223 援引无出处；P2 6：N-01 调度周期表缺 FERRY_PRICE_WATCH_SEC、N-02 可用性 §5 清单残留「Herald 可达性」、N-03 agent架构缺 ferry-quic sidecar 回写、N-04 payment_orders DDL 缺 refunded、N-07 告警事件清单缺 contact kind、N-08 bill/domains 接线将来时）；C-07/C-09/C-12 三格落地叙事随刷新同批更新；仓内无 md lint/链接检查工具，表格渲染自检通过。
