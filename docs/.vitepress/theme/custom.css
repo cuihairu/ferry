@@ -1,0 +1,63 @@
+/* ferry docs theme: the brand color comes from docs/public/logo.svg,
+ * which carries a single fill #637282 (slate blue-gray). The ramp is
+ * anchored there; light mode darkens it one step for link contrast on
+ * white, dark mode lightens it one step for contrast on ink. */
+
+:root {
+  --vp-c-brand-1: #52616f; /* links: darkest step, readable on white */
+  --vp-c-brand-2: #5b6a79; /* mid step */
+  --vp-c-brand-3: #637282; /* the logo itself */
+  --vp-c-brand-soft: rgba(99, 114, 130, 0.14);
+
+  /* buttons: solid logo color */
+  --vp-button-brand-bg: var(--vp-c-brand-3);
+  --vp-button-brand-text: #ffffff;
+  --vp-button-brand-hover-bg: var(--vp-c-brand-2);
+  --vp-button-brand-hover-text: #ffffff;
+  --vp-button-brand-active-bg: var(--vp-c-brand-1);
+  --vp-button-brand-active-text: #ffffff;
+
+  /* hero name: one solid brand color, never a gradient */
+  --vp-home-hero-name-background: var(--vp-c-brand-1);
+  --vp-home-hero-name-color: var(--vp-c-brand-1);
+
+  /* tip/info containers pick up the brand outline */
+  --vp-custom-block-tip-border-color: rgba(99, 114, 130, 0.4);
+  --vp-custom-block-tip-bg: rgba(99, 114, 130, 0.07);
+}
+
+.dark {
+  --vp-c-brand-1: #a3b5c7;
+  --vp-c-brand-2: #8296ab;
+  --vp-c-brand-3: #637282;
+  --vp-c-brand-soft: rgba(99, 114, 130, 0.17);
+
+  --vp-button-brand-hover-bg: var(--vp-c-brand-2);
+  --vp-button-brand-active-bg: var(--vp-c-brand-1);
+  --vp-home-hero-name-background: var(--vp-c-brand-1);
+  --vp-home-hero-name-color: var(--vp-c-brand-1);
+}
+
+/* The default theme paints the hero name with a gradient clip; replace
+ * it with flat brand ink (solid color names only, no gradient text). */
+.VPHero .name.clip {
+  background: none;
+  -webkit-background-clip: initial;
+  background-clip: initial;
+  -webkit-text-fill-color: var(--vp-c-brand-1);
+  color: var(--vp-c-brand-1);
+}
+
+/* 中文正文首行缩进（两字符），仅正文段落——引用块/提示容器/列表/表格
+ * 内的段落与图注不缩进。 */
+.vp-doc p {
+  text-indent: 2em;
+}
+.vp-doc blockquote p,
+.vp-doc div[class*='custom-block'] p,
+.vp-doc li p,
+.vp-doc td p,
+.vp-doc th p,
+.vp-doc figcaption p {
+  text-indent: 0;
+}

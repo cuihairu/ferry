@@ -1,4 +1,5 @@
 packages:
   - dash
   - panel
-  # dash=管理端（对齐设计稿口径）；panel=用户面板
+  - docs
+  # dash=管理端（对齐设计稿口径）；panel=用户面板；docs=文档站（VitePress）
