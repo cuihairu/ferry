@@ -15,6 +15,8 @@
 
 ferry 是一个轻量级代理管理面板，面向小内存 VPS，提供用户、节点、订阅链接与流量记账管理。
 
+在线文档：[https://cuihairu.github.io/ferry/](https://cuihairu.github.io/ferry/)（设计文档、横向对比与一致性审计）。
+
 ## 目录结构
 
 ```

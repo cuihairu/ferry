@@ -15,6 +15,8 @@
 
 ferry is a lightweight proxy management panel for small-memory VPS, covering users, nodes, subscription links, and traffic accounting.
 
+Documentation: [https://cuihairu.github.io/ferry/](https://cuihairu.github.io/ferry/) — design documents, comparison and consistency audit.
+
 ## Repository Layout
 
 ```
