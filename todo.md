@@ -222,8 +222,8 @@
 - [ ] [P2·远期不开工] PROMO-1 优惠码：满减/折扣/指定套餐，dash 配置+panel 下单原子核销
 - [ ] [P2·远期不开工] PROMO-2 限时活动与首单/续费折扣：起止与适用范围配置、panel 活动位
 - [ ] [P2·远期不开工] PROMO-3 优惠账目打通：订单记原价+实付+优惠快照，与三账对得上
-- [ ] [P2·远期不开工] SV-1 servify 客服集成：panel 入口嵌入（组件/iframe/SDK 以对接面为准）+独立部署对接地址
-- [ ] [P2·远期不开工] SV-2 工单上下文打通：客服侧只读用户套餐/流量/订单（服务端接口，不泄凭据）
+- [x] [P2·原远期不开工，2026-10-10 随 servify C1 真嵌验收落地] SV-1 servify 客服集成：panel 入口嵌入（widget.js 直嵌方案 A，配置门控 FERRY_SUPPORT_URL/FERRY_SUPPORT_SERVICE_KEY，未配置 enabled:false 零依赖）+独立部署对接地址（env 指向 servify 实例）
+- [x] [P2·原远期不开工，2026-10-10 随 servify C1 真嵌验收落地] SV-2 工单上下文打通：客服侧只读用户套餐/流量/订单（服务端 support client 同步 customer+notes，凭据不出 ferry；工单经 POST /api/v1/tickets 携 ferry_user 会话）
 
 ## 流量节省（设计：docs/design/流量节省设计.md）
 
