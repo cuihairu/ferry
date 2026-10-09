@@ -18,12 +18,12 @@ import (
 
 // landingInput 是创建分配的载荷：入口级（entry_node_id）与区域级（region）二选一。
 type landingInput struct {
-	EntryNodeID   *uint   `json:"entry_node_id"`
-	Region        string  `json:"region"`
-	LandingNodeID uint    `json:"landing_node_id"`
-	Direction     string  `json:"direction"`
-	Weight        *int    `json:"weight,omitempty"`
-	Reason        string  `json:"reason"`
+	EntryNodeID   *uint  `json:"entry_node_id"`
+	Region        string `json:"region"`
+	LandingNodeID uint   `json:"landing_node_id"`
+	Direction     string `json:"direction"`
+	Weight        *int   `json:"weight,omitempty"`
+	Reason        string `json:"reason"`
 }
 
 func (h *Handler) listLandings(c *gin.Context) {

@@ -22,7 +22,7 @@ func TestQuotaLinkAPI(t *testing.T) {
 		t.Fatalf("get default: %d %s", rec.Code, rec.Body)
 	}
 	var out struct {
-		Setting quota.LinkSetting `json:"setting"`
+		Setting quota.LinkSetting     `json:"setting"`
 		Rows    []storage.QuotaAction `json:"rows"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {

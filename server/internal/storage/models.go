@@ -472,11 +472,11 @@ type DNSFront struct {
 
 // GeoDNSRecord 是智能 DNS 分地域的已同步记录面（E-27 §C.8.4）：对账
 // 的 diff 基准——Sync 期望集与现存行比对，新增/变更 Upsert、消失 Delete
-//（区域全挂撤记录）。不回写 entry_domains 人工清单（分地域是增益不是依赖）。
+// （区域全挂撤记录）。不回写 entry_domains 人工清单（分地域是增益不是依赖）。
 type GeoDNSRecord struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
-	FrontID   uint      `gorm:"index;not null" json:"front_id"` // 归属 DNSFront
-	Slug      string    `gorm:"size:64;not null" json:"slug"`   // 区域归一词
+	FrontID   uint      `gorm:"index;not null" json:"front_id"`      // 归属 DNSFront
+	Slug      string    `gorm:"size:64;not null" json:"slug"`        // 区域归一词
 	Name      string    `gorm:"size:253;not null;index" json:"name"` // 完整子域 {slug}.{前置域名}
 	Value     string    `gorm:"size:255;not null" json:"value"`      // 代表入口地址
 	UpdatedAt time.Time `json:"updated_at"`

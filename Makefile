@@ -68,4 +68,4 @@ dev-panel:
 	cd panel && pnpm dev
 
 fmt:
-	gofmt -w server agent packages/agentproto
+	gofmt -w server agent packages/agentproto packages/costref packages/payment payments

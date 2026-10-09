@@ -24,9 +24,9 @@ const (
 type EveningHour struct {
 	Hour            int     `json:"hour"`
 	Samples         int     `json:"samples"`
-	AvgRttMs        float64 `json:"avg_rtt_ms"`        // 可达样本的平均延迟
-	AvgLossPct      float64 `json:"avg_loss_pct"`      // 全部样本的平均丢包
-	AvailabilityPct float64 `json:"availability_pct"`  // -1=无样本
+	AvgRttMs        float64 `json:"avg_rtt_ms"`       // 可达样本的平均延迟
+	AvgLossPct      float64 `json:"avg_loss_pct"`     // 全部样本的平均丢包
+	AvailabilityPct float64 `json:"availability_pct"` // -1=无样本
 }
 
 // EveningWindow 是晚高峰/平峰的汇总对比块。

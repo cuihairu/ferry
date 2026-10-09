@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/cuihairu/ferry/server/internal/agenthub"
 	"github.com/cuihairu/ferry/packages/agentproto"
+	"github.com/cuihairu/ferry/server/internal/agenthub"
 	"github.com/gin-gonic/gin"
 )
 

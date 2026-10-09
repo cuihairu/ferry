@@ -39,7 +39,10 @@ func (h *Handler) listLoad(c *gin.Context) {
 	}
 
 	// 每节点每进程取最新两条：末条出连接数，两条差分出吞吐。
-	type sample struct{ rx, tx, conns int64; at time.Time }
+	type sample struct {
+		rx, tx, conns int64
+		at            time.Time
+	}
 	latest := map[uint]map[string][2]sample{} // node → proc → 最近两条
 	for _, l := range logs {
 		if latest[l.NodeID] == nil {

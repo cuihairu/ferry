@@ -32,11 +32,11 @@ type Runner func(ctx context.Context, dir string, args []string, env map[string]
 // Manager 编排供给执行：工作目录管理、HCL 渲染落盘、tofu 受控执行与留痕。
 // 全局串行（单实例不并发 apply）。
 type Manager struct {
-	db     *gorm.DB
-	bin    string // tofu 可执行文件路径
-	root   string // 工作目录根，每模板一目录（state 集中在目录内）
-	mu     sync.Mutex
-	run    Runner
+	db   *gorm.DB
+	bin  string // tofu 可执行文件路径
+	root string // 工作目录根，每模板一目录（state 集中在目录内）
+	mu   sync.Mutex
+	run  Runner
 }
 
 // New 创建管理器；run 空=真实 exec tofu。

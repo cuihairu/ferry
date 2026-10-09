@@ -16,7 +16,7 @@ func TestCostAPI(t *testing.T) {
 		t.Fatalf("get cost status = %d body=%s", rec.Code, rec.Body)
 	}
 	var out struct {
-		Nodes []map[string]any `json:"nodes"`
+		Nodes   []map[string]any `json:"nodes"`
 		Summary struct {
 			Nodes int `json:"nodes"`
 		} `json:"summary"`

@@ -101,7 +101,7 @@ func (h *Handler) runProvision(c *gin.Context, action string) {
 }
 
 func (h *Handler) applyTemplate(c *gin.Context) { h.runProvision(c, "apply") }
-func (h *Handler) planTemplate(c *gin.Context) { h.runProvision(c, "plan") }
+func (h *Handler) planTemplate(c *gin.Context)  { h.runProvision(c, "plan") }
 
 // listProvisionJobs 返回供给执行留痕（新在前，默认 50 条）。
 func (h *Handler) listProvisionJobs(c *gin.Context) {

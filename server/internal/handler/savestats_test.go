@@ -50,8 +50,8 @@ func TestSaveStatsAPI(t *testing.T) {
 		t.Fatalf("get save-stats: %d %s", rec.Code, rec.Body)
 	}
 	var res struct {
-		Days  int `json:"days"`
-		Rows  []struct {
+		Days int `json:"days"`
+		Rows []struct {
 			NodeID        uint   `json:"node_id"`
 			Name          string `json:"name"`
 			Day           string `json:"day"`

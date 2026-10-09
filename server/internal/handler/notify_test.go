@@ -18,9 +18,9 @@ func TestNotifyChannel(t *testing.T) {
 		t.Fatalf("get notify: %d %s", w.Code, w.Body)
 	}
 	var st struct {
-		URL             string `json:"url"`
+		URL              string `json:"url"`
 		SecretConfigured bool   `json:"secret_configured"`
-		Enabled         bool   `json:"enabled"`
+		Enabled          bool   `json:"enabled"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &st); err != nil {
 		t.Fatalf("decode: %v", err)

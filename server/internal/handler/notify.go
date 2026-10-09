@@ -28,9 +28,9 @@ func (h *Handler) getNotify(c *gin.Context) {
 		secretConfigured = true
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"url":              urlIfConfigured(url, ok),
+		"url":               urlIfConfigured(url, ok),
 		"secret_configured": secretConfigured,
-		"enabled":          url != "",
+		"enabled":           url != "",
 	})
 }
 
