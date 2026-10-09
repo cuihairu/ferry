@@ -3,3 +3,10 @@ packages:
   - panel
   - docs
   # dash=管理端（对齐设计稿口径）；panel=用户面板；docs=文档站（VitePress）
+
+# 安全升级（2026-10-09 dependabot 批）：vitepress 1.x 钉 vite ^5.4.14
+#（≤6.4.2 有 1 high + 2 medium），scoped override 提到 6.4.3（自带
+# esbuild ^0.25.0，连带清 esbuild ≤0.24.2 medium）；只命中 vite 5 声明，
+# dash/panel 的 vite ^7 不受影响。vitepress 2（vite ^8）仍是 alpha 不升。
+overrides:
+  "vite@^5.4.14": 6.4.3
