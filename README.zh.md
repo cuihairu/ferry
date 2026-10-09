@@ -48,4 +48,4 @@ make dev     # 本地联调（dev-server / dev-dash / dev-panel 可单跑）
 make fmt     # gofmt
 ```
 
-前端构建需要 Node 24（dash 与 panel 均为 Vite）。环境变量配置项全集见 `server/internal/config/config.go`；HTTP API 以 `server/internal/handler/router.go` 的路由注册为准，各能力落地口径见 [docs/design/](docs/design/) 对应设计文档（文档末尾「落地口径」段）。
+前端构建使用 Vite（dash 与 panel 均是）。Node 24 为开发机现用版本，非硬性要求——package.json 未声明 engines、仓内无 .nvmrc，Vite 支持的 Node 版本均可构建。环境变量配置项全集见 `server/internal/config/config.go`；HTTP API 以 `server/internal/handler/router.go` 的路由注册为准，各能力落地口径见 [docs/design/](docs/design/) 对应设计文档（文档末尾「落地口径」段）。

@@ -74,7 +74,7 @@
 ## 4. 插件化口径
 
 - **组件 = 独立二进制**（同仓库 `agent/cmd/` 下分入口），按角色选择安装与 systemd 装配——静态单文件、无运行时依赖，小内存部署友好；
-- **传输插件 = relay 内编译期接口**（`packages/` 定接口、`agent/internal/relay/transports/*` 放实现清单），不引 `.so` 动态插件——避免 glibc/版本兼容问题，换传输=换配置（见《入口与负载均衡设计》§C.2）；
+- **传输插件 = 编译期接口**（接口与实现同在 `agent/internal/tunnel/`：Tunnel 单接口 + tls-camo/wstls/ssh/quic sidecar 各实现，调用方 `agent/internal/roles/relay`），不引 `.so` 动态插件——避免 glibc/版本兼容问题，换传输=换配置（见《入口与负载均衡设计》§C.2）；
 - 组件与核心的契约同样是 agentproto 子集：协议版本统一演进。
 
 ## 5. 内存预算（目标值）
@@ -84,6 +84,7 @@
 | 核心 | ≤10MB | 无 ORM、无 gin（agent 用轻量 HTTP/WS 栈）、心跳聚合限长 |
 | relay | ≤10MB（不含并发流缓存） | 流式转发不缓冲全量、mux 上限可配 |
 | 探测器 | ≤10MB | 探测任务串行小并发、结果即发即弃 |
+| ferry-quic（可选 sidecar） | 不占核心预算 | quic-go 只落此独立二进制（E-18b），agent 主程序不携带、尺寸门禁（E-4）不量它；不用 QUIC 传输的部署不装（Makefile build-quic） |
 
 - 超预算处置：配置可裁（关组件、降心跳频率），dash 节点卡展示 agent 实际内存（来自心跳）。
 
@@ -92,13 +93,14 @@
 ```
 agent/
 ├─ cmd/agent/        # 核心（现有）
+├─ cmd/ferry-quic/   # QUIC 传输 sidecar（E-18b，可选发布件：make build-quic 单独构建）
 ├─ cmd/relayd/       # relay 数据面（未单列：当前角色库形态 agent/internal/roles/relay，独立进程为后续演进）
 ├─ cmd/probed/       # 边缘探测器（未单列：同上，当前进程内角色）
-├─ internal/         # 共享实现（config/link/procs/host…）
+├─ internal/         # 共享实现（config/link/procs/host/tunnel/quictunnel/roles…）
 packages/agentproto/ # 契约（组件与核心共用）
 ```
 
-- `make build-agent` 产出全部二进制（CGO_ENABLED=0）；角色部署模板只装需要的二进制。
+- `make build-agent` 产出 ferry-agent（CGO_ENABLED=0；relay/探测器为进程内角色）；QUIC 传输为独立目标 `make build-quic` 产出 ferry-quic sidecar（quic-go 只落此二进制，agent 主程序不携带，尺寸门禁 E-4 不量它）；角色部署模板只装需要的二进制。
 
 ## 7. 分期
 
