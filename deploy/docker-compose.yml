@@ -41,6 +41,14 @@ services:
       FERRY_BACKUP_S3_SECRET_KEY: ${FERRY_BACKUP_S3_SECRET_KEY:-}
     volumes:
       - ferry-data:/data
+    # /api/health 三态口径：ok/degraded 都返回 200（degraded 是应用层细节，
+    # 由检查项上报，不算容器存活失败）；非 200/超时才算不健康。
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
   ferry-dash:
     build:
