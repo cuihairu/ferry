@@ -136,7 +136,13 @@ func (h *Handler) panelOrders(c *gin.Context) {
 		limit = n
 	}
 	var orders []storage.PaymentOrder
-	if err := h.db.Where("user_id = ?", u.ID).Order("id DESC").Limit(limit).Find(&orders).Error; err != nil {
+	q := h.db.Where("user_id = ?", u.ID)
+	// 按来源筛选（运营设计 §记录范围）：provider=card 即卡密兑换记录；
+	// 缺省全量，与「同一列表展示」并存。
+	if v := c.Query("provider"); v != "" {
+		q = q.Where("provider = ?", v)
+	}
+	if err := q.Order("id DESC").Limit(limit).Find(&orders).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}

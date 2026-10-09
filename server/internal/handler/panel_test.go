@@ -276,3 +276,49 @@ func TestPanelSavings(t *testing.T) {
 		t.Fatalf("no token: %d", rec.Code)
 	}
 }
+
+// TestPanelOrdersProviderFilter 覆盖来源筛选（运营设计 §记录范围）：
+// provider=card 只出卡密兑换、provider=epusdt 只出在线购买、缺省全量。
+func TestPanelOrdersProviderFilter(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	userID, codes := redeemCreate(t, r, "grace", map[string]any{
+		"grant_type": "extend_days", "grant_value": 30,
+	}, 1)
+	var u storage.User
+	if err := db.First(&u, userID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if rec := doPanel(t, r, u.SubToken, "POST", "/api/panel/redeem", map[string]any{"code": codes[0]}); rec.Code != http.StatusOK {
+		t.Fatalf("redeem: %d %s", rec.Code, rec.Body)
+	}
+	if err := db.Create(&storage.PaymentOrder{
+		OrderNo: "epusdt-1-1", UserID: u.ID, Provider: "epusdt", Status: "paid",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	count := func(q string) int {
+		t.Helper()
+		rec := doPanel(t, r, u.SubToken, "GET", "/api/panel/orders"+q, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("orders%s: %d %s", q, rec.Code, rec.Body)
+		}
+		var list []map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return len(list)
+	}
+	if n := count(""); n != 2 {
+		t.Fatalf("全量应 2 条，得 %d", n)
+	}
+	if n := count("?provider=card"); n != 1 {
+		t.Fatalf("provider=card 应 1 条，得 %d", n)
+	}
+	if n := count("?provider=epusdt"); n != 1 {
+		t.Fatalf("provider=epusdt 应 1 条，得 %d", n)
+	}
+	if n := count("?provider=nosuch"); n != 0 {
+		t.Fatalf("未知来源应 0 条，得 %d", n)
+	}
+}

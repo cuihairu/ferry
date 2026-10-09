@@ -8,17 +8,21 @@ import { formatBytes, formatDate } from '../utils/format'
 const loading = ref(false)
 const error = ref('')
 const orders = ref<OrderRow[]>([])
+// 来源筛选（运营设计 §记录范围）：'' 全量 / card 卡密兑换 / 渠道在线购买。
+const provider = ref('')
 
-onMounted(async () => {
+async function load() {
   loading.value = true
   try {
-    orders.value = await get<OrderRow[]>('/api/panel/orders')
+    const q = provider.value ? `?provider=${encodeURIComponent(provider.value)}` : ''
+    orders.value = await get<OrderRow[]>(`/api/panel/orders${q}`)
   } catch (e) {
     error.value = e instanceof ApiError ? e.message : '网络异常，请稍后再试'
   } finally {
     loading.value = false
   }
-})
+}
+onMounted(load)
 
 const statusText: Record<string, string> = {
   paid: '已完成',
@@ -41,6 +45,14 @@ function amountText(cents: number): string {
 
 <template>
   <div class="page">
+    <div class="filter-row">
+      <label class="muted" for="provider-filter">来源</label>
+      <select id="provider-filter" v-model="provider" @change="load">
+        <option value="">全部</option>
+        <option value="card">卡密兑换</option>
+        <option value="epusdt">USDT 购买</option>
+      </select>
+    </div>
     <p v-if="loading" class="muted">加载中…</p>
     <p v-else-if="error" class="error-text">{{ error }}</p>
     <p v-else-if="orders.length === 0" class="muted">暂无订单，兑换卡密后这里会显示记录。</p>
