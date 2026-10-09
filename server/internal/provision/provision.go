@@ -173,6 +173,12 @@ func (m *Manager) Execute(ctx context.Context, p ExecParams) (string, string) {
 	}
 	failed := func(log string) (string, string) { return "failed", tailLog(log) }
 
+	// 单实例不并发：整轮串行（含 main.tf 渲染落盘，plan 也排队）。锁必须
+	// 罩住 HCL 写——否则同模板并发 apply+plan 时后写者覆盖前者 main.tf，
+	// 先获锁者会跑错 HCL（apply 拿到 plan 模板=丢 cloud-init）。
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	dir := filepath.Join(m.root, fmt.Sprintf("tpl-%d", p.Template.ID))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return failed("mkdir workdir: " + err.Error())
@@ -187,10 +193,6 @@ func (m *Manager) Execute(ctx context.Context, p ExecParams) (string, string) {
 			return failed("write main.tf: " + err.Error())
 		}
 	}
-
-	// 单实例不并发：全局串行（plan 也排队，避免 state 读写交错）。
-	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	env := map[string]string{"TF_VAR_api_key": p.APIKey}
 	if out, err := m.run(ctx, dir, []string{"init", "-input=false", "-no-color"}, env); err != nil {

@@ -282,3 +282,51 @@ func TestSharedManagerSerializes(t *testing.T) {
 		t.Fatalf("concurrent execute peak = %d, want 1", atomic.LoadInt32(&peak))
 	}
 }
+
+// TestExecuteHCLIsolation：同模板并发 apply+plan，每次 tofu 运行读到的
+// main.tf 必须是对应 action 渲染的版本（apply 带 user_data、plan 不带）。
+// 回归背景：HCL 渲染落盘原先在锁外，后写者覆盖前者 main.tf，先获锁者
+// 会跑错 HCL（apply 拿到 plan 模板=丢 cloud-init）。
+func TestExecuteHCLIsolation(t *testing.T) {
+	db := newTestDB(t)
+	tpl := storage.ProvisionTemplate{Name: "hk-3t", Plan: "vc2-1c-1gb", Region: "hkg", Image: "docker"}
+	if err := db.Create(&tpl).Error; err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	seen := map[string]string{}
+	m := New(db, "tofu", t.TempDir(), func(ctx context.Context, dir string, args []string, env map[string]string) (string, error) {
+		if args[0] == "plan" || args[0] == "apply" {
+			b, err := os.ReadFile(filepath.Join(dir, "main.tf"))
+			if err != nil {
+				return "", err
+			}
+			mu.Lock()
+			seen[args[0]] = string(b)
+			mu.Unlock()
+			time.Sleep(20 * time.Millisecond) // 放大交叉窗口
+		}
+		return "ok", nil
+	})
+	for round := 0; round < 5; round++ {
+		var wg sync.WaitGroup
+		for _, a := range []string{"apply", "plan"} {
+			wg.Add(1)
+			go func(action string) {
+				defer wg.Done()
+				p := execParams(tpl, "vultr", "sk-test", "inst", action)
+				if action == "apply" {
+					p.UserData = "#cloud-config\nruncmd: []\n"
+				}
+				m.Execute(context.Background(), p)
+			}(a)
+		}
+		wg.Wait()
+	}
+	if !strings.Contains(seen["apply"], "user_data") {
+		t.Fatalf("apply run saw wrong HCL (no user_data):\n%s", seen["apply"])
+	}
+	if strings.Contains(seen["plan"], "user_data") {
+		t.Fatalf("plan run saw apply HCL:\n%s", seen["plan"])
+	}
+}
