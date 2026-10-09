@@ -57,7 +57,7 @@ func TestAdminLogs(t *testing.T) {
 	}
 
 	// 无令牌 401
-	if w := doJSON(t, r, "GET", "/admin/logs", nil); w.Code != http.StatusUnauthorized {
+	if w := doBare(t, r, "GET", "/admin/logs"); w.Code != http.StatusUnauthorized {
 		t.Fatalf("without token should 401: %d", w.Code)
 	}
 }

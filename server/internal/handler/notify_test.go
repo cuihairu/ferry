@@ -71,7 +71,7 @@ func TestNotifyChannel(t *testing.T) {
 	}
 
 	// 无令牌 401
-	if w := doJSON(t, r, "GET", "/admin/notify", nil); w.Code != http.StatusUnauthorized {
+	if w := doBare(t, r, "GET", "/admin/notify"); w.Code != http.StatusUnauthorized {
 		t.Fatalf("without token should 401: %d", w.Code)
 	}
 }

@@ -74,7 +74,7 @@ func TestBackupDB(t *testing.T) {
 	}
 
 	// 无令牌 401
-	if rec := doJSON(t, r, "GET", "/admin/backup/db", nil); rec.Code != http.StatusUnauthorized {
+	if rec := doBare(t, r, "GET", "/admin/backup/db"); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("backup without token: %d", rec.Code)
 	}
 

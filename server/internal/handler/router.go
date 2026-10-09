@@ -80,7 +80,9 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 	r.GET("/feed.xml", h.feedXML)
 	r.GET("/api/speedtest/bytes", h.speedtestBytes)
 
-	api := r.Group("/api")
+	// 管理数据面（2026-10-10 安全修复）：dash JWT 或 API Token 二选一，
+	// 见 apitoken.go apiAuth。此前本组无任何中间件，管理接口公网裸奔。
+	api := r.Group("/api", h.apiAuth())
 	{
 		api.GET("/nodes", h.listNodes)
 		api.POST("/nodes", h.createNode)
@@ -138,8 +140,6 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		// 事件 outbox（HERALD-1）：dash 可见 pending/failed，死信人工重投。
 		api.GET("/events", h.listEvents)
 		api.POST("/events/:id/retry", h.retryEvent)
-		// Herald 异步回投的通道分发回执（HERALD-2，内部接口与 reconcile 同鉴权口径）。
-		api.POST("/internal/event-results", h.eventResult)
 		api.GET("/cost", h.getCost)
 		api.GET("/evening", h.getEvening)
 		api.PUT("/cost/threshold", h.putCostThreshold)
@@ -202,8 +202,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		// 结算打款与人工调（DS-2）：手动落账，不自动打款。
 		api.POST("/distributors/:id/payout", h.distributorPayout)
 		api.POST("/distributors/:id/adjust", h.distributorAdjust)
-		// 在线支付回调（PAY-8）：鉴权靠 Provider 验签
-		api.POST("/pay/epusdt/notify", h.epusdtNotify)
+		// 在线支付回调（PAY-8）：挂 open 组（自带 Provider 验签），见文件尾。
 		api.GET("/payments/reconcile", h.listReconcile)
 		// 订单详情与退款流转（OD-2）
 		api.GET("/payments/orders/:order_no", h.adminOrderDetail)
@@ -212,8 +211,15 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.GET("/notifications", h.listNotifications)
 		api.POST("/notifications/announcement", h.createAnnouncement)
 		api.DELETE("/notifications/:id", h.deleteNotification)
-		// 用户门户（PAY-7）：身份取自订阅令牌，见 panel.go。
-		panel := api.Group("/panel")
+		// P1-1 管理员登录与鉴权（API Token 签发走 apiAuth 双凭据口径）。
+		api.GET("/token", h.GetCurrentUser)
+		api.POST("/token", h.AdminGetApiToken)
+	}
+	// 自带凭据/验签的公开面：panel 按订阅令牌（panel.go）、bot 按服务令牌
+	//（TOUCH-6）、Herald 回执与支付回调各自验签——不经 apiAuth，故挂独立组。
+	open := r.Group("/api")
+	{
+		panel := open.Group("/panel")
 		{
 			panel.GET("/me", h.panelMe)
 			panel.GET("/contact", h.panelContact)
@@ -235,19 +241,16 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 			// 客服嵌入配置（servify 真嵌验收）：未接客服时 enabled=false。
 			panel.GET("/support", h.panelSupport)
 		}
-
 		// TG bot 对接面（TOUCH-6）：服务级令牌鉴权，bot 后端独立部署
 		// （不依赖面板域名存活），按用户 tg_chat_id 定位（TOUCH-1 绑定）。
-		bot := api.Group("/bot")
+		bot := open.Group("/bot")
 		{
 			bot.GET("/summary", h.botSummary)
 		}
-	}
-	// P1-1 管理员登录与鉴权
-	api = r.Group("/api", apiAuthMiddleware())
-	{
-		api.GET("/token", h.GetCurrentUser)
-		api.POST("/token", h.AdminGetApiToken)
+		// Herald 异步回投的通道分发回执（HERALD-2）：自带 HMAC 验签。
+		open.POST("/internal/event-results", h.eventResult)
+		// 在线支付回调（PAY-8）：自带 Provider 验签。
+		open.POST("/pay/epusdt/notify", h.epusdtNotify)
 	}
 	// P1-1 管理员登录是获取首个令牌的唯一入口，公开挂在鉴权组外
 	//（此前误挂组内导致登录面 401 不可达，安全批修复）。
@@ -264,7 +267,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		dist.GET("/orders", h.distOrders)
 		dist.GET("/ledger", h.distLedger)
 	}
-	admin := r.Group("/admin", adminAuthMiddleware())
+	admin := r.Group("/admin", h.adminAuthMiddleware())
 	{
 		admin.GET("/backup/db", h.backupDB)
 		admin.GET("/web-cert", h.getWebCert)

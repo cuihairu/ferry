@@ -90,6 +90,8 @@ func TestRuleLibPush(t *testing.T) {
 	raw := func(method, path, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/octet-stream")
+		// 管理数据面（apiAuth）：与 doJSON 同带管理员 JWT。
+		req.Header.Set("Authorization", "Bearer "+adminJWT(t))
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
 		return w

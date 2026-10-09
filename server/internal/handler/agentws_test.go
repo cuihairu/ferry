@@ -38,6 +38,7 @@ func waitStatus(t *testing.T, r http.Handler, id int, want string) {
 	for time.Now().Before(deadline) {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", path, nil)
+		req.Header.Set("Authorization", "Bearer "+adminJWT(t))
 		r.ServeHTTP(rec, req)
 		var n map[string]any
 		_ = json.Unmarshal(rec.Body.Bytes(), &n)

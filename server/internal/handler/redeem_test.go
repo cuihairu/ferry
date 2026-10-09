@@ -165,6 +165,8 @@ func doJSONFrom(t *testing.T, r *gin.Engine, ip, method, path string, body any) 
 	req := httptest.NewRequest(method, path, &buf)
 	req.RemoteAddr = ip + ":1234"
 	req.Header.Set("Content-Type", "application/json")
+	// /api/redeem 在管理数据面（apiAuth）：与 doJSON 同带管理员 JWT。
+	req.Header.Set("Authorization", "Bearer "+adminJWT(t))
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	return rec

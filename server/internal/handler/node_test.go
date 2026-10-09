@@ -60,6 +60,18 @@ func doJSON(t *testing.T, r *gin.Engine, method, path string, body any) *httptes
 	}
 	req := httptest.NewRequest(method, path, &buf)
 	req.Header.Set("Content-Type", "application/json")
+	// 管理数据面自 2026-10-10 起挂 apiAuth（安全修复）：助手默认带管理员
+	// JWT，专测无凭据/坏凭据的用例用 doBare 或直建请求自带 Authorization。
+	req.Header.Set("Authorization", "Bearer "+adminJWT(t))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	return rec
+}
+
+// doBare 发不带凭据的请求：专测「无令牌应 401」等鉴权负例。
+func doBare(t *testing.T, r *gin.Engine, method, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, path, nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	return rec

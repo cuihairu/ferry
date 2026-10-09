@@ -110,20 +110,21 @@ func (h *Handler) loginFailed(c *gin.Context, username, ip, ua, msg, code string
 }
 
 // adminAuthMiddleware 管理员身份中间件：从 Authorization: Bearer <token> 解析并验证。
-func adminAuthMiddleware() gin.HandlerFunc {
+// 秘钥取 cfg.AdminSecret（FERRY_ADMIN_SECRET），缺省回落与 AdminLogin 签发侧一致
+// （2026-10-10 修复：此前硬编码缺省值，配置 env 后中间件仍按缺省验签，直接打挂 /admin）。
+func (h *Handler) adminAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		auth := c.GetHeader("Authorization")
-		tokenStr := ""
-		if strings.HasPrefix(auth, "Bearer ") {
-			tokenStr = strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
-		}
+		tokenStr := bearerToken(c)
 		if tokenStr == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "令牌缺失"})
 			c.Abort()
 			return
 		}
 		claims := &adminClaims{}
-		secret := "ferry-admin-secret" // 生产请务必配置 FERRY_ADMIN_SECRET
+		secret := h.cfg.AdminSecret
+		if secret == "" {
+			secret = "ferry-admin-secret"
+		}
 		tkn, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
 			return []byte(secret), nil
 		})
