@@ -60,7 +60,20 @@ type PolicySetting struct {
 	// RebalanceStart/RebalanceEnd 低峰窗口小时（0-23），默认 1-7。
 	RebalanceStart int `json:"rebalance_start"`
 	RebalanceEnd   int `json:"rebalance_end"`
+	// balanced 策略的乘法 score 系数（调度核心设计 §权重合成分）：score =
+	// WLoad*负载归一 + WCost*成本归一 − WPremium*优质线（仅回国线）。逐系数
+	// dash 可配；缺省 0.5/0.3/0.2 即现四档公式口径，改配置才改行为。
+	WLoad    float64 `json:"w_load"`
+	WCost    float64 `json:"w_cost"`
+	WPremium float64 `json:"w_premium"`
 }
+
+// 乘法 score 系数缺省值（=现公式 0.5*loadN + 0.3*costN - 0.2*premium）。
+const (
+	DefaultWLoad    = 0.5
+	DefaultWCost    = 0.3
+	DefaultWPremium = 0.2
+)
 
 // 低峰窗口默认值。
 const (
@@ -73,6 +86,7 @@ func DefaultPolicySetting() PolicySetting {
 	return PolicySetting{
 		Out: DefaultPolicyOut, In: DefaultPolicyIn,
 		RebalanceStart: DefaultRebalanceStart, RebalanceEnd: DefaultRebalanceEnd,
+		WLoad: DefaultWLoad, WCost: DefaultWCost, WPremium: DefaultWPremium,
 	}
 }
 
@@ -90,6 +104,19 @@ func LoadPolicy(db *gorm.DB) (PolicySetting, error) {
 	return setting, nil
 }
 
+// ScoreWeights 是 balanced 策略的乘法 score 系数（逐系数 dash 可配）。
+type ScoreWeights struct {
+	Load    float64
+	Cost    float64
+	Premium float64
+}
+
+// Weights 取系数，缺省/非法回现四档公式口径。
+func (s PolicySetting) Weights() ScoreWeights {
+	s.normalize()
+	return ScoreWeights{Load: s.WLoad, Cost: s.WCost, Premium: s.WPremium}
+}
+
 // normalize 补齐非法字段为缺省档。
 func (s *PolicySetting) normalize() {
 	if !ValidPolicy(s.Out) {
@@ -100,6 +127,11 @@ func (s *PolicySetting) normalize() {
 	}
 	if !validWindow(s.RebalanceStart, s.RebalanceEnd) {
 		s.RebalanceStart, s.RebalanceEnd = DefaultRebalanceStart, DefaultRebalanceEnd
+	}
+	// 系数：缺省/非正值回缺省（权重非负且不全零，避免除零与全零退化）。
+	if s.WLoad < 0 || s.WCost < 0 || s.WPremium < 0 ||
+		(s.WLoad == 0 && s.WCost == 0 && s.WPremium == 0) {
+		s.WLoad, s.WCost, s.WPremium = DefaultWLoad, DefaultWCost, DefaultWPremium
 	}
 }
 
@@ -122,6 +154,13 @@ func SavePolicy(db *gorm.DB, setting PolicySetting) error {
 	}
 	if !validWindow(setting.RebalanceStart, setting.RebalanceEnd) {
 		return fmt.Errorf("rebalance window must be 0-23 with start < end")
+	}
+	if setting.WLoad < 0 || setting.WCost < 0 || setting.WPremium < 0 {
+		return fmt.Errorf("score weights must be non-negative")
+	}
+	if setting.WLoad == 0 && setting.WCost == 0 && setting.WPremium == 0 {
+		// 全零=按缺省（等价未配置），不拒绝。
+		setting.WLoad, setting.WCost, setting.WPremium = DefaultWLoad, DefaultWCost, DefaultWPremium
 	}
 	raw, err := json.Marshal(setting)
 	if err != nil {
@@ -175,7 +214,7 @@ func (c Candidate) CostPerGB() int64 {
 //   - balanced：负载/成本归一加权 0.5+0.3，优质线回国线减 0.2（仅 direction=in）。
 //
 // 同分取名字字典序，保证结果确定可测。
-func Pick(policy, direction string, cands []Candidate) (int, bool) {
+func Pick(policy, direction string, w ScoreWeights, cands []Candidate) (int, bool) {
 	healthy := make([]int, 0, len(cands))
 	for i, c := range cands {
 		if c.Healthy {
@@ -188,7 +227,7 @@ func Pick(policy, direction string, cands []Candidate) (int, bool) {
 	if len(healthy) == 1 {
 		return healthy[0], true
 	}
-	less := lessFor(policy, direction, cands)
+	less := lessFor(policy, direction, w, cands)
 	best := healthy[0]
 	for _, i := range healthy[1:] {
 		if less(i, best) {
@@ -214,7 +253,7 @@ func premiumOf(c Candidate, direction string) bool {
 }
 
 // lessFor 生成策略比较函数：less(a,b)=a 是否优于 b。
-func lessFor(policy, direction string, cands []Candidate) func(a, b int) bool {
+func lessFor(policy, direction string, w ScoreWeights, cands []Candidate) func(a, b int) bool {
 	load := func(i int) float64 { return loadRatio(cands[i]) }
 	cost := func(i int) float64 { return costPer(cands[i]) }
 	premium := func(i int) bool { return premiumOf(cands[i], direction) }
@@ -252,13 +291,13 @@ func lessFor(policy, direction string, cands []Candidate) func(a, b int) bool {
 		loadN := normalize(cands, all, load)
 		costN := normalize(cands, all, cost)
 		return func(a, b int) bool {
-			sa := 0.5*loadN(a) + 0.3*costN(a)
-			sb := 0.5*loadN(b) + 0.3*costN(b)
+			sa := w.Load*loadN(a) + w.Cost*costN(a)
+			sb := w.Load*loadN(b) + w.Cost*costN(b)
 			if premium(a) {
-				sa -= 0.2
+				sa -= w.Premium
 			}
 			if premium(b) {
-				sb -= 0.2
+				sb -= w.Premium
 			}
 			if sa != sb {
 				return sa < sb
@@ -283,7 +322,7 @@ const peakSwitchMargin = 0.7
 
 // shouldSwitch 峰时换线判定（低峰窗口直接按策略全序换，不走此判定）。
 // 现行不在健康候选内（病了/下线）时由调用方强制换线，不进此函数。
-func shouldSwitch(policy, direction string, cands []Candidate, cur, win int) bool {
+func shouldSwitch(policy, direction string, w ScoreWeights, cands []Candidate, cur, win int) bool {
 	switch policy {
 	case PolicyPerfFirst:
 		// 峰时只允许线档升级（普线→优质线）；降级留到低峰再平衡。
@@ -299,9 +338,9 @@ func shouldSwitch(policy, direction string, cands []Candidate, cur, win int) boo
 		loadN := normalize(cands, all, func(i int) float64 { return loadRatio(cands[i]) })
 		costN := normalize(cands, all, func(i int) float64 { return costPer(cands[i]) })
 		score := func(i int) float64 {
-			s := 0.5*loadN(i) + 0.3*costN(i)
+			s := w.Load*loadN(i) + w.Cost*costN(i)
 			if premiumOf(cands[i], direction) {
-				s -= 0.2
+				s -= w.Premium
 			}
 			return s
 		}
@@ -454,7 +493,8 @@ func SweepAt(db *gorm.DB, now time.Time) ([]SwitchEvent, error) {
 		if err != nil {
 			return events, err
 		}
-		idx, ok := Pick(policyFor(policy, direction), direction, cands)
+		weights := policy.Weights()
+		idx, ok := Pick(policyFor(policy, direction), direction, weights, cands)
 		if !ok {
 			continue // 全病或无候选：保现行，等恢复
 		}
@@ -475,7 +515,7 @@ func SweepAt(db *gorm.DB, now time.Time) ([]SwitchEvent, error) {
 				continue // 现行即最优，不落行防抖动
 			}
 			// 峰时须主指标显著更优才动；低峰窗口按策略全序再平衡。
-			if !offPeak && !shouldSwitch(policyFor(policy, direction), direction, cands, curIdx, idx) {
+			if !offPeak && !shouldSwitch(policyFor(policy, direction), direction, weights, cands, curIdx, idx) {
 				continue
 			}
 		}

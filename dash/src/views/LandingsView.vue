@@ -12,7 +12,7 @@ import { formatDate } from '../utils/format'
 const rows = ref<LandingAssignment[]>([])
 const nodes = ref<Node[]>([])
 const txRows = ref<TransportRow[]>([])
-const allocPolicy = ref<AllocPolicy>({ out: 'balanced', in: 'balanced', rebalance_start: 1, rebalance_end: 7 })
+const allocPolicy = ref<AllocPolicy>({ out: 'balanced', in: 'balanced', rebalance_start: 1, rebalance_end: 7, w_load: 0.5, w_cost: 0.3, w_premium: 0.2 })
 const policySaving = ref(false)
 const loading = ref(false)
 const scope = ref<'active' | 'all'>('active')
@@ -253,6 +253,14 @@ const DIR_TEXT: Record<string, string> = { out: '出海', in: '回国' }
         时
       </span>
       <el-button type="primary" :loading="policySaving" @click="savePolicy">保存策略</el-button>
+    </div>
+    <div class="policy-bar">
+      <span class="policy-item">均衡系数（乘法 score：负载/成本 − 优质线，仅回国线）
+        <el-input-number v-model="allocPolicy.w_load" :min="0" :max="1" :step="0.1" :controls="false" style="width: 72px" />
+        <el-input-number v-model="allocPolicy.w_cost" :min="0" :max="1" :step="0.1" :controls="false" style="width: 72px" />
+        <el-input-number v-model="allocPolicy.w_premium" :min="0" :max="1" :step="0.1" :controls="false" style="width: 72px" />
+        <span class="muted">缺省 0.5 / 0.3 / 0.2</span>
+      </span>
     </div>
 
     <h3 class="section">区域传输判定（E-17）</h3>

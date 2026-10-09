@@ -139,6 +139,10 @@ export interface AllocPolicy {
   in: string
   rebalance_start: number
   rebalance_end: number
+  /** balanced 乘法 score 系数（dash 可配）；缺省 0.5/0.3/0.2 即现公式口径。 */
+  w_load: number
+  w_cost: number
+  w_premium: number
 }
 
 /** AllocData 是策略与生效中的 auto 分配行。 */

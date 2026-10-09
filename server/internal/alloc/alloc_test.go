@@ -63,7 +63,7 @@ func TestPickLeastConnCapacityWeight(t *testing.T) {
 		{Node: storage.Node{Name: "small", BwDownMbps: 3}, Conns: 12, Healthy: true},
 		{Node: storage.Node{Name: "big", BwDownMbps: 100}, Conns: 12, Healthy: true},
 	}
-	idx, ok := Pick(PolicyLeastConn, "out", cands)
+	idx, ok := Pick(PolicyLeastConn, "out", DefaultPolicySetting().Weights(), cands)
 	if !ok || cands[idx].Node.Name != "big" {
 		t.Fatalf("capacity weight broken: idx=%d ok=%v", idx, ok)
 	}
@@ -73,7 +73,7 @@ func TestPickLeastConnCapacityWeight(t *testing.T) {
 		{Node: storage.Node{Name: "busy", BwDownMbps: 100}, Conns: 50, Healthy: true},
 		{Node: storage.Node{Name: "idle", BwDownMbps: 100}, Conns: 5, Healthy: true},
 	}
-	idx, ok = Pick(PolicyLeastConn, "out", cands)
+	idx, ok = Pick(PolicyLeastConn, "out", DefaultPolicySetting().Weights(), cands)
 	if !ok || cands[idx].Node.Name != "idle" {
 		t.Fatalf("least conn broken: idx=%d ok=%v", idx, ok)
 	}
@@ -86,7 +86,7 @@ func TestPickCostFirst(t *testing.T) {
 		{Node: storage.Node{Name: "pricey", BillingType: "按流量", TrafficPriceCents: 100}, Conns: 0, Healthy: true},
 		{Node: storage.Node{Name: "monthly", BillingType: "包月"}, Conns: 20, Healthy: true},
 	}
-	idx, ok := Pick(PolicyCostFirst, "out", cands)
+	idx, ok := Pick(PolicyCostFirst, "out", DefaultPolicySetting().Weights(), cands)
 	if !ok || cands[idx].Node.Name != "monthly" {
 		t.Fatalf("monthly should win cost_first: idx=%d ok=%v", idx, ok)
 	}
@@ -95,7 +95,7 @@ func TestPickCostFirst(t *testing.T) {
 		{Node: storage.Node{Name: "cheap", BillingType: "按流量", TrafficPriceCents: 30}, Healthy: true},
 		{Node: storage.Node{Name: "pricey", BillingType: "按流量", TrafficPriceCents: 100}, Healthy: true},
 	}
-	idx, ok = Pick(PolicyCostFirst, "out", cands)
+	idx, ok = Pick(PolicyCostFirst, "out", DefaultPolicySetting().Weights(), cands)
 	if !ok || cands[idx].Node.Name != "cheap" {
 		t.Fatalf("cheap should win cost_first: idx=%d ok=%v", idx, ok)
 	}
@@ -107,7 +107,7 @@ func TestPickPerfFirstInOnly(t *testing.T) {
 		{Node: storage.Node{Name: "plain-busy", LineType: "163", BwDownMbps: 100}, Conns: 80, Healthy: true},
 		{Node: storage.Node{Name: "gia-busy", LineType: "cn2_gia", BwDownMbps: 100}, Conns: 80, Healthy: true},
 	}
-	idx, ok := Pick(PolicyPerfFirst, "in", cands)
+	idx, ok := Pick(PolicyPerfFirst, "in", DefaultPolicySetting().Weights(), cands)
 	if !ok || cands[idx].Node.Name != "gia-busy" {
 		t.Fatalf("premium line should win perf_first(in): idx=%d ok=%v", idx, ok)
 	}
@@ -117,7 +117,7 @@ func TestPickPerfFirstInOnly(t *testing.T) {
 		{Node: storage.Node{Name: "plain-busy", LineType: "163", BwDownMbps: 100}, Conns: 80, Healthy: true},
 		{Node: storage.Node{Name: "gia-idle", LineType: "cn2_gia", BwDownMbps: 100}, Conns: 8, Healthy: true},
 	}
-	idx, ok = Pick(PolicyPerfFirst, "out", cands)
+	idx, ok = Pick(PolicyPerfFirst, "out", DefaultPolicySetting().Weights(), cands)
 	if !ok || cands[idx].Node.Name != "gia-idle" {
 		t.Fatalf("out direction should ignore line tier: idx=%d ok=%v", idx, ok)
 	}
@@ -129,7 +129,7 @@ func TestPickBalanced(t *testing.T) {
 		{Node: storage.Node{Name: "cheap-busy", BwDownMbps: 100}, Conns: 90, Healthy: true},
 		{Node: storage.Node{Name: "iplc-loaded", LineType: "iplc", BwDownMbps: 100}, Conns: 60, Healthy: true},
 	}
-	idx, ok := Pick(PolicyBalanced, "in", cands)
+	idx, ok := Pick(PolicyBalanced, "in", DefaultPolicySetting().Weights(), cands)
 	if !ok || cands[idx].Node.Name != "iplc-loaded" {
 		t.Fatalf("premium should win balanced(in): idx=%d ok=%v", idx, ok)
 	}
@@ -139,7 +139,7 @@ func TestPickBalanced(t *testing.T) {
 		{Node: storage.Node{Name: "busy", BwDownMbps: 100}, Conns: 90, Healthy: true},
 		{Node: storage.Node{Name: "idle", BwDownMbps: 100}, Conns: 10, Healthy: true},
 	}
-	idx, ok = Pick(PolicyBalanced, "out", cands)
+	idx, ok = Pick(PolicyBalanced, "out", DefaultPolicySetting().Weights(), cands)
 	if !ok || cands[idx].Node.Name != "idle" {
 		t.Fatalf("idle should win balanced: idx=%d ok=%v", idx, ok)
 	}
@@ -148,11 +148,11 @@ func TestPickBalanced(t *testing.T) {
 func TestPickHealthGate(t *testing.T) {
 	// 全病不分配；病者出局，健康者按策略比较。
 	cands := []Candidate{{Node: storage.Node{Name: "sick"}, Healthy: false}}
-	if _, ok := Pick(PolicyLeastConn, "out", cands); ok {
+	if _, ok := Pick(PolicyLeastConn, "out", DefaultPolicySetting().Weights(), cands); ok {
 		t.Fatal("all-sick candidates must not allocate")
 	}
 	cands = append(cands, Candidate{Node: storage.Node{Name: "well", BwDownMbps: 100}, Conns: 30, Healthy: true})
-	idx, ok := Pick(PolicyLeastConn, "out", cands)
+	idx, ok := Pick(PolicyLeastConn, "out", DefaultPolicySetting().Weights(), cands)
 	if !ok || cands[idx].Node.Name != "well" {
 		t.Fatalf("sick must be excluded: idx=%d ok=%v", idx, ok)
 	}
@@ -166,6 +166,7 @@ func TestPolicyPersistence(t *testing.T) {
 	}
 
 	setting = PolicySetting{Out: PolicyCostFirst, In: PolicyPerfFirst, RebalanceStart: 2, RebalanceEnd: 6}
+	setting.WLoad, setting.WCost, setting.WPremium = DefaultWLoad, DefaultWCost, DefaultWPremium
 	if err := SavePolicy(db, setting); err != nil {
 		t.Fatal(err)
 	}
@@ -387,10 +388,10 @@ func TestShouldSwitchPeakMargins(t *testing.T) {
 	slightly := Candidate{Node: storage.Node{Name: "slightly", BwDownMbps: 100}, Conns: 90, Healthy: true}
 	much := Candidate{Node: storage.Node{Name: "much", BwDownMbps: 100}, Conns: 50, Healthy: true}
 	cands := []Candidate{cur, slightly, much}
-	if shouldSwitch(PolicyLeastConn, "out", cands, 0, 1) {
+	if shouldSwitch(PolicyLeastConn, "out", DefaultPolicySetting().Weights(), cands, 0, 1) {
 		t.Fatal("10% better must not switch on peak")
 	}
-	if !shouldSwitch(PolicyLeastConn, "out", cands, 0, 2) {
+	if !shouldSwitch(PolicyLeastConn, "out", DefaultPolicySetting().Weights(), cands, 0, 2) {
 		t.Fatal("50% better must switch on peak")
 	}
 
@@ -400,16 +401,16 @@ func TestShouldSwitchPeakMargins(t *testing.T) {
 	pricey := Candidate{Node: storage.Node{Name: "pricey", BillingType: "按流量", TrafficPriceCents: 100}, Healthy: true}
 	free := Candidate{Node: storage.Node{Name: "free", BillingType: "包月"}, Healthy: true}
 	cands = []Candidate{pricey, cheap, muchCheap, free}
-	if shouldSwitch(PolicyCostFirst, "out", cands, 0, 1) {
+	if shouldSwitch(PolicyCostFirst, "out", DefaultPolicySetting().Weights(), cands, 0, 1) {
 		t.Fatal("10% cheaper must not switch on peak")
 	}
-	if !shouldSwitch(PolicyCostFirst, "out", cands, 0, 2) {
+	if !shouldSwitch(PolicyCostFirst, "out", DefaultPolicySetting().Weights(), cands, 0, 2) {
 		t.Fatal("70% cheaper must switch on peak")
 	}
-	if !shouldSwitch(PolicyCostFirst, "out", cands, 0, 3) {
+	if !shouldSwitch(PolicyCostFirst, "out", DefaultPolicySetting().Weights(), cands, 0, 3) {
 		t.Fatal("monthly free must switch on peak")
 	}
-	if shouldSwitch(PolicyCostFirst, "out", []Candidate{free, pricey}, 0, 1) {
+	if shouldSwitch(PolicyCostFirst, "out", DefaultPolicySetting().Weights(), []Candidate{free, pricey}, 0, 1) {
 		t.Fatal("free current must never switch on peak")
 	}
 
@@ -417,10 +418,10 @@ func TestShouldSwitchPeakMargins(t *testing.T) {
 	plain := Candidate{Node: storage.Node{Name: "plain", LineType: "163"}, Healthy: true}
 	gia := Candidate{Node: storage.Node{Name: "gia", LineType: "cn2_gia"}, Healthy: true}
 	cands = []Candidate{plain, gia}
-	if !shouldSwitch(PolicyPerfFirst, "in", cands, 0, 1) {
+	if !shouldSwitch(PolicyPerfFirst, "in", DefaultPolicySetting().Weights(), cands, 0, 1) {
 		t.Fatal("line upgrade must switch on peak")
 	}
-	if shouldSwitch(PolicyPerfFirst, "in", []Candidate{gia, plain}, 0, 1) {
+	if shouldSwitch(PolicyPerfFirst, "in", DefaultPolicySetting().Weights(), []Candidate{gia, plain}, 0, 1) {
 		t.Fatal("line downgrade must not switch on peak")
 	}
 }
@@ -463,5 +464,74 @@ func TestSweepPeakHysteresisAndOffpeakRebalance(t *testing.T) {
 	events, err = SweepAt(db, time.Date(2026, 10, 7, 12, 0, 0, 0, time.Local))
 	if err != nil || len(events) != 1 || events[0].ToName != "land-c" {
 		t.Fatalf("peak big gain must switch: %+v err=%v", events, err)
+	}
+}
+
+// TestPickBalancedWeights 系数 dash 可配（调度核心设计 §权重合成分）：
+// 缺省 0.5/0.3/0.2 复现现公式；改系数即改结果——成本权重拉高时低成本
+// 胜出，成本权重归零时退化为纯负载比，负系数/全零回缺省。
+func TestPickBalancedWeights(t *testing.T) {
+	// cheap-idle（低负载低零成本）对 busy-premium（高负载优质线低值减项）：
+	// 缺省下优质线减项 0.2 不足以覆盖负载差，idle 胜；把 premium 权重提到
+	// 1.0 后减项压过负载差，premium 胜——证明系数真实生效。
+	cands := []Candidate{
+		{Node: storage.Node{Name: "idle", BwDownMbps: 100, BillingType: "按流量", TrafficPriceCents: 100}, Conns: 20, Healthy: true},
+		{Node: storage.Node{Name: "premium-busy", LineType: "iplc", BwDownMbps: 100, BillingType: "按流量", TrafficPriceCents: 100}, Conns: 60, Healthy: true},
+	}
+	def := DefaultPolicySetting().Weights()
+	idx, ok := Pick(PolicyBalanced, "in", def, cands)
+	if !ok || cands[idx].Node.Name != "idle" {
+		t.Fatalf("缺省应 idle 胜: idx=%d ok=%v", idx, ok)
+	}
+	strong := ScoreWeights{Load: 0.5, Cost: 0.3, Premium: 1.0}
+	idx, ok = Pick(PolicyBalanced, "in", strong, cands)
+	if !ok || cands[idx].Node.Name != "premium-busy" {
+		t.Fatalf("优质线权重拉高应 premium 胜: idx=%d ok=%v", idx, ok)
+	}
+
+	// 成本权重归零 → 纯负载比：低成本但高负载者不再受成本优待。
+	costly := []Candidate{
+		{Node: storage.Node{Name: "cheap-busy", BwDownMbps: 100, BillingType: "按流量", TrafficPriceCents: 1}, Conns: 90, Healthy: true},
+		{Node: storage.Node{Name: "pricey-idle", BwDownMbps: 100, BillingType: "按流量", TrafficPriceCents: 500}, Conns: 10, Healthy: true},
+	}
+	idx, ok = Pick(PolicyBalanced, "out", ScoreWeights{Load: 1, Cost: 0, Premium: 0}, costly)
+	if !ok || costly[idx].Node.Name != "pricey-idle" {
+		t.Fatalf("成本权重归零应纯按负载比选 idle: idx=%d ok=%v", idx, ok)
+	}
+
+	// normalize：负系数与全零回缺省。
+	if got := (PolicySetting{WLoad: -1}).Weights(); got != (ScoreWeights{DefaultWLoad, DefaultWCost, DefaultWPremium}) {
+		t.Fatalf("负系数应回缺省: %+v", got)
+	}
+	if got := (PolicySetting{}).Weights(); got != (ScoreWeights{DefaultWLoad, DefaultWCost, DefaultWPremium}) {
+		t.Fatalf("全零应回缺省: %+v", got)
+	}
+}
+
+// TestSavePolicyWeights 系数持久化与非法拒绝。
+func TestSavePolicyWeights(t *testing.T) {
+	db := newTestDB(t)
+	s := DefaultPolicySetting()
+	s.WLoad, s.WCost, s.WPremium = 0.6, 0.25, 0.15
+	if err := SavePolicy(db, s); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadPolicy(db)
+	if err != nil || got.WLoad != 0.6 || got.WCost != 0.25 || got.WPremium != 0.15 {
+		t.Fatalf("weights roundtrip = %+v err=%v", got, err)
+	}
+	bad := DefaultPolicySetting()
+	bad.WLoad = -0.1
+	if err := SavePolicy(db, bad); err == nil {
+		t.Fatal("负系数必须拒绝")
+	}
+	// 全零=按缺省，落库后读回缺省值。
+	zero := DefaultPolicySetting()
+	zero.WLoad, zero.WCost, zero.WPremium = 0, 0, 0
+	if err := SavePolicy(db, zero); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := LoadPolicy(db); got.WLoad != DefaultWLoad {
+		t.Fatalf("全零应落缺省: %+v", got)
 	}
 }
