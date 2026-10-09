@@ -1,0 +1,33 @@
+# 本文件接管账号级 Dependabot 默认配置（2026-10-09 dependabot 批）。
+#
+# 为什么 npm 要 ignore vite/esbuild：docs 的 vitepress 1.x 钉 vite ^5.4.14，
+# pnpm-workspace.yaml 用 scoped override 钉到 6.4.3（拍板过渡态，见 todo.md
+# dependabot 批）。dependabot 的 pnpm updater 不识别 pnpm-workspace.yaml
+# overrides（dependabot-core#11953/#11135 已知缺口），run 37922529398 对这
+# 两包的更新必然失败——ignore 交给 override 管，vitepress 2 stable 落地撤
+# override 后可一并放开。
+#
+# gomod 六个 module 维持账号默认行为：weekly + go_modules 全量分组。
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directories:
+      - /server
+      - /agent
+      - /packages/agentproto
+      - /packages/costref
+      - /packages/payment
+      - /payments
+    schedule:
+      interval: weekly
+    groups:
+      go_modules:
+        patterns:
+          - "*"
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: vite
+      - dependency-name: esbuild
