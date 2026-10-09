@@ -1,0 +1,58 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: go (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [server, agent, payments, packages/agentproto, packages/costref, packages/payment]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.27.2
+          cache: true
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+      - name: test
+        working-directory: ${{ matrix.module }}
+        run: go test ./...
+
+  frontend:
+    name: frontend (${{ matrix.app }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [ferry-dash, ferry-panel, ferry-docs]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: install
+        env:
+          PNPM_DANGEROUSLY_ALLOW_ALL_BUILDS: "true"
+        run: pnpm install --frozen-lockfile --config.minimum-release-age=0 --config.dangerouslyAllowAllBuilds=true
+      - name: build
+        run: pnpm --filter ${{ matrix.app }} build
