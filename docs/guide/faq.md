@@ -11,6 +11,9 @@
 **2FA 恢复码丢了、TOTP 设备也没了？**
 恢复码是最后一把钥匙，绑定时要离线保存。两者都丢只能走备份恢复（备份在 2FA 绑定前的批次）。这也是备份滚动保留存在的意义之一。
 
+**脚本/自动化怎么调管理 API？**
+管理数据面（`/api/*`，如 `/api/users`、`/api/nodes`）要求 `Authorization: Bearer <令牌>`，无凭据一律 401。令牌两条路：①dash 登录拿的管理员 JWT（24 小时有效，dash 自身就这么调）；②`POST /api/token` 用管理员 JWT 换 30 天 API Token（程序化用，可经 `GET /api/token` 查当前身份）。签名秘钥见 `FERRY_ADMIN_SECRET` / `FERRY_API_SECRET`（部署指南「首启前必须看清的几张」）。
+
 ## 存储与备份
 
 **能切 Postgres 吗？**
