@@ -7,7 +7,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/cuihairu/ferry/server/internal/secret"
 	"github.com/cuihairu/ferry/server/internal/storage"
@@ -218,4 +221,64 @@ func TestDecryptKey(t *testing.T) {
 // execParams 测试便捷构造。
 func execParams(tpl storage.ProvisionTemplate, providerType, apiKey, instanceName, action string) ExecParams {
 	return ExecParams{Template: tpl, ProviderType: providerType, APIKey: apiKey, InstanceName: instanceName, Action: action}
+}
+
+// TestSharedManagerSingleton：同 (db,bin,root) 全进程一个实例——HTTP 手动
+// 触发与恢复/补充循环共用同一把锁，串行承诺才以进程为界（此前各自 New
+// 锁互不相干，同 workdir 并发 init/apply 会踩烂 terraform state）。
+func TestSharedManagerSingleton(t *testing.T) {
+	db := newTestDB(t)
+	root := t.TempDir()
+	a := Shared(db, "tofu", root, nil)
+	if b := Shared(db, "tofu", root, nil); b != a {
+		t.Fatal("same (db,bin,root) must return one shared manager")
+	}
+	if c := Shared(db, "tofu", t.TempDir(), nil); c == a {
+		t.Fatal("different root must not share")
+	}
+	if d := Shared(newTestDB(t), "tofu", root, nil); d == a {
+		t.Fatal("different db must not share")
+	}
+	// 空 bin 归一 tofu 后同键共享（与 New 口径一致）。
+	if e := Shared(db, "", root, nil); e != a {
+		t.Fatal("empty bin normalizes to tofu and shares")
+	}
+}
+
+// TestSharedManagerSerializes：多 goroutine 经 Shared 同一实例并发 Execute，
+// runner 内并发峰值必须为 1（process 级串行）。
+func TestSharedManagerSerializes(t *testing.T) {
+	db := newTestDB(t)
+	tpl := storage.ProvisionTemplate{Name: "hk-3t", Plan: "vc2-1c-1gb", Region: "hkg", Image: "docker"}
+	if err := db.Create(&tpl).Error; err != nil {
+		t.Fatal(err)
+	}
+	var cur, peak int32
+	m := Shared(db, "tofu", t.TempDir(), func(ctx context.Context, dir string, args []string, env map[string]string) (string, error) {
+		c := atomic.AddInt32(&cur, 1)
+		for {
+			p := atomic.LoadInt32(&peak)
+			if c <= p || atomic.CompareAndSwapInt32(&peak, p, c) {
+				break
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+		atomic.AddInt32(&cur, -1)
+		return "planned", nil
+	})
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = m.Execute(context.Background(), ExecParams{
+				Template: tpl, ProviderType: "vultr", APIKey: "sk-test",
+				InstanceName: "inst", Action: "plan",
+			})
+		}()
+	}
+	wg.Wait()
+	if atomic.LoadInt32(&peak) != 1 {
+		t.Fatalf("concurrent execute peak = %d, want 1", atomic.LoadInt32(&peak))
+	}
 }

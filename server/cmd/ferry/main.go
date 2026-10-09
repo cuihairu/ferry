@@ -129,7 +129,7 @@ func main() {
 		}
 		if cfg.RecoveryTemplateID > 0 {
 			reg[3] = &recovery.InstanceAction{
-				Manager:    provision.New(db, cfg.TofuBin, cfg.TofuWorkdir, nil),
+				Manager:    provision.Shared(db, cfg.TofuBin, cfg.TofuWorkdir, nil),
 				Store:      secrets,
 				TemplateID: cfg.RecoveryTemplateID,
 				Launch: func(name string) provision.LaunchParams {
@@ -149,7 +149,7 @@ func main() {
 	// 开出的机器走 OS-4 流水线自动入池。模板 0=不启用。
 	{
 		repl := &provision.Replenisher{
-			Manager:    provision.New(db, cfg.TofuBin, cfg.TofuWorkdir, nil),
+			Manager:    provision.Shared(db, cfg.TofuBin, cfg.TofuWorkdir, nil),
 			Store:      secret.NewStore(cfg.SecretKey),
 			TemplateID: cfg.PoolTemplateID,
 			Launch: func(name string) provision.LaunchParams {

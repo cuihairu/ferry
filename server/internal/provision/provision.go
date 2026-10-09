@@ -50,6 +50,37 @@ func New(db *gorm.DB, bin, root string, run Runner) *Manager {
 	return &Manager{db: db, bin: bin, root: root, run: run}
 }
 
+// sharedManagers 按 (db, bin, root) 登记 Manager 单例。Execute 靠 m.mu
+// 承诺「单实例不并发」，但此前 HTTP 手动触发与恢复/补充循环各自 New，
+// 锁互不相干——同 workdir 并发 init/apply 会踩烂 terraform state。
+// Shared 让同库同 tofu 同根目录全进程共用一个 Manager，串行以进程为界。
+var (
+	sharedMu       sync.Mutex
+	sharedManagers = map[sharedKey]*Manager{}
+)
+
+type sharedKey struct {
+	db   *gorm.DB
+	bin  string
+	root string
+}
+
+// Shared 返回 (db, bin, root) 对应的共享管理器，参数口径与 New 一致。
+func Shared(db *gorm.DB, bin, root string, run Runner) *Manager {
+	if bin == "" {
+		bin = "tofu"
+	}
+	k := sharedKey{db: db, bin: bin, root: root}
+	sharedMu.Lock()
+	defer sharedMu.Unlock()
+	if m, ok := sharedManagers[k]; ok {
+		return m
+	}
+	m := New(db, bin, root, run)
+	sharedManagers[k] = m
+	return m
+}
+
 // DB 暴露底层库连接，供编排方（如恢复流水线 L3）做开服前置查询。
 func (m *Manager) DB() *gorm.DB { return m.db }
 

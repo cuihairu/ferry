@@ -16,7 +16,9 @@ import (
 // 密钥只在 server 侧解密传入执行环境变量，接口与日志不落明文。
 
 func (h *Handler) getProvisionManager() *provision.Manager {
-	return provision.New(h.db, h.cfg.TofuBin, h.cfg.TofuWorkdir, nil)
+	// Shared：与恢复/补充循环（main.go 装配）共用同一实例，Execute 串行
+	// 才覆盖「手动触发 × 后台流水线」交叉。
+	return provision.Shared(h.db, h.cfg.TofuBin, h.cfg.TofuWorkdir, nil)
 }
 
 type provisionRunInput struct {
