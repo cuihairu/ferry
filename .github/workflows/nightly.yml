@@ -1,0 +1,94 @@
+name: nightly
+on:
+  schedule:
+    # 每日构建：UTC 03:23（避开整点高峰；北京 11:23）跑全量构建+测试+打包。
+    - cron: "23 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: go (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [server, agent, payments, packages/agentproto, packages/costref, packages/payment]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.27.2
+          cache: true
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+      - name: build, vet and test
+        working-directory: ${{ matrix.module }}
+        run: |
+          go build ./...
+          go vet ./...
+          go test ./...
+
+  frontend:
+    name: frontend (${{ matrix.app }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [ferry-dash, ferry-panel, ferry-docs]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: install
+        env:
+          PNPM_DANGEROUSLY_ALLOW_ALL_BUILDS: "true"
+        run: pnpm install --frozen-lockfile --config.minimum-release-age=0 --config.dangerouslyAllowAllBuilds=true
+      - name: build
+        run: pnpm --filter ${{ matrix.app }} build
+
+  package:
+    name: package nightly artifacts
+    runs-on: ubuntu-latest
+    needs: [go, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.27.2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: install
+        env:
+          PNPM_DANGEROUSLY_ALLOW_ALL_BUILDS: "true"
+        run: pnpm install --frozen-lockfile --config.minimum-release-age=0 --config.dangerouslyAllowAllBuilds=true
+      - name: tag
+        run: echo "version=nightly-$(date -u +%F)" >> "$GITHUB_ENV"
+      - name: build binaries
+        run: make build-server build-agent build-quic
+      - name: package agent
+        run: make package-agent AGENT_VERSION=${{ env.version }}
+      - name: upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ferry-nightly-${{ github.run_number }}
+          path: |
+            bin/ferry-server
+            bin/ferry-agent
+            bin/ferry-quic
+            bin/ferry-agent_*.tar.gz*
+            bin/ferry-quic_*.tar.gz*
+          retention-days: 7
