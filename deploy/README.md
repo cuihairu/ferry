@@ -35,6 +35,48 @@ deploy/agent-install.sh --panel https://panel.example.com \
 装到 `/usr/local/bin/ferry-agent` → 写 `/etc/ferry/agent.json`（已存在则保留）→
 装 `ferry-agent.service` 并启动。日志：`journalctl -u ferry-agent -f`。
 
+配置校验口径：`meta.bw_up_mbps`/`meta.bw_down_mbps` 是 agent 配置必填项，
+脚本写 `--bw-up`/`--bw-down`（默认 100/100 Mbps，面板节点页可改）；
+`--node-role entry|landing|both` 写集群角色（不写时 agent 侧默认 landing）。
+
+## relay 节点安装（E-5/E-33）
+
+`--role relay` 让 agent 以 `-role relay` 独立进程起 relay 数据面
+（本机监听 → 经传输插件拨落地；面板 config.push 可热重指落地参数）：
+
+```sh
+# tls-camo（默认传输）
+deploy/agent-install.sh --panel ... --token ... --role relay \
+  --relay-landing land.example.com:443
+
+# SSH 传输（备选·特征独特，publickey 单一认证；密钥是本机文件路径，不进面板）
+deploy/agent-install.sh --panel ... --token ... --role relay \
+  --relay-landing land.example.com:22 --relay-tunnel ssh \
+  --relay-server-name land.example.com:22 \
+  --relay-ssh-user root --relay-ssh-key /root/.ssh/id_ed25519 \
+  --relay-ssh-known-hosts /root/.ssh/known_hosts \
+  --relay-ssh-forward-addr 127.0.0.1:1080
+```
+
+传输插件：`tls-camo`（默认）/ `quic` / `ws-tls` / `ssh`；
+`--relay-listen`（默认 127.0.0.1:1080）、`--relay-ca`（私有 CA 校验落地证书）可配。
+tunnel=ssh 时 `--relay-server-name` 指落地 sshd 地址、`--relay-ssh-*` 四件齐备。
+
+## QUIC sidecar 安装（E-18b）
+
+`--quic` 额外装独立二进制 `ferry-quic` 并起 `ferry-quic.service`
+（client 模式：本机 TCP 桥 → QUIC 拨落地；raw QUIC，ALPN `ferry-quic`，
+不是 hysteria2）。不用 QUIC 传输的部署不装：
+
+```sh
+deploy/agent-install.sh --panel ... --token ... --role relay \
+  --relay-landing land.example.com:443 --relay-tunnel quic --quic
+```
+
+`--quic-listen`（默认 127.0.0.1:7300，与 agent 内置 quic 插件缺省对齐，
+非默认时自动写 `FERRY_QUIC_SIDECAR` 环境变量）、`--quic-ca`、
+`--quic-insecure`（仅引导调试）、`--quic-binary`（离线装）。
+
 ## mTLS 证书生成（A-24）
 
 面板机自签 CA 并按节点签发客户端证书（口径见《安全设计》§2.2，CA 私钥只留面板机）：

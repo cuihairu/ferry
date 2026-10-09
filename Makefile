@@ -25,10 +25,13 @@ check-agent-size:
 
 # A-24：打 agent 发布包（bin/ 下 tar.gz + .sha256，与 deploy/agent-install.sh 下载约定一致；
 # 跨架构打包：make package-agent GOARCH=arm64）。
-package-agent: build-agent
+# E-18b：ferry-quic sidecar 随包发布（--quic 安装位下载同名约定；不用 QUIC 的部署不装）。
+package-agent: build-agent build-quic
 	cd bin && tar -czf ferry-agent_$(AGENT_VERSION)_linux_$(GOARCH).tar.gz ferry-agent
 	cd bin && sha256sum ferry-agent_$(AGENT_VERSION)_linux_$(GOARCH).tar.gz > ferry-agent_$(AGENT_VERSION)_linux_$(GOARCH).tar.gz.sha256
-	@ls -l bin/ferry-agent_$(AGENT_VERSION)_linux_$(GOARCH).tar.gz*
+	cd bin && tar -czf ferry-quic_$(AGENT_VERSION)_linux_$(GOARCH).tar.gz ferry-quic
+	cd bin && sha256sum ferry-quic_$(AGENT_VERSION)_linux_$(GOARCH).tar.gz > ferry-quic_$(AGENT_VERSION)_linux_$(GOARCH).tar.gz.sha256
+	@ls -l bin/ferry-agent_$(AGENT_VERSION)_linux_$(GOARCH).tar.gz* bin/ferry-quic_$(AGENT_VERSION)_linux_$(GOARCH).tar.gz*
 
 build-dash:
 	cd dash && pnpm build
