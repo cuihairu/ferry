@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ApiError, get, getUnreadCount } from './api'
 import type { Me } from './api'
 import { auth, logout, setUser } from './auth'
+import { initSupport } from './support'
 
 // 壳层：顶栏品牌 + 一级导航 + 用户身份（P0-14 同款 Linear 暗色）。
 const route = useRoute()
@@ -23,6 +24,7 @@ onMounted(async () => {
   if (!auth.token) return
   try {
     setUser(await get<Me>('/api/panel/me'))
+    void initSupport() // 客服组件按需挂载，失败只 warn（support.ts）
   } catch (e) {
     // 404 = 令牌失效/用户停用；网络类错误保留令牌下次再试。
     if (e instanceof ApiError && e.status === 404) doLogout()

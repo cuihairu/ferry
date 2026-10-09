@@ -232,6 +232,8 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 			panel.POST("/notifications/:id/read", h.panelMarkRead)
 			panel.GET("/notify-prefs", h.panelNotifyPrefs)
 			panel.PUT("/notify-prefs", h.panelUpdateNotifyPrefs)
+			// 客服嵌入配置（servify 真嵌验收）：未接客服时 enabled=false。
+			panel.GET("/support", h.panelSupport)
 		}
 
 		// TG bot 对接面（TOUCH-6）：服务级令牌鉴权，bot 后端独立部署

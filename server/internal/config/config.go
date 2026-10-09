@@ -100,6 +100,12 @@ type Config struct {
 	// 设置的 32 字节 secret（FERRY_HERALD_CALLBACK_SECRET）；空=不验签
 	//（沿用 HERALD-2 的网络边界隔离口径，配置后回执端点强制验签）。
 	HeraldCallbackSecret string
+	// SupportURL/SupportServiceKey 是外部客服服务（servify）的接入面：
+	// 面板客服入口的 base 地址与宿主后端 service API key（X-API-Key）。
+	// URL 为空=未接客服，/api/panel/support 恒报 enabled=false，面板不挂
+	// 任何组件（保持零依赖）；key 只在服务端使用，浏览器仅持短期访客 token。
+	SupportURL        string
+	SupportServiceKey string
 	// BackupDir/BackupCron/BackupKeep 是本地周期备份（面板可用性 §2，P1）：
 	// 落档目录、调度（cron 表达式或 "daily"/"HH:MM" 别名，缺省每日）、
 	// 本地滚动保留份数（含手动落档，超窗连文件带行删）。
@@ -171,6 +177,8 @@ func Load() Config {
 		HeraldURL:             os.Getenv("FERRY_HERALD_URL"),
 		HeraldToken:           os.Getenv("FERRY_HERALD_TOKEN"),
 		HeraldCallbackSecret:  os.Getenv("FERRY_HERALD_CALLBACK_SECRET"),
+		SupportURL:            os.Getenv("FERRY_SUPPORT_URL"),
+		SupportServiceKey:     os.Getenv("FERRY_SUPPORT_SERVICE_KEY"),
 	}
 }
 

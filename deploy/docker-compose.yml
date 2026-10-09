@@ -39,6 +39,9 @@ services:
       FERRY_BACKUP_S3_BUCKET: ${FERRY_BACKUP_S3_BUCKET:-}
       FERRY_BACKUP_S3_ACCESS_KEY: ${FERRY_BACKUP_S3_ACCESS_KEY:-}
       FERRY_BACKUP_S3_SECRET_KEY: ${FERRY_BACKUP_S3_SECRET_KEY:-}
+      # 外部客服（servify 嵌入，可选）：任一为空 = 客服入口关闭。
+      FERRY_SUPPORT_URL: ${FERRY_SUPPORT_URL:-}
+      FERRY_SUPPORT_SERVICE_KEY: ${FERRY_SUPPORT_SERVICE_KEY:-}
     volumes:
       - ferry-data:/data
     # /api/health 三态口径：ok/degraded 都返回 200（degraded 是应用层细节，
