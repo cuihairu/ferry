@@ -15,6 +15,14 @@ export default defineConfig({
     ],
     sidebar: [
       {
+        text: '上手',
+        items: [
+          { text: '部署指南', link: '/deploy/部署指南' },
+          { text: '使用指南', link: '/guide/使用指南' },
+          { text: 'FAQ', link: '/guide/faq' }
+        ]
+      },
+      {
         text: '概览',
         items: [{ text: '面板横向对比', link: '/面板横向对比' }]
       },
