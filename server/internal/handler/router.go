@@ -33,6 +33,12 @@ type Handler struct {
 	speedLimiter *ratelimit.Limiter
 	// orderLimiter 是门户在线下单的 IP 限流（10 次/分钟，只 Allow 不记失败）。
 	orderLimiter *ratelimit.Limiter
+	// subLimiter 是订阅端点的 token 限流（安全设计 §4：按 token 限频防枚举，
+	// 命中记日志；30 次/分钟，只 Allow 不记失败——只读端点无失败语义）。
+	subLimiter *ratelimit.Limiter
+	// subMissLimiter 按 IP 记订阅未命中（未知 token/停用用户）：窗口内 20 次
+	// 未命中锁 15 分钟——单 token 限频拦不住每次换新 token 的枚举。
+	subMissLimiter *ratelimit.Limiter
 }
 
 // NewRouter 创建 gin 引擎并挂载全部路由，同时交出配置推送器
@@ -52,6 +58,17 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 	h.orderLimiter = ratelimit.New(ratelimit.Options{
 		Window:      time.Minute,
 		MaxAttempts: 10,
+	})
+	h.subLimiter = ratelimit.New(ratelimit.Options{
+		Window:      time.Minute,
+		MaxAttempts: 30,
+	})
+	// MaxAttempts 取大值：本限流器只用失败锁定语义，Allow 仅用来查锁定态。
+	h.subMissLimiter = ratelimit.New(ratelimit.Options{
+		Window:      time.Minute,
+		MaxAttempts: 1 << 20,
+		FailLimit:   20,
+		Lockout:     15 * time.Minute,
 	})
 	h.pusher = relaypush.New(db, h.hub, nil)
 	h.secrets = secret.NewStore(cfg.SecretKey)

@@ -1,10 +1,14 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -258,5 +262,58 @@ func TestSubResetCycleWindow(t *testing.T) {
 	if raw3, err := base64.StdEncoding.DecodeString(r3.Body.String()); err != nil ||
 		strings.Contains(string(raw3), "vless://") || !strings.Contains(string(raw3), "公告订阅") {
 		t.Fatalf("窗口内超限应封订阅（注释仍在）: %v %q", err, r3.Body)
+	}
+}
+
+// TestSubscriptionRateLimit 订阅端点限频（安全设计 §4）：
+// token 层 30 次/分钟防单 token 爆破；miss 层按 IP 连续 20 次未知/停用令牌
+// 锁 15 分钟防每次换新 token 的枚举；命中 429 并记日志（token 脱敏前缀）。
+func TestSubscriptionRateLimit(t *testing.T) {
+	r, _ := newTestRouterWithDB(t)
+
+	tokenOf := func(name string) string {
+		rec := doJSON(t, r, "POST", "/api/users", map[string]any{"username": name, "quota_bytes": 1000})
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("create user %s: %d %s", name, rec.Code, rec.Body)
+		}
+		var u map[string]any
+		_ = json.Unmarshal(rec.Body.Bytes(), &u)
+		return u["sub_token"].(string)
+	}
+	alice, bob := tokenOf("rl-alice"), tokenOf("rl-bob")
+
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+
+	// token 层：同令牌窗口 30 次内放行，第 31 次 429 并记日志。
+	for i := 0; i < 30; i++ {
+		if rec := getSub(t, r, "/sub/"+alice, "v2rayNG/1.8"); rec.Code != http.StatusOK {
+			t.Fatalf("alice 第 %d 次应放行: %d", i+1, rec.Code)
+		}
+	}
+	if rec := getSub(t, r, "/sub/"+alice, "v2rayNG/1.8"); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("alice 第 31 次应 429: %d", rec.Code)
+	}
+	if !strings.Contains(buf.String(), "sub rate limited") {
+		t.Fatalf("命中限频应记日志: %q", buf.String())
+	}
+	// 按 token 隔离：alice 预算耗尽不影响 bob。
+	if rec := getSub(t, r, "/sub/"+bob, "v2rayNG/1.8"); rec.Code != http.StatusOK {
+		t.Fatalf("bob 应不受 alice 耗尽影响: %d", rec.Code)
+	}
+
+	// miss 层：同 IP 连续 20 个未知令牌（各不相同）后进入锁定，
+	// 第 21 个未知令牌 429，同 IP 的有效令牌也被锁。
+	for i := 0; i < 20; i++ {
+		if rec := getSub(t, r, fmt.Sprintf("/sub/enum-probe-%02d", i), "v2rayNG/1.8"); rec.Code != http.StatusNotFound {
+			t.Fatalf("未知令牌第 %d 次应 404: %d", i+1, rec.Code)
+		}
+	}
+	if rec := getSub(t, r, "/sub/enum-probe-lock", "v2rayNG/1.8"); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("枚举锁定后应 429: %d", rec.Code)
+	}
+	if rec := getSub(t, r, "/sub/"+bob, "v2rayNG/1.8"); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("锁定按 IP 生效，有效令牌同锁: %d", rec.Code)
 	}
 }

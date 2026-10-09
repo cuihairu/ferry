@@ -3,6 +3,7 @@ package handler
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -22,13 +23,21 @@ type trafficUsage struct {
 }
 
 // subscription 处理 GET /sub/:token（P0-6/P0-7/P0-8/E-19）：
+// 按 token 限频（安全设计 §4，防枚举；命中 429 记日志，token 脱敏只留前缀）；
 // 未启用用户按 404 处理（令牌视同吊销，防枚举）；到期/超限返回空订阅+用量头；
 // 入口列表按区域分组、备注带聚合测速延迟。target=v2ray|clash 显式指定，
 // 缺省按 UA 识别（含 clash 走 clash，其余 v2ray）。
 func (h *Handler) subscription(c *gin.Context) {
+	token, ip := c.Param("token"), c.ClientIP()
+	if !h.subMissLimiter.Allow(ip) || !h.subLimiter.Allow(token) {
+		log.Printf("sub rate limited: token=%s… ip=%s", token[:min(6, len(token))], ip)
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "too many requests"})
+		return
+	}
 	var u storage.User
-	if err := h.db.Where("sub_token = ?", c.Param("token")).First(&u).Error; err != nil {
+	if err := h.db.Where("sub_token = ?", token).First(&u).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
+			h.subMissLimiter.RecordFailure(ip)
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}
@@ -36,6 +45,7 @@ func (h *Handler) subscription(c *gin.Context) {
 		return
 	}
 	if !u.Enabled {
+		h.subMissLimiter.RecordFailure(ip)
 		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 		return
 	}
