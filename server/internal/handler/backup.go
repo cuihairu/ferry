@@ -14,8 +14,9 @@ import (
 
 // backupDB 导出当前数据库快照（GET /admin/backup/db）：VACUUM INTO 在线
 // 一致性快照落备份目录（配置了主密钥时为加密档 .enc），落 manual 行
-// （uploaded 恒 0——外发位本批未接真实实现）并按 KEEP 滚动清理，然后以
-// 附件下载该档；postgres/mysql 方言不支持（走各自备份设施）。
+// （uploaded 恒 0——manual 落档不走外发，外发仅周期 Loop 经 S3Uploader）
+// 并按 KEEP 滚动清理后以附件下载该档；postgres/mysql 方言不支持（走各自
+// 备份设施）。
 func (h *Handler) backupDB(c *gin.Context) {
 	path, size, err := backup.Snapshot(h.db, h.cfg.BackupDir, h.secrets)
 	if err != nil {

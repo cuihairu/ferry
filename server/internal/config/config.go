@@ -106,9 +106,9 @@ type Config struct {
 	BackupDir  string
 	BackupCron string
 	BackupKeep int
-	// BackupS3* 是备份外发插件位的配置面（FERRY_BACKUP_S3_*）：默认关闭，
-	// 显式 ENABLED=1 才视为开启；本批仅预留配置与接口位，未接真实外发
-	//（开启时启动日志明示数据范围=备份目录全部落档文件）。
+	// BackupS3* 是备份外发位的配置面（FERRY_BACKUP_S3_*）：默认关闭，
+	// 显式 ENABLED=1 才视为开启并注入 S3 兼容端点外发（stdlib SigV4 PUT）；
+	// 未开启时行为与关闭态零变化（绝不主动开启，env-example 缺省不动）。
 	BackupS3Enabled   bool
 	BackupS3Endpoint  string
 	BackupS3Bucket    string
@@ -155,7 +155,7 @@ func Load() Config {
 		SaveStatsIntervalSec:  envIntOr("FERRY_SAVE_STATS_SEC", 600),
 
 		// 本地周期备份（面板可用性 §2）：dir 落档目录，cron 缺省每日，
-		// keep 滚动保留份数；S3_* 为外发插件位（默认关闭，本批未接真实外发）。
+		// keep 滚动保留份数；S3_* 为外发位（默认关闭，显式开启接 S3 端点）。
 		BackupDir:             envOr("FERRY_BACKUP_DIR", "backups"),
 		BackupCron:            envOr("FERRY_BACKUP_CRON", "daily"),
 		BackupKeep:            envIntOr("FERRY_BACKUP_KEEP", 7),

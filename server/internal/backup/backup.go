@@ -3,7 +3,8 @@
 // 加密（secret_store 派生钥 AES-256-GCM，主密钥不进备份包）→ 落档目录
 // 滚动保留 Keep 份（含手动落档，超窗连文件带行删，不留幽灵 path）→
 // backups 表落 scheduled 行。失败经 Herald backup_failed 告警（按日去重），
-// 不静默。外发位 S3_* 只留配置面与 Uploader 接口位，本批不接真实外发。
+// 不静默。外发位 S3_* 默认关闭零变化；显式开启经 S3Uploader（stdlib
+// SigV4 PUT，见 s3.go）真实外发，成功置 uploaded=1，失败告警且档保留。
 // postgres/mysql 方言本批未支持（走各自备份设施），周期备份会按日告警。
 package backup
 
@@ -38,9 +39,10 @@ const (
 	FreshHours = 48
 )
 
-// Uploader 是备份外发插件位（FERRY_BACKUP_S3_*，面板可用性 §2.2）：本批
-// 仅预留接口未接真实外发。开启（S3Enabled）但未注入实现时，Loop 只在
-// 日志明示「外发未接入 + 数据范围=备份目录全部落档文件」，档不离开本机。
+// Uploader 是备份外发插件位（FERRY_BACKUP_S3_*，面板可用性 §2.2）：默认
+// 关闭；显式开启时由 main 注入 S3Uploader（stdlib SigV4 PUT）真实外发，
+// 测试可注入桩。开关已开但未注入实现时，Loop 只在日志明示「外发未注入 +
+// 数据范围=备份目录全部落档文件」，档不离开本机。
 type Uploader interface {
 	// Upload 把本地档文件外发；成功返回 nil 后对应行置 uploaded=1。
 	Upload(ctx context.Context, localPath string) error
@@ -51,8 +53,8 @@ type Options struct {
 	Dir       string   // 落档目录（FERRY_BACKUP_DIR）
 	Cron      string   // 调度：cron 表达式或 "daily"/"HH:MM" 别名（FERRY_BACKUP_CRON）
 	Keep      int      // 滚动保留份数（FERRY_BACKUP_KEEP）
-	S3Enabled bool     // 外发位开关（FERRY_BACKUP_S3_ENABLED）
-	S3        Uploader // 外发实现（本批恒 nil，插件位）
+	S3Enabled bool     // 外发位开关（FERRY_BACKUP_S3_ENABLED，默认关闭）
+	S3        Uploader // 外发实现（开启时注入 S3Uploader，测试注入桩）
 	Logger    *log.Logger
 
 	tick  time.Duration // 调度检查周期（未导出，测试注入；缺省 TickSec）
@@ -182,9 +184,9 @@ func outboundState(opts Options) string {
 		return "disabled"
 	}
 	if opts.S3 == nil {
-		return "configured but NOT implemented (backups stay local; scope = all files in backup dir)"
+		return "enabled but uploader not injected (backups stay local; check FERRY_BACKUP_S3_*)"
 	}
-	return "enabled"
+	return "enabled (s3-compatible endpoint; scope = all files in backup dir)"
 }
 
 // run 跑一轮完整备份：快照落档 → backups 行 → 外发位（未实现只日志明示）
@@ -200,14 +202,20 @@ func run(ctx context.Context, db *gorm.DB, opts Options, store *secret.Store) er
 	}
 	if opts.S3Enabled {
 		if opts.S3 != nil {
+			// 每次外发日志明示数据范围（开启态的固定披露口径）：外发的
+			// 是备份目录全部落档文件（面板库全量快照，配置主密钥时为加密档）。
+			opts.Logger.Printf("backup: s3 outbound %s (data scope = all files in backup dir %s)", path, opts.Dir)
 			if uerr := opts.S3.Upload(ctx, path); uerr != nil {
 				opts.Logger.Printf("backup: s3 upload %s: %v", path, uerr)
+				emitUploadFailed(db, uerr, opts.Logger)
 			} else if uerr := db.Model(&storage.Backup{}).Where("id = ?", row.ID).
 				Update("uploaded", true).Error; uerr != nil {
 				opts.Logger.Printf("backup: mark uploaded: %v", uerr)
+			} else {
+				opts.Logger.Printf("backup: s3 upload %s done (uploaded=1)", path)
 			}
 		} else {
-			opts.Logger.Printf("backup: FERRY_BACKUP_S3_ENABLED=1 but outbound not implemented; %s stays local (scope = all files in %s)", path, opts.Dir)
+			opts.Logger.Printf("backup: FERRY_BACKUP_S3_ENABLED=1 but uploader not injected; %s stays local (check FERRY_BACKUP_S3_* config)", path)
 		}
 	}
 	Prune(db, opts.Keep)
@@ -240,13 +248,27 @@ func Prune(db *gorm.DB, keep int) {
 	}
 }
 
-// emitBackupFailed 落 backup_failed 告警（severity=warning，target=admin），
+// emitBackupFailed 落快照失败的 backup_failed 告警（severity=warning，
+// target=admin），口径见 emitBackupEvent。
+func emitBackupFailed(db *gorm.DB, cause error, logger *log.Logger) {
+	emitBackupEvent(db, "数据库备份失败",
+		fmt.Sprintf("周期备份未完成：%v；连续失败请检查磁盘与数据库状态，备份链路故障不静默", cause), logger)
+}
+
+// emitUploadFailed 落外发失败的 backup_failed 告警：与快照失败共用 kind
+// 与按日去重窗口（同日已告警则只补日志），本地档保留由 run 侧保证。
+func emitUploadFailed(db *gorm.DB, cause error, logger *log.Logger) {
+	emitBackupEvent(db, "备份外发失败",
+		fmt.Sprintf("备份档外发未完成（本地档已保留）：%v；请检查 FERRY_BACKUP_S3_* 配置与端点可达性", cause), logger)
+}
+
+// emitBackupEvent 落 backup_failed 告警（severity=warning，target=admin），
 // 本地按日自查重（同日已有该 kind 事件则跳过——持续故障每日至多一条，
 // 不刷屏），dedup_key 再兜底供 Herald 侧窗口合并；Emit 失败只记日志。
-func emitBackupFailed(db *gorm.DB, cause error, logger *log.Logger) {
+func emitBackupEvent(db *gorm.DB, title, body string, logger *log.Logger) {
 	var n int64
 	if err := db.Model(&storage.Event{}).Where("kind = ? AND created_at >= ?",
-		herald.KindBackupFailed, time.Now().Truncate(24*time.Hour)).Count(&n).Error; err != nil {
+		herald.KindBackupFailed, time.Now().Truncate(24*time.Hour)).Count(&n).Error; err != nil && logger != nil {
 		logger.Printf("backup: count backup_failed: %v", err)
 	}
 	if n > 0 {
@@ -254,13 +276,13 @@ func emitBackupFailed(db *gorm.DB, cause error, logger *log.Logger) {
 	}
 	_, err := herald.Emit(db, herald.EmitInput{
 		Kind: herald.KindBackupFailed, Severity: herald.SeverityWarning,
-		Title:    "数据库备份失败",
-		Body:     fmt.Sprintf("周期备份未完成：%v；连续失败请检查磁盘与数据库状态，备份链路故障不静默", cause),
+		Title:    title,
+		Body:     body,
 		Target:   herald.TargetAdmin,
 		DedupKey: "backup_failed:" + time.Now().Format("2006-01-02"),
-		Meta:     map[string]any{"error": cause.Error()},
+		Meta:     map[string]any{"title": title, "body": body},
 	})
-	if err != nil {
+	if err != nil && logger != nil {
 		logger.Printf("backup: emit backup_failed: %v", err)
 	}
 }

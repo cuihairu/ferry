@@ -203,11 +203,22 @@ func main() {
 	// 本地周期备份（面板可用性 §2，P1）：VACUUM INTO 在线快照打包加密落
 	// FERRY_BACKUP_DIR（主密钥派生钥，主密钥不进备份包），滚动保留
 	// FERRY_BACKUP_KEEP 份，失败经 Herald backup_failed 告警；外发位
-	// S3_* 只留配置面（本批不接真实外发，开启时日志明示数据范围）。
-	go backup.Loop(ctx, db, backup.Options{
+	// S3_* 默认关闭零变化，显式 ENABLED=1 才注入 S3 外发（SigV4 PUT，
+	// 成功置 uploaded=1，失败告警且本地档保留）。
+	backupOpts := backup.Options{
 		Dir: cfg.BackupDir, Cron: cfg.BackupCron, Keep: cfg.BackupKeep,
 		S3Enabled: cfg.BackupS3Enabled,
-	}, secret.NewStore(cfg.SecretKey))
+	}
+	if cfg.BackupS3Enabled {
+		up, err := backup.NewS3Uploader(cfg.BackupS3Endpoint, cfg.BackupS3Bucket,
+			cfg.BackupS3AccessKey, cfg.BackupS3SecretKey, nil)
+		if err != nil {
+			log.Printf("backup: s3 uploader not injected: %v", err)
+		} else {
+			backupOpts.S3 = up
+		}
+	}
+	go backup.Loop(ctx, db, backupOpts, secret.NewStore(cfg.SecretKey))
 
 	// 面板 Web 证书（P1-7）：settings 里配置了证书即走 HTTPS，
 	// 配置损坏启动中止以免静默降级 HTTP；切换证书需重启生效。

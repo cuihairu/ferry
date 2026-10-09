@@ -36,7 +36,7 @@ func adminJWT(t *testing.T) string {
 
 // TestBackupDB 覆盖备份下载端到端（P1-6，P1 周期备份批起留档落 manual
 // 行）：下载体是落档文件本体（合法 SQLite 文件，快照里能查到已建用户），
-// backups 表落 kind=manual 行且 uploaded 恒 0（外发位未接真实实现）。
+// backups 表落 kind=manual 行且 uploaded 恒 0（manual 落档不走外发）。
 func TestBackupDB(t *testing.T) {
 	dir := t.TempDir()
 	r, db := newTestRouterCfg(t, func(cfg *config.Config) { cfg.BackupDir = dir })
@@ -78,7 +78,7 @@ func TestBackupDB(t *testing.T) {
 		t.Fatalf("backup without token: %d", rec.Code)
 	}
 
-	// 留档与留痕：备份目录有档文件，manual 行落库且 uploaded 恒 0
+	// 留档与留痕：备份目录有档文件，manual 行落库且 uploaded 恒 0（不走外发）
 	var row storage.Backup
 	if err := db.Where("kind = ?", "manual").First(&row).Error; err != nil {
 		t.Fatalf("manual row: %v", err)

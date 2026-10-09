@@ -570,8 +570,8 @@ type EventDelivery struct {
 
 // Backup 是一条备份留痕（面板可用性 §6，P1）：kind=manual 为手动下载
 // 端点落档、scheduled 为周期备份 Loop 落档；path 指向备份目录内的档文件
-// （配置了主密钥时为加密档 .enc）。uploaded 是外发位成功标记——外发
-// 插件（FERRY_BACKUP_S3_*，仅配置面）接入并上传成功才置 1，本批恒 0。
+// （配置了主密钥时为加密档 .enc）。uploaded 是外发位成功标记——周期备份
+// S3 外发（FERRY_BACKUP_S3_*，默认关闭）上传成功才置 1，manual 落档恒 0。
 type Backup struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	Kind      string    `gorm:"size:16;index;not null" json:"kind"` // manual / scheduled
