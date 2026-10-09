@@ -10,6 +10,7 @@
   <img src="docs/public/badges/go.svg" alt="Go 1.27" />
   <img src="docs/public/badges/vue.svg" alt="Vue 3" />
   <img src="docs/public/badges/db.svg" alt="SQLite / PostgreSQL / MySQL" />
+  <img src="https://codecov.io/gh/cuihairu/ferry/branch/main/graph/badge.svg" alt="codecov" />
   <img src="docs/public/badges/license.svg" alt="Apache-2.0" />
 </p>
 

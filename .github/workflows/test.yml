@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write # codecov OIDC 免 token 上传（公开仓，无需 secret）
 
 concurrency:
   group: test-${{ github.ref }}
@@ -29,9 +30,20 @@ jobs:
           go-version: 1.27.2
           cache: true
           cache-dependency-path: ${{ matrix.module }}/go.sum
+      - name: flag
+        id: flag
+        # codecov flags 不允许斜杠，packages/agentproto → packages-agentproto
+        run: echo "value=$(echo '${{ matrix.module }}' | tr '/' '-')" >> "$GITHUB_OUTPUT"
       - name: test
         working-directory: ${{ matrix.module }}
-        run: go test ./...
+        run: go test -coverprofile=coverage.out ./...
+      - name: upload coverage
+        uses: codecov/codecov-action@v7
+        with:
+          files: coverage.out
+          flags: ${{ steps.flag.outputs.value }}
+          use_oidc: true
+          fail_ci_if_error: false # 上传抖动不拖红门禁
 
   frontend:
     name: frontend (${{ matrix.app }})

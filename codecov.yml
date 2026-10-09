@@ -1,0 +1,10 @@
+# codecov 只报数不设卡：project/patch 状态全 informational，覆盖率波动不拖红门禁。
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+comment: false
