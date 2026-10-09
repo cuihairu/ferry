@@ -193,7 +193,7 @@ func TestNextInterval(t *testing.T) {
 		now  time.Time
 		want time.Duration
 	}{
-		{"回程晚高峰加密", in, atCN(12), 40 * time.Second},  // 北京 20 时
+		{"回程晚高峰加密", in, atCN(12), 40 * time.Second},   // 北京 20 时
 		{"回程平峰不加密", in, atCN(4), 120 * time.Second},   // 北京 12 时
 		{"回程高峰外不加密", in, atCN(15), 120 * time.Second}, // 北京 23 时（窗口右开）
 		{"出海晚高峰不加密", out, atCN(12), 120 * time.Second},

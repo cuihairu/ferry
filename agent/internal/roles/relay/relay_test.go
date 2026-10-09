@@ -129,9 +129,9 @@ func TestRelayValidation(t *testing.T) {
 func TestRelayHotRepoint(t *testing.T) {
 	// 两个落地回显，各自计数
 	type landing struct {
-		ln     net.Listener
-		mu     sync.Mutex
-		conns  int
+		ln    net.Listener
+		mu    sync.Mutex
+		conns int
 	}
 	newLanding := func() *landing {
 		l := &landing{}

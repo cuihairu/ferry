@@ -57,7 +57,7 @@ var cpuFirst struct {
 }
 
 // cpuUtilPercent 返回自上次采样以来的 CPU 使用率；首次采样只建基线返回 0
-//（cpu.Percent(0) 即差分口径，这里补齐首采样为 0 的原语义）。
+// （cpu.Percent(0) 即差分口径，这里补齐首采样为 0 的原语义）。
 func cpuUtilPercent() float64 {
 	cpuFirst.mu.Lock()
 	defer cpuFirst.mu.Unlock()
