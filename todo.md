@@ -276,7 +276,7 @@
 
 ## P2 — 远期或明确不做
 
-- [ ] P2-1（不做）多节点主从同步：ferry 定位单机小内存 VPS，3x-ui Node 心跳/Hiddify Child 同步的复杂度与定位冲突（来源：3x-ui `node_traffic_sync_job.go`；Hiddify `models/child.py`）
+- [x] [P2-1] 面板主从同步（2026-10-10 续批单开工落地）：standby 实例周期拉取主面板加密快照原子替换本机库——`internal/standby` 包（SyncOnce=拉取→主密钥解密校验→SQLite 魔数门槛→tmp 落盘 fsync→sql.DB.Close() 静默→rename 覆盖 ferry.db→清旧 inode -wal/-shm 侧车防误回放；MasterURL/Token/主密钥三缺任一即拒；主面板不可达/篡改/错钥都不替换继续服务陈旧库；Loop=上线先拉一版+周期 tick，成功替换回调 OnReplace 后返回）+主面板侧 `GET /api/standby/snapshot`（X-Standby-Token 机器鉴权，未配 token 恒 403，复用 backup.Snapshot VACUUM INTO+主密钥加密同格式=restore.sh 直接可恢复，落临时目录 serve 即删不进 backups 表）+config 三字段（FERRY_STANDBY_MASTER_URL/TOKEN/SEC 缺省 600）+main 装配（替换后 os.Exit(0) 交 systemd Restart=always 加载新库，RPO≤间隔；提升为主=去 MASTER_URL 重启）+env.example 注册+deploy/README 节。测试=standby_test.go（全链换新+四类失败不替换+Loop 守卫与钩子+DSN 取路径）与 handler/standby_test.go（令牌三态+产物解密可开）。make test 全绿（55 包）。commit=0862bc1
 - [ ] P2-2（不做）多级管理员/子管理员配额：自用面板单管理员即可，表结构预留空间（来源：Hiddify Role 四级；Marzban is_sudo 两级）
 - [ ] P2-3（不做）按用户带宽限速：Marzban/3x-ui 均未见实现，Hiddify 仅全局参数，收益低（来源：三家调研）
 - [ ] P2-4（不做）HWID/设备数/IP 数限制：依赖客户端配合上报，复杂度高（来源：3x-ui ClientHwid、check_client_ip_job）
