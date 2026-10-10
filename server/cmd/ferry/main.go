@@ -80,6 +80,10 @@ func main() {
 	} else if created {
 		log.Printf("bootstrap admin: created admin user %q", cfg.AdminUser)
 	}
+	// 多级管理员（P2-2）旧号归一：bootstrap 时代的管理员补 super 角色（幂等）。
+	if err := handler.NormalizeAdminRoles(db); err != nil {
+		log.Fatalf("normalize admin roles: %v", err)
+	}
 
 	// Xray 内核对接未启用前使用空实现，接口保持稳定。
 	_ = xray.NoopHandler{}

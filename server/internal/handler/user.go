@@ -61,6 +61,21 @@ func (h *Handler) createUser(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
+	// 子管理员建用户配额（P2-2）：operator 受自身 max_users 约束，按
+	// created_by 归账计数（只数自己建的），超配额 403；super 不受限。
+	// api 组经 apiAuth，操作者名取 apiUser（=管理员 JWT Subject）。
+	operator := ""
+	if actor, ok := c.Get("apiUser"); ok {
+		if s, isStr := actor.(string); isStr {
+			operator = s
+		}
+	}
+	if role, _ := c.Get("adminRole"); role == RoleOperator && operator != "" {
+		if err := h.checkOperatorQuota(operator); err != nil {
+			fail(c, http.StatusForbidden, err)
+			return
+		}
+	}
 	if err := h.ensureUsernameFree(username, 0); err != nil {
 		if errors.Is(err, errUsernameTaken) {
 			fail(c, http.StatusConflict, err)
@@ -85,6 +100,7 @@ func (h *Handler) createUser(c *gin.Context) {
 		ResetCycle: cycle,
 		ExpiresAt:  in.ExpiresAt,
 		Enabled:    enabled,
+		CreatedBy:  operator,
 	}
 	if err := h.db.Create(&u).Error; err != nil {
 		if isDup(err) {

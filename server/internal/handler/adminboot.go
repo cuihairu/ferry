@@ -36,10 +36,18 @@ func EnsureAdmin(db *gorm.DB, username, password string) (bool, error) {
 	}
 	u := storage.User{
 		Username: strings.TrimSpace(username), SubToken: token, Password: string(hash),
-		Enabled: true, IsAdmin: true,
+		Enabled: true, IsAdmin: true, AdminRole: "super",
 	}
 	if err := db.Create(&u).Error; err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+// NormalizeAdminRoles 多级管理员（P2-2）旧号归一：bootstrap 时代的管理员
+// 无角色字段，统一补 super（幂等，随启动跑）。子管理员（operator）不受影响。
+func NormalizeAdminRoles(db *gorm.DB) error {
+	return db.Model(&storage.User{}).
+		Where("is_admin = ? AND (admin_role = '' OR admin_role IS NULL)", true).
+		Update("admin_role", "super").Error
 }

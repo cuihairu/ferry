@@ -951,6 +951,36 @@ export interface AuditQuery {
   offset?: number
 }
 
+// 多级管理员/子管理员配额（P2-2）：super 管理子管理员（operator）名册。
+export interface AdminRow {
+  id: number
+  username: string
+  enabled: boolean
+  role: 'super' | 'operator'
+  max_users: number
+  totp_enabled: boolean
+  created_by: string
+}
+
+export function getAdmins(): Promise<AdminRow[]> {
+  return get('/api/admins')
+}
+
+export function createAdmin(username: string, password: string, maxUsers: number): Promise<AdminRow> {
+  return post<AdminRow>('/api/admins', { username, password, max_users: maxUsers })
+}
+
+export function updateAdmin(
+  id: number,
+  body: { password?: string; enabled?: boolean; max_users?: number },
+): Promise<AdminRow> {
+  return put<AdminRow>(`/api/admins/${id}`, body)
+}
+
+export function demoteAdmin(id: number): Promise<{ demoted: boolean }> {
+  return del(`/api/admins/${id}`)
+}
+
 export function getAuditLogs(q: AuditQuery): Promise<{ audit_logs: AuditLogRow[] }> {
   const p = new URLSearchParams()
   if (q.actor) p.set('actor', q.actor)

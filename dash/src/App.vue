@@ -46,6 +46,7 @@ function doLogout() {
       <el-menu v-else router :default-active="route.path" class="nav">
         <el-menu-item index="/nodes">节点</el-menu-item>
         <el-menu-item index="/users">用户</el-menu-item>
+        <el-menu-item index="/admins">管理员</el-menu-item>
         <el-menu-item index="/cards">卡密</el-menu-item>
         <el-menu-item index="/payments">对账</el-menu-item>
         <el-menu-item index="/promos">促销</el-menu-item>

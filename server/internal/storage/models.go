@@ -12,7 +12,15 @@ type User struct {
 	ExpiresAt  *time.Time `json:"expires_at"`
 	Enabled    bool       `gorm:"default:true" json:"enabled"`
 	IsAdmin    bool       `gorm:"default:false" json:"is_admin"`
-	Password   string     `gorm:"size:128" json:"-"`
+	// 多级管理员（P2-2）：空=普通用户；super=超级管理员（bootstrap 建号，
+	// 可管管理员）；operator=子管理员（受 max_users 建用户配额约束）。两级
+	// 口径对齐 Marzban is_sudo；旧管理员空角色按 super 兼容（登录时归一）。
+	AdminRole string `gorm:"size:16;default:''" json:"admin_role"`
+	// MaxUsers 是子管理员的建用户配额（0=不限）：仅约束 createUser 动作，
+	// 按 created_by 归账计数，超配额 403。
+	MaxUsers  int    `gorm:"default:0" json:"max_users"`
+	CreatedBy string `gorm:"size:64;default:''" json:"created_by"`
+	Password  string `gorm:"size:128" json:"-"`
 	ApiToken   string     `gorm:"size:64" json:"api_token"`
 	// 两步验证（安全设计 §1，P1）：TOTP 密钥经 secret_store 加密落库
 	//（v1:nonce:ct 密文，主密钥不入库）；绑定后登录需 6 位 TOTP 或一次性

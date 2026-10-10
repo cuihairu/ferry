@@ -109,6 +109,8 @@ func (h *Handler) apiAuth() gin.HandlerFunc {
 		}); err == nil && tkn.Valid && adminClaims.IsAdmin {
 			c.Set("adminUserID", adminClaims.ID)
 			c.Set("adminIsAdmin", adminClaims.IsAdmin)
+			// 管理员层级（P2-2）：requireSuper 门槛与 operator 配额归账取此。
+			c.Set("adminRole", normalizeAdminRole(adminClaims.Role))
 			c.Set("apiUser", adminClaims.Subject)
 			c.Next()
 			return

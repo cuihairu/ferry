@@ -183,6 +183,12 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.GET("/nodes/:id/procs", h.nodeProcs)
 		api.POST("/nodes/:id/rulelib", h.pushRuleLib)
 		api.GET("/nodes/:id/rulelib", h.listRuleLib)
+		// 多级管理员/子管理员配额（P2-2）：管理员管理面 super 专属，
+		// operator（子管理员）受 max_users 建用户配额约束（user.go）。
+		api.GET("/admins", h.requireSuper(), h.listAdmins)
+		api.POST("/admins", h.requireSuper(), h.createAdmin)
+		api.PUT("/admins/:id", h.requireSuper(), h.updateAdmin)
+		api.DELETE("/admins/:id", h.requireSuper(), h.deleteAdmin)
 		api.GET("/users", h.listUsers)
 		api.POST("/users", h.createUser)
 		api.GET("/users/:id", h.getUser)

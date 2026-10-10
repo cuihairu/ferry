@@ -12,10 +12,26 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// adminClaims 是 JWT claim，仅包含用户 ID 与是否为管理员。
+// adminClaims 是 JWT claim，包含用户 ID、是否为管理员与管理员层级
+//（P2-2：super=超级管理员 / operator=子管理员；空=旧令牌，按 super 兼容）。
 type adminClaims struct {
 	jwt.RegisteredClaims
-	IsAdmin bool `json:"is_admin"`
+	IsAdmin bool   `json:"is_admin"`
+	Role    string `json:"role"`
+}
+
+// RoleSuper/RoleOperator 是管理员层级（users.admin_role 同值域）。
+const (
+	RoleSuper    = "super"
+	RoleOperator = "operator"
+)
+
+// normalizeAdminRole 归一层级：空/未知按 super（旧管理员兼容）。
+func normalizeAdminRole(r string) string {
+	if r == RoleOperator {
+		return RoleOperator
+	}
+	return RoleSuper
 }
 
 // AdminLogin 管理员登录（P1-1 + 安全设计 §1）：验证用户名/密码，绑定两步
@@ -78,6 +94,7 @@ func (h *Handler) AdminLogin(c *gin.Context) {
 			IssuedAt:  jwt.NewNumericDate(now),
 		},
 		IsAdmin: u.IsAdmin,
+		Role:    normalizeAdminRole(u.AdminRole),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	// 使用配置中的秘钥签名；默认使用 "ferry-admin-secret"，可通过 FERRY_ADMIN_SECRET 环境变量覆盖
@@ -137,6 +154,8 @@ func (h *Handler) adminAuthMiddleware() gin.HandlerFunc {
 		}
 		c.Set("adminUserID", claims.ID)
 		c.Set("adminIsAdmin", claims.IsAdmin)
+		c.Set("adminRole", normalizeAdminRole(claims.Role))
+		c.Set("adminUser", claims.Subject)
 		c.Next()
 	}
 }
