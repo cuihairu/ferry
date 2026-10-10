@@ -63,6 +63,9 @@ type UserInput struct {
 	ResetCycle *string    `json:"reset_cycle,omitempty"` // 流量重置周期（P1-4）：none/day/week/month
 	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
 	Enabled    *bool      `json:"enabled,omitempty"`
+	// BwUpMbps/BwDownMbps 用户级带宽限额（P2-3，0=不限）。
+	BwUpMbps   *int `json:"bw_up_mbps,omitempty"`
+	BwDownMbps *int `json:"bw_down_mbps,omitempty"`
 	// UseTemplate 置真在创建时套用默认用户模板（P1-5）补全缺席字段（仅创建有效）。
 	UseTemplate *bool `json:"use_template,omitempty"`
 	// ClearExpires 置真清除到期时间（JSON null 与字段缺席无法区分，用显式语义）。

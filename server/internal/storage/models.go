@@ -20,6 +20,11 @@ type User struct {
 	// 按 created_by 归账计数，超配额 403。
 	MaxUsers  int    `gorm:"default:0" json:"max_users"`
 	CreatedBy string `gorm:"size:64;default:''" json:"created_by"`
+	// 用户级带宽限额（P2-3）：0=不限。ferry 侧权威口径（元数据），实际执行
+	// 在节点侧内核（配置生成器读取本值写内核 per-client 限速）——ferry 不
+	// 渲染节点内核配置（opaque payload 下发），故只提供权威元数据与可见面。
+	BwUpMbps   int `gorm:"default:0" json:"bw_up_mbps"`
+	BwDownMbps int `gorm:"default:0" json:"bw_down_mbps"`
 	Password  string `gorm:"size:128" json:"-"`
 	ApiToken   string     `gorm:"size:64" json:"api_token"`
 	// 两步验证（安全设计 §1，P1）：TOTP 密钥经 secret_store 加密落库

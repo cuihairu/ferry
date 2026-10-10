@@ -75,7 +75,9 @@ func (h *Handler) panelMe(c *gin.Context) {
 		"expires_at":  u.ExpiresAt,
 		"active":      sub.UserActive(&u, used, time.Now()),
 		"over_quota":  u.QuotaBytes > 0 && used >= u.QuotaBytes,
-		"created_at":  u.CreatedAt,
+		"created_at":   u.CreatedAt,
+		"bw_up_mbps":   u.BwUpMbps,
+		"bw_down_mbps": u.BwDownMbps,
 	})
 }
 

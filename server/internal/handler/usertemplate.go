@@ -24,6 +24,9 @@ type userTemplate struct {
 	QuotaBytes int64  `json:"quota_bytes"`
 	ExpireDays int    `json:"expire_days"`
 	ResetCycle string `json:"reset_cycle"`
+	// BwUpMbps/BwDownMbps 默认用户级带宽限额（P2-3，0=不限）。
+	BwUpMbps   int `json:"bw_up_mbps"`
+	BwDownMbps int `json:"bw_down_mbps"`
 }
 
 // defaultUserTemplate 返回全部缺省的模板（未配置或存量损坏时兜底）。
@@ -44,7 +47,27 @@ func (h *Handler) loadUserTemplate() (userTemplate, error) {
 	if tpl.ResetCycle == "" {
 		tpl.ResetCycle = quota.CycleNone
 	}
+	if err := validateUserBw(&tpl.BwUpMbps, &tpl.BwDownMbps); err != nil {
+		return defaultUserTemplate(), nil
+	}
 	return tpl, nil
+}
+
+// validateUserBw 校验用户级带宽限额（P2-3）：允许 0=不限；负值与超
+// 100000Mbps 视为脏值拒绝（防误录把节点带宽写爆）。
+func validateUserBw(up, down *int) error {
+	if derefInt(up) < 0 || derefInt(down) < 0 || derefInt(up) > 100000 || derefInt(down) > 100000 {
+		return errors.New("bw_up_mbps/bw_down_mbps must be 0-100000 (0 = unlimited)")
+	}
+	return nil
+}
+
+// derefInt 取值，nil 回 0（=不限）。
+func derefInt(v *int) int {
+	if v == nil {
+		return 0
+	}
+	return *v
 }
 
 // getUserTemplate 查看默认模板（GET /api/user-template）。
@@ -105,5 +128,14 @@ func applyUserTemplate(in *model.UserInput, tpl userTemplate, now time.Time) {
 	if in.ExpiresAt == nil && tpl.ExpireDays > 0 {
 		t := now.AddDate(0, 0, tpl.ExpireDays)
 		in.ExpiresAt = &t
+	}
+	// 带宽限额（P2-3）：模板配了正值才补默认（0=不限不覆盖显式 0）。
+	if in.BwUpMbps == nil && tpl.BwUpMbps > 0 {
+		v := tpl.BwUpMbps
+		in.BwUpMbps = &v
+	}
+	if in.BwDownMbps == nil && tpl.BwDownMbps > 0 {
+		v := tpl.BwDownMbps
+		in.BwDownMbps = &v
 	}
 }

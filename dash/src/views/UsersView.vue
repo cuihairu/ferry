@@ -31,6 +31,8 @@ const form = reactive({
   expires: null as Date | null,
   enabled: true,
   hadExpiry: false,
+  bwUp: 0,
+  bwDown: 0,
 })
 
 // 重置周期选项（P1-4）：none 不限、day/week/month 按日历窗口重算用量。
@@ -46,7 +48,7 @@ function cycleLabel(c: string): string {
 
 function openCreate() {
   editing.value = null
-  Object.assign(form, { username: '', quotaGb: 0, resetCycle: 'none', expires: null, enabled: true, hadExpiry: false })
+  Object.assign(form, { username: '', quotaGb: 0, resetCycle: 'none', expires: null, enabled: true, hadExpiry: false, bwUp: 0, bwDown: 0 })
   dialogVisible.value = true
 }
 
@@ -59,17 +61,21 @@ function openEdit(u: User) {
     expires: u.expires_at ? new Date(u.expires_at) : null,
     enabled: u.enabled,
     hadExpiry: !!u.expires_at,
+    bwUp: u.bw_up_mbps,
+    bwDown: u.bw_down_mbps,
   })
   dialogVisible.value = true
 }
 
-// 套用默认模板（P1-5）：把设置里的默认配额/时长/周期填进表单，可再改。
+// 套用默认模板（P1-5）：把设置里的默认配额/时长/周期/带宽限额填进表单，可再改。
 async function applyTemplate() {
   try {
     const t = await get<UserTemplate>('/api/user-template')
     form.quotaGb = t.quota_bytes / GB
     form.resetCycle = t.reset_cycle || 'none'
     form.expires = t.expire_days > 0 ? new Date(Date.now() + t.expire_days * 86400000) : null
+    form.bwUp = t.bw_up_mbps
+    form.bwDown = t.bw_down_mbps
     ElMessage.success('已套用默认模板')
   } catch (e) {
     ElMessage.error(String(e))
@@ -90,6 +96,8 @@ async function save() {
       quota_bytes: Math.round(form.quotaGb * GB),
       reset_cycle: form.resetCycle,
       enabled: form.enabled,
+      bw_up_mbps: form.bwUp,
+      bw_down_mbps: form.bwDown,
     }
     if (form.expires) {
       body.expires_at = form.expires.toISOString()
@@ -113,6 +121,15 @@ async function save() {
 
 function subUrl(u: User): string {
   return `${location.origin}/sub/${u.sub_token}`
+}
+
+// 带宽限额展示：0=不限（P2-3）。
+function bwText(u: User): string {
+  if (!u.bw_up_mbps && !u.bw_down_mbps) return '不限'
+  const parts: string[] = []
+  parts.push(u.bw_up_mbps ? `↑${u.bw_up_mbps}` : '↑—')
+  parts.push(u.bw_down_mbps ? `↓${u.bw_down_mbps}` : '↓—')
+  return parts.join(' ')
 }
 
 async function copyLink(u: User) {
@@ -158,6 +175,9 @@ async function remove(u: User) {
       <el-table-column label="配额" width="110">
         <template #default="{ row }">{{ quotaText(row.quota_bytes) }}</template>
       </el-table-column>
+      <el-table-column label="带宽" width="110">
+        <template #default="{ row }">{{ bwText(row) }}</template>
+      </el-table-column>
       <el-table-column label="重置" width="80">
         <template #default="{ row }">{{ cycleLabel(row.reset_cycle) }}</template>
       </el-table-column>
@@ -198,6 +218,15 @@ async function remove(u: User) {
           <el-input-number v-model="form.quotaGb" :min="0" :step="10" />
           <span class="form-hint">0 表示不限</span>
         </el-form-item>
+        <el-form-item label="带宽限额">
+          <div class="bw-row">
+            <el-input-number v-model="form.bwUp" :min="0" :max="100000" :step="10" />
+            <span class="bw-sep">↑ Mbps</span>
+            <el-input-number v-model="form.bwDown" :min="0" :max="100000" :step="10" />
+            <span class="bw-sep">↓ Mbps</span>
+          </div>
+          <span class="form-hint">0 表示不限（P2-3，节点侧执行）</span>
+        </el-form-item>
         <el-form-item label="重置周期">
           <el-select v-model="form.resetCycle" style="width: 160px">
             <el-option v-for="o in cycleOptions" :key="o.value" :label="o.label" :value="o.value" />
@@ -225,6 +254,15 @@ async function remove(u: User) {
 }
 .form-hint {
   margin-left: 10px;
+  color: var(--ferry-text-muted);
+  font-size: 12px;
+}
+.bw-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bw-sep {
   color: var(--ferry-text-muted);
   font-size: 12px;
 }

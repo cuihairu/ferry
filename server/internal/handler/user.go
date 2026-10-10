@@ -56,6 +56,10 @@ func (h *Handler) createUser(c *gin.Context) {
 		fail(c, http.StatusBadRequest, errors.New("quota_bytes must be >= 0 (0 = unlimited)"))
 		return
 	}
+	if err := validateUserBw(in.BwUpMbps, in.BwDownMbps); err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
 	cycle, err := resetCycleOrDefault(in.ResetCycle)
 	if err != nil {
 		fail(c, http.StatusBadRequest, err)
@@ -101,6 +105,8 @@ func (h *Handler) createUser(c *gin.Context) {
 		ExpiresAt:  in.ExpiresAt,
 		Enabled:    enabled,
 		CreatedBy:  operator,
+		BwUpMbps:   derefInt(in.BwUpMbps),
+		BwDownMbps: derefInt(in.BwDownMbps),
 	}
 	if err := h.db.Create(&u).Error; err != nil {
 		if isDup(err) {
@@ -156,6 +162,19 @@ func (h *Handler) updateUser(c *gin.Context) {
 			return
 		}
 		updates["quota_bytes"] = *in.QuotaBytes
+	}
+	if in.BwUpMbps != nil || in.BwDownMbps != nil {
+		if err := validateUserBw(in.BwUpMbps, in.BwDownMbps); err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		// PATCH 语义：只改显式给的字段，缺席不动（derefInt 仅取值不置零）。
+		if in.BwUpMbps != nil {
+			updates["bw_up_mbps"] = *in.BwUpMbps
+		}
+		if in.BwDownMbps != nil {
+			updates["bw_down_mbps"] = *in.BwDownMbps
+		}
 	}
 	if in.ResetCycle != nil {
 		cycle, err := resetCycleOrDefault(in.ResetCycle)

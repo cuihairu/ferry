@@ -345,6 +345,8 @@ export interface User {
   expires_at: string | null
   enabled: boolean
   created_at: string
+  bw_up_mbps: number
+  bw_down_mbps: number
 }
 
 /** NodeShare 是单节点分享链接（P1-9）。 */
@@ -413,11 +415,13 @@ export function upgradeNode(id: number, body: { version: string; url: string; sh
   return post<UpgradeResult>(`/api/nodes/${id}/upgrade`, body)
 }
 
-/** UserTemplate 是默认用户模板（P1-5）：新建用户可套用的默认配额/时长/重置周期。 */
+/** UserTemplate 是默认用户模板（P1-5）：新建用户可套用的默认配额/时长/重置周期/带宽限额。 */
 export interface UserTemplate {
   quota_bytes: number
   expire_days: number
   reset_cycle: 'none' | 'day' | 'week' | 'month'
+  bw_up_mbps: number
+  bw_down_mbps: number
 }
 
 export interface CardBatch {

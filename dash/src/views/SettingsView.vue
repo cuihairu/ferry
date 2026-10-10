@@ -31,7 +31,7 @@ const cycleOptions = [
   { value: 'week', label: '每周' },
   { value: 'month', label: '每月' },
 ]
-const form = reactive({ quotaGb: 0, expireDays: 0, resetCycle: 'none' })
+const form = reactive({ quotaGb: 0, expireDays: 0, resetCycle: 'none', bwUp: 0, bwDown: 0 })
 const saving = ref(false)
 
 async function load() {
@@ -40,6 +40,8 @@ async function load() {
     form.quotaGb = t.quota_bytes / GB
     form.expireDays = t.expire_days
     form.resetCycle = t.reset_cycle || 'none'
+    form.bwUp = t.bw_up_mbps
+    form.bwDown = t.bw_down_mbps
   } catch (e) {
     ElMessage.error(String(e))
   }
@@ -53,6 +55,8 @@ async function save() {
       quota_bytes: Math.round(form.quotaGb * GB),
       expire_days: form.expireDays,
       reset_cycle: form.resetCycle,
+      bw_up_mbps: form.bwUp,
+      bw_down_mbps: form.bwDown,
     })
     ElMessage.success('已保存')
   } catch (e) {
@@ -242,7 +246,7 @@ onMounted(loadLogs)
     <p class="page-desc">面板运营配置。</p>
 
     <h3>默认用户模板</h3>
-    <p class="page-desc">新建用户时可一键套用的默认配额与时长。</p>
+    <p class="page-desc">新建用户时可一键套用的默认配额、时长与带宽限额。</p>
     <el-form label-width="110px" style="max-width: 420px">
       <el-form-item label="默认配额 (GiB)">
         <el-input-number v-model="form.quotaGb" :min="0" :step="10" />
@@ -256,6 +260,12 @@ onMounted(loadLogs)
         <el-select v-model="form.resetCycle" style="width: 160px">
           <el-option v-for="o in cycleOptions" :key="o.value" :label="o.label" :value="o.value" />
         </el-select>
+      </el-form-item>
+      <el-form-item label="默认带宽">
+        <el-input-number v-model="form.bwUp" :min="0" :max="100000" :step="10" />
+        <span class="form-hint">↑ Mbps</span>
+        <el-input-number v-model="form.bwDown" :min="0" :max="100000" :step="10" style="margin-left: 8px" />
+        <span class="form-hint">↓ Mbps，0 表示不限（P2-3）</span>
       </el-form-item>
       <el-form-item>
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
