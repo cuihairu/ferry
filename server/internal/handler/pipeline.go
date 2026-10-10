@@ -28,7 +28,8 @@ func (h *Handler) pipelineDeploy(nodeID uint) {
 	if applied > 0 {
 		return
 	}
-	row, _, err := h.pusher.Push(nodeID, "xray", "xray", n.Config)
+	proc, kind := procForProtocol(n.Protocol)
+	row, _, err := h.pusher.Push(nodeID, proc, kind, n.Config)
 	if err != nil {
 		h.setProvisionNote(nodeID, "配置下发失败: "+err.Error())
 		return
@@ -36,6 +37,16 @@ func (h *Handler) pipelineDeploy(nodeID uint) {
 	if row.Status != "applied" {
 		h.setProvisionNote(nodeID, "配置下发未生效: "+row.Error)
 	}
+}
+
+// procForProtocol 协议 → 被管内核进程：四种 xray 系协议落 xray 进程，
+// hysteria2 落 hysteria2 进程（agent 侧 procs[].name 与之一致才能收到
+// 下发；hy2 批）。未知协议回退 xray（建节点校验已拦，此处仅防御）。
+func procForProtocol(protocol string) (proc, kind string) {
+	if protocol == "hysteria2" {
+		return "hysteria2", "hysteria2"
+	}
+	return "xray", "xray"
 }
 
 // pipelineProbePass 探测通过：provisioning 节点目标进程 running 上报，且

@@ -27,6 +27,15 @@ type clashProxy struct {
 	// trojan/ss
 	Password string `yaml:"password,omitempty"`
 
+	// hysteria2（mihomo/clash meta 写法）：up/down 单位 Mbps；
+	// obfs 缺省 salamander；skip-cert-verify 对应自签证书场景。
+	Obfs           string   `yaml:"obfs,omitempty"`
+	ObfsPassword   string   `yaml:"obfs-password,omitempty"`
+	Up             int      `yaml:"up,omitempty"`
+	Down           int      `yaml:"down,omitempty"`
+	SkipCertVerify bool     `yaml:"skip-cert-verify,omitempty"`
+	Alpn           []string `yaml:"alpn,omitempty"`
+
 	WSOpts *clashWSOpts `yaml:"ws-opts,omitempty"`
 }
 
@@ -147,6 +156,25 @@ func clashProxyOf(n *storage.Node) (clashProxy, error) {
 		p.Type = "ss"
 		p.Cipher = cfg.Method
 		p.Password = cfg.Password
+	case "hysteria2":
+		if cfg.Password == "" {
+			return clashProxy{}, fmt.Errorf("hysteria2 requires config.password")
+		}
+		p.Type = "hysteria2"
+		p.Password = cfg.Password
+		if cfg.Obfs != "" {
+			p.Obfs = cfg.Obfs
+			p.ObfsPassword = cfg.ObfsPassword
+		}
+		if cfg.Up > 0 {
+			p.Up = cfg.Up
+		}
+		if cfg.Down > 0 {
+			p.Down = cfg.Down
+		}
+		if cfg.Insecure {
+			p.SkipCertVerify = true
+		}
 	default:
 		return clashProxy{}, fmt.Errorf("unsupported protocol %q", n.Protocol)
 	}

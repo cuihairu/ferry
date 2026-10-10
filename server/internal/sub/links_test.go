@@ -38,6 +38,18 @@ func TestShareLink(t *testing.T) {
 				Config: `{"method":"aes-256-gcm","password":"pw"}`},
 			want: "ss://" + base64.RawURLEncoding.EncodeToString([]byte("aes-256-gcm:pw")) + "@a:8388#n",
 		},
+		{
+			name: "hysteria2 全字段",
+			node: storage.Node{Name: "hy", Address: "hy.example.com", Port: 443, Protocol: "hysteria2",
+				Config: `{"password":"pw","sni":"s.com","obfs":"salamander","obfs_password":"op","up":100,"down":200}`},
+			want: "hysteria2://pw@hy.example.com:443?down=200&obfs=salamander&obfs-password=op&sni=s.com&up=100#hy",
+		},
+		{
+			name: "hysteria2 仅密码+自签",
+			node: storage.Node{Name: "hy2", Address: "a", Port: 443, Protocol: "hysteria2",
+				Config: `{"password":"pw","insecure":true}`},
+			want: "hysteria2://pw@a:443?insecure=1#hy2",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -88,6 +100,7 @@ func TestShareLinkErrors(t *testing.T) {
 		{"vmess 缺 uuid", storage.Node{Protocol: "vmess", Config: `{}`}},
 		{"trojan 缺密码", storage.Node{Protocol: "trojan", Config: `{}`}},
 		{"ss 缺 method", storage.Node{Protocol: "shadowsocks", Config: `{"password":"pw"}`}},
+		{"hysteria2 缺密码", storage.Node{Protocol: "hysteria2", Config: `{"sni":"s.com"}`}},
 		{"配置非 JSON", storage.Node{Protocol: "vless", Config: `{"uuid":`}},
 	}
 	for _, tc := range cases {

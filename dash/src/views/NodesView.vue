@@ -13,7 +13,18 @@ const PROTOCOLS = [
   { value: 'vmess', label: 'VMess' },
   { value: 'trojan', label: 'Trojan' },
   { value: 'shadowsocks', label: 'Shadowsocks' },
+  { value: 'hysteria2', label: 'Hysteria2 (hy2)' },
 ]
+
+// 配置模板示例（按协议）：同一套模板机制（node.Config JSON），hy2 追加
+// password/sni/obfs/up/down 字段；内核配置模板见部署文档 procs[].config_path。
+const CONFIG_EXAMPLES: Record<string, string> = {
+  vless: '{"uuid":"...","tls":true,"sni":"cdn.example.com","net":"ws","host":"cdn.example.com","path":"/ws"}',
+  vmess: '{"uuid":"...","scy":"aes-128-gcm","net":"ws","path":"/ws","host":"cdn.example.com","tls":true,"sni":"cdn.example.com"}',
+  trojan: '{"password":"...","sni":"cdn.example.com","net":"grpc"}',
+  shadowsocks: '{"method":"aes-256-gcm","password":"..."}',
+  hysteria2: '{"password":"...","sni":"cdn.example.com","obfs":"salamander","obfs_password":"...","up":100,"down":100}',
+}
 
 const ROLES = [
   { value: 'entry', label: '入口' },
@@ -344,17 +355,48 @@ async function runProc(action: 'start' | 'stop' | 'reload') {
 const cfgVisible = ref(false)
 const cfgBusy = ref(false)
 const cfgForm = reactive({ proc: 'xray', kind: 'xray', payload: '' })
+const JSON_CONFIG_PLACEHOLDER = '{"inbounds": [...]}'
+
+// hysteria2 内核配置示例（YAML）：accong 混淆口令 + 带宽上限 + QUIC 监听，
+// 字段与 hysteria2 server 二进制同口径；up/down 建议与节点套餐一致。
+const HY2_SERVER_CONFIG_EXAMPLE = `listen: :443
+
+tls:
+  cert: /etc/ferry/hy2/fullchain.pem
+  key: /etc/ferry/hy2/privkey.pem
+
+quic:
+  initStreamReceiveWindow: 8388608
+  maxIdleTimeout: 30s
+
+auth:
+  type: password
+  password: <change-me>
+
+bandwidth:
+  up: 100 mbps
+  down: 200 mbps
+
+masquerade:
+  type: proxy
+  proxy:
+    url: https://news.ycombinator.com/
+    rewriteHost: true`
 
 async function sendCfg() {
   if (!cfgForm.proc.trim() || !cfgForm.payload.trim()) {
     ElMessage.warning('进程与配置内容必填')
     return
   }
-  try {
-    JSON.parse(cfgForm.payload)
-  } catch {
-    ElMessage.warning('配置内容必须是合法 JSON')
-    return
+  // hysteria2 内核配置是 YAML（不校验语法，agent 侧 validate/校验命令兜底）；
+  // 其余（xray）仍是 JSON，面板先行拦掉语法错。
+  if (cfgForm.proc.trim() !== 'hysteria2') {
+    try {
+      JSON.parse(cfgForm.payload)
+    } catch {
+      ElMessage.warning('配置内容必须是合法 JSON（hysteria2 走 YAML，选 hysteria2 进程时不校验）')
+      return
+    }
   }
   cfgBusy.value = true
   try {
@@ -448,6 +490,23 @@ function openEdit(n: Node) {
     transport: n.transport || 'tls',
   })
   dialogVisible.value = true
+}
+
+// 按当前协议填充配置模板示例（覆盖现有内容前先确认非空）。
+async function fillConfigExample() {
+  const example = CONFIG_EXAMPLES[form.protocol]
+  if (!example) {
+    ElMessage.warning('当前协议没有内置示例')
+    return
+  }
+  if (form.config && form.config.trim() !== '{}') {
+    try {
+      await ElMessageBox.confirm('将覆盖当前配置模板，继续？', '填充示例', { type: 'warning' })
+    } catch {
+      return
+    }
+  }
+  form.config = example
 }
 
 async function save() {
@@ -685,9 +744,13 @@ async function remove(n: Node) {
             type="textarea"
             :rows="6"
             class="config-input"
-            placeholder='{"uuid": "...", "tls": true, "net": "ws"}'
+            :placeholder="CONFIG_EXAMPLES[form.protocol]"
           />
-          <span class="form-hint">协议配置 JSON，按协议约定字段</span>
+          <span class="form-hint">
+            协议配置 JSON，按协议约定字段；
+            <el-button link type="primary" size="small" @click="fillConfigExample">填充当前协议示例</el-button>
+            （hysteria2: password/sni/obfs 必填，up/down 单位 Mbps）
+          </span>
         </el-form-item>
         <el-form-item label="角色">
           <el-radio-group v-model="form.role">
@@ -737,7 +800,12 @@ async function remove(n: Node) {
     <el-dialog v-model="cfgVisible" :title="`下发配置到 ${selected.length} 个节点`" width="560px">
       <el-form label-width="80px">
         <el-form-item label="进程">
-          <el-input v-model="cfgForm.proc" maxlength="32" placeholder="如 xray" />
+          <el-select v-model="cfgForm.proc" style="width: 100%" placeholder="选择被管进程">
+            <el-option value="xray" label="xray" />
+            <el-option value="hysteria2" label="hysteria2" />
+            <el-option value="sing-box" label="sing-box" />
+            <el-option value="relay" label="relay（落地覆盖）" />
+          </el-select>
         </el-form-item>
         <el-form-item label="类型">
           <el-input v-model="cfgForm.kind" maxlength="32" placeholder="如 xray" />
@@ -748,9 +816,11 @@ async function remove(n: Node) {
             type="textarea"
             :rows="10"
             class="config-input"
-            placeholder='{"inbounds": [...]}'
+            :placeholder="cfgForm.proc === 'hysteria2' ? HY2_SERVER_CONFIG_EXAMPLE : JSON_CONFIG_PLACEHOLDER"
           />
-          <span class="form-hint">JSON 配置，下发前校验、失败自动回滚</span>
+          <span class="form-hint">
+            {{ cfgForm.proc === 'hysteria2' ? 'YAML 配置，agent 校验命令（如配置）失败自动回滚' : 'JSON 配置，下发前校验、失败自动回滚' }}
+          </span>
         </el-form-item>
       </el-form>
       <template #footer>

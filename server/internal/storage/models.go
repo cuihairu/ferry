@@ -46,7 +46,7 @@ type Node struct {
 	Name     string     `gorm:"size:64" json:"name"`
 	Address  string     `gorm:"size:255" json:"address"`
 	Port     int        `gorm:"not null" json:"port"`
-	Protocol string     `gorm:"size:16" json:"protocol"` // vless/vmess/trojan/shadowsocks
+	Protocol string     `gorm:"size:16" json:"protocol"` // vless/vmess/trojan/shadowsocks/hysteria2
 	Config   string     `gorm:"type:text" json:"config"` // 协议配置模板 JSON
 	Enabled  bool       `gorm:"default:true" json:"enabled"`
 	Token    string     `gorm:"size:64;uniqueIndex" json:"token"`

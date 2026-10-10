@@ -21,7 +21,7 @@ func testManager(t *testing.T, specs []config.ProcSpec) (*Manager, *collector) {
 	m.stableRun = time.Second
 	c := &collector{mu: &sync.Mutex{}}
 	m.OnStatusChange = func(s agentproto.ProcStatus) { c.add("status", s.Name+":"+s.State) }
-	m.OnAlarm = func(a agentproto.Alarm) { c.add("alarm", a.Kind+":"+a.Proc) }
+	m.OnAlarm = func(a agentproto.Alarm) { c.add("alarm", a.Kind+":"+a.Proc+":"+a.Message) }
 	return m, c
 }
 
@@ -209,5 +209,43 @@ func TestProcLogs(t *testing.T) {
 	}
 	if _, err := m.Logs("nope", 10); err == nil {
 		t.Fatal("unknown proc must error")
+	}
+}
+
+// waitForAlarm 等待出现前缀匹配的告警（消息含 exec 路径等细节），超时失败。
+func waitForAlarm(t *testing.T, c *collector, prefix string) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if c.has(prefix) {
+			return
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	t.Fatalf("alarm %q never fired (rows=%v)", prefix, c.rows)
+}
+
+// TestBinaryMissingAlarm 覆盖二进制缺失面（hy2 批）：启动预检显式告警
+// （面板可见明确原因而非静默），监管循环退避重试、装上二进制前不误报
+// running；launch 失败告警带 exec 路径。
+func TestBinaryMissingAlarm(t *testing.T) {
+	m, c := testManager(t, []config.ProcSpec{{
+		Name: "hy2", Kind: "hysteria2", Exec: "/nonexistent/ferry-test-hysteria",
+	}})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	m.Start(ctx)
+
+	// 预检告警：exec 路径进消息（面板给明确提示而不是静默失败）。
+	waitForAlarm(t, c, "alarm=proc_crash:hy2:binary not found: /nonexistent/ferry-test-hysteria")
+	// launch 失败告警同样带 exec 路径与底层错误。
+	waitForAlarm(t, c, "alarm=proc_crash:hy2:launch failed: exec /nonexistent/ferry-test-hysteria:")
+	// 进程从未 running。
+	for _, s := range m.Statuses() {
+		if s.Name == "hy2" && s.State == agentproto.ProcRunning {
+			t.Fatal("missing binary must not report running")
+		}
 	}
 }

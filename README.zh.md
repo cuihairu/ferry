@@ -38,6 +38,8 @@ ferry/
 
 ferry 是一个**代理集群管理工具**，部署与运营的合规责任在部署者。工具不提供代理服务本身、不运营网络接入、不内置默认目标；部署者对其所在辖区的法律法规与服务商条款的合规负责。详见 [docs/design/合规定位声明.md](docs/design/合规定位声明.md)。
 
+代理引擎（Xray-core MPL-2.0、sing-box GPL-3.0-or-later、hysteria2 AGPL-3.0）**只做二进制适配**：agent 以外部进程托管（启停/重载/配置下发），不 import 源码、不链接，copyleft 不传染 ferry；引擎二进制由部署者自行安装。完整清单见 [THIRD_PARTY.md](THIRD_PARTY.md)。
+
 同类面板调研（3x-ui / Marzban / Hiddify / Remnawave）见 [docs/面板横向对比.md](docs/面板横向对比.md)。
 
 ## 开发

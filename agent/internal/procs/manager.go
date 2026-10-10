@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"sort"
 	"sync"
@@ -116,6 +117,13 @@ func (m *Manager) Start(ctx context.Context) {
 		p.mu.Lock()
 		p.desired = true
 		p.mu.Unlock()
+		// 二进制缺失预检（hy2 批）：启动前显式探测 exec 可执行文件，
+		// 缺失立即发告警（面板可见明确原因），不等首轮 launch 失败——
+		// 监管循环照常退避重试，装上二进制后自动拉起。
+		if _, err := os.Stat(p.spec.Exec); err != nil {
+			m.alarm(p, agentproto.AlarmKindProcCrash, agentproto.AlarmSeverityCritical,
+				fmt.Sprintf("binary not found: %s (fix procs[].exec or install the engine)", p.spec.Exec))
+		}
 		go m.supervise(ctx, p)
 		// SAVE-3：带指标接口（MetricsURL）的进程另起采集协程，
 		// 结果挂状态快照随心跳上报。
@@ -199,10 +207,12 @@ func (m *Manager) supervise(ctx context.Context, p *proc) {
 		}
 
 		startedAt := time.Now()
-		if !m.launch(p) {
-			// 启动失败按崩溃处理：退避后重试。
+		if err := m.launch(p); err != nil {
+			// 启动失败按崩溃处理：退避后重试；告警带 exec 路径与底层
+			// 错误（二进制缺失/权限等面板可见明确原因，不静默）。
 			p.setState(agentproto.ProcCrashed)
-			m.alarm(p, agentproto.AlarmKindProcCrash, agentproto.AlarmSeverityCritical, "launch failed")
+			m.alarm(p, agentproto.AlarmKindProcCrash, agentproto.AlarmSeverityCritical,
+				fmt.Sprintf("launch failed: exec %s: %v", p.spec.Exec, err))
 			backoff = m.backoffWait(ctx, p, backoff)
 			continue
 		}
@@ -249,8 +259,9 @@ func (m *Manager) backoffWait(ctx context.Context, p *proc, backoff time.Duratio
 	return next
 }
 
-// launch 启动进程；无论成败都保证 p.exited/p.kill 可用，返回是否成功。
-func (m *Manager) launch(p *proc) bool {
+// launch 启动进程；无论成败都保证 p.exited/p.kill 可用，返回启动错误
+// （nil=已拉起，进程退出另行经 exited 通道感知）。
+func (m *Manager) launch(p *proc) error {
 	cmd := exec.Command(p.spec.Exec, p.spec.Args...)
 	cmd.Dir = p.spec.WorkDir
 	// 运行日志镜像：agent 日志之外写入进程环形缓冲，供面板拉取（P1-11）。
@@ -264,7 +275,7 @@ func (m *Manager) launch(p *proc) bool {
 		p.kill = func() {}
 		p.exited = closedChan()
 		p.mu.Unlock()
-		return false
+		return err
 	}
 	exited := make(chan struct{})
 	pgid := -cmd.Process.Pid
@@ -282,7 +293,7 @@ func (m *Manager) launch(p *proc) bool {
 		}
 		close(exited)
 	}()
-	return true
+	return nil
 }
 
 // applyWhenStopped 处理停机态指令，返回后续退避起点。

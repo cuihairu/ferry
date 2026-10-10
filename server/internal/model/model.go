@@ -3,18 +3,21 @@ package model
 
 import "time"
 
-// 支持的节点协议，范围口径见 todo P2-7：只做四种主流协议。
+// 支持的节点协议，范围口径见 todo P2-7。hysteria2（hy2）是第五种：
+// 入口伪装形态走 QUIC/HTTP/3（UDP 443），被管内核是 hysteria2-server
+// 二进制（开源选型设计：AGPL-3.0，只走进程隔离托管，不 import 源码）。
 const (
 	ProtoVless       = "vless"
 	ProtoVmess       = "vmess"
 	ProtoTrojan      = "trojan"
 	ProtoShadowsocks = "shadowsocks"
+	ProtoHysteria2   = "hysteria2"
 )
 
 // ValidProtocol 判断协议是否在支持范围内。
 func ValidProtocol(p string) bool {
 	switch p {
-	case ProtoVless, ProtoVmess, ProtoTrojan, ProtoShadowsocks:
+	case ProtoVless, ProtoVmess, ProtoTrojan, ProtoShadowsocks, ProtoHysteria2:
 		return true
 	}
 	return false

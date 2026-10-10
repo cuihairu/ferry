@@ -188,6 +188,26 @@ func normalizeConfig(cfg string) string {
 	return string(compact)
 }
 
+// nodeConfigFields 是协议配置模板里面板读取的共享字段（与订阅侧 sub
+// 包的 nodeConfig 同形，只取校验需要的子集）。
+type nodeConfigFields struct {
+	Password string `json:"password"`
+}
+
+// parseNodeConfig 从配置模板取共享字段；空/{} 返回零值，非法 JSON 报错
+// （validateNodeInput 已先行校验，这里针对 update 缺 config 的路径兜底）。
+func parseNodeConfig(cfg string) (nodeConfigFields, error) {
+	var out nodeConfigFields
+	trimmed := strings.TrimSpace(cfg)
+	if trimmed == "" || trimmed == "{}" {
+		return out, nil
+	}
+	if err := json.Unmarshal([]byte(trimmed), &out); err != nil {
+		return out, errors.New("config must be a JSON object")
+	}
+	return out, nil
+}
+
 // metaUpdates 把 NodeInput 里非空的元数据字段转成列更新；空串表示保持原值。
 func metaUpdates(in *model.NodeInput) map[string]any {
 	out := map[string]any{}
@@ -251,7 +271,10 @@ func validateNodeInput(in *model.NodeInput, creating bool) error {
 		return errors.New("port must be 1-65535")
 	}
 	if !model.ValidProtocol(in.Protocol) {
-		return errors.New("protocol must be one of vless/vmess/trojan/shadowsocks")
+		return errors.New("protocol must be one of vless/vmess/trojan/shadowsocks/hysteria2")
+	}
+	if err := validateNodeConfig(in); err != nil {
+		return err
 	}
 	if strings.TrimSpace(in.Config) != "" && !json.Valid([]byte(in.Config)) {
 		return errors.New("config must be valid JSON")
@@ -272,6 +295,23 @@ func validateNodeInput(in *model.NodeInput, creating bool) error {
 	case "", "tls", "quic", "ws-tls", "ssh":
 	default:
 		return errors.New("transport must be tls/quic/ws-tls/ssh")
+	}
+	return nil
+}
+
+// validateNodeConfig 按协议校验配置模板的必填字段（与订阅侧同口径：
+// 缺字段在订阅/分享链接生成时才报错，这里在建/改节点时提前拦）。
+// 其余协议（vless/vmess/trojan/ss）的必填字段由订阅侧校验，此处不重复。
+func validateNodeConfig(in *model.NodeInput) error {
+	if in.Protocol != model.ProtoHysteria2 {
+		return nil
+	}
+	cfg, err := parseNodeConfig(in.Config)
+	if err != nil {
+		return err
+	}
+	if cfg.Password == "" {
+		return errors.New("hysteria2 node requires config.password")
 	}
 	return nil
 }

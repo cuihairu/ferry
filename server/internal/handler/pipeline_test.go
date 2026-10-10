@@ -181,3 +181,22 @@ func TestProvisionPipeline(t *testing.T) {
 		t.Fatalf("bare note = %q", row.ProvisionNote)
 	}
 }
+
+// TestProcForProtocol 覆盖协议 → 内核进程映射（hy2 批）：hysteria2 落
+// hysteria2 进程，xray 系四协议与未知协议回退 xray。
+func TestProcForProtocol(t *testing.T) {
+	for _, tc := range []struct {
+		protocol, proc, kind string
+	}{
+		{"hysteria2", "hysteria2", "hysteria2"},
+		{"vless", "xray", "xray"},
+		{"vmess", "xray", "xray"},
+		{"trojan", "xray", "xray"},
+		{"shadowsocks", "xray", "xray"},
+		{"socks", "xray", "xray"},
+	} {
+		if proc, kind := procForProtocol(tc.protocol); proc != tc.proc || kind != tc.kind {
+			t.Fatalf("procForProtocol(%q) = %q/%q, want %q/%q", tc.protocol, proc, kind, tc.proc, tc.kind)
+		}
+	}
+}

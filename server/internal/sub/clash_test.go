@@ -129,6 +129,54 @@ func TestPackClashVmessAndTrojan(t *testing.T) {
 	}
 }
 
+// TestPackClashHysteria2 覆盖 hy2 节点在 mihomo/clash 里的条目（hy2 批）：
+// type: hysteria2 + password/up/down/obfs/obfs-password/sni/skip-cert-verify。
+func TestPackClashHysteria2(t *testing.T) {
+	entries := []Entry{
+		{Node: storage.Node{Name: "hy", Address: "hy.example.com", Port: 443, Protocol: "hysteria2",
+			Config: `{"password":"pw","sni":"s.com","obfs":"salamander","obfs_password":"op","up":100,"down":200,"insecure":true}`}},
+		{Node: storage.Node{Name: "hy-min", Address: "b", Port: 8443, Protocol: "hysteria2",
+			Config: `{"password":"pw2"}`}},
+	}
+	out, err := PackClash(entries, nil)
+	if err != nil {
+		t.Fatalf("PackClash: %v", err)
+	}
+	var doc struct {
+		Proxies []map[string]any `yaml:"proxies"`
+	}
+	if err := yaml.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("unmarshal yaml: %v\n%s", err, out)
+	}
+	p := doc.Proxies[0]
+	if p["type"] != "hysteria2" || p["password"] != "pw" || p["sni"] != "s.com" {
+		t.Fatalf("hy2 proxy = %v", p)
+	}
+	if p["obfs"] != "salamander" || p["obfs-password"] != "op" {
+		t.Fatalf("hy2 obfs = %v", p)
+	}
+	// yaml 会把数字解成 int，直接比较 any 需按数值口径。
+	if p["up"] != int(100) || p["down"] != int(200) {
+		t.Fatalf("hy2 up/down = %v", p)
+	}
+	if p["skip-cert-verify"] != true {
+		t.Fatalf("hy2 skip-cert-verify = %v", p)
+	}
+	// 最小配置：只出 password，无 obfs/带宽/自签字段。
+	m := doc.Proxies[1]
+	if m["type"] != "hysteria2" || m["password"] != "pw2" {
+		t.Fatalf("hy2 min proxy = %v", m)
+	}
+	for _, k := range []string{"obfs", "obfs-password", "up", "down", "skip-cert-verify"} {
+		if _, ok := m[k]; ok {
+			t.Fatalf("hy2 min proxy has %s: %v", k, m)
+		}
+	}
+	if _, err := PackClash([]Entry{{Node: storage.Node{Name: "x", Protocol: "hysteria2", Config: `{}`}}}, nil); err == nil {
+		t.Fatal("expected error for hysteria2 missing password")
+	}
+}
+
 func TestPackClashErrors(t *testing.T) {
 	if _, err := PackClash([]Entry{{Node: storage.Node{Name: "x", Protocol: "socks"}}}, nil); err == nil {
 		t.Fatal("expected error for unsupported protocol")

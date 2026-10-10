@@ -38,6 +38,8 @@ ferry/
 
 ferry is a **proxy cluster management tool**; compliance responsibility for deployment and operation rests with the deployer. The tool does not provide proxy services itself, does not operate network access, and ships with no default destinations. Deployers are responsible for compliance with the laws and regulations of their jurisdiction and with their service providers' terms of service. See [docs/design/合规定位声明.md](docs/design/合规定位声明.md) (compliance positioning statement, in Chinese).
 
+Proxy engines (Xray-core MPL-2.0, sing-box GPL-3.0-or-later, hysteria2 AGPL-3.0) are **binary-adapted only**: the agent manages them as external processes (start/stop/reload, config deploy) — no source import, no linking, no copyleft propagation to ferry. Operators install the engine binaries themselves. Full inventory: [THIRD_PARTY.md](THIRD_PARTY.md).
+
 A survey of comparable panels (3x-ui / Marzban / Hiddify / Remnawave) is available at [docs/面板横向对比.md](docs/面板横向对比.md) (in Chinese).
 
 ## Development

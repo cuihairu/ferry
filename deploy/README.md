@@ -77,6 +77,78 @@ deploy/agent-install.sh --panel ... --token ... --role relay \
 非默认时自动写 `FERRY_QUIC_SIDECAR` 环境变量）、`--quic-ca`、
 `--quic-insecure`（仅引导调试）、`--quic-binary`（离线装）。
 
+## 被管内核进程（procs[]）与 hysteria2 内核（hy2 批）
+
+agent.json `procs[]` 声明本机被管代理进程（路径可配，按需增删）。
+**二进制必须自行安装**（口径：二进制适配/进程隔离，ferry 不 import
+xray-core/sing-box/hysteria2 源码）；agent 启动时预检 exec，缺失即发
+`proc_crash` 告警（面板节点页可见明确原因），装上后自动拉起：
+
+```json
+{
+  "procs": [
+    {
+      "name": "xray", "kind": "xray",
+      "exec": "/usr/local/bin/xray", "args": ["run", "-c", "/etc/ferry/xray/config.json"],
+      "config_path": "/etc/ferry/xray/config.json",
+      "asset_dir": "/etc/ferry/xray/assets",
+      "stats_api": "127.0.0.1:10085", "reload": "restart",
+      "validate": "/usr/local/bin/xray run -test -config {config}"
+    },
+    {
+      "name": "hysteria2", "kind": "hysteria2",
+      "exec": "/usr/local/bin/hysteria", "args": ["server", "-c", "/etc/ferry/hy2/config.yaml"],
+      "config_path": "/etc/ferry/hy2/config.yaml",
+      "reload": "restart"
+    },
+    {
+      "name": "sing-box", "kind": "sing-box",
+      "exec": "/usr/local/bin/sing-box", "args": ["run", "-c", "/etc/ferry/sing-box/config.json"],
+      "config_path": "/etc/ferry/sing-box/config.json",
+      "reload": "restart",
+      "validate": "/usr/local/bin/sing-box check -c {config}"
+    }
+  ]
+}
+```
+
+要点：
+
+- `exec` 即二进制路径（可配）；hysteria2 官方发布件无配置校验子命令，
+  `validate` 留空则 agent 跳过校验（下发改 reload=restart 生效，失败回滚）；
+- hy2 内核监听 **UDP 443**（QUIC/HTTP-3 同形伪装），放行防火墙 UDP 443；
+  证书路径按 acme.sh/certbot 实际路径改；
+- hy2 server 配置示例（字段与 hysteria2 server 二进制同口径，YAML）：
+
+```yaml
+listen: :443
+
+tls:
+  cert: /etc/ferry/hy2/fullchain.pem
+  key: /etc/ferry/hy2/privkey.pem
+
+auth:
+  type: password
+  password: <change-me>
+
+bandwidth:
+  up: 100 mbps
+  down: 200 mbps
+
+masquerade:
+  type: proxy
+  proxy:
+    url: https://news.ycombinator.com/
+    rewriteHost: true
+```
+
+- 订阅侧出口：`/sub/:token?target=singbox` 出 sing-box outbounds 数组；
+  clash/mihomo 订阅与 v2ray 链接里 hy2 节点自动为 `type: hysteria2` /
+  `hysteria2://` 条目（节点配置模板 JSON 写 password/sni/obfs/up/down）。
+- 许可：sing-box GPL-3.0、hysteria2 AGPL-3.0——只做二进制适配（进程隔离
+  托管 + 配置下发），无源码链接，copyleft 不传染 ferry（见
+  [开源选型设计](../docs/design/开源选型设计.md) 与 THIRD_PARTY.md）。
+
 ## mTLS 证书生成（A-24）
 
 面板机自签 CA 并按节点签发客户端证书（口径见《安全设计》§2.2，CA 私钥只留面板机）：

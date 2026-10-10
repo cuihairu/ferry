@@ -16,6 +16,8 @@ import (
 
 // nodeConfig 是节点配置模板的约定形态（协议无关，缺省按协议补）。
 // {"uuid","password","method","tls","sni","host","path","net","aid","scy","flow"}
+// hy2 追加 {"obfs","obfs_password","insecure","up","down"}（hysteria2 客户端
+// 同名字段，up/down 单位 Mbps）。
 type nodeConfig struct {
 	UUID     string `json:"uuid"`
 	Password string `json:"password"`
@@ -28,6 +30,11 @@ type nodeConfig struct {
 	AID      int    `json:"aid"`
 	Scy      string `json:"scy"`
 	Flow     string `json:"flow"`
+	Obfs        string `json:"obfs"`
+	ObfsPassword string `json:"obfs_password"`
+	Insecure    bool   `json:"insecure"`
+	Up          int    `json:"up"`
+	Down        int    `json:"down"`
 }
 
 func parseConfig(raw string) (nodeConfig, error) {
@@ -125,6 +132,33 @@ func shareLink(n *storage.Node, remark string) (string, error) {
 		}
 		userinfo := base64.RawURLEncoding.EncodeToString([]byte(cfg.Method + ":" + cfg.Password))
 		return "ss://" + userinfo + "@" + host + ":" + port + "#" + frag, nil
+	case "hysteria2":
+		// hysteria2 URI（Hysteria2 客户端/共享链接口径）：
+		// hysteria2://password@host:port?sni=&obfs=&obfs-password=&insecure=&up=&down=#备注
+		if cfg.Password == "" {
+			return "", errors.New("hysteria2 node requires config.password")
+		}
+		q := url.Values{}
+		if cfg.SNI != "" {
+			q.Set("sni", cfg.SNI)
+		}
+		if cfg.Obfs != "" {
+			q.Set("obfs", cfg.Obfs)
+			if cfg.ObfsPassword != "" {
+				q.Set("obfs-password", cfg.ObfsPassword)
+			}
+		}
+		if cfg.Insecure {
+			q.Set("insecure", "1")
+		}
+		if cfg.Up > 0 {
+			q.Set("up", strconv.Itoa(cfg.Up))
+		}
+		if cfg.Down > 0 {
+			q.Set("down", strconv.Itoa(cfg.Down))
+		}
+		u := &url.URL{Scheme: "hysteria2", User: url.User(cfg.Password), Host: host + ":" + port}
+		return u.String() + "?" + q.Encode() + "#" + frag, nil
 	default:
 		return "", fmt.Errorf("unsupported protocol %q", n.Protocol)
 	}

@@ -56,6 +56,14 @@ func (h *Handler) renderRoutingConfig(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
 		return
 	}
+	// routing 规则段是 xray 内核语法（routing.rules / outbounds tag）；
+	// hysteria2 内核配置是 YAML，分流规则不套用 xray 语法，直接渲染会
+	// 产出无效配置——如实报错而不是拼出误导结果（hy2 批）。
+	if n.Protocol == "hysteria2" {
+		fail(c, http.StatusBadRequest, errors.New("routing merge only supports xray kernel config; "+
+			"hysteria2 config is YAML and must be pushed as-is via POST /api/nodes/:id/config"))
+		return
+	}
 	sets := h.routingSets()
 	merged, err := routing.Merge(n.Config, sets)
 	if err != nil {

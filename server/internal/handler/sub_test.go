@@ -317,3 +317,75 @@ func TestSubscriptionRateLimit(t *testing.T) {
 		t.Fatalf("锁定按 IP 生效，有效令牌同锁: %d", rec.Code)
 	}
 }
+
+// TestSubscriptionHysteria2 覆盖 hy2 节点全链（hy2 批）：建节点校验
+// （缺密码 400）→ 订阅链接（hysteria2://）→ clash（type: hysteria2）→
+// singbox（outbounds 数组）。
+func TestSubscriptionHysteria2(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	// 建节点：缺密码被拦（面板明确报错，不静默）。
+	if rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
+		"name": "bad", "address": "a", "port": 443, "protocol": "hysteria2", "config": `{"sni":"s.com"}`,
+	}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("hy2 missing password: %d %s", rec.Code, rec.Body)
+	}
+	// 建节点：全字段 hy2。
+	if rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
+		"name": "hy", "address": "hy.example.com", "port": 443, "protocol": "hysteria2",
+		"transport": "quic",
+		"config":    `{"password":"pw","sni":"s.com","obfs":"salamander","obfs_password":"op","up":100,"down":200}`,
+	}); rec.Code != http.StatusCreated {
+		t.Fatalf("create hy2 node: %d %s", rec.Code, rec.Body)
+	}
+	if err := db.Model(&storage.Node{}).Where("name=?", "hy").
+		Updates(map[string]any{"role": "entry", "meta_init": true}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// 用户 + 订阅。
+	rec := doJSON(t, r, "POST", "/api/users", map[string]any{"username": "hyuser"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create user: %d %s", rec.Code, rec.Body)
+	}
+	var u map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &u)
+	token := u["sub_token"].(string)
+	subPath := "/sub/" + token
+
+	// v2ray target：hysteria2:// 链接（全字段断言）。
+	raw, err := base64.StdEncoding.DecodeString(getSub(t, r, subPath, "NekoBox/1.0").Body.String())
+	if err != nil {
+		t.Fatalf("body not base64: %v", err)
+	}
+	wantLink := "hysteria2://pw@hy.example.com:443?down=200&obfs=salamander&obfs-password=op&sni=s.com&up=100"
+	if n := strings.Count(string(raw), wantLink); n != 1 {
+		t.Fatalf("expected 1 hy2 link, got %d: %q", n, string(raw))
+	}
+
+	// clash target：type: hysteria2 条目与字段名。
+	body := getSub(t, r, subPath+"?target=clash", "curl/8.0").Body.String()
+	for _, want := range []string{"type: hysteria2", "password: pw", "obfs: salamander", "obfs-password: op", "up: 100", "down: 200", "sni: s.com"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("clash body missing %q:\n%s", want, body)
+		}
+	}
+
+	// singbox target：outbounds 数组带 hysteria2 出站。
+	sb := getSub(t, r, subPath+"?target=singbox", "curl/8.0")
+	if sb.Code != http.StatusOK {
+		t.Fatalf("singbox target: %d %s", sb.Code, sb.Body)
+	}
+	var obs []map[string]any
+	if err := json.Unmarshal(sb.Body.Bytes(), &obs); err != nil {
+		t.Fatalf("singbox not json array: %v\n%s", err, sb.Body)
+	}
+	if len(obs) != 1 || obs[0]["type"] != "hysteria2" || obs[0]["password"] != "pw" {
+		t.Fatalf("singbox outbounds = %v", obs)
+	}
+
+	// routing 合成对 hy2 如实报错（xray 语法不适用 YAML 内核）。
+	if rec = doJSON(t, r, "GET", "/api/nodes/1/routing-config", nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("routing render on hy2: %d %s", rec.Code, rec.Body)
+	}
+}
