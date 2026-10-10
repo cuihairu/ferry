@@ -344,3 +344,4 @@
 - [x] [SB-2] 测试同构扩面：singbox_test 五协议全字段/最小配置/错误分支 + 混编舰队 PackSingBox + sub_test target=singbox 混编端到端
 - [x] [SB-3] 文档同步：deploy/README、开源选型设计 §4「仅 hy2」注记、P2-7 行 hy2 后口径注、backup.go 外发位陈旧注释顺修
 - [x] [SB 收尾] make test 全绿（55 包+3 前端）。commit=2fa9440（SB-1/2/3 一体）。
+- [x] [SB 追扫修] 巡检续扫三处现状漂移同批修——面板横向对比 ferry 列两格（协议行四→五协议、订阅面双→三格式+SB 注）、用户触达 TOUCH-7 注记（singbox 目标纯 JSON 无注释位、逃生注释不带，sub.go 注释同步）；顺带 backup.go 外发位陈旧注释（S3 已接入）、nightly 观察追记（schedule 事件 2026-10-10 17:56 CST 自愈补跑，兜底暂不需要）。commit=75955ca。剩余未清项全属闸门（P2-4 不做/P2-5 观察三项未触发/P2-7 收窄已注 hy2 口径/agent IPC 待定/token 轮换+CRL 维持原状）；nightly 复核 durable cron 11:47 CST 触发。
