@@ -45,39 +45,54 @@ func (h *Handler) listCoupons(c *gin.Context) {
 // validateCouponInput 校验载荷并回错误：kind 枚举、pct 基点 1-9999、
 // cut>0、门槛>=0、total/per_user>=0、scope 形态与批次存在性。
 func (h *Handler) validateCouponInput(in *couponInput) error {
-	if in.Kind != "cut" && in.Kind != "pct" {
-		return errors.New("kind must be cut or pct")
+	scope, err := h.validateDiscountRules(in.Kind, in.Value, in.Scope, in.MinAmount)
+	if err != nil {
+		return err
 	}
-	if in.Kind == "pct" {
-		if in.Value < 1 || in.Value > 9999 {
-			return errors.New("pct value must be 1-9999 basis points")
-		}
-	} else if in.Value <= 0 {
-		return errors.New("cut value must be > 0")
-	}
+	in.Scope = scope
 	if in.MinAmount < 0 || in.Total < 0 || in.PerUser < 0 {
 		return errors.New("min_amount/total/per_user must be >= 0")
-	}
-	if in.Scope == "" {
-		in.Scope = "all"
-	}
-	if in.Scope != "all" {
-		id, err := parseBatchScope(in.Scope)
-		if err != nil {
-			return errors.New("scope must be all or batch:<id>")
-		}
-		var cnt int64
-		if err := h.db.Model(&storage.CardBatch{}).Where("id = ?", id).Count(&cnt).Error; err != nil {
-			return err
-		}
-		if cnt == 0 {
-			return fmt.Errorf("batch %d not found", id)
-		}
 	}
 	if in.StartsAt != nil && in.EndsAt != nil && in.EndsAt.Before(*in.StartsAt) {
 		return errors.New("ends_at must be after starts_at")
 	}
 	return nil
+}
+
+// validateDiscountRules 校验折扣规则四元组（优惠码与活动 rules 共用口径）：
+// kind 枚举、pct 基点 1-9999、cut>0、门槛>=0、scope 形态与批次存在性。
+// 返回归一化后的 scope（空→all）。
+func (h *Handler) validateDiscountRules(kind string, value int64, scope string, minAmount int64) (string, error) {
+	if kind != "cut" && kind != "pct" {
+		return "", errors.New("kind must be cut or pct")
+	}
+	if kind == "pct" {
+		if value < 1 || value > 9999 {
+			return "", errors.New("pct value must be 1-9999 basis points")
+		}
+	} else if value <= 0 {
+		return "", errors.New("cut value must be > 0")
+	}
+	if minAmount < 0 {
+		return "", errors.New("min_amount must be >= 0")
+	}
+	if scope == "" {
+		scope = "all"
+	}
+	if scope != "all" {
+		id, err := parseBatchScope(scope)
+		if err != nil {
+			return "", errors.New("scope must be all or batch:<id>")
+		}
+		var cnt int64
+		if err := h.db.Model(&storage.CardBatch{}).Where("id = ?", id).Count(&cnt).Error; err != nil {
+			return "", err
+		}
+		if cnt == 0 {
+			return "", fmt.Errorf("batch %d not found", id)
+		}
+	}
+	return scope, nil
 }
 
 // parseBatchScope 解析 batch:<id> 形态。

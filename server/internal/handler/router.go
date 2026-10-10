@@ -222,6 +222,11 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.POST("/coupons", h.createCoupon)
 		api.PUT("/coupons/:id", h.updateCoupon)
 		api.DELETE("/coupons/:id", h.deleteCoupon)
+		// 限时活动（PROMO-2）：管理面 CRUD；自动适用在 panel 下单（取优）。
+		api.GET("/campaigns", h.listCampaigns)
+		api.POST("/campaigns", h.createCampaign)
+		api.PUT("/campaigns/:id", h.updateCampaign)
+		api.DELETE("/campaigns/:id", h.deleteCampaign)
 	}
 	// 自带凭据/验签的公开面：panel 按订阅令牌（panel.go）、bot 按服务令牌
 	//（TOUCH-6）、Herald 回执与支付回调各自验签——不经 apiAuth，故挂独立组。
@@ -237,6 +242,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 			panel.GET("/orders", h.panelOrders)
 			// 在线下单（PAY-11，对 epusdt 段）
 			panel.GET("/products", h.panelProducts)
+			panel.GET("/campaigns", h.panelCampaigns)
 			panel.POST("/orders", h.panelCreateOrder)
 			panel.GET("/orders/:order_no", h.panelOrderStatus)
 			// 通知中心（NT-1）与偏好（NT-2）

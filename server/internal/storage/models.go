@@ -332,6 +332,20 @@ type Coupon struct {
 	CreatedAt time.Time  `json:"created_at"`
 }
 
+// Campaign 是限时活动（PROMO-2，运营设计 §5 DDL 蓝本）：first_order 首单 /
+// renew 续费 / timed 限时三型；rules 为折扣规则 JSON（与优惠码同一 cut/pct
+// 口径）；窗口内自动适用，与优惠码同取优口径（一单一优惠源）。
+type Campaign struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	Name      string    `gorm:"size:64" json:"name"`
+	Kind      string    `gorm:"size:16" json:"kind"` // first_order / renew / timed
+	Rules     string    `gorm:"size:512" json:"rules"`
+	StartsAt  time.Time `json:"starts_at"`
+	EndsAt    time.Time `json:"ends_at"`
+	Enabled   bool      `gorm:"default:true" json:"enabled"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // PaymentTransaction 是支付流水（三账之二：外部实际发生的收付）。
 type PaymentTransaction struct {
 	ID          uint      `gorm:"primaryKey" json:"id"`

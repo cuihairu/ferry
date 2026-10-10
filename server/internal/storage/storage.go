@@ -108,6 +108,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&DistributorLedger{},
 		&GeoDNSRecord{},
 		&Coupon{},
+		&Campaign{},
 	)
 }
 

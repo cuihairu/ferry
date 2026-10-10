@@ -280,19 +280,33 @@ func (h *Handler) panelCreateOrder(c *gin.Context) {
 		return
 	}
 	orderNo := fmt.Sprintf("%s-%d-%d", in.Provider, u.ID, now.UnixNano())
-	// 优惠码两段式（PROMO-1）：先只读校验（窗口/门槛/范围/限次，失败即回
-	// 业务文案，码分毫不烧），网关下单成功后「核销+订单行」同事务落库——
-	// 核销条件 UPDATE 防并发超发（取优口径=一单一优惠源不叠加，DS §3.3，
-	// 故仅一码位）。
+	// 取优（DS §3.3）：一单一优惠源——码与活动候选各自算惠，择大者落单；
+	// 落选的码不核销（无副作用）。码先只读校验（窗口/门槛/范围/限次，
+	// 失败即回业务文案），网关下单成功后「核销+订单行」同事务落库——
+	// 核销条件 UPDATE 防并发超发。
 	paid := batch.PriceCents
 	code := strings.ToUpper(strings.TrimSpace(in.CouponCode))
+	var cp *storage.Coupon
+	var camp *storage.Campaign
 	if code != "" {
-		cp, err := couponCheck(h.db, code, &u, &batch, batch.PriceCents, now)
+		c0, err := couponCheck(h.db, code, &u, &batch, batch.PriceCents, now)
 		if err != nil {
 			fail(c, http.StatusBadRequest, err)
 			return
 		}
+		cp = &c0
 		paid = couponDiscount(cp.Kind, cp.Value, paid)
+	}
+	camp, campPaid, err := h.bestCampaign(h.db, &u, &batch, batch.PriceCents, now)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	if camp != nil && campPaid < paid {
+		cp = nil // 活动胜出：码不核销
+		paid = campPaid
+	} else {
+		camp = nil // 码胜出或无活动
 	}
 	rcpt, err := provider.CreateOrder(c.Request.Context(), payment.Order{
 		OrderNo: orderNo, UserID: int64(u.ID), AmountCents: paid,
@@ -309,14 +323,20 @@ func (h *Handler) panelCreateOrder(c *gin.Context) {
 		GrantType: batch.GrantType, GrantValue: batch.GrantValue,
 	}
 	if err := h.db.Transaction(func(tx *gorm.DB) error {
-		if code != "" {
-			burnPaid, cp, err2 := applyCouponTx(tx, code, &u, &batch, batch.PriceCents, now)
+		if cp != nil {
+			burnPaid, burned, err2 := applyCouponTx(tx, code, &u, &batch, batch.PriceCents, now)
 			if err2 != nil {
 				// 预检已过仍失败只可能是并发限次竞态，整单回滚（含码）。
 				return err2
 			}
-			order.PromoCode = cp.Code
-			order.PromoSnapshot = couponSnapshot(cp.Code, cp.Kind, cp.Value, batch.PriceCents, burnPaid)
+			order.PromoCode = burned.Code
+			order.PromoSnapshot = couponSnapshot(burned.Code, burned.Kind, burned.Value, batch.PriceCents, burnPaid)
+		} else if camp != nil {
+			rules, err2 := h.parseCampaignRules(camp.Rules)
+			if err2 != nil {
+				return err2
+			}
+			order.PromoSnapshot = campaignSnapshot(camp, rules, batch.PriceCents, paid)
 		}
 		return tx.Create(&order).Error
 	}); err != nil {
