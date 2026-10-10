@@ -107,3 +107,31 @@ AES-GCM 能力）→导入（SQLite 留底+原子覆盖 / `--pg-dsn` 走 pg_rest
 换机迁移五步操作化（DNS 切换、agent 自动重连核对、回滚）见
 [MIGRATION-RUNBOOK.md](MIGRATION-RUNBOOK.md)。
 
+## 面板主从同步（P2-1）
+
+单面板零配置零变化。需要第二台 VPS 做热备时：
+
+主面板（只加一个令牌开放快照端点）：
+
+```sh
+# ferry.env
+FERRY_STANDBY_TOKEN=<openssl rand -hex 32>
+```
+
+standby 实例（第二台 VPS，同一镜像；令牌与主密钥与主面板一致）：
+
+```sh
+# ferry.env
+FERRY_STANDBY_TOKEN=<同一令牌>
+FERRY_STANDBY_MASTER_URL=https://<主面板地址>
+FERRY_STANDBY_SEC=600
+# FERRY_SECRET_KEY 必须与主面板一致（解密校验快照）
+```
+
+语义：standby 每 `FERRY_STANDBY_SEC` 秒拉一次主面板加密快照（VACUUM INTO
+在线一致性快照，与周期备份同格式，restore.sh 也可直接恢复），主密钥解密
+校验后原子替换本机库（先静默连接再换文件并清旧 `-wal/-shm` 侧车），随后
+进程退出交 systemd/compose 重启加载新库——RPO ≤ 拉取间隔；主面板不可达
+或校验失败时不替换，继续服务陈旧库。提升为主：去掉 `MASTER_URL` 重启，
+配回主面板地址即接管流量。
+

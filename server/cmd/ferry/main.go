@@ -35,6 +35,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/ringlog"
 	"github.com/cuihairu/ferry/server/internal/save"
 	"github.com/cuihairu/ferry/server/internal/secret"
+	"github.com/cuihairu/ferry/server/internal/standby"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/cuihairu/ferry/server/internal/toucher"
 	"github.com/cuihairu/ferry/server/internal/xray"
@@ -220,6 +221,20 @@ func main() {
 		}
 	}
 	go backup.Loop(ctx, db, backupOpts, secret.NewStore(cfg.SecretKey))
+
+	// 面板主从同步（P2-1）：standby 实例配置 FERRY_STANDBY_MASTER_URL 即
+	// 周期拉取主面板加密快照原子替换本机库，替换后退出交 systemd 重启加载
+	// 新库（RPO ≤ 间隔；主面板不可达时继续服务陈旧库不替换）。主面板侧
+	// 只需 FERRY_STANDBY_TOKEN 开放快照端点（handler/standby.go）。
+	if cfg.StandbyMasterURL != "" {
+		go standby.Loop(ctx, standby.Options{
+			MasterURL: cfg.StandbyMasterURL, Token: cfg.StandbyToken,
+			Sec: cfg.StandbySec, DBPath: standby.DBPathFromDSN(cfg.DBDSN),
+		}, db, secret.NewStore(cfg.SecretKey), func() {
+			log.Printf("standby: db replaced from master, exiting for restart")
+			os.Exit(0)
+		})
+	}
 
 	// 操作审计保留清扫（AU-3）：retention<=0 永久保留不启动。
 	go audit.Loop(ctx, db, cfg.AuditRetentionDays, nil)

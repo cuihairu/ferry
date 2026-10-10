@@ -124,6 +124,14 @@ type Config struct {
 	BackupS3Bucket    string
 	BackupS3AccessKey string
 	BackupS3SecretKey string `json:"-"`
+
+	// Standby* 是面板主从同步（P2-1）：主面板只需 FERRY_STANDBY_TOKEN
+	// 开放 /api/standby/snapshot 快照端点；standby 实例配 MasterURL 指向
+	// 主面板 + 同一 token，周期拉取加密快照原子替换本机库。Token 空 =
+	// 同步面整体关闭（主面板端点 403、standby 不启动），默认零变化。
+	StandbyMasterURL string
+	StandbyToken     string `json:"-"`
+	StandbySec       int
 }
 
 // Load 从环境变量读取配置，未设置的项回退到默认值。
@@ -171,6 +179,9 @@ func Load() Config {
 		BackupKeep:            envIntOr("FERRY_BACKUP_KEEP", 7),
 		AuditRetentionDays:    envIntOr("FERRY_AUDIT_RETENTION_DAYS", 90),
 		BackupS3Enabled:       envBoolOr("FERRY_BACKUP_S3_ENABLED", false),
+		StandbyMasterURL:      envOr("FERRY_STANDBY_MASTER_URL", ""),
+		StandbyToken:          envOr("FERRY_STANDBY_TOKEN", ""),
+		StandbySec:            envIntOr("FERRY_STANDBY_SEC", 600),
 		BackupS3Endpoint:      os.Getenv("FERRY_BACKUP_S3_ENDPOINT"),
 		BackupS3Bucket:        os.Getenv("FERRY_BACKUP_S3_BUCKET"),
 		BackupS3AccessKey:     os.Getenv("FERRY_BACKUP_S3_ACCESS_KEY"),

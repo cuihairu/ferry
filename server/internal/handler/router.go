@@ -234,9 +234,13 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.DELETE("/campaigns/:id", h.deleteCampaign)
 	}
 	// 自带凭据/验签的公开面：panel 按订阅令牌（panel.go）、bot 按服务令牌
-	//（TOUCH-6）、Herald 回执与支付回调各自验签——不经 apiAuth，故挂独立组。
+	//（TOUCH-6）、Herald 回执与支付回调各自验签、standby 按共享令牌
+	//（P2-1 主从同步）——不经 apiAuth，故挂独立组。
 	open := r.Group("/api")
 	{
+		// standby 实例拉取主面板快照（P2-1）：X-Standby-Token 机器鉴权，
+		// 未配置 token 恒 403（同步面关闭）。
+		open.GET("/standby/snapshot", h.standbySnapshot)
 		panel := open.Group("/panel")
 		{
 			panel.GET("/me", h.panelMe)
