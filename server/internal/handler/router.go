@@ -141,6 +141,11 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		// 事件 outbox（HERALD-1）：dash 可见 pending/failed，死信人工重投。
 		api.GET("/events", h.listEvents)
 		api.POST("/events/:id/retry", h.retryEvent)
+		// 通道投递看板与自检（HC-1/2/3）：回执聚合+健康徽标、自检测试事件、
+		// 各类告警样例预览。
+		api.GET("/events/deliveries", h.listEventDeliveries)
+		api.GET("/events/samples", h.listEventSamples)
+		api.POST("/events/test", h.testEvent)
 		api.GET("/cost", h.getCost)
 		api.GET("/evening", h.getEvening)
 		api.PUT("/cost/threshold", h.putCostThreshold)

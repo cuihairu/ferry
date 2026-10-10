@@ -225,3 +225,99 @@ func (h *Handler) recordEventResult(c *gin.Context, eventID int64, channel, stat
 	h.touchResult(eventID, status, detail) // 触达任务联动（TOUCH-5）
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
+
+// ---- 通道投递看板与自检（HC-1/HC-2/HC-3，告警通道设计 §6 P2 行）----
+
+// listEventDeliveries 投递回执看板（GET /api/events/deliveries）：最近回实行
+// （新在前）+ 按通道聚合（sent/failed 计数、最近一次失败明细）——通道故障
+// 自检的被动面，修通道前后对比有据。
+func (h *Handler) listEventDeliveries(c *gin.Context) {
+	limit := 100
+	if v := c.Query("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 200 {
+			fail(c, http.StatusBadRequest, errors.New("limit must be 1-200"))
+			return
+		}
+		limit = n
+	}
+	q := h.db.Model(&storage.EventDelivery{}).Order("id DESC").Limit(limit)
+	if v := c.Query("channel"); v != "" {
+		q = q.Where("channel = ?", v)
+	}
+	rows := []storage.EventDelivery{}
+	if err := q.Find(&rows).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	// 按通道全量聚合（回执行规模小，直接 GROUP BY）。
+	var agg []struct {
+		Channel string
+		Sent    int64
+		Failed  int64
+	}
+	if err := h.db.Model(&storage.EventDelivery{}).
+		Select("channel, COALESCE(SUM(status = 'sent'), 0) AS sent, COALESCE(SUM(status = 'failed'), 0) AS failed").
+		Group("channel").Order("channel").Scan(&agg).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	channels := make([]gin.H, 0, len(agg))
+	for _, a := range agg {
+		health := "healthy"
+		if a.Sent == 0 && a.Failed > 0 {
+			health = "down"
+		} else if a.Failed > 0 {
+			health = "degraded"
+		}
+		item := gin.H{"channel": a.Channel, "sent": a.Sent, "failed": a.Failed, "health": health}
+		// 最近一次失败明细（每通道一查，通道数个位数）。
+		var last storage.EventDelivery
+		if err := h.db.Where("channel = ? AND status = ?", a.Channel, herald.StatusFailed).
+			Order("id DESC").First(&last).Error; err == nil {
+			item["last_failed_at"] = last.At
+			item["last_detail"] = last.Detail
+		}
+		channels = append(channels, item)
+	}
+	c.JSON(http.StatusOK, gin.H{"rows": rows, "channels": channels})
+}
+
+// testEvent 通道自检（POST /api/events/test）：落一条 system_test 事件走
+// 完整 outbox→Herald→回执链路（复用退避重试与死信口径，不注入 Sender）。
+// 投递结果稍后出现在回执看板与 outbox——自检的「主动面」。
+func (h *Handler) testEvent(c *gin.Context) {
+	ev, err := herald.Emit(h.db, herald.EmitInput{
+		Kind: "system_test", Severity: "info", Target: "admin",
+		Title: "ferry 通道自检",
+		Body:  "通道自检测试事件（" + time.Now().Format("2006-01-02 15:04:05") + "），收到即代表投递链路正常，可忽略。",
+	})
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusCreated, ev)
+}
+
+// listEventSamples 通知样例预览（GET /api/events/samples）：每 kind 取最近
+// 一条实际落库事件作样例——零漂移（真实出站的标题/正文形态，非模板副本），
+// 管理员发测试前可先看各类告警长什么样。
+func (h *Handler) listEventSamples(c *gin.Context) {
+	var kinds []string
+	if err := h.db.Model(&storage.Event{}).Distinct().Order("kind").Pluck("kind", &kinds).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	out := make([]gin.H, 0, len(kinds))
+	for _, k := range kinds {
+		var ev storage.Event
+		if err := h.db.Where("kind = ?", k).Order("id DESC").First(&ev).Error; err != nil {
+			continue
+		}
+		out = append(out, gin.H{
+			"kind": ev.Kind, "severity": ev.Severity, "title": ev.Title,
+			"body": ev.Body, "status": ev.Status, "occurred_at": ev.OccurredAt,
+		})
+	}
+	c.JSON(http.StatusOK, out)
+}
