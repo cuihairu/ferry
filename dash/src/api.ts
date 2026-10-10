@@ -918,6 +918,52 @@ export function getAuditLogs(q: AuditQuery): Promise<{ audit_logs: AuditLogRow[]
   return get(`/api/audit-logs?${p}`)
 }
 
+// ---- 优惠码（PROMO-1/2，运营设计 §5）----
+// 一单一优惠源不叠加（DS §3.3）；核销在门户下单，快照落订单三账可对。
+
+export interface CouponRow {
+  id: number
+  code: string
+  kind: 'cut' | 'pct'
+  value: number // cut=减额（分）；pct=减幅（基点，10000=不打折）
+  scope: string // all | batch:<id>
+  min_amount: number // 使用门槛（分），0=无门槛
+  starts_at: string | null
+  ends_at: string | null
+  total: number // 发放总量，0=不限
+  per_user: number // 每用户限用次数
+  used: number
+  created_at: string
+}
+
+export interface CouponInput {
+  code?: string // 留空自动生成（FERRY-XXXXXXXX）
+  kind: 'cut' | 'pct'
+  value: number
+  scope?: string
+  min_amount?: number
+  starts_at?: string | null
+  ends_at?: string | null
+  total?: number
+  per_user?: number
+}
+
+export function getCoupons(): Promise<CouponRow[]> {
+  return get('/api/coupons')
+}
+
+export function createCoupon(input: CouponInput): Promise<CouponRow> {
+  return post('/api/coupons', input)
+}
+
+export function updateCoupon(id: number, input: CouponInput): Promise<CouponRow> {
+  return put(`/api/coupons/${id}`, input)
+}
+
+export function deleteCoupon(id: number): Promise<{ ok: boolean }> {
+  return del(`/api/coupons/${id}`)
+}
+
 // ---- 成本参考库（E-31，套餐与成本设计 §4）----
 // 手录成本唯一权威，参考价只产偏差提示不改价。
 

@@ -15,6 +15,7 @@ export const router = createRouter({
     { path: '/users', component: () => import('./views/UsersView.vue') },
     { path: '/cards', component: () => import('./views/CardsView.vue') },
     { path: '/payments', component: () => import('./views/ReconcileView.vue') },
+    { path: '/promos', component: () => import('./views/PromosView.vue') },
     { path: '/cost', component: () => import('./views/CostView.vue') },
     { path: '/provision', component: () => import('./views/ProvisionView.vue') },
     { path: '/dns', component: () => import('./views/DnsView.vue') },
