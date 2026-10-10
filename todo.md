@@ -332,6 +332,8 @@
 
 设计稿全扫（14 篇+README）结论：未落地标记全部属闸门（令牌轮换/CRL、C-03 IPC 族、微信支付宝直连等资质、Herald 外通道、P2-5 观察）或 P2 分期；唯一无闸门且价值成立的族=告警通道 P2 三件（投递回执看板/通道故障自检/模板预览）。调度历史权重族文档自注「P2 才考虑自动调，人工调参先行」（C-12 已落）维持挂起；mTLS CA 编排受 mTLS 默认关闭抑制维持挂起。
 
-- [ ] [P2] HC-1 投递回执看板：`GET /api/events/deliveries`（最近回实行+按通道聚合 sent/failed/最近失败明细）+ dash 通知页「通道投递」卡（按通道健康行+最近回执表）
-- [ ] [P2] HC-2 通道故障自检：被动=HC-1 聚合派生通道健康徽标；主动=`POST /api/events/test` 落 `system_test` 事件走完整 outbox→Herald→回执链路（复用退避重试，不注入 Sender），dash「发送测试事件」按钮
-- [ ] [P2] HC-3 通知样例预览：`GET /api/events/samples`（每 kind 最近一条实际落库事件作样例——零漂移，不做 16 处 Emit 点的模板注册表重构）+ dash 预览位（选 kind 看实际标题/正文形态）
+- [x] [P2] HC-1 投递回执看板：`GET /api/events/deliveries`（limit 1-200 默认 100 + ?channel 过滤；行表 id DESC + 按通道聚合 SUM(status='sent'/'failed') Group channel）→ 健康徽标口径：全败=down、有败=degraded、其余=healthy，附最近失败明细（First where status=failed）。dash 通知页「通道投递与自检」卡：通道健康行表（通道/徽标/成功/失败/最近失败时间+明细）+最近回执表（回执 id/通道/结果 tag/明细/时间）+通道过滤下拉。commit=96fd57e（server）+9277c5b（dash）
+- [x] [P2] HC-2 通道故障自检：被动=HC-1 聚合派生通道健康徽标（落 unhealthy 徽标即可见）；主动=`POST /api/events/test` → herald.Emit(kind=system_test, severity=info, target=admin, body 带时间戳)→201，走完整 outbox→Herald→回执链路（复用退避重试/死信语义，不注入 Sender；pending 停留即 Herald 未配置或不可达），连发自检不合并（每条独立回执）。dash「发送测试事件」按钮（成功后刷新事件列表+回执表）。commit=96fd57e（server）+9277c5b（dash）
+- [x] [P2] HC-3 通知样例预览：`GET /api/events/samples`（distinct kind→每 kind 最近一条实际落库事件作样例——零漂移，不做 16 处 Emit 点的模板注册表重构）→ [{kind,severity,title,body,status,occurred_at}]。dash 预览位：kind 下拉→样例卡（severity tag+投递状态 tag+发生时间+标题+正文 pre-wrap），空仓 el-empty 引导先触发告警或发自检。commit=96fd57e（server）+9277c5b（dash）
+
+拍板落地（2026-10-10 HC 批收尾）：HC-1/2/3 三件全落地——server 侧 96fd57e（eventsapi.go 三端点+路由挂载+heraldboard_test.go：回执聚合与健康徽标/自检不合并/样例取最近），dash 侧 9277c5b（api.ts 三函数+通知页「通道投递与自检」「通知样例预览」两节）。设计取舍：自检不注入 Sender，测试事件走真实投递链路（pending 状态本身即 Herald 未配置信号，复用退避与死信语义）；样例预览取实单不做模板注册表（16 处 Emit 点零漂移）。make test 全绿，dash pnpm build 绿。HC 批清；告警通道设计 §6 P2 行收口，剩余项均属闸门维持不动。
