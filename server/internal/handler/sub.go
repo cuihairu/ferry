@@ -130,7 +130,10 @@ func (h *Handler) subscription(c *gin.Context) {
 		}
 		c.Data(http.StatusOK, "text/yaml; charset=utf-8", []byte(body))
 	case "singbox":
-		// sing-box outbounds 数组（hy2 批）：客户端并入 outbounds 段即可用。
+		// sing-box outbounds 数组（hy2 批建、SB 批补全五协议）：客户端并入
+		// outbounds 段即可用。TOUCH-7 逃生注释不带——纯 JSON 无注释位，
+		// 插注释行即破坏解析；容灾注释走 v2ray/clash 目标（公告 panel 站内
+		// 与 Herald 外通道仍可达）。
 		body, err := sub.PackSingBox(entries)
 		if err != nil {
 			fail(c, http.StatusInternalServerError, err)
