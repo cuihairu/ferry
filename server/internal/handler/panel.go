@@ -235,8 +235,9 @@ func (h *Handler) panelCreateOrder(c *gin.Context) {
 		return
 	}
 	var in struct {
-		BatchID  uint   `json:"batch_id"`
-		Provider string `json:"provider"`
+		BatchID    uint   `json:"batch_id"`
+		Provider   string `json:"provider"`
+		CouponCode string `json:"coupon_code"`
 	}
 	if err := c.ShouldBindJSON(&in); err != nil || in.BatchID == 0 || in.Provider == "" {
 		fail(c, http.StatusBadRequest, errors.New("batch_id 与 provider 必填"))
@@ -279,8 +280,22 @@ func (h *Handler) panelCreateOrder(c *gin.Context) {
 		return
 	}
 	orderNo := fmt.Sprintf("%s-%d-%d", in.Provider, u.ID, now.UnixNano())
+	// 优惠码两段式（PROMO-1）：先只读校验（窗口/门槛/范围/限次，失败即回
+	// 业务文案，码分毫不烧），网关下单成功后「核销+订单行」同事务落库——
+	// 核销条件 UPDATE 防并发超发（取优口径=一单一优惠源不叠加，DS §3.3，
+	// 故仅一码位）。
+	paid := batch.PriceCents
+	code := strings.ToUpper(strings.TrimSpace(in.CouponCode))
+	if code != "" {
+		cp, err := couponCheck(h.db, code, &u, &batch, batch.PriceCents, now)
+		if err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		paid = couponDiscount(cp.Kind, cp.Value, paid)
+	}
 	rcpt, err := provider.CreateOrder(c.Request.Context(), payment.Order{
-		OrderNo: orderNo, UserID: int64(u.ID), AmountCents: batch.PriceCents,
+		OrderNo: orderNo, UserID: int64(u.ID), AmountCents: paid,
 		Product: batch.Name, CreatedAt: now,
 	})
 	if err != nil {
@@ -289,10 +304,23 @@ func (h *Handler) panelCreateOrder(c *gin.Context) {
 	}
 	order := storage.PaymentOrder{
 		OrderNo: orderNo, UserID: u.ID, Provider: in.Provider,
-		AmountCents: batch.PriceCents, Product: batch.Name, Status: "pending",
+		AmountCents: paid, ListAmountCents: batch.PriceCents,
+		Product: batch.Name, Status: "pending",
 		GrantType: batch.GrantType, GrantValue: batch.GrantValue,
 	}
-	if err := h.db.Create(&order).Error; err != nil {
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if code != "" {
+			burnPaid, cp, err2 := applyCouponTx(tx, code, &u, &batch, batch.PriceCents, now)
+			if err2 != nil {
+				// 预检已过仍失败只可能是并发限次竞态，整单回滚（含码）。
+				return err2
+			}
+			order.PromoCode = cp.Code
+			order.PromoSnapshot = couponSnapshot(cp.Code, cp.Kind, cp.Value, batch.PriceCents, burnPaid)
+		}
+		return tx.Create(&order).Error
+	}); err != nil {
+		// 网关单已建而本地未落：用户无 pay_url 不受影响，网关单自然过期。
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
@@ -300,7 +328,7 @@ func (h *Handler) panelCreateOrder(c *gin.Context) {
 		"order_no":     orderNo,
 		"provider":     in.Provider,
 		"product":      batch.Name,
-		"amount_cents": batch.PriceCents,
+		"amount_cents": paid,
 		"pay_url":      rcpt.PayURL,
 		"external_id":  rcpt.ExternalID,
 		"expires_at":   rcpt.ExpiresAt,

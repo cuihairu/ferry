@@ -217,6 +217,11 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.POST("/token", h.AdminGetApiToken)
 		// 操作审计（AU-1）：写操作流水查询，admin 写操作经 auditMiddleware 落行。
 		api.GET("/audit-logs", h.ListAuditLogs)
+		// 优惠码（PROMO-1）：管理面 CRUD；核销在 panel 下单（panel.go）。
+		api.GET("/coupons", h.listCoupons)
+		api.POST("/coupons", h.createCoupon)
+		api.PUT("/coupons/:id", h.updateCoupon)
+		api.DELETE("/coupons/:id", h.deleteCoupon)
 	}
 	// 自带凭据/验签的公开面：panel 按订阅令牌（panel.go）、bot 按服务令牌
 	//（TOUCH-6）、Herald 回执与支付回调各自验签——不经 apiAuth，故挂独立组。

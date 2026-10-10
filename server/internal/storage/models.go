@@ -306,7 +306,30 @@ type PaymentOrder struct {
 	// 退款留痕（OD-2）：面板只做状态流转与记录，钱款退回经渠道后台操作。
 	RefundAt   *time.Time `json:"refund_at,omitempty"`
 	RefundNote string     `gorm:"size:255" json:"refund_note,omitempty"` // 渠道退款单号/原因
+	// 优惠账目（PROMO-1，运营设计 §5）：原价/优惠码/快照——订单记原价+实付
+	//（AmountCents）+优惠明细，三账对账有据；无优惠时三列为零值/空。
+	ListAmountCents int64       `gorm:"default:0" json:"list_amount_cents"` // 原价（分），无优惠=AmountCents
+	PromoCode       string      `gorm:"size:64;index;default:''" json:"promo_code,omitempty"`
+	PromoSnapshot   string      `gorm:"size:512" json:"promo_snapshot,omitempty"` // 原价/折扣/码/实付 JSON
 	// 不设 User 关联：财务记录不随用户删除（无外键）。
+}
+
+// Coupon 是优惠码（PROMO-1，运营设计 §5 DDL 蓝本）：cut 减额（分）/
+// pct 折扣（基点，10000=不打折）；scope=all 或 batch:<id> 指定批次；
+// total=0 不限总量，per_user 每用户限次；核销条件更新防超发。
+type Coupon struct {
+	ID        uint       `gorm:"primaryKey" json:"id"`
+	Code      string     `gorm:"size:64;uniqueIndex" json:"code"`
+	Kind      string     `gorm:"size:8" json:"kind"` // cut / pct
+	Value     int64      `json:"value"`              // 分（cut）或基点（pct，1-9999）
+	Scope     string     `gorm:"size:32" json:"scope"`
+	MinAmount int64      `gorm:"default:0" json:"min_amount"` // 门槛（分），按原价计
+	StartsAt  *time.Time `json:"starts_at"`
+	EndsAt    *time.Time `json:"ends_at"`
+	Total     int64      `gorm:"default:0" json:"total"`   // 0=不限
+	PerUser   int64      `gorm:"default:1" json:"per_user"` // 每用户限次
+	Used      int64      `gorm:"default:0" json:"used"`
+	CreatedAt time.Time  `json:"created_at"`
 }
 
 // PaymentTransaction 是支付流水（三账之二：外部实际发生的收付）。
