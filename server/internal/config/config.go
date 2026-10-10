@@ -112,6 +112,10 @@ type Config struct {
 	BackupDir  string
 	BackupCron string
 	BackupKeep int
+
+	// AuditRetentionDays 是操作审计（AU-3）保留天数：超窗行由清扫循环删除，
+	// 0=永久保留（不启动清扫）。
+	AuditRetentionDays int
 	// BackupS3* 是备份外发位的配置面（FERRY_BACKUP_S3_*）：默认关闭，
 	// 显式 ENABLED=1 才视为开启并注入 S3 兼容端点外发（stdlib SigV4 PUT）；
 	// 未开启时行为与关闭态零变化（绝不主动开启，env-example 缺省不动）。
@@ -165,6 +169,7 @@ func Load() Config {
 		BackupDir:             envOr("FERRY_BACKUP_DIR", "backups"),
 		BackupCron:            envOr("FERRY_BACKUP_CRON", "daily"),
 		BackupKeep:            envIntOr("FERRY_BACKUP_KEEP", 7),
+		AuditRetentionDays:    envIntOr("FERRY_AUDIT_RETENTION_DAYS", 90),
 		BackupS3Enabled:       envBoolOr("FERRY_BACKUP_S3_ENABLED", false),
 		BackupS3Endpoint:      os.Getenv("FERRY_BACKUP_S3_ENDPOINT"),
 		BackupS3Bucket:        os.Getenv("FERRY_BACKUP_S3_BUCKET"),

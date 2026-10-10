@@ -17,6 +17,7 @@ import (
 	_ "github.com/cuihairu/ferry/payments/epusdt" // PAY-8：init 自注册收款渠道
 	_ "github.com/cuihairu/ferry/payments/wechat" // PAY-10：占位渠道（未启用文案）
 	"github.com/cuihairu/ferry/server/internal/alloc"
+	"github.com/cuihairu/ferry/server/internal/audit"
 	"github.com/cuihairu/ferry/server/internal/backup"
 	"github.com/cuihairu/ferry/server/internal/cert"
 	"github.com/cuihairu/ferry/server/internal/config"
@@ -219,6 +220,9 @@ func main() {
 		}
 	}
 	go backup.Loop(ctx, db, backupOpts, secret.NewStore(cfg.SecretKey))
+
+	// 操作审计保留清扫（AU-3）：retention<=0 永久保留不启动。
+	go audit.Loop(ctx, db, cfg.AuditRetentionDays, nil)
 
 	// 面板 Web 证书（P1-7）：settings 里配置了证书即走 HTTPS，
 	// 配置损坏启动中止以免静默降级 HTTP；切换证书需重启生效。
