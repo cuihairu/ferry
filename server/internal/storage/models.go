@@ -603,6 +603,21 @@ type LoginLog struct {
 	CreatedAt time.Time `gorm:"index" json:"created_at"` // 设计 DDL idx_login_logs_time
 }
 
+// AuditLog 是管理员写操作审计（AU-1，P2-6 观察项转正）：谁在何时对哪个
+// 对象做了什么（方法+路径/请求体快照脱敏/响应成败/IP），dash 分页可查；
+// 保留与轮转见 AU-3（FERRY_AUDIT_RETENTION_DAYS）。
+type AuditLog struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	Actor     string    `gorm:"size:128;index" json:"actor"`  // 操作者名（管理员用户名/API Token subject）
+	ActorKind string    `gorm:"size:16" json:"actor_kind"`    // admin | api
+	Action    string    `gorm:"size:255;index" json:"action"` // "PUT /api/users/:id"
+	Target    string    `gorm:"size:64" json:"target"`        // 对象 id（路径 :id 参数）
+	Body      string    `gorm:"size:2048" json:"body"`        // 请求体快照（敏感字段脱敏，截断 2KB）
+	Success   bool      `json:"success"`                      // 响应 <400
+	IP        string    `gorm:"size:64" json:"ip"`
+	CreatedAt time.Time `gorm:"index" json:"created_at"`
+}
+
 // PriceWatch 是价格关注条件（E-32，套餐与成本设计 §4.2 DDL 蓝本）：盯
 // 「商家+区域+配置档」一个牌价键，降价或现价到位（target_price>0）经
 // Herald price_alert 提示；条件与参考价同词表（costref 价格表键）。

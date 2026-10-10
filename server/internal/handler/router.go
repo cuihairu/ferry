@@ -82,7 +82,8 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 
 	// 管理数据面（2026-10-10 安全修复）：dash JWT 或 API Token 二选一，
 	// 见 apitoken.go apiAuth。此前本组无任何中间件，管理接口公网裸奔。
-	api := r.Group("/api", h.apiAuth())
+	// AU-1：写操作经 auditMiddleware 统一落 audit_logs（GET 跳过）。
+	api := r.Group("/api", h.apiAuth(), h.auditMiddleware())
 	{
 		api.GET("/nodes", h.listNodes)
 		api.POST("/nodes", h.createNode)
@@ -214,6 +215,8 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		// P1-1 管理员登录与鉴权（API Token 签发走 apiAuth 双凭据口径）。
 		api.GET("/token", h.GetCurrentUser)
 		api.POST("/token", h.AdminGetApiToken)
+		// 操作审计（AU-1）：写操作流水查询，admin 写操作经 auditMiddleware 落行。
+		api.GET("/audit-logs", h.ListAuditLogs)
 	}
 	// 自带凭据/验签的公开面：panel 按订阅令牌（panel.go）、bot 按服务令牌
 	//（TOUCH-6）、Herald 回执与支付回调各自验签——不经 apiAuth，故挂独立组。
@@ -267,7 +270,8 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		dist.GET("/orders", h.distOrders)
 		dist.GET("/ledger", h.distLedger)
 	}
-	admin := r.Group("/admin", h.adminAuthMiddleware())
+	// AU-1：管理面写操作同口径落审计（GET 跳过）。
+	admin := r.Group("/admin", h.adminAuthMiddleware(), h.auditMiddleware())
 	{
 		admin.GET("/backup/db", h.backupDB)
 		admin.GET("/web-cert", h.getWebCert)

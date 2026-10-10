@@ -101,6 +101,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&Backup{},
 		&RecoveryCode{},
 		&LoginLog{},
+		&AuditLog{},
 		&PriceWatch{},
 		&PriceSnapshot{},
 		&Distributor{},
