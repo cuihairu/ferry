@@ -189,8 +189,8 @@ func outboundState(opts Options) string {
 	return "enabled (s3-compatible endpoint; scope = all files in backup dir)"
 }
 
-// run 跑一轮完整备份：快照落档 → backups 行 → 外发位（未实现只日志明示）
-// → 滚动清理。
+// run 跑一轮完整备份：快照落档 → backups 行 → 外发位（S3 已接入，
+// 2026-10-09 外发批；未配 uploader 只日志明示不外发）→ 滚动清理。
 func run(ctx context.Context, db *gorm.DB, opts Options, store *secret.Store) error {
 	path, size, err := Snapshot(db, opts.Dir, store)
 	if err != nil {

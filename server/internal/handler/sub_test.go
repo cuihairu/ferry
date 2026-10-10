@@ -389,3 +389,63 @@ func TestSubscriptionHysteria2(t *testing.T) {
 		t.Fatalf("routing render on hy2: %d %s", rec.Code, rec.Body)
 	}
 }
+
+// TestSubscriptionSingBoxMixed 覆盖混编舰队 singbox 订阅（SB 批）：
+// xray 系与 hy2 节点共存时 target=singbox 出全量出站，不再整包报错。
+func TestSubscriptionSingBoxMixed(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	nodes := []map[string]any{
+		{"name": "vl", "address": "vl.example.com", "port": 443, "protocol": "vless",
+			"config": `{"uuid":"u-1","tls":true,"sni":"s.com","net":"ws","host":"cdn.example.com","path":"/ws"}`},
+		{"name": "tj", "address": "tj.example.com", "port": 443, "protocol": "trojan",
+			"config": `{"password":"p2","sni":"s.com"}`},
+		{"name": "ss", "address": "ss.example.com", "port": 8388, "protocol": "shadowsocks",
+			"config": `{"method":"aes-256-gcm","password":"p3"}`},
+		{"name": "hy", "address": "hy.example.com", "port": 443, "protocol": "hysteria2",
+			"config": `{"password":"p4","sni":"s.com"}`},
+	}
+	for i, n := range nodes {
+		if rec := doJSON(t, r, "POST", "/api/nodes", n); rec.Code != http.StatusCreated {
+			t.Fatalf("create node %d: %d %s", i, rec.Code, rec.Body)
+		}
+	}
+	// 入订阅面：entry 角色（订阅只出 entry/both 且 active 的节点）。
+	if err := db.Model(&storage.Node{}).Where("name IN ?", []string{"vl", "tj", "ss", "hy"}).
+		Update("role", "entry").Error; err != nil {
+		t.Fatal(err)
+	}
+
+	rec := doJSON(t, r, "POST", "/api/users", map[string]any{"username": "sbuser"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create user: %d %s", rec.Code, rec.Body)
+	}
+	var u map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &u)
+
+	sb := getSub(t, r, "/sub/"+u["sub_token"].(string)+"?target=singbox", "curl/8.0")
+	if sb.Code != http.StatusOK {
+		t.Fatalf("singbox target: %d %s", sb.Code, sb.Body)
+	}
+	var obs []map[string]any
+	if err := json.Unmarshal(sb.Body.Bytes(), &obs); err != nil {
+		t.Fatalf("singbox not json array: %v\n%s", err, sb.Body)
+	}
+	if len(obs) != len(nodes) {
+		t.Fatalf("outbounds = %d, want %d:\n%s", len(obs), len(nodes), sb.Body)
+	}
+	wantTypes := map[int]any{0: "vless", 1: "trojan", 2: "shadowsocks", 3: "hysteria2"}
+	for i, want := range wantTypes {
+		if obs[i]["type"] != want {
+			t.Fatalf("outbound[%d] type = %v, want %v", i, obs[i]["type"], want)
+		}
+	}
+	// vless ws 传输进 sing-box transport 对象。
+	if tr, ok := obs[0]["transport"].(map[string]any); !ok || tr["type"] != "ws" || tr["path"] != "/ws" {
+		t.Fatalf("vless transport = %v", obs[0]["transport"])
+	}
+	// trojan 恒 TLS。
+	if tls, ok := obs[1]["tls"].(map[string]any); !ok || tls["enabled"] != true {
+		t.Fatalf("trojan tls = %v", obs[1]["tls"])
+	}
+}

@@ -142,9 +142,10 @@ masquerade:
     rewriteHost: true
 ```
 
-- 订阅侧出口：`/sub/:token?target=singbox` 出 sing-box outbounds 数组；
-  clash/mihomo 订阅与 v2ray 链接里 hy2 节点自动为 `type: hysteria2` /
-  `hysteria2://` 条目（节点配置模板 JSON 写 password/sni/obfs/up/down）。
+- 订阅侧出口：`/sub/:token?target=singbox` 出 sing-box outbounds 数组
+  （五协议全覆盖，SB 批）；clash/mihomo 订阅与 v2ray 链接里 hy2 节点自动为
+  `type: hysteria2` / `hysteria2://` 条目（节点配置模板 JSON 写
+  password/sni/obfs/up/down）。
 - 许可：sing-box GPL-3.0、hysteria2 AGPL-3.0——只做二进制适配（进程隔离
   托管 + 配置下发），无源码链接，copyleft 不传染 ferry（见
   [开源选型设计](../docs/design/开源选型设计.md) 与 THIRD_PARTY.md）。
