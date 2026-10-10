@@ -231,6 +231,50 @@ export function retryEvent(id: number): Promise<{ ok: boolean }> {
   return post<{ ok: boolean }>(`/api/events/${id}/retry`)
 }
 
+/** EventDeliveryRow 是一条通道投递回执（HC-1，Herald 回执落库）。 */
+export interface EventDeliveryRow {
+  id: number
+  event_id: number
+  channel: string
+  status: 'sent' | 'failed'
+  detail?: string
+  at: string
+}
+
+export interface EventChannelHealth {
+  channel: string
+  sent: number
+  failed: number
+  health: 'healthy' | 'degraded' | 'down'
+  last_failed_at?: string
+  last_detail?: string
+}
+
+export function getEventDeliveries(channel = '', limit = 100): Promise<{ rows: EventDeliveryRow[]; channels: EventChannelHealth[] }> {
+  const p = new URLSearchParams()
+  if (channel) p.set('channel', channel)
+  p.set('limit', String(limit))
+  return get(`/api/events/deliveries?${p}`)
+}
+
+export function testEventChannel(): Promise<EventRow> {
+  return post<EventRow>('/api/events/test')
+}
+
+/** EventSample 是一类告警最近一次实际落库的样例（HC-3，零漂移预览）。 */
+export interface EventSample {
+  kind: string
+  severity: 'critical' | 'warning' | 'info'
+  title: string
+  body: string
+  status: string
+  occurred_at: string
+}
+
+export function getEventSamples(): Promise<EventSample[]> {
+  return get('/api/events/samples')
+}
+
 /** NodeCost 是一个节点的月度成本视图（E-23）。 */
 export interface NodeCost {
   id: number

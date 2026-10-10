@@ -3,7 +3,8 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   createAnnouncement, deleteNotification, getNotifications, getEvents, retryEvent,
-  type NotificationRow, type EventRow,
+  getEventDeliveries, testEventChannel, getEventSamples,
+  type NotificationRow, type EventRow, type EventChannelHealth, type EventDeliveryRow, type EventSample,
 } from '../api'
 import { formatDate } from '../utils/format'
 
@@ -28,6 +29,8 @@ async function load() {
 onMounted(() => {
   load()
   loadEvents()
+  loadDeliveries()
+  loadSamples()
 })
 
 // 事件 outbox（HERALD-1）
@@ -58,6 +61,64 @@ async function retry(row: EventRow) {
     ElMessage.error(String(e))
   }
 }
+
+// 通道投递与自检（HC-1/2）：按通道聚合回执出健康徽标，自检走完整投递链路。
+const deliveries = ref<EventDeliveryRow[]>([])
+const channels = ref<EventChannelHealth[]>([])
+const channelFilter = ref('')
+const deliveriesLoading = ref(false)
+const selfChecking = ref(false)
+
+async function loadDeliveries() {
+  deliveriesLoading.value = true
+  try {
+    const data = await getEventDeliveries(channelFilter.value)
+    deliveries.value = data.rows
+    channels.value = data.channels
+  } catch (e) {
+    ElMessage.error(String(e))
+  } finally {
+    deliveriesLoading.value = false
+  }
+}
+
+async function sendTest() {
+  selfChecking.value = true
+  try {
+    await testEventChannel()
+    ElMessage.success('测试事件已落 outbox，走完整投递链路（见事件列表）')
+    await Promise.all([loadEvents(), loadDeliveries()])
+  } catch (e) {
+    ElMessage.error(String(e))
+  } finally {
+    selfChecking.value = false
+  }
+}
+
+const HEALTH_TAG: Record<string, { text: string; type: 'success' | 'warning' | 'danger' }> = {
+  healthy: { text: '正常', type: 'success' },
+  degraded: { text: '降级', type: 'warning' },
+  down: { text: '故障', type: 'danger' },
+}
+
+// 通知样例预览（HC-3）：每类告警取最近一条实单，配置通道时零漂移对照。
+const samples = ref<EventSample[]>([])
+const sampleKind = ref('')
+
+async function loadSamples() {
+  try {
+    samples.value = await getEventSamples()
+    if (!sampleKind.value && samples.value.length > 0) {
+      sampleKind.value = samples.value[0].kind
+    }
+  } catch (e) {
+    ElMessage.error(String(e))
+  }
+}
+
+const currentSample = computed(() =>
+  samples.value.find((s) => s.kind === sampleKind.value),
+)
 
 const SEVERITY_TAG: Record<string, { text: string; type: 'danger' | 'warning' | 'info' }> = {
   critical: { text: 'critical', type: 'danger' },
@@ -233,6 +294,87 @@ const TYPE_TAG: Record<string, { text: string; type: 'success' | 'info' | 'dange
         </template>
       </el-table-column>
     </el-table>
+
+    <h3 class="section">通道投递与自检</h3>
+    <p class="page-desc">
+      回执按通道聚合出健康徽标：全败为故障、有败为降级。自检发一条 system_test 事件走完整投递链路（outbox → Herald → 回执），
+      pending 停留即 Herald 未配置或不可达——通道故障不静默，先看徽标再发自检。
+    </p>
+    <div class="toolbar">
+      <el-select v-model="channelFilter" placeholder="全部通道" clearable style="width: 140px" @change="loadDeliveries">
+        <el-option v-for="ch in channels" :key="ch.channel" :label="ch.channel" :value="ch.channel" />
+      </el-select>
+      <el-button @click="loadDeliveries" :loading="deliveriesLoading">刷新</el-button>
+      <el-button type="primary" plain :loading="selfChecking" @click="sendTest">发送测试事件</el-button>
+    </div>
+    <el-table
+      v-if="channels.length > 0"
+      :data="channels"
+      size="small"
+      class="channel-table"
+      :header-cell-style="{ background: 'var(--ferry-bg-panel)' }"
+    >
+      <el-table-column prop="channel" label="通道" width="140" />
+      <el-table-column label="健康" width="90">
+        <template #default="{ row }">
+          <el-tag :type="HEALTH_TAG[row.health]?.type ?? 'info'" size="small" effect="dark">
+            {{ HEALTH_TAG[row.health]?.text ?? row.health }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="sent" label="成功" width="80" />
+      <el-table-column prop="failed" label="失败" width="80" />
+      <el-table-column label="最近失败" min-width="260">
+        <template #default="{ row }">
+          <span v-if="row.last_detail">{{ formatDate(row.last_failed_at) }} · {{ row.last_detail }}</span>
+          <span v-else class="muted">—</span>
+        </template>
+      </el-table-column>
+    </el-table>
+    <el-table :data="deliveries" v-loading="deliveriesLoading" :header-cell-style="{ background: 'var(--ferry-bg-panel)' }">
+      <el-table-column prop="id" label="回执" width="80" />
+      <el-table-column prop="channel" label="通道" width="140" />
+      <el-table-column label="结果" width="90">
+        <template #default="{ row }">
+          <el-tag :type="row.status === 'sent' ? 'success' : 'danger'" size="small" effect="plain">
+            {{ row.status === 'sent' ? '成功' : '失败' }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="detail" label="明细" min-width="240" show-overflow-tooltip>
+        <template #default="{ row }">
+          <span v-if="row.detail">{{ row.detail }}</span>
+          <span v-else class="muted">—</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="时间" width="160">
+        <template #default="{ row }">{{ formatDate(row.at) }}</template>
+      </el-table-column>
+    </el-table>
+
+    <h3 class="section">通知样例预览</h3>
+    <p class="page-desc">
+      每类告警取最近一条实际落库的事件作样例（零漂移）：配通道前先看这里，确认各类文案与严重度符合预期。
+    </p>
+    <el-empty v-if="samples.length === 0" description="暂无历史事件：触发一次告警或发送测试事件后回来看样例" :image-size="80" />
+    <div v-else class="sample-box">
+      <el-select v-model="sampleKind" style="width: 220px">
+        <el-option v-for="s in samples" :key="s.kind" :label="s.kind" :value="s.kind" />
+      </el-select>
+      <div v-if="currentSample" class="sample-card">
+        <div class="sample-head">
+          <el-tag :type="SEVERITY_TAG[currentSample.severity]?.type ?? 'info'" size="small" effect="dark">
+            {{ SEVERITY_TAG[currentSample.severity]?.text ?? currentSample.severity }}
+          </el-tag>
+          <el-tag :type="EVENT_STATUS_TAG[currentSample.status]?.type ?? 'info'" size="small" effect="plain">
+            {{ EVENT_STATUS_TAG[currentSample.status]?.text ?? currentSample.status }}
+          </el-tag>
+          <span class="muted">{{ formatDate(currentSample.occurred_at) }}</span>
+        </div>
+        <div class="sample-title">{{ currentSample.title }}</div>
+        <div class="sample-body">{{ currentSample.body }}</div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -270,5 +412,37 @@ const TYPE_TAG: Record<string, { text: string; type: 'success' | 'info' | 'dange
 .event-counts {
   display: inline-flex;
   gap: 8px;
+}
+.channel-table {
+  margin-bottom: 12px;
+}
+.muted {
+  color: var(--ferry-text-muted, #909399);
+}
+.sample-box {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.sample-card {
+  background: var(--ferry-bg-panel);
+  border: 1px solid var(--ferry-border);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.sample-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.sample-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.sample-body {
+  white-space: pre-wrap;
+  color: var(--ferry-text-secondary, #606266);
+  font-size: 13px;
 }
 </style>
