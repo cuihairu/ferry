@@ -882,6 +882,42 @@ export function getLoginLogs(page: number, pageSize: number): Promise<{ items: L
   return get(`/admin/login-logs?page=${page}&page_size=${pageSize}`)
 }
 
+// ---- 操作审计（AU，P2-6 转正）----
+// 管理员写操作流水（audit_logs）：谁/动作/对象/请求体快照（脱敏）/成败。
+
+/** AuditLogRow 是一条写操作审计（audit_logs，AU-1）。 */
+export interface AuditLogRow {
+  id: number
+  actor: string
+  actor_kind: string
+  action: string
+  target: string
+  body: string
+  success: boolean
+  ip: string
+  created_at: string
+}
+
+export interface AuditQuery {
+  actor?: string
+  method?: string
+  from?: string
+  to?: string
+  limit?: number
+  offset?: number
+}
+
+export function getAuditLogs(q: AuditQuery): Promise<{ audit_logs: AuditLogRow[] }> {
+  const p = new URLSearchParams()
+  if (q.actor) p.set('actor', q.actor)
+  if (q.method) p.set('method', q.method)
+  if (q.from) p.set('from', q.from)
+  if (q.to) p.set('to', q.to)
+  p.set('limit', String(q.limit ?? 50))
+  if (q.offset) p.set('offset', String(q.offset))
+  return get(`/api/audit-logs?${p}`)
+}
+
 // ---- 成本参考库（E-31，套餐与成本设计 §4）----
 // 手录成本唯一权威，参考价只产偏差提示不改价。
 

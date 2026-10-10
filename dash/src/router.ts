@@ -22,6 +22,7 @@ export const router = createRouter({
     { path: '/notifications', component: () => import('./views/NotificationsView.vue') },
     { path: '/landings', component: () => import('./views/LandingsView.vue') },
     { path: '/settings', component: () => import('./views/SettingsView.vue') },
+    { path: '/audit', component: () => import('./views/AuditView.vue') },
   ],
 })
 
