@@ -219,9 +219,9 @@
 - [x] [P1] OD-2 订单详情与状态流转：待付/已完成/已退款（状态枚举补 refunded），套餐/金额/时长/流量明细（三账详情 GET /api/payments/orders/:order_no + 退款流转 POST .../refund 仅 paid→refunded 409 否则，退款留痕 RefundAt/RefundNote 经渠道后台操作口径；reconcile 增退款小计与「已退款但缺支付流水」检查；dash 对账页退款按钮+stats；panel 订单增退款态红标与退款时间）
 - [x] [P1] NT-1 通知中心站内信：notifications 表+未读/列表，公告/到期/流量预警/系统四类（Notification 模型逐用户落行已读态挂行上；面板侧 GET/panel/notifications 列表（unread=1 过滤）+unread-count+单条已读幂等+read-all，他人通知 404 防越权；dash 侧 GET/notifications 全量列表（type/user_id 过滤）+POST announcement 扇出启用用户（CreateInBatches 500，禁用不收）+DELETE，ringlog 留扇出痕；dash 增通知页（发布卡+类型筛选+删除），panel 增通知页（点卡已读+全部已读+未读高亮）与导航未读徽标（壳层进面板/换页刷新，auth store 共享）；自动触发（到期/流量阈值扫描落行）归 NT-2）
 - [x] [P1] NT-2 通知触发与偏好：定时扫描（到期/阈值）+事件触发，用户按类型×通道开关与阈值（新包 internal/notifyscan——Loop/Sweep 双扫到期（7 天窗口含已到期、文案按整日向上取整）与流量（复用 quota.UsedBytes 窗口口径、达个人阈值才发，未设/越界回落 80），按日去重（type+当日 DISTINCT user_id），main 装配 FERRY_NOTIFY_SCAN_SEC 默认 3600；事件触发：applyGrant 事务内发放到账直落 system 站内信（流量人类可读量级 humanBytes GB 向上取整）；偏好：User 加 notify_expiry/notify_traffic/traffic_warn_percent 列（默认 true/true/80），panel GET/PUT notify-prefs（部分更新、阈值 1-100 校验、归一口径 effectiveWarnPercent）；通知类型常量收敛 storage；panel 概览加通知偏好卡（双开关+阈值下拉+保存）；测试覆盖扫描六态（窗口内/外、关偏好、禁用、同日去重、跨日再发、已到期文案）与流量四态（达/未达/关/个人阈值）、偏好默认/部分更新/越界 400/生效、兑换事件落信+未读计数；seedUser 踩 GORM default 标签 RETURNING 回填 struct 陷阱（map 需先于 Create 取值））
-- [ ] [P2·远期不开工] PROMO-1 优惠码：满减/折扣/指定套餐，dash 配置+panel 下单原子核销
-- [ ] [P2·远期不开工] PROMO-2 限时活动与首单/续费折扣：起止与适用范围配置、panel 活动位
-- [ ] [P2·远期不开工] PROMO-3 优惠账目打通：订单记原价+实付+优惠快照，与三账对得上
+- [x] [已转正落地] PROMO-1 优惠码：满减/折扣/指定套餐，dash 配置+panel 下单原子核销（2026-10-10 PROMO 批 PR-1，见下）
+- [x] [已转正落地] PROMO-2 限时活动与首单/续费折扣：起止与适用范围配置、panel 活动位（2026-10-10 PROMO 批 PR-3，见下）
+- [x] [已转正落地] PROMO-3 优惠账目打通：订单记原价+实付+优惠快照，与三账对得上（2026-10-10 PROMO 批 PR-1 账目三列，见下）
 - [x] [P2·原远期不开工，2026-10-10 随 servify C1 真嵌验收落地] SV-1 servify 客服集成：panel 入口嵌入（widget.js 直嵌方案 A，配置门控 FERRY_SUPPORT_URL/FERRY_SUPPORT_SERVICE_KEY，未配置 enabled:false 零依赖）+独立部署对接地址（env 指向 servify 实例）
 - [x] [P2·原远期不开工，2026-10-10 随 servify C1 真嵌验收落地] SV-2 工单上下文打通：客服侧只读用户套餐/流量/订单（服务端 support client 同步 customer+notes，凭据不出 ferry；工单经 POST /api/v1/tickets 携 ferry_user 会话）
 
@@ -327,3 +327,11 @@
 - [x] [PROMO-2] PR-3 限时活动：`campaigns` 表（name/kind=first_order|renew|timed/rules JSON/起止 NOT NULL/enabled）+管理面 CRUD `GET/POST/PUT/DELETE /api/campaigns`（rules 收 JSON 字符串或对象，parseCampaignRules 解引号兜底；kind 枚举；起止必填 end>start）+panel 活动位 `GET /api/panel/campaigns`（enabled 且未过期，进行中/即将开始 state）+下单自动适用：bestCampaign 取窗内适用本商品的活动惠大者，与码择优（campPaid<paid 则活动胜出、码不核销；否则码胜出 camp=nil），首单判定=无历史 status=paid 订单、续费=已有 paid 订单、timed 恒可；活动快照 promo_snapshot source=campaign 含 id/name/规则/原价/折扣/实付，活动删除后仍可对账。commit=d30e8e6。测试=campaign_test.go（CRUD 校验+活动位过滤+首单/续费判定+码 vs 活动取优双向+落选码不核销+范围/窗口失效回落面价）
 
 拍板落地（2026-10-10 PROMO 批收尾）：三期连做全落地——PR-1（fbf46c7）优惠码基础+下单原子核销+账目三列；PR-2（33e45cf）dash 促销管理卡；PR-3（d30e8e6）限时活动（PROMO-2 全量：model+CRUD+活动位+自动适用取优）。取优口径（DS §3.3）在 PR-3 收口：一单一优惠源——码与活动各自算惠择大者，落选码零副作用（不核销）；活动间不叠加；首单/续费按历史 paid 订单判定，timed 恒可。make test 全绿（server 模块全过+3 前端 vue-tsc），dash pnpm build 绿。PROMO 批清；剩余未清项=P2-5 观察（触发条件未出现）、nightly 复核（durable cron f9b44948，2026-10-11 11:47 CST）、gated backlog 维持不动。
+
+## Herald 通道看板 HC 批（2026-10-10 立账，设计：docs/design/告警通道设计.md §6 P2 行）
+
+设计稿全扫（14 篇+README）结论：未落地标记全部属闸门（令牌轮换/CRL、C-03 IPC 族、微信支付宝直连等资质、Herald 外通道、P2-5 观察）或 P2 分期；唯一无闸门且价值成立的族=告警通道 P2 三件（投递回执看板/通道故障自检/模板预览）。调度历史权重族文档自注「P2 才考虑自动调，人工调参先行」（C-12 已落）维持挂起；mTLS CA 编排受 mTLS 默认关闭抑制维持挂起。
+
+- [ ] [P2] HC-1 投递回执看板：`GET /api/events/deliveries`（最近回实行+按通道聚合 sent/failed/最近失败明细）+ dash 通知页「通道投递」卡（按通道健康行+最近回执表）
+- [ ] [P2] HC-2 通道故障自检：被动=HC-1 聚合派生通道健康徽标；主动=`POST /api/events/test` 落 `system_test` 事件走完整 outbox→Herald→回执链路（复用退避重试，不注入 Sender），dash「发送测试事件」按钮
+- [ ] [P2] HC-3 通知样例预览：`GET /api/events/samples`（每 kind 最近一条实际落库事件作样例——零漂移，不做 16 处 Emit 点的模板注册表重构）+ dash 预览位（选 kind 看实际标题/正文形态）
