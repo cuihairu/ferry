@@ -128,7 +128,9 @@ func (h *Handler) adminAuthMiddleware() gin.HandlerFunc {
 		tkn, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
 			return []byte(secret), nil
 		})
-		if err != nil || !tkn.Valid {
+		// 只认 is_admin=true：代理令牌（role=distributor）与管理员同密钥
+		// 签发，签名可验但非管理员身份——不查此位=代理可过 /admin 组。
+		if err != nil || !tkn.Valid || !claims.IsAdmin {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "无效令牌"})
 			c.Abort()
 			return

@@ -102,9 +102,11 @@ func (h *Handler) apiAuth() gin.HandlerFunc {
 			adminSecret = "ferry-admin-secret"
 		}
 		adminClaims := &adminClaims{}
+		// 只认 is_admin=true：代理令牌与管理员同密钥签发（DS-1），签名可验
+		// 但非管理员身份——不查此位=代理令牌直通管理数据面。
 		if tkn, err := jwt.ParseWithClaims(tokenStr, adminClaims, func(t *jwt.Token) (interface{}, error) {
 			return []byte(adminSecret), nil
-		}); err == nil && tkn.Valid {
+		}); err == nil && tkn.Valid && adminClaims.IsAdmin {
 			c.Set("adminUserID", adminClaims.ID)
 			c.Set("adminIsAdmin", adminClaims.IsAdmin)
 			c.Set("apiUser", adminClaims.Subject)

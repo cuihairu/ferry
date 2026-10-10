@@ -34,7 +34,13 @@ func (h *Handler) distAuthMiddleware() gin.HandlerFunc {
 			return
 		}
 		claims := &distributorClaims{}
-		secret := "ferry-admin-secret" // 与 DistributorLogin 默认签发口径一致
+		// 与 DistributorLogin 签发同源：cfg 秘钥（FERRY_ADMIN_SECRET 生效），
+		// 空回落常量。此前硬编码常量——运营设了 FERRY_ADMIN_SECRET 后
+		// 签发与验签秘钥错位，代理自面整面 401。
+		secret := h.cfg.AdminSecret
+		if secret == "" {
+			secret = "ferry-admin-secret"
+		}
 		tkn, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
 			return []byte(secret), nil
 		})

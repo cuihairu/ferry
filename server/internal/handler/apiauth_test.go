@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -151,5 +152,60 @@ func TestPublicCallbackFacesStillOpen(t *testing.T) {
 	r.ServeHTTP(rec, req)
 	if rec.Code == http.StatusUnauthorized && rec.Body.String() == `{"error":"无效令牌"}` {
 		t.Fatalf("epusdt notify blocked by apiAuth: %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestDistributorTokenRejectedOnAdminFaces(t *testing.T) {
+	// 2026-10-10 实机走查发现：代理令牌与管理员同密钥签发（DS-1），apiAuth
+	// 与 adminAuthMiddleware 只验签名不查 is_admin——代理令牌直通管理面
+	// 全权提升。修后两面均 401，代理自面不受影响。
+	r, _ := newTestRouterWithDB(t)
+	rec := doJSON(t, r, "POST", "/api/distributors", map[string]any{"username": "d9", "password": "secret123"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create distributor: %d %s", rec.Code, rec.Body)
+	}
+	dist := distLogin(t, r, "d9", "secret123")
+	if code := req401(t, r, "GET", "/api/distributors", "Bearer "+dist); code != http.StatusUnauthorized {
+		t.Fatalf("dist token on /api/distributors = %d, want 401", code)
+	}
+	if code := req401(t, r, "GET", "/api/users", "Bearer "+dist); code != http.StatusUnauthorized {
+		t.Fatalf("dist token on /api/users = %d, want 401", code)
+	}
+	if code := req401(t, r, "DELETE", "/api/nodes/1", "Bearer "+dist); code != http.StatusUnauthorized {
+		t.Fatalf("dist token DELETE /api/nodes/1 = %d, want 401", code)
+	}
+	if code := req401(t, r, "GET", "/admin/status", "Bearer "+dist); code != http.StatusUnauthorized {
+		t.Fatalf("dist token on /admin/status = %d, want 401", code)
+	}
+	// 代理自面照常（role=distributor 校验在自面中间件）。
+	if code := req401(t, r, "GET", "/distributor/api/me", "Bearer "+dist); code != http.StatusOK {
+		t.Fatalf("dist token on own portal = %d, want 200", code)
+	}
+}
+
+func TestDistributorPortalHonorsAdminSecretEnv(t *testing.T) {
+	// 2026-10-10 实机走查发现：distAuthMiddleware 验签硬编码缺省常量，
+	// 运营设 FERRY_ADMIN_SECRET 后签发（cfg 秘钥）与验签错位，代理自面
+	// 整面 401。修后签发与验签同源。
+	r, _ := newTestRouterCfg(t, func(c *config.Config) { c.AdminSecret = "custom-admin-secret" })
+	custom := adminClaims{RegisteredClaims: jwt.RegisteredClaims{
+		ID: "1", ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+	}, IsAdmin: true}
+	adminSS, err := jwt.NewWithClaims(jwt.SigningMethodHS256, custom).SignedString([]byte("custom-admin-secret"))
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	body := `{"username":"d8","password":"secret123"}`
+	req := httptest.NewRequest("POST", "/api/distributors", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminSS)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create distributor: %d %s", rec.Code, rec.Body)
+	}
+	dist := distLogin(t, r, "d8", "secret123")
+	if code := req401(t, r, "GET", "/distributor/api/me", "Bearer "+dist); code != http.StatusOK {
+		t.Fatalf("dist me with env secret = %d, want 200", code)
 	}
 }
