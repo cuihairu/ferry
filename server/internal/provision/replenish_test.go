@@ -5,6 +5,7 @@ import (
 	"log"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cuihairu/ferry/server/internal/secret"
 	"github.com/cuihairu/ferry/server/internal/storage"
@@ -89,14 +90,17 @@ func TestReplenishSweep(t *testing.T) {
 	if err != nil || !fired {
 		t.Fatalf("empty pool fired=%v err=%v", fired, err)
 	}
+	// 执行在后台 goroutine：轮询等节点行出现（带休眠，无休眠的紧密轮询在
+	// CI 负载下会抢在 goroutine 调度之前耗尽次数）。
 	deadline := 100
 	for countProvisioning(t, r) == 0 && deadline > 0 {
+		time.Sleep(20 * time.Millisecond)
 		deadline--
-		if deadline == 0 {
-			t.Fatal("no provisioning node created")
-		}
 	}
-	// 执行在后台 goroutine，轮询等 job 回填终态。
+	if countProvisioning(t, r) == 0 {
+		t.Fatal("no provisioning node created")
+	}
+	// 轮询等 job 回填终态（同上带休眠）。
 	var job storage.ProvisionJob
 	ok := false
 	for i := 0; i < 100; i++ {
@@ -107,6 +111,7 @@ func TestReplenishSweep(t *testing.T) {
 			ok = true
 			break
 		}
+		time.Sleep(20 * time.Millisecond)
 	}
 	if !ok {
 		t.Fatalf("job never finished: %+v", job)
