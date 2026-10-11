@@ -237,7 +237,11 @@ async function resend(a: AnnouncementStat) {
 
 async function remove(row: NotificationRow) {
   try {
-    await ElMessageBox.confirm(`删除通知「${row.title}」？`, '删除', {
+    // 锚点行（user_id=0，公告）级联撤回：扇出的用户副本一并删除。
+    const tip = row.user_id === 0
+      ? `删除公告「${row.title}」将同时撤回所有用户的扇出副本，确认？`
+      : `删除通知「${row.title}」？`
+    await ElMessageBox.confirm(tip, '删除', {
       confirmButtonText: '删除',
       cancelButtonText: '取消',
       type: 'warning',

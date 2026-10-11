@@ -350,3 +350,66 @@ func TestAnnouncementAudience(t *testing.T) {
 		t.Fatalf("resend emitted = %d, want 1 (near aged out of window)", out.Emitted)
 	}
 }
+
+// TestAnnouncementDeleteCascade 覆盖锚点级联撤回：删锚点行连带删扇出用户行
+// （公告从各用户列表与未读数消失）；普通行仍单行删除。
+func TestAnnouncementDeleteCascade(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	panelToken(t, r, "cas-a")
+	panelToken(t, r, "cas-b")
+
+	// 全员公告 → 锚点 1 行 + 用户行 2 行。
+	rec := doJSON(t, r, "POST", "/api/notifications/announcement", map[string]any{"title": "待撤回"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("announcement: %d %s", rec.Code, rec.Body)
+	}
+	var anchor storage.Notification
+	if err := db.Where("user_id = 0 AND title = ?", "待撤回").First(&anchor).Error; err != nil {
+		t.Fatal(err)
+	}
+	var fanout int64
+	if err := db.Model(&storage.Notification{}).Where("anchor_id = ?", anchor.ID).Count(&fanout).Error; err != nil {
+		t.Fatal(err)
+	}
+	if fanout != 2 {
+		t.Fatalf("fanout rows = %d, want 2", fanout)
+	}
+
+	// 删锚点 → 锚点与用户行一并消失（级联撤回），再删 404。
+	if rec := doJSON(t, r, "DELETE", "/api/notifications/"+strconv.FormatInt(anchor.ID, 10), nil); rec.Code != http.StatusOK {
+		t.Fatalf("delete anchor: %d %s", rec.Code, rec.Body)
+	}
+	var left int64
+	if err := db.Model(&storage.Notification{}).Where("id = ? OR anchor_id = ?", anchor.ID, anchor.ID).Count(&left).Error; err != nil {
+		t.Fatal(err)
+	}
+	if left != 0 {
+		t.Fatalf("rows after anchor delete = %d, want 0", left)
+	}
+	if rec := doJSON(t, r, "DELETE", "/api/notifications/"+strconv.FormatInt(anchor.ID, 10), nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("delete again: %d, want 404", rec.Code)
+	}
+
+	// 普通行仍单行删除：再造一轮，删其中一个用户行不影响其余。
+	rec = doJSON(t, r, "POST", "/api/notifications/announcement", map[string]any{"title": "第二轮"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("announcement 2: %d %s", rec.Code, rec.Body)
+	}
+	var userRows []storage.Notification
+	if err := db.Where("anchor_id IS NOT NULL AND user_id != 0").Order("id").Find(&userRows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(userRows) != 2 {
+		t.Fatalf("round2 user rows = %d, want 2", len(userRows))
+	}
+	if rec := doJSON(t, r, "DELETE", "/api/notifications/"+strconv.FormatInt(userRows[0].ID, 10), nil); rec.Code != http.StatusOK {
+		t.Fatalf("delete user row: %d %s", rec.Code, rec.Body)
+	}
+	var rest int64
+	if err := db.Model(&storage.Notification{}).Where("user_id != 0").Count(&rest).Error; err != nil {
+		t.Fatal(err)
+	}
+	if rest != 1 {
+		t.Fatalf("user rows after single delete = %d, want 1", rest)
+	}
+}

@@ -179,19 +179,36 @@ func (h *Handler) listNotifications(c *gin.Context) {
 }
 
 // deleteNotification 删除一条通知（DELETE /api/notifications/:id）。
+// deleteNotification 删通知（DELETE /api/notifications/:id）：普通行删单行；
+// 锚点行（公告，user_id=0）级联撤回——扇出的用户行一并删除（公告从各用户
+// 列表与未读数消失），同事务保证不留半撤状态；ends_at 定时撤下只是不可见，
+// 此处是立即移除。
 func (h *Handler) deleteNotification(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	res := h.db.Delete(&storage.Notification{}, id)
-	if res.Error != nil {
-		fail(c, http.StatusInternalServerError, res.Error)
+	var target storage.Notification
+	if err := h.db.Select("id", "user_id").First(&target, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		fail(c, http.StatusInternalServerError, err)
 		return
 	}
-	if res.RowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+	err = h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Delete(&storage.Notification{}, id).Error; err != nil {
+			return err
+		}
+		if target.UserID == 0 {
+			return tx.Where("anchor_id = ?", id).Delete(&storage.Notification{}).Error
+		}
+		return nil
+	})
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
