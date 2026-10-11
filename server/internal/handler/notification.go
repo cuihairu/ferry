@@ -34,6 +34,7 @@ func (h *Handler) createAnnouncement(c *gin.Context) {
 		Body     string     `json:"body"`
 		StartsAt *time.Time `json:"starts_at"`
 		EndsAt   *time.Time `json:"ends_at"`
+		Audience string     `json:"audience"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		fail(c, http.StatusBadRequest, err)
@@ -56,9 +57,14 @@ func (h *Handler) createAnnouncement(c *gin.Context) {
 		fail(c, http.StatusBadRequest, errors.New("ends_at must be after starts_at"))
 		return
 	}
+	audience, err := announce.NormalizeAudience(body.Audience)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
 	n, err := announce.Fanout(h.db, announce.Input{
 		Title: body.Title, Body: strings.TrimSpace(body.Body),
-		StartsAt: body.StartsAt, EndsAt: body.EndsAt,
+		StartsAt: body.StartsAt, EndsAt: body.EndsAt, Audience: audience,
 	})
 	if err != nil {
 		fail(c, http.StatusInternalServerError, err)
@@ -108,6 +114,7 @@ func (h *Handler) listAnnouncements(c *gin.Context) {
 			"id": a.ID, "title": a.Title, "body": a.Body,
 			"starts_at": a.StartsAt, "ends_at": a.EndsAt,
 			"fanout_at": a.FanoutAt, "resend_at": a.ResendAt,
+			"audience":   a.Audience,
 			"created_at": a.CreatedAt,
 			"sent":       sent, "read": read,
 		})

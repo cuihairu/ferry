@@ -28,10 +28,10 @@ type User struct {
 	// 设备数/IP 数上限（P2-4，0=不限）：device_limit 按订阅端上报的
 	// hwid 计设备（依赖客户端带 X-Client-Hwid，未报则该面不生效）；
 	// ip_limit 按订阅端独立 IP 计（不依赖客户端，总是生效）。
-	DeviceLimit int `gorm:"default:0" json:"device_limit"`
-	IPLimit     int `gorm:"default:0" json:"ip_limit"`
-	Password  string `gorm:"size:128" json:"-"`
-	ApiToken   string     `gorm:"size:64" json:"api_token"`
+	DeviceLimit int    `gorm:"default:0" json:"device_limit"`
+	IPLimit     int    `gorm:"default:0" json:"ip_limit"`
+	Password    string `gorm:"size:128" json:"-"`
+	ApiToken    string `gorm:"size:64" json:"api_token"`
 	// 两步验证（安全设计 §1，P1）：TOTP 密钥经 secret_store 加密落库
 	//（v1:nonce:ct 密文，主密钥不入库）；绑定后登录需 6 位 TOTP 或一次性
 	// 恢复码，未绑定者登录行为不变。
@@ -339,9 +339,9 @@ type PaymentOrder struct {
 	RefundNote string     `gorm:"size:255" json:"refund_note,omitempty"` // 渠道退款单号/原因
 	// 优惠账目（PROMO-1，运营设计 §5）：原价/优惠码/快照——订单记原价+实付
 	//（AmountCents）+优惠明细，三账对账有据；无优惠时三列为零值/空。
-	ListAmountCents int64       `gorm:"default:0" json:"list_amount_cents"` // 原价（分），无优惠=AmountCents
-	PromoCode       string      `gorm:"size:64;index;default:''" json:"promo_code,omitempty"`
-	PromoSnapshot   string      `gorm:"size:512" json:"promo_snapshot,omitempty"` // 原价/折扣/码/实付 JSON
+	ListAmountCents int64  `gorm:"default:0" json:"list_amount_cents"` // 原价（分），无优惠=AmountCents
+	PromoCode       string `gorm:"size:64;index;default:''" json:"promo_code,omitempty"`
+	PromoSnapshot   string `gorm:"size:512" json:"promo_snapshot,omitempty"` // 原价/折扣/码/实付 JSON
 	// 不设 User 关联：财务记录不随用户删除（无外键）。
 }
 
@@ -357,7 +357,7 @@ type Coupon struct {
 	MinAmount int64      `gorm:"default:0" json:"min_amount"` // 门槛（分），按原价计
 	StartsAt  *time.Time `json:"starts_at"`
 	EndsAt    *time.Time `json:"ends_at"`
-	Total     int64      `gorm:"default:0" json:"total"`   // 0=不限
+	Total     int64      `gorm:"default:0" json:"total"`    // 0=不限
 	PerUser   int64      `gorm:"default:1" json:"per_user"` // 每用户限次
 	Used      int64      `gorm:"default:0" json:"used"`
 	CreatedAt time.Time  `json:"created_at"`
@@ -581,11 +581,15 @@ type Notification struct {
 	CreatedAt time.Time  `json:"created_at"`
 	// 公告窗口与触达（P2-5）：普通通知行全部零值。锚点行=站级一份
 	//（user_id=0，RSS 数据源）；用户行经 AnchorID 关联锚点供统计回流。
-	StartsAt *time.Time `json:"starts_at,omitempty"` // 定时发布（锚点行；未到点不扇出、RSS 不出）
-	EndsAt   *time.Time `json:"ends_at,omitempty"`   // 定时撤下（到点后 RSS 与 panel 列表不再可见，行保留）
-	FanoutAt *time.Time `json:"fanout_at,omitempty"` // 用户扇出完成时间（scheduled 行待扇出时为空）
+	StartsAt *time.Time `json:"starts_at,omitempty"`              // 定时发布（锚点行；未到点不扇出、RSS 不出）
+	EndsAt   *time.Time `json:"ends_at,omitempty"`                // 定时撤下（到点后 RSS 与 panel 列表不再可见，行保留）
+	FanoutAt *time.Time `json:"fanout_at,omitempty"`              // 用户扇出完成时间（scheduled 行待扇出时为空）
 	AnchorID int64      `gorm:"index" json:"anchor_id,omitempty"` // 所属公告锚点行 id（用户行>0）
-	ResendAt *time.Time `json:"resend_at,omitempty"` // 最近一次外通道重发（锚点行，限频基准）
+	ResendAt *time.Time `json:"resend_at,omitempty"`              // 最近一次外通道重发（锚点行，限频基准）
+	// 受众（运营设计 §1.1「全员/分组」）：锚点行记发布时选的受众串，
+	// 扇出与外通道重发按它筛启用用户（all=全部启用；expiring:N=N 天内
+	// 到期；名单以扇出时刻为准——定时公告到点才解析）；普通行零值。
+	Audience string `gorm:"size:32;default:'all'" json:"audience,omitempty"`
 }
 
 // 通知类型（NT-1/NT-2）：announcement 公告扇出；expiry/traffic 到期与流量

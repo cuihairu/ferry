@@ -800,11 +800,11 @@ export function getNotifications(limit?: number): Promise<NotificationRow[]> {
   return get<NotificationRow[]>(`/api/notifications${limit ? `?limit=${limit}` : ''}`)
 }
 
-/** 发布公告：starts_at/ends_at 选填（RFC3339，P2-5 窗口；start 未来=定时发布）。 */
+/** 发布公告：starts_at/ends_at 选填（RFC3339，P2-5 窗口；start 未来=定时发布）；audience 受众（all/expiring:N）。 */
 export function createAnnouncement(
   title: string,
   body: string,
-  opts?: { starts_at?: string; ends_at?: string },
+  opts?: { starts_at?: string; ends_at?: string; audience?: string },
 ): Promise<{ created: number; scheduled: boolean }> {
   return post('/api/notifications/announcement', { title, body, ...opts })
 }
@@ -818,6 +818,7 @@ export interface AnnouncementStat {
   ends_at: string | null
   fanout_at: string | null
   resend_at: string | null
+  audience?: string
   created_at: string
   sent: number
   read: number

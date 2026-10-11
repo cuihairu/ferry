@@ -7,6 +7,7 @@ package announce
 import (
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cuihairu/ferry/server/internal/herald"
@@ -23,6 +24,8 @@ var (
 	ErrCooldown = errors.New("announcement resend cooldown")
 	// ErrWindowClosed 公告窗口已结束（撤下语义优先，不再外发）。
 	ErrWindowClosed = errors.New("announcement window closed")
+	// ErrBadAudience 受众串不合法（API 侧映射 400）。
+	ErrBadAudience = errors.New("audience must be all or expiring:N (1-90 days)")
 )
 
 // Input 是发布一条公告的载荷。
@@ -31,6 +34,21 @@ type Input struct {
 	Body     string
 	StartsAt *time.Time // 定时发布；nil=立即
 	EndsAt   *time.Time // 定时撤下；nil=不撤
+	Audience string     // 受众："all"（缺省）/"expiring:N"（N 天内到期）
+}
+
+// NormalizeAudience 归一化受众串（发布入口严格校验）：""/"all"→"all"；
+// "expiring:N"（N 为 1-90 整数）→ 十进制归一的 "expiring:N"；其余拒。
+func NormalizeAudience(s string) (string, error) {
+	if s == "" || s == "all" {
+		return "all", nil
+	}
+	if rest, ok := strings.CutPrefix(s, "expiring:"); ok {
+		if n, err := strconv.Atoi(rest); err == nil && n >= 1 && n <= 90 {
+			return "expiring:" + strconv.Itoa(n), nil
+		}
+	}
+	return "", ErrBadAudience
 }
 
 // Fanout 发布一条公告：starts_at 在未来=定时发布（只落锚点行，返回 0，
@@ -38,9 +56,13 @@ type Input struct {
 // 外发）。返回实际触达用户数（禁用用户不收）。
 func Fanout(db *gorm.DB, in Input) (int64, error) {
 	now := time.Now()
+	aud, err := NormalizeAudience(in.Audience)
+	if err != nil {
+		return 0, err
+	}
 	anchor := storage.Notification{
 		Type: storage.NotifAnnouncement, Title: in.Title, Body: in.Body,
-		StartsAt: in.StartsAt, EndsAt: in.EndsAt, CreatedAt: now,
+		StartsAt: in.StartsAt, EndsAt: in.EndsAt, Audience: aud, CreatedAt: now,
 	}
 	if in.StartsAt != nil && in.StartsAt.After(now) {
 		if err := db.Create(&anchor).Error; err != nil {
@@ -86,7 +108,7 @@ func Resend(db *gorm.DB, anchorID int64, now time.Time) (int64, error) {
 		return 0, ErrCooldown
 	}
 	var ids []int64
-	if err := db.Model(&storage.User{}).Where("enabled = ?", true).Pluck("id", &ids).Error; err != nil {
+	if err := audienceScope(db, &anchor, now).Pluck("id", &ids).Error; err != nil {
 		return 0, err
 	}
 	events := make([]storage.Event, 0, len(ids))
@@ -115,14 +137,29 @@ func resendDedupKey(anchorID int64, now time.Time) string {
 	return "notice_resend:" + strconv.FormatInt(anchorID, 10) + ":" + now.Format("200601021504")
 }
 
-// fanoutUsers 给全部启用用户落站内信行并外发 notice 事件；锚点行先落定 ID
-//（用户行经 AnchorID 关联，统计发 n/读 m 都按它数）。完成后回写 FanoutAt。
+// audienceScope 按锚点行受众筛启用用户（扇出与重发共用名单口径）：
+// all=全部启用用户；expiring:N=expires_at 落在 (now, now+N 天] 的启用用户
+// （到期名单以扇出时刻为准——定时公告到点才解析，重发按重发时刻重算）。
+// 非法受众串按 all 兜底（脏数据不阻塞扇出；发布入口已严格校验）。
+func audienceScope(db *gorm.DB, anchor *storage.Notification, now time.Time) *gorm.DB {
+	q := db.Model(&storage.User{}).Where("enabled = ?", true)
+	if rest, ok := strings.CutPrefix(anchor.Audience, "expiring:"); ok {
+		if n, err := strconv.Atoi(rest); err == nil && n >= 1 && n <= 90 {
+			q = q.Where("expires_at IS NOT NULL AND expires_at > ? AND expires_at <= ?", now, now.AddDate(0, 0, n))
+		}
+	}
+	return q
+}
+
+// fanoutUsers 给受众命中的启用用户落站内信行并外发 notice 事件；锚点行先
+// 落定 ID（用户行经 AnchorID 关联，统计发 n/读 m 都按它数）。完成后回写
+// FanoutAt。
 func fanoutUsers(db *gorm.DB, anchor *storage.Notification) (int64, error) {
+	now := time.Now()
 	var ids []int64
-	if err := db.Model(&storage.User{}).Where("enabled = ?", true).Pluck("id", &ids).Error; err != nil {
+	if err := audienceScope(db, anchor, now).Pluck("id", &ids).Error; err != nil {
 		return 0, err
 	}
-	now := time.Now()
 	if anchor.CreatedAt.IsZero() {
 		anchor.CreatedAt = now
 	}

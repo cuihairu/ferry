@@ -139,12 +139,27 @@ const filtered = computed(() =>
 )
 
 // 发布公告：标题必填，正文选填；开始/结束选填（P2-5 窗口）——开始在未来
-// 即定时发布（到点由定时扫描扇出），结束到点自动撤下（panel/RSS 不可见）。
+// 即定时发布（到点由定时扫描扇出），结束到点自动撤下（panel/RSS 不可见）；
+// 受众筛选（运营设计 §1.1「全员/分组」）：all=全部启用用户，expiring:N=仅
+// N 天内到期的启用用户（名单以扇出时刻为准，定时公告到点才解析）。
+const AUDIENCES = [
+  { value: 'all', label: '全员' },
+  { value: 'expiring:3', label: '3 天内到期' },
+  { value: 'expiring:7', label: '7 天内到期' },
+  { value: 'expiring:30', label: '30 天内到期' },
+]
 const publishing = ref(false)
 const title = ref('')
 const body = ref('')
 const startsAt = ref<Date | null>(null)
 const endsAt = ref<Date | null>(null)
+const audience = ref('all')
+
+function audText(a?: string): string {
+  if (!a || a === 'all') return '全员'
+  const m = a.match(/^expiring:(\d+)$/)
+  return m ? `${m[1]} 天内到期` : a
+}
 
 async function publish() {
   if (!title.value.trim()) {
@@ -153,15 +168,17 @@ async function publish() {
   }
   publishing.value = true
   try {
-    const opts: { starts_at?: string; ends_at?: string } = {}
+    const opts: { starts_at?: string; ends_at?: string; audience?: string } = {}
     if (startsAt.value) opts.starts_at = startsAt.value.toISOString()
     if (endsAt.value) opts.ends_at = endsAt.value.toISOString()
+    opts.audience = audience.value
     const { created, scheduled } = await createAnnouncement(title.value.trim(), body.value.trim(), opts)
     ElMessage.success(scheduled ? '已登记定时发布，到点自动扇出' : `已发布，送达 ${created} 个用户`)
     title.value = ''
     body.value = ''
     startsAt.value = null
     endsAt.value = null
+    audience.value = 'all'
     await Promise.all([load(), loadAnnouncements()])
   } catch (e) {
     ElMessage.error(String(e))
@@ -262,6 +279,9 @@ const TYPE_TAG: Record<string, { text: string; type: 'success' | 'info' | 'dange
         class="body-input"
       />
       <div class="win-row">
+        <el-select v-model="audience" style="width: 170px">
+          <el-option v-for="a in AUDIENCES" :key="a.value" :label="a.label" :value="a.value" />
+        </el-select>
         <el-date-picker v-model="startsAt" type="datetime" placeholder="开始时间（选填，留空立即发布）" style="flex: 1" />
         <el-date-picker v-model="endsAt" type="datetime" placeholder="结束时间（选填，到点撤下）" style="flex: 1" />
       </div>
@@ -282,6 +302,9 @@ const TYPE_TAG: Record<string, { text: string; type: 'success' | 'info' | 'dange
         </el-table-column>
         <el-table-column label="窗口" min-width="200">
           <template #default="{ row }">{{ windowText(row) }}</template>
+        </el-table-column>
+        <el-table-column label="受众" width="110">
+          <template #default="{ row }">{{ audText(row.audience) }}</template>
         </el-table-column>
         <el-table-column label="发 / 读" width="90">
           <template #default="{ row }">{{ row.sent }} / {{ row.read }}</template>

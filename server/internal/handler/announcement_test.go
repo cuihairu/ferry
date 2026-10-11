@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
@@ -227,5 +228,125 @@ func TestAnnouncementStatsResend(t *testing.T) {
 	rec = doJSON(t, r, "POST", "/api/notifications/announcements/999999/resend", nil)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("resend missing: %d, want 404", rec.Code)
+	}
+}
+
+// TestAnnouncementAudience 覆盖运营设计 §1.1「全员/分组」：expiring:N 只扇出
+// N 天内到期的启用用户（过期/无到期/停用不收），定时公告到点才解析名单，
+// 重发按同名单重算，坏受众 400。
+func TestAnnouncementAudience(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	for _, u := range []string{"aud-near", "aud-far", "aud-none", "aud-expired", "aud-off"} {
+		panelToken(t, r, u)
+	}
+	now := time.Now()
+	at := func(d time.Time) *time.Time { t := d; return &t }
+	setExp := func(username string, v *time.Time) {
+		if err := db.Model(&storage.User{}).Where("username = ?", username).
+			Update("expires_at", v).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	setExp("aud-near", at(now.Add(3*24*time.Hour)))
+	setExp("aud-far", at(now.Add(30*24*time.Hour)))
+	setExp("aud-expired", at(now.Add(-24*time.Hour)))
+	setExp("aud-off", at(now.Add(48*time.Hour)))
+	if err := db.Model(&storage.User{}).Where("username = ?", "aud-off").
+		Update("enabled", false).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	post := func(title, aud string) *httptest.ResponseRecorder {
+		body := map[string]any{"title": title}
+		if aud != "" {
+			body["audience"] = aud
+		}
+		return doJSON(t, r, "POST", "/api/notifications/announcement", body)
+	}
+	created := func(rec *httptest.ResponseRecorder) int64 {
+		if rec.Code != http.StatusOK {
+			t.Fatalf("announcement: %d %s", rec.Code, rec.Body)
+		}
+		var out struct {
+			Created int64 `json:"created"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &out)
+		return out.Created
+	}
+
+	// 缺省与 all=全部启用用户（4 个，停用不收）。
+	if n := created(post("全员公告", "")); n != 4 {
+		t.Fatalf("default audience created = %d, want 4", n)
+	}
+	if n := created(post("全员工告B", "all")); n != 4 {
+		t.Fatalf("all audience created = %d, want 4", n)
+	}
+	// expiring:7 只收 3 天内到期；expiring:30 收 3 天与 30 天（过期/无到期不收）。
+	if n := created(post("到期七日", "expiring:7")); n != 1 {
+		t.Fatalf("expiring:7 created = %d, want 1", n)
+	}
+	if n := created(post("到期三十", "expiring:30")); n != 2 {
+		t.Fatalf("expiring:30 created = %d, want 2", n)
+	}
+	// 坏受众 400。
+	for _, bad := range []string{"expiring:0", "expiring:91", "bogus"} {
+		if rec := post("坏受众", bad); rec.Code != http.StatusBadRequest {
+			t.Fatalf("audience %q: %d, want 400", bad, rec.Code)
+		}
+	}
+
+	// 定时公告：发布时不收，到点按 expiring:7 名单扇出——定时后才加入的用户
+	// 也算在内（名单以扇出时刻为准）。
+	start := now.Add(time.Hour).Truncate(time.Second)
+	rec := doJSON(t, r, "POST", "/api/notifications/announcement", map[string]any{
+		"title": "定时受众", "audience": "expiring:7",
+		"starts_at": start.Format(time.RFC3339),
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("scheduled audience: %d %s", rec.Code, rec.Body)
+	}
+	panelToken(t, r, "aud-late")
+	setExp("aud-late", at(now.Add(24*time.Hour)))
+	n, err := announce.RunDue(db, start.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 { // near + late（far 超窗、none 无到期、expired 已过期、off 停用）
+		t.Fatalf("RunDue audience fanned = %d, want 2", n)
+	}
+
+	// 重发按同名单重算（近用户此刻已挪出窗口 → 只剩 late 一人）。
+	setExp("aud-near", at(now.Add(-40*24*time.Hour)))
+	type stat struct {
+		ID       int64   `json:"id"`
+		Audience string  `json:"audience"`
+		Sent     int64   `json:"sent"`
+		FanoutAt *string `json:"fanout_at"`
+	}
+	rec = doJSON(t, r, "GET", "/api/notifications/announcements?limit=200", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("stats: %d %s", rec.Code, rec.Body)
+	}
+	var stats []stat
+	_ = json.Unmarshal(rec.Body.Bytes(), &stats)
+	var anchorID int64
+	for _, s := range stats {
+		if s.Audience == "expiring:7" && s.Sent == 2 {
+			anchorID = s.ID
+		}
+	}
+	if anchorID == 0 {
+		t.Fatalf("scheduled audience anchor not found in stats: %+v", stats)
+	}
+	rec = doJSON(t, r, "POST", "/api/notifications/announcements/"+strconv.FormatInt(anchorID, 10)+"/resend", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("resend: %d %s", rec.Code, rec.Body)
+	}
+	var out struct {
+		Emitted int64 `json:"emitted"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	if out.Emitted != 1 {
+		t.Fatalf("resend emitted = %d, want 1 (near aged out of window)", out.Emitted)
 	}
 }
