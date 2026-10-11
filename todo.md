@@ -274,6 +274,10 @@
 - [x] [P2-6] AU-2 dash 审计查询页（已落地 2026-10-10）：`/audit` 路由+侧栏「审计」入口+`AuditView.vue`——过滤行（操作者/方法/起止 datetime RFC3339）+表格（ID/时间/操作者/类型/动作/对象/结果 tag，expand 行展开请求体快照+IP）+上一页/下一页分页（offset 驱动）；api.ts 增 `AuditLogRow`/`AuditQuery`/`getAuditLogs`
 - [x] [P2-6] AU-3 保留与轮转（已落地 2026-10-10）：`FERRY_AUDIT_RETENTION_DAYS`（缺省 90，0=永久保留不启动循环）+ `internal/audit` 包（Prune=带索引 DELETE created_at < now-Nd；Loop=小时级 tick 沿 FERRY_*_SEC 装配惯例，retention<=0 直接返回；main.go backup 循环旁装配）；env.example 调度旋钮段补登记。测试三例：窗口边界（-91 删/-90 等点留/-1 留）/retention 0 noop/Loop 0 直返+ctx 取消退出
 
+## 公告受众批（2026-10-11 巡检 11 轮自定位）
+
+- [x] 公告受众分段（运营设计 §1.1「全员/分组」主张落地）：Notification 锚点行加 `audience` 列（size:32，缺省 all）——`all`=全部启用用户（原行为）、`expiring:N`（N 1-90，发布入口 announce.NormalizeAudience 严格校验归一，400 拒坏值）=仅 expires_at 落在 (now, now+N 天] 的启用用户（过期/无到期/停用不收）；名单以扇出时刻为准——announce.audienceScope 扇出与重发共用同一口径（定时公告到点才解析名单，发布后加入到期窗口的用户照收；重发按重发时刻重算，名单漂移如实反映）；非法受众串扇出侧按 all 兜底（脏数据不阻塞）。dash 发布表单受众下拉（全员/3/7/30 天内到期）+触达表受众列。测试=TestAnnouncementAudience（缺省与 all 4 人停用不收/expiring:7 只收临期/expiring:30 收 3+30 天/bad 值 400×3/定时公告到点解析名单含发布后加入者/重发名单重算临期移出即只发 1 人）。make test 全绿（55 包+3 前端）。commit=3a803a6
+
 ## P2 — 远期或明确不做
 
 - [x] [P2-1] 面板主从同步（2026-10-10 续批单开工落地）：standby 实例周期拉取主面板加密快照原子替换本机库——`internal/standby` 包（SyncOnce=拉取→主密钥解密校验→SQLite 魔数门槛→tmp 落盘 fsync→sql.DB.Close() 静默→rename 覆盖 ferry.db→清旧 inode -wal/-shm 侧车防误回放；MasterURL/Token/主密钥三缺任一即拒；主面板不可达/篡改/错钥都不替换继续服务陈旧库；Loop=上线先拉一版+周期 tick，成功替换回调 OnReplace 后返回）+主面板侧 `GET /api/standby/snapshot`（X-Standby-Token 机器鉴权，未配 token 恒 403，复用 backup.Snapshot VACUUM INTO+主密钥加密同格式=restore.sh 直接可恢复，落临时目录 serve 即删不进 backups 表）+config 三字段（FERRY_STANDBY_MASTER_URL/TOKEN/SEC 缺省 600）+main 装配（替换后 os.Exit(0) 交 systemd Restart=always 加载新库，RPO≤间隔；提升为主=去 MASTER_URL 重启）+env.example 注册+deploy/README 节。测试=standby_test.go（全链换新+四类失败不替换+Loop 守卫与钩子+DSN 取路径）与 handler/standby_test.go（令牌三态+产物解密可开）。make test 全绿（55 包）。commit=0862bc1
