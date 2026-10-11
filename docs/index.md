@@ -7,6 +7,12 @@ hero:
   tagline: Go 单二进制后端 + Vue 3 双前端，面向小内存 VPS——用户、节点、订阅、计费与触达一体化
   actions:
     - theme: brand
+      text: 部署指南
+      link: /deploy/部署指南
+    - theme: alt
+      text: 使用指南
+      link: /guide/使用指南
+    - theme: alt
       text: 设计文档
       link: /design/调度核心设计
     - theme: alt
