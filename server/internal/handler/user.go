@@ -102,15 +102,15 @@ func (h *Handler) createUser(c *gin.Context) {
 		enabled = *in.Enabled
 	}
 	u := storage.User{
-		Username:   username,
-		SubToken:   token,
-		QuotaBytes: quotaOrDefault(in.QuotaBytes),
-		ResetCycle: cycle,
-		ExpiresAt:  in.ExpiresAt,
-		Enabled:    enabled,
-		CreatedBy:  operator,
-		BwUpMbps:   derefInt(in.BwUpMbps),
-		BwDownMbps: derefInt(in.BwDownMbps),
+		Username:    username,
+		SubToken:    token,
+		QuotaBytes:  quotaOrDefault(in.QuotaBytes),
+		ResetCycle:  cycle,
+		ExpiresAt:   in.ExpiresAt,
+		Enabled:     enabled,
+		CreatedBy:   operator,
+		BwUpMbps:    derefInt(in.BwUpMbps),
+		BwDownMbps:  derefInt(in.BwDownMbps),
 		DeviceLimit: derefInt(in.DeviceLimit),
 		IPLimit:     derefInt(in.IPLimit),
 	}

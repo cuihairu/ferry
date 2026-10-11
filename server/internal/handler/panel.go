@@ -67,14 +67,14 @@ func (h *Handler) panelMe(c *gin.Context) {
 	}
 	used := usage.Rx + usage.Tx
 	c.JSON(http.StatusOK, gin.H{
-		"id":          u.ID,
-		"username":    u.Username,
-		"sub_token":   u.SubToken,
-		"quota_bytes": u.QuotaBytes,
-		"used_bytes":  used,
-		"expires_at":  u.ExpiresAt,
-		"active":      sub.UserActive(&u, used, time.Now()),
-		"over_quota":  u.QuotaBytes > 0 && used >= u.QuotaBytes,
+		"id":           u.ID,
+		"username":     u.Username,
+		"sub_token":    u.SubToken,
+		"quota_bytes":  u.QuotaBytes,
+		"used_bytes":   used,
+		"expires_at":   u.ExpiresAt,
+		"active":       sub.UserActive(&u, used, time.Now()),
+		"over_quota":   u.QuotaBytes > 0 && used >= u.QuotaBytes,
 		"created_at":   u.CreatedAt,
 		"bw_up_mbps":   u.BwUpMbps,
 		"bw_down_mbps": u.BwDownMbps,

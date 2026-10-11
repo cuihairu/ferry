@@ -20,6 +20,7 @@ const subDeviceIPWindow = 24 * time.Hour
 //     ip_limit 即拒（403）；
 //   - hwid 面：客户端带 X-Client-Hwid 才可记设备，设备数超 device_limit 即拒；
 //     未带 hwid 的订阅请求该面不生效（客户端配合不可控，见 todo P2-4）。
+//
 // 已在册的 key（老设备/老 IP）不受收紧影响——只拦新 key，避免误伤存量。
 // 超限拒访时按用户按日去重落一条 admin 告警（herald outbox）。
 func (h *Handler) subDeviceCheck(c *gin.Context, u *storage.User, hwid, ip, ua string) error {

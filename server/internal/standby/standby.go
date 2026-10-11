@@ -33,10 +33,10 @@ var sqliteMagic = []byte("SQLite format 3\x00")
 
 // Options 是同步口径；零值回退默认（间隔 DefaultSec）。
 type Options struct {
-	MasterURL string        // 主面板地址（FERRY_STANDBY_MASTER_URL，空=不启动）
-	Token     string        // 共享令牌（FERRY_STANDBY_TOKEN，双方一致）
-	Sec       int           // 拉取间隔秒（FERRY_STANDBY_SEC）
-	DBPath    string        // 本机 ferry.db 路径
+	MasterURL string // 主面板地址（FERRY_STANDBY_MASTER_URL，空=不启动）
+	Token     string // 共享令牌（FERRY_STANDBY_TOKEN，双方一致）
+	Sec       int    // 拉取间隔秒（FERRY_STANDBY_SEC）
+	DBPath    string // 本机 ferry.db 路径
 	Logger    *log.Logger
 
 	tick time.Duration // 调度周期（未导出，测试注入；缺省 Sec 秒）

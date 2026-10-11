@@ -19,22 +19,22 @@ import (
 // hy2 追加 {"obfs","obfs_password","insecure","up","down"}（hysteria2 客户端
 // 同名字段，up/down 单位 Mbps）。
 type nodeConfig struct {
-	UUID     string `json:"uuid"`
-	Password string `json:"password"`
-	Method   string `json:"method"`
-	TLS      bool   `json:"tls"`
-	SNI      string `json:"sni"`
-	Host     string `json:"host"`
-	Path     string `json:"path"`
-	Net      string `json:"net"`
-	AID      int    `json:"aid"`
-	Scy      string `json:"scy"`
-	Flow     string `json:"flow"`
-	Obfs        string `json:"obfs"`
+	UUID         string `json:"uuid"`
+	Password     string `json:"password"`
+	Method       string `json:"method"`
+	TLS          bool   `json:"tls"`
+	SNI          string `json:"sni"`
+	Host         string `json:"host"`
+	Path         string `json:"path"`
+	Net          string `json:"net"`
+	AID          int    `json:"aid"`
+	Scy          string `json:"scy"`
+	Flow         string `json:"flow"`
+	Obfs         string `json:"obfs"`
 	ObfsPassword string `json:"obfs_password"`
-	Insecure    bool   `json:"insecure"`
-	Up          int    `json:"up"`
-	Down        int    `json:"down"`
+	Insecure     bool   `json:"insecure"`
+	Up           int    `json:"up"`
+	Down         int    `json:"down"`
 }
 
 func parseConfig(raw string) (nodeConfig, error) {

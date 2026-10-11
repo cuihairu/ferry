@@ -226,9 +226,9 @@ func TestLoopGuards(t *testing.T) {
 // TestSQLitePath 覆盖 DSN 取路径：裸路径/file: 前缀/pragma 查询段。
 func TestSQLitePath(t *testing.T) {
 	for dsn, want := range map[string]string{
-		"ferry.db":                                 "ferry.db",
-		"/data/ferry.db":                           "/data/ferry.db",
-		"file:/data/ferry.db":                      "/data/ferry.db",
+		"ferry.db":            "ferry.db",
+		"/data/ferry.db":      "/data/ferry.db",
+		"file:/data/ferry.db": "/data/ferry.db",
 		"/data/ferry.db?_pragma=journal_mode(WAL)": "/data/ferry.db",
 	} {
 		if got := sqlitePath(dsn); got != want {

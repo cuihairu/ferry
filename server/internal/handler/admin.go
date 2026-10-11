@@ -13,7 +13,7 @@ import (
 )
 
 // adminClaims 是 JWT claim，包含用户 ID、是否为管理员与管理员层级
-//（P2-2：super=超级管理员 / operator=子管理员；空=旧令牌，按 super 兼容）。
+// （P2-2：super=超级管理员 / operator=子管理员；空=旧令牌，按 super 兼容）。
 type adminClaims struct {
 	jwt.RegisteredClaims
 	IsAdmin bool   `json:"is_admin"`
