@@ -1,8 +1,8 @@
 package handler
 
 // 用户批量导入/导出（用户迁移面）：export 与 listUsers 同字段口径（含订阅
-// 令牌，不含口令——口令不迁移，迁入后订阅地址需重发）；import 批量建号——
-// 校验失败整批 400 零写入，重名跳过并回报，成功行回新订阅令牌。
+// 令牌，不含口令——口令不迁移）；import 批量建号——校验失败整批 400 零
+// 写入，重名跳过并回报，成功行回订阅令牌（可选沿用旧令牌保址，缺省新生成）。
 
 import (
 	"errors"
@@ -20,8 +20,13 @@ import (
 // maxImportRows 是单次导入行数上限（防超大载荷拖垮请求与事务）。
 const maxImportRows = 500
 
-// importRow 是导入一行，与创建用户同形（模板开关沿用，缺省不套）。
-type importRow = model.UserInput
+// importRow 是导入一行：与创建用户同形（模板开关沿用，缺省不套），额外可选
+// 收 sub_token——迁移保址：导出含订阅令牌，导入沿用即订阅地址不换（用户无感）；
+// 不传则逐行生成新令牌。令牌全局唯一（users.uniqueIndex），重复行拒。
+type importRow struct {
+	model.UserInput
+	SubToken string `json:"sub_token,omitempty"`
+}
 
 // importRequest 是一次导入请求。
 type importRequest struct {
@@ -78,16 +83,33 @@ func (h *Handler) importUsers(c *gin.Context) {
 		tpl = t
 	}
 	// 先校验后写入：坏行不落库、整批 400 并报该行原因。
+	seen := make(map[string]int)
 	for i := range req.Users {
 		in := &req.Users[i]
+		in.SubToken = strings.TrimSpace(in.SubToken)
 		if in.UseTemplate != nil && *in.UseTemplate {
-			applyUserTemplate(in, tpl, time.Now())
+			applyUserTemplate(&in.UserInput, tpl, time.Now())
 		}
 		if err := validateImportRow(in); err != nil {
-			skips := []importSkip{{Username: strings.TrimSpace(in.Username), Reason: err.Error()}}
-			c.JSON(http.StatusBadRequest, gin.H{"created": 0, "skipped": 1, "skipped_rows": skips})
+			importReject(c, in.Username, err)
 			return
 		}
+		if in.SubToken != "" {
+			if j, dup := seen[in.SubToken]; dup {
+				importReject(c, in.Username, fmt.Errorf("sub_token duplicated by row #%d", j+1))
+				return
+			}
+			seen[in.SubToken] = i
+		}
+	}
+	// 沿用令牌须全局未占用（users.sub_token uniqueIndex 兜底并发竞态）。
+	if name, err := checkImportTokens(h.db, req.Users); err != nil {
+		if name == "" {
+			fail(c, http.StatusInternalServerError, err)
+		} else {
+			importReject(c, name, err)
+		}
+		return
 	}
 	if role, _ := c.Get("adminRole"); role == RoleOperator && operator != "" {
 		if err := checkImportQuota(h.db, operator, len(req.Users)); err != nil {
@@ -108,11 +130,45 @@ func (h *Handler) importUsers(c *gin.Context) {
 	})
 }
 
+// importReject 校验期整批 400：零写入，报坏行原因（行号随 err 文案）。
+func importReject(c *gin.Context, username string, err error) {
+	c.JSON(http.StatusBadRequest, gin.H{"created": 0, "skipped": 1, "skipped_rows": []importSkip{{Username: strings.TrimSpace(username), Reason: err.Error()}}})
+}
+
+// checkImportTokens 校验沿用令牌未被占用：占用时返回该行用户名与原因（调用方
+// 整批 400）；db 侧错误返回空用户名（调用方按 500 处理）。
+func checkImportTokens(db *gorm.DB, rows []importRow) (string, error) {
+	var wanted []string
+	for i := range rows {
+		if rows[i].SubToken != "" {
+			wanted = append(wanted, rows[i].SubToken)
+		}
+	}
+	if len(wanted) == 0 {
+		return "", nil
+	}
+	var taken []string
+	if err := db.Model(&storage.User{}).Where("sub_token IN ?", wanted).Pluck("sub_token", &taken).Error; err != nil {
+		return "", err
+	}
+	for _, tk := range taken {
+		for i := range rows {
+			if rows[i].SubToken == tk {
+				return rows[i].Username, fmt.Errorf("row #%d: sub_token %q already in use", i+1, tk)
+			}
+		}
+	}
+	return "", nil
+}
+
 // validateImportRow 校验导入一行（与创建用户同口径）。
 func validateImportRow(in *importRow) error {
 	username := strings.TrimSpace(in.Username)
 	if username == "" || len(username) > 64 {
 		return errors.New("username is required (1-64 chars)")
+	}
+	if len(in.SubToken) > 64 {
+		return errors.New("sub_token must be <= 64 chars")
 	}
 	if in.QuotaBytes != nil && *in.QuotaBytes < 0 {
 		return errors.New("quota_bytes must be >= 0 (0 = unlimited)")
@@ -163,9 +219,13 @@ func (h *Handler) txImportUsers(rows []importRow, operator string) ([]storage.Us
 				skips = append(skips, importSkip{Username: username, Reason: "username already exists"})
 				continue
 			}
-			token, err := RandomToken()
-			if err != nil {
-				return err
+			token := rows[i].SubToken // 沿用旧令牌=迁移保址；缺省新生成
+			if token == "" {
+				t, err := RandomToken()
+				if err != nil {
+					return err
+				}
+				token = t
 			}
 			cycle, err := resetCycleOrDefault(rows[i].ResetCycle)
 			if err != nil {

@@ -153,3 +153,75 @@ func TestUserImportValidation(t *testing.T) {
 		t.Fatalf("rejected imports wrote %d users, want 0", n)
 	}
 }
+
+// TestUserImportPreserveToken 覆盖导入沿用旧令牌（迁移保址）、令牌占用与批内
+// 重复整批 400 零写入、不传令牌仍生成新令牌。
+func TestUserImportPreserveToken(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	panelToken(t, r, "tok-old")
+	var old storage.User
+	if err := db.Where("username = ?", "tok-old").First(&old).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// 沿用旧令牌建号：落库值与传入一致（订阅地址不换）。
+	rec := doJSON(t, r, "POST", "/api/users/import", map[string]any{"users": []map[string]any{
+		{"username": "tok-new", "sub_token": "legacy-token-value-1"},
+	}})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("import: %d %s", rec.Code, rec.Body)
+	}
+	var got storage.User
+	if err := db.Where("username = ?", "tok-new").First(&got).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got.SubToken != "legacy-token-value-1" {
+		t.Fatalf("preserved token = %q, want legacy-token-value-1", got.SubToken)
+	}
+
+	// 占用令牌（他人已在用）→ 整批 400 零写入。
+	rec = doJSON(t, r, "POST", "/api/users/import", map[string]any{"users": []map[string]any{
+		{"username": "tok-x", "sub_token": old.SubToken},
+	}})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("taken token: %d, want 400", rec.Code)
+	}
+	var cnt int64
+	if err := db.Model(&storage.User{}).Where("username = ?", "tok-x").Count(&cnt).Error; err != nil {
+		t.Fatal(err)
+	}
+	if cnt != 0 {
+		t.Fatalf("taken-token import wrote %d rows, want 0", cnt)
+	}
+
+	// 批内重复令牌 → 400 零写入。
+	rec = doJSON(t, r, "POST", "/api/users/import", map[string]any{"users": []map[string]any{
+		{"username": "tok-y", "sub_token": "dup-token"},
+		{"username": "tok-z", "sub_token": "dup-token"},
+	}})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("dup in batch: %d, want 400", rec.Code)
+	}
+	var dup int64
+	if err := db.Model(&storage.User{}).Where("username IN ?", []string{"tok-y", "tok-z"}).Count(&dup).Error; err != nil {
+		t.Fatal(err)
+	}
+	if dup != 0 {
+		t.Fatalf("dup-token import wrote %d rows, want 0", dup)
+	}
+
+	// 不传 sub_token 仍生成新令牌（原口径回归）。
+	rec = doJSON(t, r, "POST", "/api/users/import", map[string]any{"users": []map[string]any{
+		{"username": "tok-gen"},
+	}})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("generated: %d %s", rec.Code, rec.Body)
+	}
+	var gen storage.User
+	if err := db.Where("username = ?", "tok-gen").First(&gen).Error; err != nil {
+		t.Fatal(err)
+	}
+	if gen.SubToken == "" || gen.SubToken == "legacy-token-value-1" {
+		t.Fatalf("generated token = %q", gen.SubToken)
+	}
+}
