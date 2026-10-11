@@ -4,7 +4,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   createAnnouncement, deleteNotification, getNotifications, getEvents, retryEvent,
   getEventDeliveries, testEventChannel, getEventSamples,
+  getAnnouncements, resendAnnouncement,
   type NotificationRow, type EventRow, type EventChannelHealth, type EventDeliveryRow, type EventSample,
+  type AnnouncementStat,
 } from '../api'
 import { formatDate } from '../utils/format'
 
@@ -28,6 +30,7 @@ async function load() {
 }
 onMounted(() => {
   load()
+  loadAnnouncements()
   loadEvents()
   loadDeliveries()
   loadSamples()
@@ -135,10 +138,13 @@ const filtered = computed(() =>
   typeFilter.value ? rows.value.filter((r) => r.type === typeFilter.value) : rows.value,
 )
 
-// 发布公告：标题必填，正文选填。
+// 发布公告：标题必填，正文选填；开始/结束选填（P2-5 窗口）——开始在未来
+// 即定时发布（到点由定时扫描扇出），结束到点自动撤下（panel/RSS 不可见）。
 const publishing = ref(false)
 const title = ref('')
 const body = ref('')
+const startsAt = ref<Date | null>(null)
+const endsAt = ref<Date | null>(null)
 
 async function publish() {
   if (!title.value.trim()) {
@@ -147,15 +153,68 @@ async function publish() {
   }
   publishing.value = true
   try {
-    const { created } = await createAnnouncement(title.value.trim(), body.value.trim())
-    ElMessage.success(`已发布，送达 ${created} 个用户`)
+    const opts: { starts_at?: string; ends_at?: string } = {}
+    if (startsAt.value) opts.starts_at = startsAt.value.toISOString()
+    if (endsAt.value) opts.ends_at = endsAt.value.toISOString()
+    const { created, scheduled } = await createAnnouncement(title.value.trim(), body.value.trim(), opts)
+    ElMessage.success(scheduled ? '已登记定时发布，到点自动扇出' : `已发布，送达 ${created} 个用户`)
     title.value = ''
     body.value = ''
-    await load()
+    startsAt.value = null
+    endsAt.value = null
+    await Promise.all([load(), loadAnnouncements()])
   } catch (e) {
     ElMessage.error(String(e))
   } finally {
     publishing.value = false
+  }
+}
+
+// 公告触达与重发（P2-5 ②③）：锚点行+发 n/读 m 统计；重发=补一轮外通道
+//（TG/邮件）投递，6h/公告限频。
+const announcements = ref<AnnouncementStat[]>([])
+const announcementsLoading = ref(false)
+
+async function loadAnnouncements() {
+  announcementsLoading.value = true
+  try {
+    announcements.value = await getAnnouncements()
+  } catch (e) {
+    ElMessage.error(String(e))
+  } finally {
+    announcementsLoading.value = false
+  }
+}
+
+function annState(a: AnnouncementStat): { text: string; type: 'info' | 'success' | 'warning' } {
+  if (!a.fanout_at) return { text: '定时中', type: 'info' }
+  if (a.ends_at && new Date(a.ends_at).getTime() <= Date.now()) return { text: '已撤下', type: 'warning' }
+  return { text: '生效中', type: 'success' }
+}
+
+function windowText(a: AnnouncementStat): string {
+  const s = a.starts_at ? formatDate(a.starts_at) : ''
+  const e = a.ends_at ? formatDate(a.ends_at) : ''
+  if (!s && !e) return '—'
+  return `${s || '立即'} ~ ${e || '不撤'}`
+}
+
+async function resend(a: AnnouncementStat) {
+  try {
+    await ElMessageBox.confirm(`向全部启用用户的外通道（TG/邮件）重发「${a.title}」？站内信不重发。`, '重发', {
+      confirmButtonText: '重发',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
+  try {
+    const { emitted } = await resendAnnouncement(a.id)
+    ElMessage.success(`已补发 ${emitted} 个用户的外通道投递`)
+    await loadAnnouncements()
+  } catch (e) {
+    ElMessage.error(String(e))
   }
 }
 
@@ -171,7 +230,7 @@ async function remove(row: NotificationRow) {
   }
   try {
     await deleteNotification(row.id)
-    await load()
+    await Promise.all([load(), loadAnnouncements()])
   } catch (e) {
     ElMessage.error(String(e))
   }
@@ -202,9 +261,40 @@ const TYPE_TAG: Record<string, { text: string; type: 'success' | 'info' | 'dange
         show-word-limit
         class="body-input"
       />
+      <div class="win-row">
+        <el-date-picker v-model="startsAt" type="datetime" placeholder="开始时间（选填，留空立即发布）" style="flex: 1" />
+        <el-date-picker v-model="endsAt" type="datetime" placeholder="结束时间（选填，到点撤下）" style="flex: 1" />
+      </div>
       <div class="publish-bar">
         <el-button type="primary" :loading="publishing" @click="publish">发布</el-button>
       </div>
+    </div>
+
+    <div class="panel-card">
+      <div class="card-title">公告触达与重发</div>
+      <p class="card-desc">发 n / 读 m 按站内信回读统计；「重发外通道」补一轮 TG/邮件投递（站内信不重发，6 小时限频）。</p>
+      <el-table :data="announcements" v-loading="announcementsLoading" :header-cell-style="{ background: 'var(--ferry-bg-panel)' }">
+        <el-table-column prop="title" label="标题" min-width="160" show-overflow-tooltip />
+        <el-table-column label="状态" width="90">
+          <template #default="{ row }">
+            <el-tag :type="annState(row).type" size="small">{{ annState(row).text }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="窗口" min-width="200">
+          <template #default="{ row }">{{ windowText(row) }}</template>
+        </el-table-column>
+        <el-table-column label="发 / 读" width="90">
+          <template #default="{ row }">{{ row.sent }} / {{ row.read }}</template>
+        </el-table-column>
+        <el-table-column label="发布时间" width="170">
+          <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="130">
+          <template #default="{ row }">
+            <el-button size="small" :disabled="!row.fanout_at" @click="resend(row)">重发</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
     </div>
 
     <div class="toolbar">
@@ -390,6 +480,16 @@ const TYPE_TAG: Record<string, { text: string; type: 'success' | 'info' | 'dange
   font-size: 13px;
   font-weight: 650;
   margin-bottom: 12px;
+}
+.card-desc {
+  color: var(--ferry-text-muted, #909399);
+  font-size: 12px;
+  margin: -6px 0 10px;
+}
+.win-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
 }
 .body-input {
   margin-top: 10px;

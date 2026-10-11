@@ -1,6 +1,7 @@
 // Package notifyscan 站内信自动触发（NT-2）：定时扫描到期与流量阈值两类，
 // 每档跑一次、按日去重（同一用户同一类型一天至多一条）；发放到账的事件
 // 触发在 handler.applyGrant 事务内直落，公告扇出在管理 API，都不经过本包。
+// 定时公告（P2-5）到点扇出经 announce.RunDue 在本包 Sweep 内执行。
 package notifyscan
 
 import (
@@ -11,6 +12,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/announce"
 	"github.com/cuihairu/ferry/server/internal/herald"
 	"github.com/cuihairu/ferry/server/internal/quota"
 	"github.com/cuihairu/ferry/server/internal/storage"
@@ -40,9 +42,15 @@ func Loop(ctx context.Context, db *gorm.DB, interval time.Duration, logger *log.
 	}
 }
 
-// Sweep 跑一轮扫描；到期与流量各自独立，互不阻断，错误合并返回。
+// Sweep 跑一轮扫描；到期、流量、定时公告各自独立，互不阻断，错误合并返回。
 func Sweep(db *gorm.DB, now time.Time) error {
-	return errors.Join(sweepExpiry(db, now), sweepTraffic(db, now))
+	return errors.Join(sweepExpiry(db, now), sweepTraffic(db, now), sweepAnnouncements(db, now))
+}
+
+// sweepAnnouncements 扇出到点的定时公告（P2-5，announce.RunDue）。
+func sweepAnnouncements(db *gorm.DB, now time.Time) error {
+	_, err := announce.RunDue(db, now)
+	return err
 }
 
 // sweepExpiry 到期扫描：enabled + 未关掉偏好 + 7 天内到期（含已过期）的用户

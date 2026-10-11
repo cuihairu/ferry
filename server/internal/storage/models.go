@@ -573,12 +573,19 @@ type CertTask struct {
 // 预警/系统），逐用户落行（小用户量扇出成本可忽略），已读态挂在行上。
 type Notification struct {
 	ID        int64      `gorm:"primaryKey" json:"id"`
-	UserID    int64      `gorm:"index;not null" json:"user_id"`      // 收件人
+	UserID    int64      `gorm:"index;not null" json:"user_id"`      // 收件人（公告锚点行=0）
 	Type      string     `gorm:"size:16;index;not null" json:"type"` // announcement/expiry/traffic/system
 	Title     string     `gorm:"size:128;not null" json:"title"`
 	Body      string     `gorm:"size:512" json:"body,omitempty"`
 	ReadAt    *time.Time `json:"read_at,omitempty"`
 	CreatedAt time.Time  `json:"created_at"`
+	// 公告窗口与触达（P2-5）：普通通知行全部零值。锚点行=站级一份
+	//（user_id=0，RSS 数据源）；用户行经 AnchorID 关联锚点供统计回流。
+	StartsAt *time.Time `json:"starts_at,omitempty"` // 定时发布（锚点行；未到点不扇出、RSS 不出）
+	EndsAt   *time.Time `json:"ends_at,omitempty"`   // 定时撤下（到点后 RSS 与 panel 列表不再可见，行保留）
+	FanoutAt *time.Time `json:"fanout_at,omitempty"` // 用户扇出完成时间（scheduled 行待扇出时为空）
+	AnchorID int64      `gorm:"index" json:"anchor_id,omitempty"` // 所属公告锚点行 id（用户行>0）
+	ResendAt *time.Time `json:"resend_at,omitempty"` // 最近一次外通道重发（锚点行，限频基准）
 }
 
 // 通知类型（NT-1/NT-2）：announcement 公告扇出；expiry/traffic 到期与流量

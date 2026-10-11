@@ -223,6 +223,8 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		// 站内信通知中心（NT-1）：dash 公告扇出与全量列表。
 		api.GET("/notifications", h.listNotifications)
 		api.POST("/notifications/announcement", h.createAnnouncement)
+		api.GET("/notifications/announcements", h.listAnnouncements)
+		api.POST("/notifications/announcements/:id/resend", h.resendAnnouncement)
 		api.DELETE("/notifications/:id", h.deleteNotification)
 		// P1-1 管理员登录与鉴权（API Token 签发走 apiAuth 双凭据口径）。
 		api.GET("/token", h.GetCurrentUser)

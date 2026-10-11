@@ -37,10 +37,15 @@ type rssItem struct {
 	PubDate     string `xml:"pubDate"`
 }
 
-// feedXML 渲染公告 RSS（GET /feed.xml）。
+// feedXML 渲染公告 RSS（GET /feed.xml）。窗口口径（P2-5）：未到点且未扇出
+//（starts_at 未来、fanout_at 空）与已撤下（ends_at 过去）的公告不出；
+// 存量行三字段为空，不受影响；已扇出的定时公告到点后照常出。
 func (h *Handler) feedXML(c *gin.Context) {
+	now := time.Now()
 	var rows []storage.Notification
-	if err := h.db.Where("user_id = ? AND type = ?", 0, storage.NotifAnnouncement).
+	if err := h.db.
+		Where("user_id = ? AND type = ? AND (fanout_at IS NOT NULL OR starts_at IS NULL OR starts_at <= ?) AND (ends_at IS NULL OR ends_at > ?)",
+			0, storage.NotifAnnouncement, now, now).
 		Order("id DESC").Limit(feedItems).Find(&rows).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return

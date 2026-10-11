@@ -800,9 +800,36 @@ export function getNotifications(limit?: number): Promise<NotificationRow[]> {
   return get<NotificationRow[]>(`/api/notifications${limit ? `?limit=${limit}` : ''}`)
 }
 
-/** 发布公告：扇出给全部启用用户，返回落行数。 */
-export function createAnnouncement(title: string, body: string): Promise<{ created: number }> {
-  return post('/api/notifications/announcement', { title, body })
+/** 发布公告：starts_at/ends_at 选填（RFC3339，P2-5 窗口；start 未来=定时发布）。 */
+export function createAnnouncement(
+  title: string,
+  body: string,
+  opts?: { starts_at?: string; ends_at?: string },
+): Promise<{ created: number; scheduled: boolean }> {
+  return post('/api/notifications/announcement', { title, body, ...opts })
+}
+
+/** AnnouncementStat 是公告触达行（P2-5 ②）：锚点行+发 n/读 m。 */
+export interface AnnouncementStat {
+  id: number
+  title: string
+  body?: string
+  starts_at: string | null
+  ends_at: string | null
+  fanout_at: string | null
+  resend_at: string | null
+  created_at: string
+  sent: number
+  read: number
+}
+
+export function getAnnouncements(limit?: number): Promise<AnnouncementStat[]> {
+  return get<AnnouncementStat[]>(`/api/notifications/announcements${limit ? `?limit=${limit}` : ''}`)
+}
+
+/** 外通道重发（P2-5 ③）：补一轮 notice 事件外发，6h/公告限频（429）。 */
+export function resendAnnouncement(id: number): Promise<{ emitted: number }> {
+  return post(`/api/notifications/announcements/${id}/resend`)
 }
 
 export function deleteNotification(id: number): Promise<{ ok: boolean }> {

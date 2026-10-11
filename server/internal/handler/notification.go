@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cuihairu/ferry/server/internal/herald"
+	"github.com/cuihairu/ferry/server/internal/announce"
 	"github.com/cuihairu/ferry/server/internal/ringlog"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
@@ -17,48 +17,23 @@ import (
 
 // 站内信通知中心（NT-1/NT-2）：四类通知逐用户落行（小用户量扇出成本可忽略），
 // 已读态挂在行上。面板侧读与已读流转、偏好设置；dash 侧公告扇出与全量列表。
-// 到期/流量预警的定时扫描在 internal/notifyscan；发放到账的事件触发在 applyGrant。
+// 到期/流量预警的定时扫描在 internal/notifyscan；公告扇出/窗口/重发共用
+// internal/announce（P2-5）；发放到账的事件触发在 applyGrant。
 
-// fanoutAnnouncement 公告扇出：给全部启用用户各落一行，分批写入；
-// 站外投递走同一事件接口（HERALD-4），事件行同批落 outbox（公告为管理侧
-// 主动动作，不设 dedup_key——每次发布都是有意图的一次触达）。
-// 另落一行站级锚点（user_id=0，TOUCH-2）：RSS /feed.xml 的数据源。
-// 返回实际落行数（禁用用户不收）。
-func fanoutAnnouncement(db *gorm.DB, title, body string) (int64, error) {
-	var ids []int64
-	if err := db.Model(&storage.User{}).Where("enabled = ?", true).Pluck("id", &ids).Error; err != nil {
-		return 0, err
-	}
-	// 锚点行先行落库（RSS 数据源）：公告是站级的，没有启用用户也要可见。
-	rows := []storage.Notification{{UserID: 0, Type: storage.NotifAnnouncement, Title: title, Body: body}}
-	events := make([]storage.Event, 0, len(ids))
-	for _, id := range ids {
-		rows = append(rows, storage.Notification{UserID: id, Type: storage.NotifAnnouncement, Title: title, Body: body})
-		events = append(events, storage.Event{
-			Kind: herald.KindNotice, Severity: herald.SeverityInfo,
-			Title: title, Body: body,
-			Target: herald.TargetUser(id), Status: herald.StatusPending,
-			OccurredAt: time.Now(), CreatedAt: time.Now(),
-		})
-	}
-	if err := db.CreateInBatches(rows, 500).Error; err != nil {
-		return 0, err
-	}
-	if len(events) > 0 {
-		if err := db.CreateInBatches(events, 500).Error; err != nil {
-			return int64(len(ids)), err
-		}
-	}
-	// 返回用户行数（锚点行不入计数）：扇出语义=触达了多少启用用户。
-	return int64(len(ids)), nil
-}
+// panelVisible 是 panel 侧可见面过滤（P2-5 撤下口径）：窗口结束（ends_at
+// 到点）的通知不再出现在用户列表与未读数里（行保留，dash 全量列表仍可见）。
+const panelVisible = "(ends_at IS NULL OR ends_at > ?)"
 
 // createAnnouncement 发布公告（POST /api/notifications/announcement，OD 无关，NT-1）：
-// 标题必填，正文选填；扇出给全部启用用户。
+// 标题必填，正文选填；starts_at/ends_at 选填（RFC3339，P2-5 窗口）——starts_at
+// 在未来=定时发布（先落站级锚点行，到点由 notifyscan 扇出），立即发布则
+// 扇出给全部启用用户。
 func (h *Handler) createAnnouncement(c *gin.Context) {
 	var body struct {
-		Title string `json:"title"`
-		Body  string `json:"body"`
+		Title    string     `json:"title"`
+		Body     string     `json:"body"`
+		StartsAt *time.Time `json:"starts_at"`
+		EndsAt   *time.Time `json:"ends_at"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		fail(c, http.StatusBadRequest, err)
@@ -77,13 +52,95 @@ func (h *Handler) createAnnouncement(c *gin.Context) {
 		fail(c, http.StatusBadRequest, errors.New("正文过长（≤512）"))
 		return
 	}
-	n, err := fanoutAnnouncement(h.db, body.Title, strings.TrimSpace(body.Body))
+	if body.StartsAt != nil && body.EndsAt != nil && !body.EndsAt.After(*body.StartsAt) {
+		fail(c, http.StatusBadRequest, errors.New("ends_at must be after starts_at"))
+		return
+	}
+	n, err := announce.Fanout(h.db, announce.Input{
+		Title: body.Title, Body: strings.TrimSpace(body.Body),
+		StartsAt: body.StartsAt, EndsAt: body.EndsAt,
+	})
 	if err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
-	ringlog.Default().Add(fmt.Sprintf("announcement: %s（扇出 %d 用户）", body.Title, n))
-	c.JSON(http.StatusOK, gin.H{"created": n})
+	scheduled := body.StartsAt != nil && body.StartsAt.After(time.Now())
+	if scheduled {
+		ringlog.Default().Add(fmt.Sprintf("announcement: %s（定时 %s 发布）", body.Title, body.StartsAt.Format(time.RFC3339)))
+	} else {
+		ringlog.Default().Add(fmt.Sprintf("announcement: %s（扇出 %d 用户）", body.Title, n))
+	}
+	c.JSON(http.StatusOK, gin.H{"created": n, "scheduled": scheduled})
+}
+
+// listAnnouncements 公告触达列表（GET /api/notifications/announcements，P2-5 ②）：
+// 锚点行 + 每条的扇出数/已读数（发 n/读 m），按 AnchorID 关联用户行统计。
+func (h *Handler) listAnnouncements(c *gin.Context) {
+	limit := 50
+	if v := c.Query("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 200 {
+			fail(c, http.StatusBadRequest, errors.New("limit must be 1-200"))
+			return
+		}
+		limit = n
+	}
+	var anchors []storage.Notification
+	if err := h.db.Where("user_id = ? AND type = ?", 0, storage.NotifAnnouncement).
+		Order("id DESC").Limit(limit).Find(&anchors).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	out := make([]gin.H, 0, len(anchors))
+	for _, a := range anchors {
+		var sent, read int64
+		if err := h.db.Model(&storage.Notification{}).
+			Where("anchor_id = ? AND user_id != 0", a.ID).Count(&sent).Error; err != nil {
+			fail(c, http.StatusInternalServerError, err)
+			return
+		}
+		if err := h.db.Model(&storage.Notification{}).
+			Where("anchor_id = ? AND user_id != 0 AND read_at IS NOT NULL", a.ID).Count(&read).Error; err != nil {
+			fail(c, http.StatusInternalServerError, err)
+			return
+		}
+		out = append(out, gin.H{
+			"id": a.ID, "title": a.Title, "body": a.Body,
+			"starts_at": a.StartsAt, "ends_at": a.EndsAt,
+			"fanout_at": a.FanoutAt, "resend_at": a.ResendAt,
+			"created_at": a.CreatedAt,
+			"sent":       sent, "read": read,
+		})
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+// resendAnnouncement 外通道重发（POST /api/notifications/announcements/:id/resend，
+// P2-5 ③）：对已发布公告补一轮 notice 事件（Herald 分发 TG/邮件），不重落
+// 站内信行；限频 6h/公告（429），窗口已结束不重发（400）。
+func (h *Handler) resendAnnouncement(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	n, err := announce.Resend(h.db, id, time.Now())
+	switch {
+	case errors.Is(err, announce.ErrCooldown):
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "resend cooldown (6h per announcement)"})
+		return
+	case errors.Is(err, announce.ErrWindowClosed):
+		c.JSON(http.StatusBadRequest, gin.H{"error": "announcement window closed"})
+		return
+	case err != nil:
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"emitted": n})
 }
 
 // listNotifications 全量通知列表（GET /api/notifications?limit=&type=&user_id=，dash 排障用）。
@@ -148,7 +205,7 @@ func (h *Handler) panelNotifications(c *gin.Context) {
 		}
 		limit = n
 	}
-	q := h.db.Where("user_id = ?", u.ID)
+	q := h.db.Where("user_id = ? AND "+panelVisible, u.ID, time.Now())
 	if c.Query("unread") == "1" {
 		q = q.Where("read_at IS NULL")
 	}
@@ -168,7 +225,8 @@ func (h *Handler) panelUnreadCount(c *gin.Context) {
 	}
 	var count int64
 	if err := h.db.Model(&storage.Notification{}).
-		Where("user_id = ? AND read_at IS NULL", u.ID).Count(&count).Error; err != nil {
+		Where("user_id = ? AND read_at IS NULL AND "+panelVisible, u.ID, time.Now()).
+		Count(&count).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
@@ -209,7 +267,7 @@ func (h *Handler) panelMarkAllRead(c *gin.Context) {
 		return
 	}
 	res := h.db.Model(&storage.Notification{}).
-		Where("user_id = ? AND read_at IS NULL", u.ID).
+		Where("user_id = ? AND read_at IS NULL AND "+panelVisible, u.ID, time.Now()).
 		Update("read_at", time.Now())
 	if res.Error != nil {
 		fail(c, http.StatusInternalServerError, res.Error)
