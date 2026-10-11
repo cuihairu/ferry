@@ -289,6 +289,11 @@
 - [x] [收尾] make test 全绿（55 包+2 前端）；运营设计 §1.1 P2-5 bullet 补级联撤回口径；todo 立账本节。
 - [x] 设备面可见性闭环（P2-4 补全）：panelMe 增 `device_limit`/`ip_limit`/`devices`（hwid 在册数）/`ips`（24h 窗口内 IP 数）——订阅请求超限 403 时用户在面板能直接看到在册数与上限（原来只有订阅端点的报错文案，面板零可见）；panel 首页用量卡加 设备 x/y 与 IP（24h）a/b 两行（0=不限如实显示）。测试=TestPanelMeDeviceUsage（限额 2/3 下 hwid 1 台+窗口内 IP 2 个+窗口外旧行不计）。make test 全绿（55 包+2 前端）。commit=fdc1fee
 
+## 巡检 13 轮：状态查询面测试缝隙批（2026-10-11 续批自立项，非闸门）
+
+- [x] 复扫结论先行：设计稿「未落地」标记三处均带既定结论非缺口；TODO/FIXME 零命中（匹配均为卡密 XXXX 格式注释）；adminsapi 经 adminrole_test.go 走 HTTP 端点全覆盖、loginlog 主体经 twofa_test.go 覆盖（含同 /24 不告警、brute 阈值、分页），均非零覆盖——初判「11 文件无同文件测试」为跨文件覆盖误报，按端点路径逐一核到真零覆盖 5 处。
+- [x] 补 5 个零覆盖查询端点 + loginlog 纯函数边界（statusquery_test.go）：dimension-status 排序（isp<key、3 行定序）；transport-status 空库/window_sec 钳制（10/4000/abc→400）与种子聚合（单节点 peer 探活→recommended=tls）；nodes/:id/traffic-logs 只回本节点+新在前+limit 1-1000 钳制+无效 id 404+无节点空 200；nodes/:id/configs 同构（新在前、limit 1-200）；GET /api/token whoami 三态（admin JWT→subject "1"、API token→admin、无凭据 401）；sameNetwork 表驱动（v4 /24 同异、v6 /64 同异、v4v6、解析失败回退整串）；UA 截断（300 字符落库 255）。测试=7 用例一次过。commit=be4d10c
+
 ## P2 — 远期或明确不做
 
 - [x] [P2-1] 面板主从同步（2026-10-10 续批单开工落地）：standby 实例周期拉取主面板加密快照原子替换本机库——`internal/standby` 包（SyncOnce=拉取→主密钥解密校验→SQLite 魔数门槛→tmp 落盘 fsync→sql.DB.Close() 静默→rename 覆盖 ferry.db→清旧 inode -wal/-shm 侧车防误回放；MasterURL/Token/主密钥三缺任一即拒；主面板不可达/篡改/错钥都不替换继续服务陈旧库；Loop=上线先拉一版+周期 tick，成功替换回调 OnReplace 后返回）+主面板侧 `GET /api/standby/snapshot`（X-Standby-Token 机器鉴权，未配 token 恒 403，复用 backup.Snapshot VACUUM INTO+主密钥加密同格式=restore.sh 直接可恢复，落临时目录 serve 即删不进 backups 表）+config 三字段（FERRY_STANDBY_MASTER_URL/TOKEN/SEC 缺省 600）+main 装配（替换后 os.Exit(0) 交 systemd Restart=always 加载新库，RPO≤间隔；提升为主=去 MASTER_URL 重启）+env.example 注册+deploy/README 节。测试=standby_test.go（全链换新+四类失败不替换+Loop 守卫与钩子+DSN 取路径）与 handler/standby_test.go（令牌三态+产物解密可开）。make test 全绿（55 包）。commit=0862bc1
