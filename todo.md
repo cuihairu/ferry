@@ -282,6 +282,12 @@
 
 - [x] 用户批量导入/导出（用户迁移面）：`GET /api/users/export` 全量导出（字段与 listUsers 同口径含 sub_token、count 计数；口令 json:"-" 天然不带——口令不迁移，迁入后订阅地址需按新令牌重发）；`POST /api/users/import` 批量建号——maxImportRows=500 单次上限，先全量校验（任一坏行整批 400 零写入并报该行原因），再事务内逐行落库（重名跳过回报 "username already exists"，订阅令牌逐行新生成随响应回带；enabled=false 显式补写防 GORM 零值略过；UseTemplate 模板开关沿用创建口径）；子管理员批量配额=created_by 现有数+本批行数>max_users 整批 403（不做部分导入，配额语义不含糊）。dash UsersView 工具栏「导出」按钮（JSON blob 下载 ferry-users-日期.json）+「导入」按钮（文件选择解析 JSON，兼容裸数组与 {users:[...]} 两形态；成功提示新建/跳过数，跳过明细弹窗列原因上限 20 行）。测试=userio_test.go（导出 count+sub_token+无 password 字段/导入建号含禁用行与到期/重名跳过回报/坏行整批 400 零写入/空载荷与 501 行 400）。make test 全绿（55 包+2 前端）。commit=a543781
 
+## 巡检 12 轮：撤回与保址批（2026-10-11 续批自立项，前例 SB 批）
+
+- [x] 公告删除级联撤回（P2-5 撤回面补全）：deleteNotification 原为单行删——锚点行（公告，user_id=0）删除后扇出的用户行残留各用户列表与未读数，「删除公告」撤不下。改为锚点行级联：先查待删行，user_id=0 则同事务删锚点+`anchor_id=id` 全部用户行（防半撤）；普通行仍单行删；404 口径不变。dash 删除确认文案分流（锚点行提示「将同时撤回所有用户的扇出副本」）。测试=TestAnnouncementDeleteCascade（全员公告锚点+2 用户行/删锚点三方全消/再删 404/第二轮删单个用户行其余不动）。commit=781fd17
+- [x] 导入沿用订阅令牌（迁移保址）：export 含 sub_token 但 import 原本一律新生成——迁移后全部用户订阅地址失效（export→import 回环有损）。importRow 升级为嵌入 UserInput+可选 `sub_token`（≤64 字符）：传入即沿用（订阅地址不换，用户无感），缺省仍新生成；校验面=批内重复整批 400（importReject 统一报行号与原因）+DB 已占用整批 400（checkImportTokens 单查询 IN，占用行回报行号；uniqueIndex 兜底并发竞态）。export→import 同构回环现已无损（口令仍不迁移）。测试=TestUserImportPreserveToken（沿用令牌落库一致/占用令牌 400 零写入/批内重复 400 零写入/缺省新生成回归）。commit=7305257
+- [x] [收尾] make test 全绿（55 包+2 前端）；运营设计 §1.1 P2-5 bullet 补级联撤回口径；todo 立账本节。
+
 ## P2 — 远期或明确不做
 
 - [x] [P2-1] 面板主从同步（2026-10-10 续批单开工落地）：standby 实例周期拉取主面板加密快照原子替换本机库——`internal/standby` 包（SyncOnce=拉取→主密钥解密校验→SQLite 魔数门槛→tmp 落盘 fsync→sql.DB.Close() 静默→rename 覆盖 ferry.db→清旧 inode -wal/-shm 侧车防误回放；MasterURL/Token/主密钥三缺任一即拒；主面板不可达/篡改/错钥都不替换继续服务陈旧库；Loop=上线先拉一版+周期 tick，成功替换回调 OnReplace 后返回）+主面板侧 `GET /api/standby/snapshot`（X-Standby-Token 机器鉴权，未配 token 恒 403，复用 backup.Snapshot VACUUM INTO+主密钥加密同格式=restore.sh 直接可恢复，落临时目录 serve 即删不进 backups 表）+config 三字段（FERRY_STANDBY_MASTER_URL/TOKEN/SEC 缺省 600）+main 装配（替换后 os.Exit(0) 交 systemd Restart=always 加载新库，RPO≤间隔；提升为主=去 MASTER_URL 重启）+env.example 注册+deploy/README 节。测试=standby_test.go（全链换新+四类失败不替换+Loop 守卫与钩子+DSN 取路径）与 handler/standby_test.go（令牌三态+产物解密可开）。make test 全绿（55 包）。commit=0862bc1
