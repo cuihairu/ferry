@@ -209,6 +209,8 @@ async function savePrefs() {
           <div class="kv-row"><dt>剩余</dt><dd>{{ remaining }}</dd></div>
           <div class="kv-row"><dt>到期</dt><dd>{{ formatDate(me.expires_at) }}</dd></div>
           <div class="kv-row"><dt>状态</dt><dd>{{ me.active ? '正常' : '不可用' }}</dd></div>
+          <div class="kv-row"><dt>设备</dt><dd>{{ me.devices }} / {{ me.device_limit > 0 ? me.device_limit : '不限' }}</dd></div>
+          <div class="kv-row"><dt>IP（24h）</dt><dd>{{ me.ips }} / {{ me.ip_limit > 0 ? me.ip_limit : '不限' }}</dd></div>
         </dl>
       </section>
 

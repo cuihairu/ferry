@@ -178,3 +178,46 @@ func TestSubDeviceLimitValidation(t *testing.T) {
 		t.Fatalf("devices rows = %d, want 2", len(rows))
 	}
 }
+
+// TestPanelMeDeviceUsage 覆盖 panelMe 设备面用量（P2-4 可见性闭环）：订阅请求
+// 超限 403 时用户在面板能看到在册数与上限——hwid 在册数与 24h 窗口 IP 数。
+func TestPanelMeDeviceUsage(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	token := panelToken(t, r, "me-dev")
+	var u storage.User
+	if err := db.Where("username = ?", "me-dev").First(&u).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&storage.User{}).Where("id = ?", u.ID).
+		Updates(map[string]any{"device_limit": 2, "ip_limit": 3}).Error; err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	stale := now.Add(-25 * time.Hour)
+	rows := []storage.SubDevice{
+		{UserID: u.ID, Kind: "hwid", Key: "dev-1", FirstSeen: now, LastSeen: now},
+		{UserID: u.ID, Kind: "ip", Key: "10.2.0.1", FirstSeen: now, LastSeen: now},
+		{UserID: u.ID, Kind: "ip", Key: "10.2.0.2", FirstSeen: now, LastSeen: now},
+		{UserID: u.ID, Kind: "ip", Key: "10.2.0.9", FirstSeen: stale, LastSeen: stale},
+	}
+	if err := db.Create(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	rec := doPanel(t, r, token, "GET", "/api/panel/me", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("panel me: %d %s", rec.Code, rec.Body)
+	}
+	var me struct {
+		DeviceLimit int   `json:"device_limit"`
+		IPLimit     int   `json:"ip_limit"`
+		Devices     int64 `json:"devices"`
+		Ips         int64 `json:"ips"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &me); err != nil {
+		t.Fatal(err)
+	}
+	if me.DeviceLimit != 2 || me.IPLimit != 3 || me.Devices != 1 || me.Ips != 2 {
+		t.Fatalf("panel me device usage = %+v, want 2/3/1/2", me)
+	}
+}

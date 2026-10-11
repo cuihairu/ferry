@@ -66,6 +66,21 @@ func (h *Handler) panelMe(c *gin.Context) {
 		return
 	}
 	used := usage.Rx + usage.Tx
+	// 设备面用量（P2-4 可见性闭环）：订阅请求超限 403 时用户在面板能看到
+	// 在册数与上限——设备=hwid 在册数（客户端上报才计），IP=24h 窗口内在册数。
+	var devices, ips int64
+	if err := h.db.Model(&storage.SubDevice{}).
+		Where("user_id = ? AND kind = ?", u.ID, "hwid").
+		Count(&devices).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	if err := h.db.Model(&storage.SubDevice{}).
+		Where("user_id = ? AND kind = ? AND last_seen > ?", u.ID, "ip", time.Now().Add(-subDeviceIPWindow)).
+		Count(&ips).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"id":           u.ID,
 		"username":     u.Username,
@@ -78,6 +93,10 @@ func (h *Handler) panelMe(c *gin.Context) {
 		"created_at":   u.CreatedAt,
 		"bw_up_mbps":   u.BwUpMbps,
 		"bw_down_mbps": u.BwDownMbps,
+		"device_limit": u.DeviceLimit,
+		"ip_limit":     u.IPLimit,
+		"devices":      devices,
+		"ips":          ips,
 	})
 }
 

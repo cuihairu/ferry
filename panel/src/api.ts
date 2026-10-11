@@ -48,6 +48,10 @@ export interface Me {
   active: boolean
   over_quota: boolean
   created_at: string
+  device_limit: number
+  ip_limit: number
+  devices: number
+  ips: number
 }
 
 /** RedeemResult 是兑换成功后的权益回执。 */
