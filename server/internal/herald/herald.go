@@ -42,6 +42,7 @@ const (
 	KindLoginAlert     = "login_alert"        // 管理员登录异常（安全设计 §1：连续失败/新网段，登录审计接生产点）
 	KindPriceAlert     = "price_alert"        // 价格关注命中降价/到位（套餐与成本设计 §4.2，E-32 参考库批接生产点）
 	KindGeoSyncFailed  = "geodns_sync_failed" // 智能 DNS 分地域对账失败（入口与负载均衡 §C.8，E-27 接生产点）
+	KindDeviceLimit    = "device_limit"       // 订阅端设备/IP 数超限（P2-4，按用户按日去重）
 
 	// 用户触达（HERALD-4，§2.2；站内信照发，本通道供站外投递）。
 	KindExpire = "expire" // 账号到期提醒

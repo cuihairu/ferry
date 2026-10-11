@@ -67,6 +67,7 @@ func Open(driver, dsn string) (*gorm.DB, error) {
 func AutoMigrate(db *gorm.DB) error {
 	return db.AutoMigrate(
 		&User{},
+		&SubDevice{},
 		&Node{},
 		&TrafficLog{},
 		&CardBatch{},

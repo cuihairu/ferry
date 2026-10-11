@@ -69,6 +69,10 @@ type UserInput struct {
 	// BwUpMbps/BwDownMbps 用户级带宽限额（P2-3，0=不限）。
 	BwUpMbps   *int `json:"bw_up_mbps,omitempty"`
 	BwDownMbps *int `json:"bw_down_mbps,omitempty"`
+	// DeviceLimit/IPLimit 设备数/IP 数上限（P2-4，0=不限）。设备数按
+	// 订阅端 X-Client-Hwid 上报计（客户端不带则该面不生效）。
+	DeviceLimit *int `json:"device_limit,omitempty"`
+	IPLimit     *int `json:"ip_limit,omitempty"`
 	// UseTemplate 置真在创建时套用默认用户模板（P1-5）补全缺席字段（仅创建有效）。
 	UseTemplate *bool `json:"use_template,omitempty"`
 	// ClearExpires 置真清除到期时间（JSON null 与字段缺席无法区分，用显式语义）。

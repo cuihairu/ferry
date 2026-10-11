@@ -60,6 +60,10 @@ func (h *Handler) createUser(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
+	if err := validateSubLimit(in.DeviceLimit, in.IPLimit); err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
 	cycle, err := resetCycleOrDefault(in.ResetCycle)
 	if err != nil {
 		fail(c, http.StatusBadRequest, err)
@@ -107,6 +111,8 @@ func (h *Handler) createUser(c *gin.Context) {
 		CreatedBy:  operator,
 		BwUpMbps:   derefInt(in.BwUpMbps),
 		BwDownMbps: derefInt(in.BwDownMbps),
+		DeviceLimit: derefInt(in.DeviceLimit),
+		IPLimit:     derefInt(in.IPLimit),
 	}
 	if err := h.db.Create(&u).Error; err != nil {
 		if isDup(err) {
@@ -176,6 +182,19 @@ func (h *Handler) updateUser(c *gin.Context) {
 			updates["bw_down_mbps"] = *in.BwDownMbps
 		}
 	}
+	if in.DeviceLimit != nil || in.IPLimit != nil {
+		if err := validateSubLimit(in.DeviceLimit, in.IPLimit); err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		// PATCH 语义同带宽限额：只改显式给的字段。
+		if in.DeviceLimit != nil {
+			updates["device_limit"] = *in.DeviceLimit
+		}
+		if in.IPLimit != nil {
+			updates["ip_limit"] = *in.IPLimit
+		}
+	}
 	if in.ResetCycle != nil {
 		cycle, err := resetCycleOrDefault(in.ResetCycle)
 		if err != nil {
@@ -217,6 +236,11 @@ func (h *Handler) deleteUser(c *gin.Context) {
 		replyFind(c, err)
 		return
 	}
+	// 设备/IP 记录是安全态（非账目流水），随用户一并清掉不留孤儿行。
+	if err := h.db.Where("user_id = ?", u.ID).Delete(&storage.SubDevice{}).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
 	if err := h.db.Delete(&u).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
@@ -237,6 +261,11 @@ func (h *Handler) resetSubToken(c *gin.Context) {
 		return
 	}
 	if err := h.db.Model(&storage.User{}).Where("id=?", u.ID).Update("sub_token", token).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	// 令牌换发=旧链接作废，设备/IP 记录随之清空（老设备需重新在册）。
+	if err := h.db.Where("user_id=?", u.ID).Delete(&storage.SubDevice{}).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}

@@ -347,6 +347,8 @@ export interface User {
   created_at: string
   bw_up_mbps: number
   bw_down_mbps: number
+  device_limit: number
+  ip_limit: number
 }
 
 /** NodeShare 是单节点分享链接（P1-9）。 */

@@ -25,6 +25,11 @@ type User struct {
 	// 渲染节点内核配置（opaque payload 下发），故只提供权威元数据与可见面。
 	BwUpMbps   int `gorm:"default:0" json:"bw_up_mbps"`
 	BwDownMbps int `gorm:"default:0" json:"bw_down_mbps"`
+	// 设备数/IP 数上限（P2-4，0=不限）：device_limit 按订阅端上报的
+	// hwid 计设备（依赖客户端带 X-Client-Hwid，未报则该面不生效）；
+	// ip_limit 按订阅端独立 IP 计（不依赖客户端，总是生效）。
+	DeviceLimit int `gorm:"default:0" json:"device_limit"`
+	IPLimit     int `gorm:"default:0" json:"ip_limit"`
 	Password  string `gorm:"size:128" json:"-"`
 	ApiToken   string     `gorm:"size:64" json:"api_token"`
 	// 两步验证（安全设计 §1，P1）：TOTP 密钥经 secret_store 加密落库
@@ -38,6 +43,19 @@ type User struct {
 	TrafficWarnPercent int       `gorm:"default:80" json:"traffic_warn_percent"` // 流量预警阈值（1-100）
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
+}
+
+// SubDevice 是订阅端观察到的设备/IP 一条记录（P2-4）。Kind=hwid 的行按
+// 客户端上报的 X-Client-Hwid 记设备（未上报则不落行）；kind=ip 的行按
+// 订阅来源 IP 记（总是可落）。(user_id, kind, key) 唯一，防并发首访双插。
+type SubDevice struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	UserID    uint      `gorm:"uniqueIndex:idx_subdev_key" json:"user_id"`
+	Kind      string    `gorm:"size:8;uniqueIndex:idx_subdev_key" json:"kind"` // hwid/ip
+	Key       string    `gorm:"size:64;uniqueIndex:idx_subdev_key" json:"key"`
+	UserAgent string    `gorm:"size:128" json:"user_agent,omitempty"`
+	FirstSeen time.Time `json:"first_seen"`
+	LastSeen  time.Time `json:"last_seen"`
 }
 
 // Node 是一台代理节点。Token 供 agent 出站连接认证。

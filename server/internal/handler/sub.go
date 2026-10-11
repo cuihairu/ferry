@@ -50,6 +50,13 @@ func (h *Handler) subscription(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 		return
 	}
+	// 设备/IP 数校验（P2-4）：IP 面总是执行（不依赖客户端），hwid 面仅
+	// 在客户端带 X-Client-Hwid 时生效——未上报则设备数限制对该请求不生效
+	// （客户端配合不可控，超限风险记 todo）。已在册的老设备/老 IP 不受影响。
+	if err := h.subDeviceCheck(c, &u, c.GetHeader("X-Client-Hwid"), ip, c.Request.UserAgent()); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
 
 	var usage trafficUsage
 	if err := h.usageQuery(u.ID, u.ResetCycle, time.Now()).

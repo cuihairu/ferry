@@ -33,6 +33,8 @@ const form = reactive({
   hadExpiry: false,
   bwUp: 0,
   bwDown: 0,
+  deviceLimit: 0,
+  ipLimit: 0,
 })
 
 // 重置周期选项（P1-4）：none 不限、day/week/month 按日历窗口重算用量。
@@ -48,7 +50,7 @@ function cycleLabel(c: string): string {
 
 function openCreate() {
   editing.value = null
-  Object.assign(form, { username: '', quotaGb: 0, resetCycle: 'none', expires: null, enabled: true, hadExpiry: false, bwUp: 0, bwDown: 0 })
+  Object.assign(form, { username: '', quotaGb: 0, resetCycle: 'none', expires: null, enabled: true, hadExpiry: false, bwUp: 0, bwDown: 0, deviceLimit: 0, ipLimit: 0 })
   dialogVisible.value = true
 }
 
@@ -63,6 +65,8 @@ function openEdit(u: User) {
     hadExpiry: !!u.expires_at,
     bwUp: u.bw_up_mbps,
     bwDown: u.bw_down_mbps,
+    deviceLimit: u.device_limit,
+    ipLimit: u.ip_limit,
   })
   dialogVisible.value = true
 }
@@ -98,6 +102,8 @@ async function save() {
       enabled: form.enabled,
       bw_up_mbps: form.bwUp,
       bw_down_mbps: form.bwDown,
+      device_limit: form.deviceLimit,
+      ip_limit: form.ipLimit,
     }
     if (form.expires) {
       body.expires_at = form.expires.toISOString()
@@ -226,6 +232,14 @@ async function remove(u: User) {
             <span class="bw-sep">↓ Mbps</span>
           </div>
           <span class="form-hint">0 表示不限（P2-3，节点侧执行）</span>
+        </el-form-item>
+        <el-form-item label="设备数上限">
+          <el-input-number v-model="form.deviceLimit" :min="0" :max="1000" :step="1" />
+          <span class="form-hint">0 表示不限（P2-4，按订阅端 X-Client-Hwid 计，客户端需上报）</span>
+        </el-form-item>
+        <el-form-item label="IP 数上限">
+          <el-input-number v-model="form.ipLimit" :min="0" :max="1000" :step="1" />
+          <span class="form-hint">0 表示不限（P2-4，24h 窗口内独立 IP 数，超限拒访）</span>
         </el-form-item>
         <el-form-item label="重置周期">
           <el-select v-model="form.resetCycle" style="width: 160px">
