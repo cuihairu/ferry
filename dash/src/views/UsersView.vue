@@ -165,6 +165,58 @@ async function remove(u: User) {
   ElMessage.success('已删除')
   await load()
 }
+
+// 用户迁移（导入/导出）：导出全量 JSON 备份；导入读文件解析后批量建号，
+// 成功提示 created/skipped，跳过明细弹窗列原因（上限 20 行）。
+async function doExport() {
+  try {
+    const data = await get<{ users: User[]; count: number }>('/api/users/export')
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `ferry-users-${new Date().toISOString().slice(0, 10)}.json`
+    a.click()
+    URL.revokeObjectURL(a.href)
+  } catch (e) {
+    ElMessage.error(String(e))
+  }
+}
+
+const importing = ref(false)
+const importInput = ref<HTMLInputElement>()
+
+async function onImportFile(ev: Event) {
+  const file = (ev.target as HTMLInputElement).files?.[0]
+  ;(ev.target as HTMLInputElement).value = ''
+  if (!file) return
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(await file.text())
+  } catch {
+    ElMessage.error('文件不是合法 JSON')
+    return
+  }
+  const rows = Array.isArray(parsed) ? parsed : (parsed as { users?: unknown[] })?.users
+  if (!Array.isArray(rows) || rows.length === 0) {
+    ElMessage.error('文件里没有用户行')
+    return
+  }
+  importing.value = true
+  try {
+    const out = await post<{ created: number; skipped: number; skipped_rows: { username: string; reason: string }[] }>('/api/users/import', { users: rows })
+    ElMessage.success(`导入完成：新建 ${out.created}，跳过 ${out.skipped}`)
+    if (out.skipped_rows?.length) {
+      const lines = out.skipped_rows.slice(0, 20).map((r) => `${r.username}：${r.reason}`)
+      if (out.skipped_rows.length > 20) lines.push(`… 共 ${out.skipped_rows.length} 行`)
+      ElMessageBox.alert(lines.join('\n'), '跳过明细', { customStyle: { whiteSpace: 'pre-wrap' } })
+    }
+    await load()
+  } catch (e) {
+    ElMessage.error(String(e))
+  } finally {
+    importing.value = false
+  }
+}
 </script>
 
 <template>
@@ -174,6 +226,9 @@ async function remove(u: User) {
 
     <div class="toolbar">
       <el-button type="primary" @click="openCreate">新建用户</el-button>
+      <el-button @click="doExport">导出</el-button>
+      <el-button :loading="importing" @click="importInput?.click()">导入</el-button>
+      <input ref="importInput" type="file" accept=".json,application/json" style="display: none" @change="onImportFile" />
     </div>
 
     <el-table :data="users" v-loading="loading" :header-cell-style="{ background: 'var(--ferry-bg-panel)' }">
