@@ -287,6 +287,7 @@
 - [x] 公告删除级联撤回（P2-5 撤回面补全）：deleteNotification 原为单行删——锚点行（公告，user_id=0）删除后扇出的用户行残留各用户列表与未读数，「删除公告」撤不下。改为锚点行级联：先查待删行，user_id=0 则同事务删锚点+`anchor_id=id` 全部用户行（防半撤）；普通行仍单行删；404 口径不变。dash 删除确认文案分流（锚点行提示「将同时撤回所有用户的扇出副本」）。测试=TestAnnouncementDeleteCascade（全员公告锚点+2 用户行/删锚点三方全消/再删 404/第二轮删单个用户行其余不动）。commit=781fd17
 - [x] 导入沿用订阅令牌（迁移保址）：export 含 sub_token 但 import 原本一律新生成——迁移后全部用户订阅地址失效（export→import 回环有损）。importRow 升级为嵌入 UserInput+可选 `sub_token`（≤64 字符）：传入即沿用（订阅地址不换，用户无感），缺省仍新生成；校验面=批内重复整批 400（importReject 统一报行号与原因）+DB 已占用整批 400（checkImportTokens 单查询 IN，占用行回报行号；uniqueIndex 兜底并发竞态）。export→import 同构回环现已无损（口令仍不迁移）。测试=TestUserImportPreserveToken（沿用令牌落库一致/占用令牌 400 零写入/批内重复 400 零写入/缺省新生成回归）。commit=7305257
 - [x] [收尾] make test 全绿（55 包+2 前端）；运营设计 §1.1 P2-5 bullet 补级联撤回口径；todo 立账本节。
+- [x] 设备面可见性闭环（P2-4 补全）：panelMe 增 `device_limit`/`ip_limit`/`devices`（hwid 在册数）/`ips`（24h 窗口内 IP 数）——订阅请求超限 403 时用户在面板能直接看到在册数与上限（原来只有订阅端点的报错文案，面板零可见）；panel 首页用量卡加 设备 x/y 与 IP（24h）a/b 两行（0=不限如实显示）。测试=TestPanelMeDeviceUsage（限额 2/3 下 hwid 1 台+窗口内 IP 2 个+窗口外旧行不计）。make test 全绿（55 包+2 前端）。commit=fdc1fee
 
 ## P2 — 远期或明确不做
 
