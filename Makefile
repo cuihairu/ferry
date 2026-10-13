@@ -39,6 +39,16 @@ build-dash:
 build-panel:
 	cd panel && pnpm build
 
+# ================= 本地测试口径 (local testing scope) =================
+# CI 与本地开发按改动面三路分流——改一行文档不该全量编译：
+#   1) 文档改动（*.md、docs/**、图片）→ 不编译。主 CI workflow 的 paths-ignore
+#      已跳过这些路径；本地无需全量跑。
+#   2) 代码改动 → 只跑改动子集：
+#      - `go test ./<改动包>/...`
+#   3) 全量（make test）→ 仅以下情形触发：
+#      go.mod / go.sum、.github/**、Docker/Compose 配置、发布前。
+# ==========================================================================
+
 test:
 	cd server && go test ./...
 	cd agent && go test ./...
