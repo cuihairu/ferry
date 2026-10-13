@@ -56,7 +56,7 @@ scp 旧机:ferry-backup-migrate.db* /tmp/
 详见脚本头注释）。compose 部署的数据卷在宿主机的路径（compose 项目名=目录名）：
 
 ```sh
-DATA=/var/lib/docker/volumes/ferry_ferry-data/_data
+DATA=/var/lib/docker/volumes/deploy_ferry-data/_data
 
 # 解密需要一个 ferry-server 二进制（openssl 不支持备份档的 AES-GCM 格式），
 # 本机现编一个或取同版本 release 产物：
@@ -119,7 +119,7 @@ curl -s https://panel.example.com/api/health | grep -o '"agents_online":[0-9]*'
 docker compose --env-file deploy/ferry.env -f deploy/docker-compose.yml down
 ```
 
-- Herald 对接地址若变更：dash 告警通道配置更新（`FERRY_HERALD_URL`，HERALD-2）；
+- Herald 对接地址若变更：ferry.env 的 `FERRY_HERALD_URL` 更新并重启 ferry-server（仅环境变量读取，dash 无配置面）；
 - servify/其他外部对接同理，指到新地址；
 - 停掉旧机上的备份定时任务（避免旧机继续落档造成两份真相）；
 - 数日后清理旧机卷与证书材料。

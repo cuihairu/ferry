@@ -27,7 +27,7 @@ ferry/
 ├── panel/      # User portal (Vue 3: self-service subscription links, traffic lookup, usage instructions)
 ├── dash/       # Admin dashboard (Vue 3: users/nodes/configuration/statistics)
 ├── payments/   # Payment channel plugins (epusdt USDT integrated; WeChat/Alipay are placeholders pending merchant credentials)
-├── packages/   # Shared contracts (agentproto, payment provider interfaces)
+├── packages/   # Shared contracts (agentproto, costref, payment provider interfaces)
 ├── deploy/     # Deployment files (compose, scripts)
 ├── docs/       # Design documents
 ├── todo.md     # Feature breakdown and scheduling

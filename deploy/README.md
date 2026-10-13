@@ -60,7 +60,7 @@ deploy/agent-install.sh --panel ... --token ... --role relay \
 
 传输插件：`tls-camo`（默认）/ `quic` / `ws-tls` / `ssh`；
 `--relay-listen`（默认 127.0.0.1:1080）、`--relay-ca`（私有 CA 校验落地证书）可配。
-tunnel=ssh 时 `--relay-server-name` 指落地 sshd 地址、`--relay-ssh-*` 四件齐备。
+tunnel=ssh 时 `--relay-server-name` 指落地 sshd 地址、`--relay-ssh-user`/`--relay-ssh-key`/`--relay-ssh-forward-addr` 三件必填，known-hosts 可空（空=跳过 host key 校验，仅引导期）。
 
 ## QUIC sidecar 安装（E-18b）
 

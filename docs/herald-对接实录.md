@@ -92,4 +92,4 @@ FERRY_HERALD_URL=https://herald.example.com/api/v1/apps/ferry
 FERRY_HERALD_TOKEN=$FERRY_HERALD_TOKEN
 ```
 
-初始化（config token 执行一次）：注册品类（九类告警 + 四类触达各一条）→ herald `PUT /api/v1/apps/ferry/callback`（指向 ferry 的回执端点 + 32 字节 secret）→ 每用户向 herald `POST /api/v1/audiences/user.N/surfaces` 绑定联系面。暴露面：`/api/internal/event-results` 沿用 ferry 现口径（无鉴权 `/api` 组，部署侧网络边界隔离）；HERALD-5 原生验签落地后已获得应用层防伪。
+初始化（config token 执行一次）：注册品类（告警/触达各一条，按《告警通道设计》§2.1/§2.2 清单全量注册，当前 13 类告警 + 7 类触达）→ herald `PUT /api/v1/apps/ferry/callback`（指向 ferry 的回执端点 + 32 字节 secret）→ 每用户向 herald `POST /api/v1/audiences/user.N/surfaces` 绑定联系面。暴露面：`/api/internal/event-results` 沿用 ferry 现口径（无鉴权 `/api` 组，部署侧网络边界隔离）；HERALD-5 原生验签落地后已获得应用层防伪。

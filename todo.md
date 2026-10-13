@@ -1,369 +1,53 @@
-# ferry 功能拆解（todo）
-
-- 调研来源：3x-ui（MHSanaei/3x-ui）、Marzban（Gozargah/Marzban）、Hiddify（hiddify/hiddifypanel）、Remnawave（remnawave/panel，backend 取材 2026-10-08 快照）；横向对比见 [docs/面板横向对比.md](docs/面板横向对比.md)（Remnawave 实为 TS/NestJS，非 Go，附录已纠正存档）。
-- 口径：每条=原子动作，可独立验收；`来源`=参考哪个面板的哪个做法（文件级）。P0=最小可用面板闭环（用户/节点/订阅/流量记账）。
-
-## P0 — 最小可用闭环
-
-### 后端
-
-- [x] P0-1 用户 CRUD API：创建/列表/查询/修改/删除，字段=用户名、流量配额、到期时间、启用开关（来源：Marzban `app/models/user.py` 的 data_limit/expire/status）
-- [x] P0-2 用户创建时自动生成订阅 token，并提供重置接口（来源：Marzban `/sub/{token}`；Hiddify `auth.py` 的 api_key 即订阅标识）
-- [x] P0-3 节点 CRUD API：地址/端口/协议/配置模板 JSON/启用开关（来源：3x-ui `internal/database/model/model.go` 的 Inbound；Marzban `/api/inbounds`）
-- [x] P0-4 订阅 v2ray 格式：可用节点编码为 vmess/vless/ss/trojan 分享链接后 base64 打包（来源：Marzban `app/subscription/v2ray.py`；3x-ui `internal/sub/links.go`）
-- [x] P0-5 订阅 clash 格式：生成 clash/mihomo YAML（来源：3x-ui `internal/sub/clash_yaml.go`；Marzban clash-meta 输出）
-- [x] P0-6 订阅端点 `GET /sub/{token}`（`?target=v2ray|clash`），并按 UA 自适应默认格式（来源：Marzban `subscription.py` 的 client_type 路由；Hiddify `user/user.py` get_proper_config）
-- [x] P0-7 订阅响应带 `subscription-userinfo`（已用/配额/到期）与 `profile-update-interval` 头（来源：Marzban `app/routers/subscription.py:180-196`）
-- [x] P0-8 订阅只返回当前可用节点：用户启用且未到期且未超配额（来源：Hiddify `models/user.py` is_active 计算属性）
-- [x] P0-9 流量记账写接口：记录 user/node/上下行字节数，可单条可批量（来源：Marzban `app/jobs/record_usages.py`；Hiddify `models/usage.py` DailyUsage）
-- [x] P0-10 流量读接口：按用户汇总 + 按日明细列表（来源：Hiddify `models/usage.py` 的 today/total 聚合）
-- [x] P0-11 到期/超限自动停用：定时任务扫表置 disabled（来源：Marzban `app/jobs/review_users.py`；Hiddify user_should_reset）
-- [x] P0-12 xray 对接收敛为 `internal/xray.Handler` 接口，P0 用空实现保持边界稳定（来源：Marzban `xray_api/stats.py` 的 stats 抽象）
-
-### 前端
-
-- [x] P0-13 pnpm workspace + Vue3/Vite/TS/Pinia/Element Plus 应用骨架与路由（用户/节点/设置占位）
-- [x] P0-14 Linear 风格主题：CSS 变量覆盖 Element Plus，暗色为主，侧边导航+顶栏+内容区布局（本机 linear.app.md token 表，自定口径）
-- [x] P0-15 用户管理页：表格 + 新建/编辑对话框（配额/到期/开关）+ 订阅链接展示与复制
-- [x] P0-16 节点管理页：表格 + 新建/编辑对话框（协议/地址/端口/配置模板）
-
-### 工程
-
-- [x] P0-17 根 Makefile：dev / build / test 一键入口，覆盖前后端
-- [x] P0-18 deploy/：docker-compose.yml 与示例配置
-- [x] P0-19 测试门禁：订阅编码、可用性判定、CRUD 的表驱动/集成测试接入 `make test`
-
-## P1 — 进阶（分期做）
-
-[x] P1-1 管理员登录（会话或 JWT）+ 登录失败限速（来源：Marzban `/api/admin/token` 签发 JWT；3x-ui `login_limiter.go`）
-[x] P1-2 API Token：程序化调用面板 API（来源：3x-ui ApiToken 模型与 `/apiTokens` 路由）
-- [x] P1-3 对接 xray gRPC stats 采集真实流量，替代手工上报（来源：Marzban `xray_api/stats.py` QueryStats）
-- [x] P1-4 流量重置周期：day/week/month（来源：Marzban data_limit_reset_strategy；Hiddify User.mode）
-- [x] P1-5 用户模板：新建用户套用默认配额/时长（来源：Marzban `app/routers/user_template.py`）
-- [x] P1-6 备份导出：SQLite 备份下载端点（来源：3x-ui `dump_sqlite.go` 与 export 路由；Hiddify 6 小时自动备份）
-- [x] P1-7 面板 Web 证书上传/自签管理；ACME 留给部署层（来源：3x-ui getWebCertFiles；Hiddify acme.sh 在 manager 层）
-- [x] P1-8 系统状态：内存/CPU/在线情况展示（来源：3x-ui `check_memory_usage.go`、cpuHistory 路由）
-- [x] P1-9 单节点分享链接/二维码展示（来源：3x-ui `/links/:email` 路由）
-- [x] P1-10 通知渠道：事件外发（如 Telegram/Webhook）（来源：Marzban Telegram Bot；3x-ui discord_notify_job）
-- [x] P1-11 运行日志查看（来源：Marzban 节点 WebSocket 日志；3x-ui clear_logs_job）
-- [x] P1-12 两步验证 2FA（TOTP）（已落地 2026-10-08，安全设计 §1，对齐 3x-ui 做法）：handler/twofa.go 四端点——GET /admin/2fa 状态、POST setup（totp.Generate 30s/6 位/SHA1 产密钥，经主密钥 sealSecret 加密暂存 settings `admin_2fa_pending`，未配 FERRY_SECRET_KEY 明确 400 密钥永不明文落库）、POST enable（校验一次 TOTP 才落 user.TOTPSecret（v1: 密文）+生成 8 枚 xxxx-xxxx 恢复码（只存 sha256，UPDATE used_at IS NULL 条件消费，用一个销一个）+清暂存，两步绑定避免半绑定态）、POST disable（bcrypt 密码确认后清密钥/恢复码/暂存）；AdminLogin 二次校验（checkTwoFA：绑定者缺码回 totp_required、错码回 totp_invalid，6 位 TOTP ±1 周期容差或恢复码任一通过，未绑定者行为不变）；接入 pquerna/otp v1.5.0（Apache-2.0 已核 license）；dash 登录页 /login（全页守卫+redirect 回跳，机器码驱动验证码输入位）与设置页两步验证卡（二维码渲染 qrcode 已有依赖/密钥串/恢复码一次性展示+复制/密码确认关闭）；管理员首启引导 FERRY_ADMIN_USER/FERRY_ADMIN_PASSWORD（EnsureAdmin 库内无管理员时启动建号，存在忽略不覆盖——此前全仓无生产路径能造 IsAdmin 账号）；路由修复 /admin/login 误挂鉴权组内 401 不可达；测试 TestTwoFABindLoginRecovery（绑定/校验/恢复码重放/解绑全链路）/TestTwoFASetupNeedsMasterKey/TestEnsureAdmin
-- [x] P1-13 登录审计 login_logs（已落地 2026-10-08，安全设计 §1）：按设计 DDL 落表（storage.LoginLog：时间/IP/UA/结果，username/created_at 带索引，AutoMigrate 增量），每次登录尝试落行（UA 截 255，落行失败只记日志不阻断登录），GET /admin/login-logs 分页查询（id DESC，page 缺省 1/20、page_size 上限 100），dash 设置页登录日志分页卡；连续失败与异网段成功告警经既有 Herald login_alert（KindLoginAlert，warning/admin，未配 Herald 落本地 outbox 站内可见不自建通道）——连续失败=同 IP 15min 窗口 login_logs 失败≥5 行（对齐限速 FailLimit），异网段=与上次成功登录不同网段（netip v4 /24、v6 /64、Unmap，首次成功无基线不判），emitLoginAlert 本地按 kind+dedup_key 自查重同日至多一条（dedup_key 再供 Herald 侧窗口合并）；测试 TestLoginUnboundDirectPass（直过+落行 IP/UA 断言）/TestLoginLogsQuery（失败成功两行+分页两页）/TestLoginAlerts（新网段同日去重+爆破恰 5 次触发，事件恰 2 条）
-
-## ferry-agent —（代理机侧，设计定稿）
-
-口径：Go 静态二进制（CGO_ENABLED=0）常驻每台代理机；只出站连面板（WebSocket 长连接，节点不开入站端口）；认证=节点令牌（必选）+ mTLS（可开关）；协议契约在 `packages/`，面板 Go 端与 agent 共用。
-
-### 协议契约（先做）
-
-- [x] [P0] A-1 `packages/agentproto` Go module：Envelope(JSON) + 消息类型常量 + 协议版本号，面板与 agent 以 go.mod replace 共用
-- [x] [P0] A-2 握手与认证消息 `agent.hello`（节点令牌）/`panel.hello_ack`；agent 配置支持 CA/客户端证书路径（mTLS 开关）
-- [x] [P0] A-3 心跳消息：uptime/负载/内存/证书到期/进程状态汇总 + 应答带回周期
-- [x] [P0] A-4 配置下发消息 `config.push`（proc/kind/version/sha256/payload）/`config.ack`（结果/错误/是否已回滚）
-- [x] [P0] A-5 进程管理消息：状态上报 + `proc_ctl`（start/stop/reload）/应答
-- [x] [P0] A-6 流量上报消息：按进程 rx/tx 累计 + 在线连接数，周期主动上报
-- [x] [P0] A-7 告警消息 `alarm`：进程崩溃拉起失败、证书临近到期、负载过高
-
-### 骨架 + 心跳
-
-- [x] [P0] A-8 `agent/cmd/agent` 入口：静态编译产出单文件二进制，`make build-agent` 验收
-- [x] [P0] A-9 agent 配置文件：面板地址、节点令牌、agent ID、证书路径、心跳与重连参数
-- [x] [P0] A-10 连接层：只出站 WebSocket、指数退避自动重连、按消息类型分发
-- [x] [P0] A-11 面板侧 `/agent/ws` 接入：读 hello 校验令牌、注册在线连接、心跳更新在线状态
-- [x] [P0] A-12 面板 API：节点列表带在线状态与 `last_seen`（nodes 表增 token/last_seen/status 字段）
-
-### 进程管理
-
-- [x] [P0] A-13 进程规格：agent 配置文件定义 name/kind(exec/args/config 路径)/reload 策略
-- [x] [P0] A-14 启停与状态机（running/stopped/crashed），崩溃自动拉起（退避），状态随心跳/事件上报
-- [x] [P1] A-15 面板批量操作：对选中的多节点统一下发 proc 操作与配置
-
-### 配置下发
-
-- [x] [P0] A-16 agent 收到 `config.push`：sha256 校验 → 落临时文件 → kind 对应校验命令 → 原子替换 → reload
-- [x] [P0] A-17 校验或 reload 失败自动回滚旧配置并恢复，`config.ack` 带错误详情
-- [x] [P0] A-18 面板侧：节点配置存储（node_configs 表）+ 推送接口 + 等待 ack（超时判失败）
-
-### 流量采集
-
-- [x] [P0] A-19 agent 周期采集流量字节数（xray 走 gRPC stats；其余 kind 标记未实现）并上报
-- [x] [P0] A-20 面板接收 `traffic.report` 写入 node_traffic_logs（节点级；用户级记账对齐 P0-9，走 traffic_logs 待 P1-3 逐用户映射）
-- [x] [P0] A-21 按进程的在线连接数采集与上报
-
-### 管理面（面板侧）
-
-- [x] [P1] A-22 异常告警落库与节点页展示（进程挂/证书到期即时可见）
-- [x] [P1] A-23 agent 自升级：面板下发 upgrade 指令，agent 换二进制重启，失败回滚
-- [x] [P1] A-24 一键部署：deploy/ 安装脚本（下载二进制、装 systemd、签发节点令牌、mTLS 证书生成）
-
-## 支付（设计：docs/design/支付设计.md）
-
-口径：Provider 抽象在 `packages/payment`，网关插件在 `payments/`；三账=订单/支付流水/发放记录，按 order_no 串联可对账；卡密先行零资质，USDT 二段，微信/支付宝留 Provider 位等资质。
-
-- [x] [P0] PAY-0 支付设计文档落 docs/design/支付设计.md（Provider 接口、三账 schema、阶段划分）
-- [x] [P0] PAY-1 `packages/payment` 契约：Provider 接口 + Order/Receipt/Callback 类型 + 三账表迁移
-- [x] [P0] PAY-2 卡密批次与卡密表：批次（权益类型/值/有效期/生成人）+ 卡密（唯一索引/状态/失败计数）
-- [x] [P0] PAY-3 批次生成接口：crypto/rand 去混淆字符集批量生成 + CSV 导出，仅管理员可调
-- [x] [P0] PAY-4 兑换接口：原子核销 → 事务写三账（provider=card）→ 执行加配额/延到期，幂等
-- [x] [P0] PAY-5 兑换防爆破：按 IP 滑动窗口限速 + 失败计数锁码 + 统一错误文案
-- [x] [P0] PAY-6 dash 卡密管理页：建批次、批次/卡密列表、导出、禁用
-- [x] [P0] PAY-7 panel 兑换页：输入卡密兑换并展示结果
-- [x] [P1] PAY-8 payments/epusdt Provider：CreateOrder 收银台 + 回调验签 + 到账自动发放
-- [x] [P1] PAY-9 dash 对账视图：订单/流水/发放三账按订单分组，标出缺失环节
-- [x] [P1] PAY-10 payments/wechat、payments/alipay Provider stub（返回未启用，等商户资质）
-- [x] [P1] PAY-11 panel 下单与订单状态查询 API（对 epusdt 段）
-
-## 入口与负载均衡（设计：docs/design/入口与负载均衡设计.md）
-
-口径：国内入口池 relay 隧道接海外落地池；入口/落地都是 agent 节点角色可配；agent 拆「核心+角色组件」；探测下沉入口边缘、面板只收结论；故障按区域/运营商聚合处置；分配做成本感知（仅按流量计费节点参与成本判定）。
-
-### 契约与架构
-
-- [x] [P0] E-1 `agentproto` 注册元数据：role/direction（出海/回国/双向）/line_type（163/CN2 GIA/CU VIP/CMI/IPLC/普通）/region/city/datacenter/isp/labels/transport + 成本字段（billing_type 必填、traffic_price/monthly_cost/currency/note）+ 套餐字段（bw_up/bw_down Mbps 必填、monthly_traffic_quota、rate_limited、burst），isp 与方向线路必填可「未知/普通」不许空，面板可改以面板为准
-- [x] [P0] E-2 `probe.report` 探测上报消息与应答：目标类型/rtt/丢包/可达/被封/判定/区域运营商快照
-- [x] [P0] E-3 心跳负载字段：连接数/带宽/CPU 随心跳上报（对齐落地分配的负载信号），带宽利用率（实测吞吐/校准容量）随自动均衡补
-- [x] [P0] E-4 agent 核心瘦身分层：核心最小集（注册心跳/进程管理/配置接收/流量负载上报，目标 ≤10MB）与角色组件边界
-- [x] [P0] E-5 relay 数据面组件（独立进程）：入口角色装配，与核心只经本机 IPC/配置交互，崩不带崩心跳
-- [x] [P0] E-6 传输插件抽象：隧道接口（建立/多路复用/心跳/重连）与传输解耦，首个插件 TLS 伪装（默认）
-- [x] [P0] E-7 边缘探测器组件（独立进程）：入口/落地可开，崩溃不影响进程管理
-- [x] [P0] E-8 agent 自动测速校准：注册后跑轻量测速，实测与套餐偏差大以实测为准，记录实测容量与校准时间
-
-### 数据模型
-
-- [x] [P0] E-9 nodes 表扩展：role/direction/line_type/region/city/datacenter/isp/labels/transport/billing_type/traffic_price_cents/monthly_cost_cents/currency/cost_note/套餐带宽与配额/测速校准列（ensureColumns 增量迁移）
-- [x] [P0] E-10 分配记录表 landing_assignments：入口/落地/策略/权重/原因/起止
-- [x] [P0] E-11 探测历史表 probe_reports：探测者/目标/rtt/丢包/判定/区域运营商快照 + 窗口索引
-- [x] [P1] E-12 区域/运营商状态表 dimension_status：状态灯数据（region/isp 两维）
-
-### 探测与故障处置
-
-- [x] [P0] E-13 边缘探测任务：隧道探测（入口→落地）/出口基线/入口互探被封检测，周期上报结论
-- [x] [P0] E-14 面板聚合判定：窗口内同区域异常达阈值=区域故障整区域切走；同 ISP 聚合=运营商故障一起切；不逐个摘挂
-- [x] [P0] E-15 告警按区域/运营商合并发（「XX 区域入口整体不可达」单条），dash 区域级状态灯
-- [x] [P1] E-16a 自动摘挂状态机：连续 sick 摘除/恢复复位（internal/pool 周期判定），订阅入口池即时生效，pool API（列表+手动复位）与通知
-- [x] [P1] E-16b 摘挂热更新换线：config.push 变更列表（落地 relay 重指），随 E-21 分配策略接入
-- [x] [P1] E-17 区域传输判定（internal/transport 存活占比推荐+现行对比换线建议，/api/transport-status，dash 调配页面板；切换执行=改 transport 标注重推配置）
-- [x] [P1] E-18a ws-tls 传输插件（tunnel 注册，TLS+WebSocket 升级伪装浏览器，消息语义适配流 net.Conn，落地侧任意 RFC6455 监听可前置 CDN）
-- [x] [P1] E-18b QUIC 传输插件（拍板 2026-10-08：独立 plugin 二进制，主仓 E-4 尺寸门禁不动；开源优先修订：不自研协议，封装现成实现——quic-go v0.63.0（MIT）只落独立 sidecar 二进制 ferry-quic（新 cmd + make build-quic，实测 6.34MB），agent 主程序不携带（实测 7.62MiB 持平门禁不动）；形态：进程内 quic 插件=本地 CONNECT 桥薄拨号（无 QUIC 实现，127.0.0.1:7300/FERRY_QUIC_SIDECAR）+ ferry-quic client（连接按地址|SNI 缓存复用、开流失败清缓存重拨、拨号 10s 快败）与 server（QUIC 逐流转发本机 target）；ALPN ferry-quic，raw QUIC 不冒称 hysteria2；对端校验系统根/--ca，--insecure 仅引导调试；e2e 测试：内存自签证书（IP SAN）全链回环、ERR 快败、请求行解析四态、插件四腿（OK 直通/ERR 带因/异常应答/sidecar 不在）；取舍留档开源选型设计.md §3.1c）
-
-### 开源优先换件（docs/design/开源选型设计.md 对照表，逐个换）
-
-- [x] [P1] OSS-1 agent host 采样换 shirou/gopsutil/v4（MIT）：删 /proc 手解析 229 行，跨平台负载/内存/网络/连接数；换后复测 agent 二进制尺寸（实测 7.33MB→7.61MB，+291KB，E-4 10MB 门禁余量充足）
-- [x] [P1] OSS-2 Cloudflare DNS 换 libdns/cloudflare——核验改判保留：v0.2.2 upsert 不保 proxied（A 记录橙云被打回灰云=源站暴露，BR-2 安全语义优先），自有 155 行留档于开源选型设计.md §3.1b
-- [x] [P1] OSS-3 ACME 换 lego——核验改判保留：acme.sh 本就是现成工具位非自研；实测精简 lego 引入即 +7.6MB 二进制（探针，server 现 32.8MB），小内存口径下是坏交易；候选随 E-18b plugin 批再量，留档开源选型设计.md §3.1b
-
-### 分配与成本
-
-- [x] [P0] E-19 订阅下发入口列表+测速信息（clash 分组 url-test、v2ray 按区域分组带延迟备注）
-- [x] [P0] E-20 手动落地分配：dash 指定入口/区域的落地列表与权重，配置推送生效
-- [x] [P1] E-21 加权最小连接自动分配（internal/alloc 四档策略按方向可配：最小连接/成本优先/性能优先/均衡，容量权重 3M 少分+按流量成本判定+回国线档，换线留痕 landing_assignments+通知，/api/alloc 策略 API+dash 调配页策略卡；手动分配优先不受影响）
-- [x] [P1] E-22 低峰再平衡与峰时滞后（低峰窗口内按策略全序换线再平衡，峰时主指标须省 30% 才动/perf_first 只许升档，窗口按方向档可配 1-7 默认；按流量成本参与判定与高成本靠后随 E-21 落地；存量连接排空属 relay 数据面随 E-16b）
-- [x] [P1] E-23 成本看板与高成本告警（internal/cost 自然月核算：节点流量花费仅按流量计费参与、区域/运营商汇总预估降序、月度预估按日折算首小时不外推；超阈值 high_cost 告警去重单发+通知+回落自动消解，阈值可配；/api/cost+dash 成本页）
-
-### 管理面
-
-- [x] [P0] E-24 dash 节点视图：按区域分组+区域状态灯、入口/落地分组、运营商视角切换
-- [x] [P1] E-25 dash 负载看板与手动调配（/api/load 负载快照=最新采样连接数+双采样差分吞吐/容量利用率，节点表负载列进度条超 80% 红标；pool 手动摘除 API+节点表在池/摘除态与摘除/复位按钮；强制切区域=调配页区域级手动分配（E-20 已有））
-
-- [x] [P2] E-26 入口轮换：按探测结论轮换订阅入口顺序（v2ray 订阅口径——客户端直接消费列表序；clash 的 url-test 组由客户端按自测延迟选优、服务端排序无消费方，不动；rotate.go：区域归组口径不变，组内已知 RTT 升序在前、无数据（0）殿后且保持原序、同 RTT 档按 10 分钟轮换窗口轮转一位——轮换位由时间无状态派生不持久化，全无数据时整体保持原序与 E-19 一致；测试覆盖 RTT 排序/同档轮转三窗口/全无数据稳定/跨区域不混排/空与单条目/v2ray 集成解码断言低 RTT 在前）
-- [x] [P2] E-27 智能 DNS 分地域：按解析来源地域下发就近区域入口（设计已落 2026-10-08《入口与负载均衡设计》§C.8；实现已落 2026-10-09 §C.8.6——`geodns.Syncer` 三件：RegionReps 代表入口选取（nodes entry/both+池内 active+非 provisioning，30min 可达隧道 RTT 区域归组升序无数据殿后，与 E-26 同源）+Slug 归一（小写/空白下划线转-/只留 [a0-9-]，纯中文区域不产记录，词表建议 ASCII）+Sync 对账（启用 DNS 商名下 DNSFront 期望集对 GeoDNSRecord diff，新增/变更 Upsert `{slug}.{domain}` A 记录、消失 Delete 撤记录，单条失败 herald 告警按日 dedup 继续其余）；`dns.Provider` 增 Delete；触发=pool.OnChange 包级钩子（摘挂扫迁移+手动摘挂/复位/预备异步触发，换线/探测翻转后续按需挂）+POST /api/dns-fronts/geo-sync 补偿入口（dash「分地域对账」按钮）；同步不回写 entry_domains 清单）
-
-- [x] [P2] E-33 SSH 备选传输插件（已落地 2026-10-09：tunnel 包 ssh 插件——出站 SSH2 到落地机 sshd（publickey 单一认证形态，无密码登录面），direct-tcpip channel 拨落地本机 ferry relay 监听（Options.ForwardAddr），流量形态=普通 SSH 会话内端口转发；单条 SSH 复用连接多 channel（ssh -L 常驻同形），Dial 失败判定连接死重连一次再试；known_hosts 文件校验 host key（OpenSSH 同格式），空=跳过校验仅引导期并 stderr 告警一次；ssh.Client.Dial 直接返回 net.Conn，限制如实注记：x/crypto channel 连接不支持 SetDeadline（PingPong 侧 _= 忽略），心跳超时靠 3 周期无 pong 应用层判定兜底；凭证=agent 本机密钥文件路径引用不进配置不进库（R24 加密面只覆盖库内机密）；RelaySpec 增 ssh_user/ssh_key_file/ssh_known_hosts/ssh_forward_addr 四参（本机文件引用与认证面不归面板管，tunnelCache 缓存键含全实例参数）；默认插件仍 tls-camo，dash 两处下拉 ssh 标「备选·特征独特」；选型=golang.org/x/crypto/ssh（BSD-3-Clause，agent 间接转直接 +540KB 至 8.16MiB 门禁余量足，开源选型设计 §1 已留档）；测试：内存 SSH 服务端（x/crypto 库内回环，无真 sshd）四腿——全链回环+双连接复用握手恰一次+net.Conn 适配面（LocalAddr/RemoteAddr）、known_hosts 匹配通/不匹配拒、缺字段四件逐一拒+密钥文件缺失拒、注册面（ssh 已注册且默认插件不受影响））
-
-### 方向与回国线（出海/回国两篇，见设计稿）
-
-- [x] [P0] E-28 回国回程探测：海外入口探测器测国内落地回程延迟/丢包（复用 probe.report，direction=in），晚高峰探测加密
-- [x] [P1] E-29 晚高峰回程报表：按小时分段，19–23 时单独报表，与成本看板同页
-- [x] [P1] E-30 方向分流分配：出海走性价比、回国优先优质线路（线路档进权重、成本容忍高），landing_assignments 记 direction
-
-### 成本参考
-
-- [x] [P2] E-31 成本参考库插件位（已落地 2026-10-08：packages/costref 纯 stdlib 独立 module——Source/Query/Quote 契约 + Compare 偏差提示（正=手录贵、超容忍 Off、币种不符/未填显式报错）+ StaticSource/ParseTable 公开价格表（导入层拒脏表）；选型留档：infracost 类库无 VPS 商家口径暂不接，接真实来源另实现 Source 先核 license；server 接线：价格表落 settings costref_static_table，三端点试查（node_id 节点映射=机房→商家/区域/套餐档+手录月固定成本 或自由键，未命中 hit:false，币种不符回 reason）/批量对账 ref-check（机房+月固定齐全节点逐个比，只列命中可比行）/导入 ref-table，容差缺省 ±30%；dash 成本页参考库卡（导入/批量对账偏差表+价格页核对/单点试查）；偏差提示面=成本页对账表，节点卡内嵌提示随 E-32；测试 costref 包单测+handler 端到端）
-- [x] [P2] E-32 价格变动与促销关注（已落地 2026-10-08：price_watches/price_snapshots 落表（键归一 idx_price_watch 唯一，快照级联应用层）；cost.WatchLoop 扫描（FERRY_PRICE_WATCH_SEC 缺省 3600，从参考价表抓快照，未导入表 no-op/键缺失跳过）；命中两类：降价=较上快照下降、到位=target_price 跨越沿只发一次；Herald price_alert warning/admin 未配落 outbox，dedup 按日至多一条（同 login_alert 口径）；CRUD+快照五端点（列表含最新/上次/涨跌/到位动态，重复 409 随 GORM TranslateError 开启）；dash 成本页价格关注卡；测试扫描六态+CRUD 端到端）
-
-## 一键开服与自动入池（设计：docs/design/计划扩充设计.md §1）
-
-口径：底座=OpenTofu/Terraform 供给引擎 + cloud-init 初始化，ferry 只做模板→供给执行→入池流水线三层；state 与云密钥按 R24 加密面口径加密存。
-
-- [x] [P1] OS-1 dash 提供商配置与机型模板：云凭证录入加密存储（R24 口径），模板含机型/区域/带宽/计费/方向线路标签
-- [x] [P1] OS-2 OpenTofu 供给接入：模板渲染 HCL/调 tofu CLI，state 集中管理与漂移检测（选型对比见设计 §1.2）
-- [x] [P1] OS-3 cloud-init 初始化与注册：装 agent、注入预签发 token，首连注册
-- [x] [P1] OS-4 入池流水线：provisioning→元数据补全→模板下发→探测通过→online，新节点 5 分钟可用
-
-## 被封自动恢复（设计：docs/design/计划扩充设计.md §2，与摘挂同批 P1）
-
-- [x] [P1] BR-1 判封状态机与恢复流水线编排：接入区域探测/摘挂闭环（E-14/E-15），L1→L2→L3 分级推进
-- [x] [P1] BR-2 域名前置与自动 DNS 切换：DNS 商 API 插件位，域名不换 IP 随换
-- [x] [P1] BR-3 IP 池储备与自动补位：预备清单轮换，池空联动一键开服
-- [x] [P1] BR-4 证书 ACME 自动签发与续期：面板编排，复用 acme.sh/certbot 工具位
-- [x] [P1] BR-5 恢复动作留痕与失败升级：recovery_actions 落表，超时全失败告警升级人工（经 Herald）
-
-## 分销/代理体系（设计：docs/design/计划扩充设计.md §3）
-
-拍板（2026-10-08）：DS/PROMO/SV 三组 P2 维持远期不开工，先清 P1 流量节省尾巴。
-拍板（2026-10-08 二巡）：todo 未勾 P2 全部维持原判不开新工——DS/PROMO/SV 维持远期不开工、E-27/E-31/E-32 维持预留远期、P2-1..7 维持不做/观察；P1 流量节省已清零，开工用户触达 P1 触达批（TOUCH-1..7，设计 docs/design/用户触达设计.md §7）。
-拍板（2026-10-08 续跑令）：用户点名 DS 分销/入口轮换(E-26 已落地)/智能DNS(E-27)/成本库(E-31/E-32) 解禁开工——E-27 设计稿已落（实现仍预留）、E-31/E-32 已落地；DS 按计划扩充设计 §3.1 定稿稿分期连做（DS-1 账目层→DS-2 管理面→DS-3 代理自面），PROMO/SV 与 P2-1..7 维持原判。
-拍板（2026-10-09 收尾）：DS-1/2/3、E-27、E-33 全部落地推送；点名解禁清单清零——E-27 分地域对账实现（§C.8.6）、E-33 SSH 备选传输（§传输插件矩阵注记）；PROMO-1..3/SV-1..2 远期不开工、P2-1..4 不做、P2-5/6 观察项（P2-5 公告基础件已随 NT-1 落地，剩余维持观察）、P2-7 收窄——维持原判不动；README 双语化已推（英文主文档+中文 README.zh.md）。
-拍板（2026-10-09 README 巡检）：84ba4f4 并行会话删英文 README 的 db 徽章系误删（storage 三方言 sqlite/postgres/mysql 源码为准），已恢复与 README.zh.md 对齐；中英互链两版首行完好未受影响，无需恢复。
-拍板（2026-10-09 deploy 补口）：E-18b/E-33 落地后 deploy/ 面补齐——agent-install.sh 增 --role relay（systemd -role relay+relay JSON 段，tunnel=ssh 四参校验对齐 agent 侧必填）、--quic（ferry-quic sidecar 安装+ferry-quic.service，非默认桥写 FERRY_QUIC_SIDECAR）、package-agent 随包 ferry-quic tar.gz+.sha256（--quic 下载约定对齐）；顺修 A-24 遗留缺陷：安装脚本写的极简配置缺 meta.bw_up/bw_down（agent Validate 必填>0，装完即启动失败），现写 --bw-up/--bw-down（默认 100）+--node-role；安装脚本生成的配置经 agent config unmarshal+Validate 全链核验；deploy/README.md 增 relay/QUIC 安装节。拍板（2026-10-09 compose 补口）：--env-file 只做 ${...} 替换不自动注入容器，compose 原只透传 5 变量，ferry.env.example 记载的 FERRY_SECRET_KEY/FERRY_ADMIN_*/FERRY_HERALD_*/恢复池保底/ACME/备份 cron 与 S3 外发位/TOFU/agent 安装源全部被静默忽略——逐项补透传（空缺省与未设同效，config 侧只认非空），docker compose config+合成 env 验证值真实进容器；ferry-server 补 compose healthcheck（/api/health ok/degraded 均 200，非 200/超时才算不健康），ferry.env.example 注记镜像不含 acme.sh/OpenTofu（工具位外部命令，需自装或挂载）。拍板（2026-10-09 安全巡检）：安全设计三处「未实现」缺口逐条对照——①订阅端点限频（§4，P0 分期项、不在 PROMO/SV/P2-1..7 冻结清单）：本轮落地，双层限流（按 token 30 次/分钟防单 token 爆破 + 按 IP 未命中连续 20 次锁 15 分钟防换新 token 枚举，复用兑换限速失败锁定语义），命中 429 记日志（token 脱敏前缀+IP），测试 TestSubscriptionRateLimit（30 放行/31 次 429/按 token 隔离/枚举锁定按 IP 生效）；②token 轮换窗口（§2.1）：§6 分期 P1「节点令牌轮换」整面未实现（面板无轮换端点），P1 安全批 2026-10-08 落地仅 §1 登录面（2FA+审计），本轮不重开维持原状；③吊销列表（§2.2）：mTLS 生命周期管理（P1 分期）内、mTLS 可开关默认关闭无 CRL 消费方，维持原状。拍板（2026-10-09 设计缺口批）：①面板购买记录按来源筛选（运营设计 §记录范围 `?provider=` 未实现）——落地，panelOrders 支持 provider 查询参数（缺省全量，card=卡密兑换），panel 订单页来源下拉（全部/卡密兑换/USDT 购买），测试 TestPanelOrdersProviderFilter（全量 2/card 1/epusdt 1/未知 0）；②调度权重系数 dash 可配（调度核心设计 §权重合成分「逐系数 dash 可配未实现」）——落地，乘法 score 系数 WLoad/WCost/WPremium 落 PolicySetting（alloc_policy 设置），经 ScoreWeights 穿 Pick/lessFor/shouldSwitch，缺省 0.5/0.3/0.2 = 原四档公式口径（改配置才改行为），负值拒、全零回缺省，dash LandingsView 加均衡系数编辑位，测试 TestPickBalancedWeights/TestSavePolicyWeights（缺省复现/逐系数生效/持久化/拒绝）；两处设计文档口径同步改「已落地」。维持原判项（PROMO/SV/P2-1..7、token 轮换窗口、CRL 吊销列表）不重开。
-拍板（2026-10-09 备份外发批）：BK-1 外发位真实接入落地——backup.S3Uploader（stdlib 手写 AWS SigV4 单对象 PUT，path-style `{endpoint}/{bucket}/{key}`、payload 参与签名、region 固定 us-east-1，零新依赖免 license 审查；endpoint 缺 scheme 补 https、支持端口与路径前缀），main 仅在显式 FERRY_BACKUP_S3_ENABLED=1 时注入（未开启行为与关闭态零变化：不注入、零网络请求、零外发日志；compose/env-example 缺省值不动）；每次外发日志明示数据范围=备份目录全部落档文件；上传成功才置 uploaded=1，失败走 backup_failed 告警（emitUploadFailed，title=备份外发失败，与快照失败共用 emitBackupEvent 按日去重窗口）且本地档保留、该轮不算失败（滚动清理照常）；manual 手动落档不走外发（同现状）。测试 s3_test：三态（TestRunS3DisabledNoNetwork 零请求+零 s3 日志 / TestRunS3UploadSuccess uploaded=1+假端点校验 SigV4 请求结构（PUT path-style 路径/host 签名头/payload 哈希与实体一致/amz-date 格式/凭证 scope）+范围披露日志 / TestRunS3UploadFailureAlerts uploaded=0+告警落 outbox+本地档保留）+ TestS3SigV4KnownAnswer openssl HMAC 链独立对拍签名 + s3CanonicalURI 逐段转义 + endpoint 解析四例；设计文档 §2.2/§6/§7 与 env-example 注记同步改「已接入」。维持原判项（token 轮换窗口/CRL/PROMO/SV/P2-1..7）不重开。
-
-- [x] [P2] DS-1 代理层级与折扣：distributors 表、二级卡批次归属、分润入三账按 order_no 串联（设计定稿 2026-10-08《计划扩充设计》§3.1/§3.4——佣金口径 sale 留痕不入余额/commission=面价×比例入余额/payout 结算扣/adjust 人工调，余额=Σcommission+Σadjust−Σpayout；随 DS 批开工。已落地 2026-10-08：distributors/distributor_ledger 落表 + card_batches/orders 增列 distributor_id；代理 CRUD 四端点+POST /distributor/login（bcrypt 同管理员口径/复用兑换限速/role=distributor JWT 与管理员互不越界）；redeemTx 单改点落账——订单带归属、代理批次有面价落 sale+commission 同 order_no、自营/零面价不落、停用代理分润照记；建批次载荷增 distributor_id 归属建时定；payout/adjust 随 DS-2）
-- [x] [P2] DS-2 代理结算账目：售卡收入/分润/未结算汇总，对账视图加代理维度（口径同上，dash 管理面结算打款落 payout。已落地 2026-10-08：列表/流水附对账四元组 sale/commission/payout/balance 单条聚合；POST /:id/payout（>0 不超余额）与 /:id/adjust（±非零）两人工账目端点，线下打款面板只记账；卡密页代理卡=建号/编辑（密码留空不重置）/停用确认/流水弹窗（余额+四类流水+打款调整行），新建批次表单增归属代理下拉+批次表归属列；对账页代理维度汇总表。payout 落正金额由余额公式反向扣）
-- [x] [P2] DS-3 代理面板视图：自己的客户/卡密/用量/结算；与优惠码不叠加取优（独立登录 /distributor/login JWT role=distributor，dash 框架角色裁剪。已落地 2026-10-08：distAuthMiddleware 回库校验停用即踢；/distributor/api 六只读端点 me/batches/batches:id:codes（归属校验 404 互不可见）/customers（用量与门户口径同源，内存聚合张数与最近兑换）/orders/ledger；dash ferry.dist.token 独立键+role 派生+按路径注入令牌+代理面 401 清会话回 /dist-login+路由守卫角色分流+侧栏裁剪；代理工作台单页四 tab；不叠加取优候 PROMO 开工再落兑换链路）
-
-## 用户面板运营（设计：docs/design/用户面板运营设计.md）
-
-口径：站内信为主；订单账目与支付三账对得上；外部投递统一经 Herald；触达与断联容灾独立成篇。
-
-- [x] [P0] OD-1 panel 订单中心：兑换与购买记录列表（provider=card 归并），随支付批
-- [x] [P1] OD-2 订单详情与状态流转：待付/已完成/已退款（状态枚举补 refunded），套餐/金额/时长/流量明细（三账详情 GET /api/payments/orders/:order_no + 退款流转 POST .../refund 仅 paid→refunded 409 否则，退款留痕 RefundAt/RefundNote 经渠道后台操作口径；reconcile 增退款小计与「已退款但缺支付流水」检查；dash 对账页退款按钮+stats；panel 订单增退款态红标与退款时间）
-- [x] [P1] NT-1 通知中心站内信：notifications 表+未读/列表，公告/到期/流量预警/系统四类（Notification 模型逐用户落行已读态挂行上；面板侧 GET/panel/notifications 列表（unread=1 过滤）+unread-count+单条已读幂等+read-all，他人通知 404 防越权；dash 侧 GET/notifications 全量列表（type/user_id 过滤）+POST announcement 扇出启用用户（CreateInBatches 500，禁用不收）+DELETE，ringlog 留扇出痕；dash 增通知页（发布卡+类型筛选+删除），panel 增通知页（点卡已读+全部已读+未读高亮）与导航未读徽标（壳层进面板/换页刷新，auth store 共享）；自动触发（到期/流量阈值扫描落行）归 NT-2）
-- [x] [P1] NT-2 通知触发与偏好：定时扫描（到期/阈值）+事件触发，用户按类型×通道开关与阈值（新包 internal/notifyscan——Loop/Sweep 双扫到期（7 天窗口含已到期、文案按整日向上取整）与流量（复用 quota.UsedBytes 窗口口径、达个人阈值才发，未设/越界回落 80），按日去重（type+当日 DISTINCT user_id），main 装配 FERRY_NOTIFY_SCAN_SEC 默认 3600；事件触发：applyGrant 事务内发放到账直落 system 站内信（流量人类可读量级 humanBytes GB 向上取整）；偏好：User 加 notify_expiry/notify_traffic/traffic_warn_percent 列（默认 true/true/80），panel GET/PUT notify-prefs（部分更新、阈值 1-100 校验、归一口径 effectiveWarnPercent）；通知类型常量收敛 storage；panel 概览加通知偏好卡（双开关+阈值下拉+保存）；测试覆盖扫描六态（窗口内/外、关偏好、禁用、同日去重、跨日再发、已到期文案）与流量四态（达/未达/关/个人阈值）、偏好默认/部分更新/越界 400/生效、兑换事件落信+未读计数；seedUser 踩 GORM default 标签 RETURNING 回填 struct 陷阱（map 需先于 Create 取值））
-- [x] [已转正落地] PROMO-1 优惠码：满减/折扣/指定套餐，dash 配置+panel 下单原子核销（2026-10-10 PROMO 批 PR-1，见下）
-- [x] [已转正落地] PROMO-2 限时活动与首单/续费折扣：起止与适用范围配置、panel 活动位（2026-10-10 PROMO 批 PR-3，见下）
-- [x] [已转正落地] PROMO-3 优惠账目打通：订单记原价+实付+优惠快照，与三账对得上（2026-10-10 PROMO 批 PR-1 账目三列，见下）
-- [x] [P2·原远期不开工，2026-10-10 随 servify C1 真嵌验收落地] SV-1 servify 客服集成：panel 入口嵌入（widget.js 直嵌方案 A，配置门控 FERRY_SUPPORT_URL/FERRY_SUPPORT_SERVICE_KEY，未配置 enabled:false 零依赖）+独立部署对接地址（env 指向 servify 实例）
-- [x] [P2·原远期不开工，2026-10-10 随 servify C1 真嵌验收落地] SV-2 工单上下文打通：客服侧只读用户套餐/流量/订单（服务端 support client 同步 customer+notes，凭据不出 ferry；工单经 POST /api/v1/tickets 携 ferry_user 会话）
-
-## 流量节省（设计：docs/design/流量节省设计.md）
-
-口径：分流直连、缓存、拦截、压缩复用报表化、配额联动、节省报表；MITM 缓存默认不做（自用注释位）。
-
-- [x] [P0] SAVE-1 GeoIP/geosite 分流进节点配置模板：国内流量直连不进隧道，规则库可经 config.push 更新
-- [x] [P0] SAVE-2 静态资源域名清单直连/CDN（与 geosite 同机制）
-- [x] [P1] SAVE-3 入口缓存层插件位：nginx cache/Squid 作被管进程 kind，命中统计随心跳上报（agent ProcSpec 加 metrics_url——HTTP GET 指标接口 JSON 数字对象/文本 key-value 行皆可，Manager 15s 轮询挂状态快照随心跳上报，端点故障清空快照不残留；服务端心跳处理器逐节点逐进程 upsert node_proc_statuses（指标 JSON 落 metrics 列），GET /api/nodes/:id/procs + dash 节点页「进程」对话框回读；缓存本体（命中清单/缓存目录/回源）部署侧自理，kind 仅作标签）
-- [x] [P1] SAVE-4 广告/追踪拦截：节点侧 DNS 屏蔽名单（可配、可更新），拦截计数上报（routing 层 ad-block 清单 geosite:category-ads-all 命中发 block 出站（blackhole），Merge 保证 block 出站存在且渲染确定性；dash 开关 PUT /api/routing/ads（settings 键 routing_ads_enabled 缺省开，关后渲染不含屏蔽段）；名单更新走 rulelib 分发 anti-AD 同格式 geosite 文件；拦截计数按字节：agent 同周期查 outbound>>> 取 block 出站增量随流量上报（ProcTraffic.BlockedBytes → node_traffic_logs.blocked_bytes），xray 无条数计数、字节口径免估算，条数估算式作废）
-- [x] [P1] SAVE-5 压缩与连接复用/TLS 会话恢复报表化：复用率随心跳上报进报表——**不可执行，不落**（2026-10-08 核实：复用/会话恢复/压缩均为传输层内核行为，xray/sing-box stats API 只导出流量计数（inbound/outbound/user 上下行字节），无连接复用率/TLS 会话恢复率/压缩量计数；TLS 会话恢复更发生在用户客户端侧，被管内核无从观测。报表不自造数，能力本体随内核版本自然受益，待内核将来导出计数再接同一上报面）
-- [x] [P1] SAVE-6 配额联动：流量/费用超阈值自动降速或切低成本节点（可配、留痕）——落「订阅降档」（降速不可执行：共享凭据无按用户身份，见流量节省设计 §5）
-- [x] [P1] SAVE-7 节省报表：save_stats 按日汇总，dash 每日/月省下 GB 与折算费用，与成本看板同页（save.Loop 按 node_traffic_logs 自增 id 水位增量聚合（水位存 settings，无水位清空重建防重复，FERRY_SAVE_STATS_SEC 缺省 600s）；数据源 agent 出站计数：SAVE-4 查询扩成 QueryOutboundStats 直连+拦截同次取（reset 前缀清零分开查互踩）→ ProcTraffic.DirectBytes → node_traffic_logs.direct_bytes，cache_hit_bytes 列预留；GET /api/save-stats?days=N 按日行+全网合计，折算按节点流量单价现算不入库（仅按流量计费节点，与成本同口径）；dash 成本页「流量节省（近 30 天）」统计卡+按日明细表）
-- [x] [P1] SAVE-8 panel 用户侧「已为你省下」汇总（月账单邮件附亮点）——GET /api/panel/savings（订阅令牌身份）：节点级节省计数无用户身份，按「用户在该节点当月记账流量占比 × 该节点当月节省」折算（可复核估算式，节点当月无用户记账不摊派），窗口=自然月至今（UTC）对齐账单口径，cache_hit_bytes 随 SAVE-3 metrics 汇入后自动进返回；panel 概览「已为你省下（本月）」卡（读取失败静默隐藏不打扰主流程）；月账单邮件亮点待触达批例行邮件落地时接本接口作数据源（bill 随触达批同口径）——P1 流量节省尾巴清零
-
-## 用户触达 P1 触达批（设计：docs/design/用户触达设计.md §7，2026-10-08 开工）
-
-口径：多通道触达统一经 Herald 投递，ferry 不自建通道；拆 TOUCH-1..7 原子项按序连做。
-
-- [x] [P1] TOUCH-1 联系绑定与换绑（已落地 2026-10-08）：storage.UserContact（user_id 主键，tg_chat_id/email/routine_emails/bound_at/stale/fail_streak）+ GET/PUT /api/panel/contact（订阅令牌身份，两项都空 400，换绑清 stale 与失败计数，只改偏好不动 BoundAt，首绑 routine_emails 缺省 true 由 handler 置——gorm default 标签吞 Create 零值）；panel 概览引导卡（未绑定或 stale 显示且不可关闭，stale 提示换绑）+ 通知偏好卡例行邮件退订开关；账单类必收无开关（改通道留 Herald 侧路由）；测试 TestPanelContact（都空 400/格式 400/只绑 TG 缺省 true/换绑清 stale 刷 BoundAt/偏好不算换绑/回读/无凭据 404）
-- [x] [P1] TOUCH-2 RSS 公告输出（已落地 2026-10-08）：GET /feed.xml 公开 RSS 2.0（无凭据，内容仅公告不含用户数据），数据源=公告扇出落的站级锚点行（notifications user_id=0，公告无独立表；无启用用户也落——公告是站级的，fanoutAnnouncement 重构为锚点先行；返回值改按用户行数计不入锚点），encoding/xml 标准结构体渲染（channel 小写标签、XML 头、转义交给库），上限 50 条 id 倒序，GUID=行 id、时间 RFC1123Z；测试 TestFeedXML（特殊字符标题转义+item 恰一条断言锚点不重复扇出）+TestFeedXMLEmpty（空公告合法空 feed）+TestNotificationCenter 既有扇出/未读断言不受锚点影响
-- [x] [P1] TOUCH-3 入口域名数据面（已落地 2026-10-08）：storage.EntryDomain（domain 裸域名建/改剥 https?:// 前缀与尾斜杠、role primary/backup 白名单、region 空=全区域、enabled 停启用）+ 管理侧 CRUD GET/POST/PUT/DELETE /api/entry-domains（部分更新传啥改啥）；dash 域名维护 UI 随 TOUCH-7 断联态卡同落；测试 TestEntryDomainsCRUD（前缀剥离/role 与空 domain 400/部分更新含停用/删后 404/列表升序）
-- [x] [P1] TOUCH-4 月账单与域名例行邮件（已落地 2026-10-08）：internal/toucher 调度器（FERRY_TOUCH_SEC 缺省 3600s）——月账单每自然月至多一轮（settings 月闸门 touch_bill_month，启用用户必收；内容=自然月用量/配额/状态/到期/续费入口（FERRY_BASE_URL）/已省下亮点）；域名例行按 FERRY_TOUCH_DOMAINS_DAYS（缺省 7，0=关）只发绑邮箱且未退订例行的用户（主备分组+/feed.xml 订阅地址）；任务先落 touch_jobs（pending）再 herald.Emit（kind=bill/domains 新增，Meta 带 touch_job_id），投出即标 sent 记 event_id（通道失败回执由 TOUCH-5 改写）；折算核心抽 save.UserSavings（panelSavings 改调同函数，SAVE-8/TOUCH-4 同口径）；周期 dash 化未落（env 配置），随 TOUCH-7 断联态卡评估；测试 toucher 包（账单必收禁用不收/亮点接 UserSavings 断言 2GB 用量 1GB 直连 0.5GB 拦截入文/月闸门同月不重发/域名例行退订与无邮箱过滤/停用域名不泄/周期闸门到期再发/0=关，job sent+event_id+事件 target 断言）
-- [x] [P1] TOUCH-5 投递失败换绑闭环（已落地 2026-10-08）：eventResult（Herald 通道分发回执）尾部挂 touchResult 联动——failed 把 event_id 关联 touch_jobs 标 failed（detail 截 255 落 error）+ user_contacts.stale/fail_streak+1（无 contact 行补建保闭环）+ 站内提醒「联系方式已失效」（同日同用户至多一条防回执刷屏）；连续失败达 3（contactFailStreakLimit）升级 herald.KindContact="contact" 事件（warning，target=user:<id>，换通道由 Herald 分发）并清零计数防重复刷；sent 回执清 stale/计数、任务回 sent；非触达事件（无 touch_jobs 行）只留痕不联动；测试 TestContactStaleLoop（失败标 stale+任务 failed+提醒/同日不重刷/三连升级 contact 事件+计数清零/sent 恢复 stale 清零+任务回 sent/非触达不联动；修 GORM Updates map 回写进结构体导致升级提前一轮——改显式 streak 变量不依赖回写）
-- [x] [P1] TOUCH-6 TG bot 对接面（已落地 2026-10-08）：GET /api/bot/summary?chat_id=（TG/邮箱至少一个绑定的 tg_chat_id 定位用户）——用量（重置周期窗口与 panel 同口径）/配额/到期/active（sub.UserActive）/联系信息失效态 stale（bot 侧提示换绑）/最近 3 单（order_no/product/amount/status）/buy_url（FERRY_BASE_URL/panel）；鉴权 FERRY_BOT_TOKEN 服务级令牌（Bearer 或 X-Ferry-Bot-Token，subtle 常量时间比对；空=bot 面禁用统一 404 防探测），chat_id 未绑或用户禁用 404；bot 推送（到期/预警/断联新入口）走既有事件面由 Herald 分发；测试 TestBotSummary（未配置 404/令牌错 401/未绑 404/命中断言用量 1500+active+订单+buy_url/禁用用户 404，定制 BotToken 路由器 newBotRouter）
-- [x] [P1] TOUCH-7 断联容灾（已落地 2026-10-08）：①断联态标记 GET/PUT /api/outage（settings 键 outage_mode，缺省常态；dash 设置页断联容灾卡开关）；「复用边缘探测结论」不可执行注记——ProbeReport 只有 tunnel/exit/peer 目标，无面板入口域名探测面，管理员手动标记为 P1 判定源 ②订阅响应常附备用信息注释（v2ray 解码文本头部/clash YAML 注释，sub.PackV2Ray/PackClash 加 notes 参数）：公告订阅地址（FERRY_BASE_URL+/feed.xml）+ entry_domains 启用清单（主备标注至多 8 条，停用不泄）——常附不断联才附（逃生通道要在断联前进客户端缓存），断联态打开追加警告行；空订阅（超限/到期/封禁）同样附——这批用户更要找得回来 ③dash 断联容灾卡=开关+entry_domains 维护 UI（TOUCH-3 数据面同卡落）④推新入口不另起机制走既有公告扇出（站内信+notice 事件经 Herald 分发）；测试 TestOutage（缺省常态/缺 enabled 400/主备标注停用不泄/两格式警告行开关即撤）+sub_test 空订阅断言改带注释口径+sub 包 notes 参数回归；§5 周期 dash 化评估结论=维持 env 配置挂 P2 观察
-
-## 告警通道（设计：docs/design/告警通道设计.md，对接 Herald）
-
-口径：ferry 不自建通道，事件统一投 Herald 分发（管理告警+用户触达同一接口）；本地 outbox 保事件不丢。
-
-- [x] [P1] HERALD-1 事件 outbox：events/event_deliveries 落表，pending→投递→重试，失败标红不静默丢（退避封顶 1h 连败 6 轮死信，dash 通知页 outbox 卡计数标红+死信重投）
-- [x] [P1] HERALD-2 Herald 集成接口：POST /events（kind/severity/target/dedup_key）+ 回执落库，配置 FERRY_HERALD_URL/TOKEN（HTTPSender Bearer+10s 超时，载荷带 outbox id 供回执关联；回执端点 /api/internal/event-results 只留痕不动事件状态，未配置 URL 仍 outbox-only）
-- [x] [P1] HERALD-3 管理告警接入：区域故障/被封/证书到期三类先行，其余六类随后（九类全部接线：monitor 故障迁移 region_fault/isp_fault、recovery 判封 node_blocked+失败升级 recovery_failed、cert 临期 cert_expiring、pool 自动摘除 node_down、cost 告警激活 cost_exceeded、服务端崩溃告警激活 proc_crashed；backup_failed 随面板可用性 P1 备份批接上生产点；Emit 失败只记日志不阻断）
-- [x] [P1] HERALD-4 用户触达事件走同一接口（账单/域名/到期/预警，随触达批）——已有生产点接线：到期/流量预警（notifyscan 站内信已落才发+日闸门）、发放到账（applyGrant 同事务原子 dedup 带 order_no）、公告扇出（notice 同批落禁用不收）；target=user:<id> severity=info，bill/domains 随触达批调度器接同一接口
-- [x] [P1] HERALD-5 回执端点原生解析 herald §13.5（已落地 2026-10-08）：POST /api/internal/event-results 双形状判别——外层 event_id 是 JSON 字符串=§13.5 事件回调（取 delivery.event_id 字符串解析为 outbox id、delivery.channel、success/failed→sent/failed、error→detail；unsubscribe 等无 delivery 回调 200 ack 防 at-least-once 重试刷），是 JSON 数字=HERALD-2 旧形状继续收（线上 shim 通道不断流）；验签 X-Herald-Signature sha256=<hex HMAC-SHA256> 覆盖原始请求体，密钥 FERRY_HERALD_CALLBACK_SECRET（对应 herald PUT /api/v1/apps/ferry/callback 32 字节 secret，常量时间比对；空=不验签沿用网络边界隔离口径，配置后强制验签 401）；触达联动 TOUCH-5 两形状同走；测试 TestEventResultHeraldCallback（验签过/篡改与缺头 401/failed 落 detail+stale 联动/旧形状带签续收/非数字 event_id 400/非法 status 与缺 channel 400/unsubscribe ack/无密钥实例不验签/事件不存在 404）
-
-## 面板可用性 P1 备份批（设计：docs/design/面板可用性设计.md §2-§7，2026-10-08 开工）
-
-- [x] [P1] BK-1 本地周期备份闭环（已落地 2026-10-08）：storage.Backup 表（kind manual/scheduled、path、size_bytes、uploaded、created_at，AutoMigrate 增量）+ config 新增 FERRY_BACKUP_DIR（缺省 backups）/FERRY_BACKUP_CRON（robfig/cron v3 MIT 解析，别名 daily/@daily、HH:MM 展开、标准 5 段，缺省每日；解析失败回退每日并日志说明）/FERRY_BACKUP_KEEP（缺省 7）；internal/backup.Loop 沿 FERRY_*_SEC 装配惯例（60s tick 轮询 cron Next）——SQLite VACUUM INTO 在线一致性快照（.backup 同义口径，WAL 已合并；复用手动端点同款机制抽 backup.Snapshot 共用）→ 配置主密钥时 secret 派生钥 AES-256-GCM 打包加密（secret.EncryptBytes/DecryptBytes 文件级字节格式=版本字节+nonce+密文，主密钥不进备份包对齐《安全设计》§3；未配主密钥落明文 .db——库内无机密明文无泄密增量）→ backups 落 scheduled 行 → Prune 滚动保留 KEEP 份（manual/scheduled 不分，超窗连文件带行删、窗口内文件丢失的幽灵行也清）；失败经 herald.Emit backup_failed 告警（KindBackupFailed 常量补挂，severity=warning target=admin，本地按日自查重+dedup_key 兜底，不静默）；postgres/mysql 方言本批未支持（走各自备份设施，周期备份按日告警而非静默跳过）；外发位 FERRY_BACKUP_S3_ENABLED/ENDPOINT/BUCKET/ACCESS_KEY/SECRET_KEY 只留配置面+backup.Uploader 接口位——默认关闭、显式配置才视为开启，开启未注入实现时每次备份日志明示「外发未接入+数据范围=备份目录全部落档文件」，uploaded 恒 0 待真实外发接入；2026-10-09 备份外发批已闭合（backup.S3Uploader SigV4 PUT 真实外发，见拍板）；测试 backup 包六例（明文快照可独立打开查数/加密档还原/PG 方言拒绝/Prune 滚动+幽灵行清理/ParseSchedule daily+HH:MM+5 段+非法回退/失败告警按日去重）+ TestLoopRunsOnceAndPrunes 注入 onceSchedule 全链路收敛
-- [x] [P1] BK-2 手动备份留痕与 health 自检扩展（已落地 2026-10-08）：GET /admin/backup/db 改走 backup.Snapshot 落档备份目录+落 manual 行（uploaded 恒 0）+Prune 滚动，下载体=落档文件本体（配置主密钥时即 .enc 加密档）；GET /api/health 扩展（面板可用性 §5）——status ok/degraded（检查异常如实上报仍 200，探活方不误杀）+checks.db_writable（事务内 INSERT settings 探针强制回滚，不留行证可写）+checks.agents_online（agenthub.Hub.OnlineCount 新方法）+checks.backup 新鲜度（距最近落档 >48h 或从未备份=fresh=false → degraded）；测试 TestBackupDB（留档+manual 行+uploaded=0+下载体一致）/TestBackupDBEncrypted（.enc 档+版本字节头+下载体=落档）/TestHealth（三态：从未备份 degraded/新档 ok/49h 旧档 degraded）+newTestRouterCfg 可定制配置 helper
-- [x] [P1] BK-3 一键恢复与迁移 runbook（已落地 2026-10-08，设计 §3/§4/§7 收口）：deploy/restore.sh 六步（部署检查→解密→导入→证书→启动→/api/health 冒烟）——set -euo pipefail、缺参/缺档/缺钥/解密失败明确报错非 0、可复跑幂等（现有库时间戳留底+同目录暂存+清 WAL/SHM+原子覆盖）；SQLite 直导 / --pg-dsn 走 pg_restore --clean --if-exists（档须 pg_dump -Fc 自备，PGDMP 魔数前置校验）；解密走 ferry-server 新增 backup-decrypt 子命令（cmd/ferry os.Args[1] 分派，不带子命令照常起服务；-key 缺省取 FERRY_SECRET_KEY、-out 缺省去 .enc 后缀——.enc 是派生钥 AES-256-GCM 紧凑二进制，openssl enc 无 GCM 能力）；deploy/MIGRATION-RUNBOOK.md 把 §4 五步操作化（前置清单/每步可复制命令+验收点/回滚段：DNS 回切+旧机确认期不销毁）；测试 main_test roundtrip/缺省命名/错钥/缺参+本机端到端演练明文与 .enc 全链路及失败面；bash -n+shellcheck -S error 过
-
-## 操作审计 AU 批（P2-6 观察项转正，2026-10-10 立账）
-
-> 转正依据：P2-6 登记触发条件「多管理员/DS 代理并管或合规要求」——DS 批（2026-10-08）落地代理账目面（payout/adjust 动钱写操作）即构成 DS 并管；现状只有 LoginLog 登录审计 + ringlog 内存运行日志，动钱操作无操作者留痕（ledger 行无 actor）。
-
-- [x] [P2-6] AU-1 审计表+捕获+查询（已落地 2026-10-10）：`storage.AuditLog`（actor/actor_kind=admin|api/action=方法+路径/target=路径 :id/body 快照截断 2KB/success=响应 <400/ip/created_at，AutoMigrate 增量）；`handler/audit.go` auditMiddleware 挂 apiAuth/adminAuthMiddleware **之后**（401 在鉴权层中止不落行——登录失败面另有 login_logs；鉴权通过后的业务失败 409/400/500 落 Success=false），GET/HEAD 跳过（读量大不进审计表），请求体经 `auditBodySnapshot`（GetRawData 读后还原 Body 供 ShouldBindJSON，JSON 体递归脱敏 `auditRedactKeys` 十一键回 ***，非 JSON 原文截断）；查询 `GET /api/audit-logs`（actor/method LIKE `M %`/target/from/to RFC3339 过滤 + limit 1-200 缺省 50 + offset 分页，id DESC）。测试四例：三写捕获+GET 不计+端点回读/敏感体脱敏（密码 *** 且余字段原样）/业务失败落行+actor+method 过滤+admin 组同口径/401 不落行
-- [x] [P2-6] AU-2 dash 审计查询页（已落地 2026-10-10）：`/audit` 路由+侧栏「审计」入口+`AuditView.vue`——过滤行（操作者/方法/起止 datetime RFC3339）+表格（ID/时间/操作者/类型/动作/对象/结果 tag，expand 行展开请求体快照+IP）+上一页/下一页分页（offset 驱动）；api.ts 增 `AuditLogRow`/`AuditQuery`/`getAuditLogs`
-- [x] [P2-6] AU-3 保留与轮转（已落地 2026-10-10）：`FERRY_AUDIT_RETENTION_DAYS`（缺省 90，0=永久保留不启动循环）+ `internal/audit` 包（Prune=带索引 DELETE created_at < now-Nd；Loop=小时级 tick 沿 FERRY_*_SEC 装配惯例，retention<=0 直接返回；main.go backup 循环旁装配）；env.example 调度旋钮段补登记。测试三例：窗口边界（-91 删/-90 等点留/-1 留）/retention 0 noop/Loop 0 直返+ctx 取消退出
-
-## 公告受众批（2026-10-11 巡检 11 轮自定位）
-
-- [x] 公告受众分段（运营设计 §1.1「全员/分组」主张落地）：Notification 锚点行加 `audience` 列（size:32，缺省 all）——`all`=全部启用用户（原行为）、`expiring:N`（N 1-90，发布入口 announce.NormalizeAudience 严格校验归一，400 拒坏值）=仅 expires_at 落在 (now, now+N 天] 的启用用户（过期/无到期/停用不收）；名单以扇出时刻为准——announce.audienceScope 扇出与重发共用同一口径（定时公告到点才解析名单，发布后加入到期窗口的用户照收；重发按重发时刻重算，名单漂移如实反映）；非法受众串扇出侧按 all 兜底（脏数据不阻塞）。dash 发布表单受众下拉（全员/3/7/30 天内到期）+触达表受众列。测试=TestAnnouncementAudience（缺省与 all 4 人停用不收/expiring:7 只收临期/expiring:30 收 3+30 天/bad 值 400×3/定时公告到点解析名单含发布后加入者/重发名单重算临期移出即只发 1 人）。make test 全绿（55 包+3 前端）。commit=3a803a6
-
-## 用户导入导出批（2026-10-11 巡检 11 轮自定位）
-
-- [x] 用户批量导入/导出（用户迁移面）：`GET /api/users/export` 全量导出（字段与 listUsers 同口径含 sub_token、count 计数；口令 json:"-" 天然不带——口令不迁移，迁入后订阅地址需按新令牌重发）；`POST /api/users/import` 批量建号——maxImportRows=500 单次上限，先全量校验（任一坏行整批 400 零写入并报该行原因），再事务内逐行落库（重名跳过回报 "username already exists"，订阅令牌逐行新生成随响应回带；enabled=false 显式补写防 GORM 零值略过；UseTemplate 模板开关沿用创建口径）；子管理员批量配额=created_by 现有数+本批行数>max_users 整批 403（不做部分导入，配额语义不含糊）。dash UsersView 工具栏「导出」按钮（JSON blob 下载 ferry-users-日期.json）+「导入」按钮（文件选择解析 JSON，兼容裸数组与 {users:[...]} 两形态；成功提示新建/跳过数，跳过明细弹窗列原因上限 20 行）。测试=userio_test.go（导出 count+sub_token+无 password 字段/导入建号含禁用行与到期/重名跳过回报/坏行整批 400 零写入/空载荷与 501 行 400）。make test 全绿（55 包+2 前端）。commit=a543781
-
-## 巡检 12 轮：撤回与保址批（2026-10-11 续批自立项，前例 SB 批）
-
-- [x] 公告删除级联撤回（P2-5 撤回面补全）：deleteNotification 原为单行删——锚点行（公告，user_id=0）删除后扇出的用户行残留各用户列表与未读数，「删除公告」撤不下。改为锚点行级联：先查待删行，user_id=0 则同事务删锚点+`anchor_id=id` 全部用户行（防半撤）；普通行仍单行删；404 口径不变。dash 删除确认文案分流（锚点行提示「将同时撤回所有用户的扇出副本」）。测试=TestAnnouncementDeleteCascade（全员公告锚点+2 用户行/删锚点三方全消/再删 404/第二轮删单个用户行其余不动）。commit=781fd17
-- [x] 导入沿用订阅令牌（迁移保址）：export 含 sub_token 但 import 原本一律新生成——迁移后全部用户订阅地址失效（export→import 回环有损）。importRow 升级为嵌入 UserInput+可选 `sub_token`（≤64 字符）：传入即沿用（订阅地址不换，用户无感），缺省仍新生成；校验面=批内重复整批 400（importReject 统一报行号与原因）+DB 已占用整批 400（checkImportTokens 单查询 IN，占用行回报行号；uniqueIndex 兜底并发竞态）。export→import 同构回环现已无损（口令仍不迁移）。测试=TestUserImportPreserveToken（沿用令牌落库一致/占用令牌 400 零写入/批内重复 400 零写入/缺省新生成回归）。commit=7305257
-- [x] [收尾] make test 全绿（55 包+2 前端）；运营设计 §1.1 P2-5 bullet 补级联撤回口径；todo 立账本节。
-- [x] 设备面可见性闭环（P2-4 补全）：panelMe 增 `device_limit`/`ip_limit`/`devices`（hwid 在册数）/`ips`（24h 窗口内 IP 数）——订阅请求超限 403 时用户在面板能直接看到在册数与上限（原来只有订阅端点的报错文案，面板零可见）；panel 首页用量卡加 设备 x/y 与 IP（24h）a/b 两行（0=不限如实显示）。测试=TestPanelMeDeviceUsage（限额 2/3 下 hwid 1 台+窗口内 IP 2 个+窗口外旧行不计）。make test 全绿（55 包+2 前端）。commit=fdc1fee
-
-## 巡检 13 轮：状态查询面测试缝隙批（2026-10-11 续批自立项，非闸门）
-
-- [x] 复扫结论先行：设计稿「未落地」标记三处均带既定结论非缺口；TODO/FIXME 零命中（匹配均为卡密 XXXX 格式注释）；adminsapi 经 adminrole_test.go 走 HTTP 端点全覆盖、loginlog 主体经 twofa_test.go 覆盖（含同 /24 不告警、brute 阈值、分页），均非零覆盖——初判「11 文件无同文件测试」为跨文件覆盖误报，按端点路径逐一核到真零覆盖 5 处。
-- [x] 补 5 个零覆盖查询端点 + loginlog 纯函数边界（statusquery_test.go）：dimension-status 排序（isp<key、3 行定序）；transport-status 空库/window_sec 钳制（10/4000/abc→400）与种子聚合（单节点 peer 探活→recommended=tls）；nodes/:id/traffic-logs 只回本节点+新在前+limit 1-1000 钳制+无效 id 404+无节点空 200；nodes/:id/configs 同构（新在前、limit 1-200）；GET /api/token whoami 三态（admin JWT→subject "1"、API token→admin、无凭据 401）；sameNetwork 表驱动（v4 /24 同异、v6 /64 同异、v4v6、解析失败回退整串）；UA 截断（300 字符落库 255）。测试=7 用例一次过。commit=be4d10c
-
-## P2 — 远期或明确不做
-
-- [x] [P2-1] 面板主从同步（2026-10-10 续批单开工落地）：standby 实例周期拉取主面板加密快照原子替换本机库——`internal/standby` 包（SyncOnce=拉取→主密钥解密校验→SQLite 魔数门槛→tmp 落盘 fsync→sql.DB.Close() 静默→rename 覆盖 ferry.db→清旧 inode -wal/-shm 侧车防误回放；MasterURL/Token/主密钥三缺任一即拒；主面板不可达/篡改/错钥都不替换继续服务陈旧库；Loop=上线先拉一版+周期 tick，成功替换回调 OnReplace 后返回）+主面板侧 `GET /api/standby/snapshot`（X-Standby-Token 机器鉴权，未配 token 恒 403，复用 backup.Snapshot VACUUM INTO+主密钥加密同格式=restore.sh 直接可恢复，落临时目录 serve 即删不进 backups 表）+config 三字段（FERRY_STANDBY_MASTER_URL/TOKEN/SEC 缺省 600）+main 装配（替换后 os.Exit(0) 交 systemd Restart=always 加载新库，RPO≤间隔；提升为主=去 MASTER_URL 重启）+env.example 注册+deploy/README 节。测试=standby_test.go（全链换新+四类失败不替换+Loop 守卫与钩子+DSN 取路径）与 handler/standby_test.go（令牌三态+产物解密可开）。make test 全绿（55 包）。commit=0862bc1
-- [x] [P2-2] 多级管理员/子管理员配额（2026-10-10 续批单开工落地）：两级口径对齐 Marzban is_sudo——users 加 admin_role（空/super/operator，bootstrap 建号=super，旧号 NormalizeAdminRoles 启动幂等归一）+max_users+created_by；JWT 带 role（旧令牌空按 super 兼容），apiAuth 与 adminAuthMiddleware 同步设 adminRole；`/api/admins` super 专属 CRUD（operator 恒由 API 建、密码 bcrypt、super 本体不可改/不可降防自锁、降级摘身份不删行保留名下数据）；子管理员配额=max_users 建用户上限按 created_by 归账（0=不限，超 403，api 组经 apiAuth 取 apiUser 归账）；dash `/admins` 管理员页（建号/改密启停提额/降级）。测试=adminrole_test.go（CRUD 全链+operator 层级 403+真实登录路径+配额用满/提额/不限）。make test 全绿。commit=79c0f70
-- [x] [P2-3] 按用户带宽限速（2026-10-10 续批单开工落地）：users 加 bw_up_mbps/bw_down_mbps（0=不限，上限 100000，负值/超上限 400）——建/改 PATCH 语义（缺席不动、显式 0 清零走 derefInt 不置零）+用户模板两字段（正值才补默认，loadUserTemplate 校验兜底）+panelMe 暴露两字段（用户自面可见）；dash UsersView 表单双 input-number（↑/↓ Mbps）+带宽列（不限/↑x ↓y）+SettingsView 模板表单双字段。口径=ferry 侧权威元数据面（节点内核配置 opaque payload 不渲染，执行在节点侧配置生成器）。测试=userbw_test.go（创建带限额/更新只改上行 PATCH/负值与超上限 400/0 放行/panelMe 可见/模板补全与显式覆盖）。make test 全绿。commit=cc7009d
-- [x] [P2-4] HWID/设备数/IP 数限制（2026-10-11 续批单解禁开工落地，原判「不做」按可执行面拆分落地）：①users 加 device_limit/ip_limit（0=不限，上限 1000，负值/超上限 400，建/改 PATCH 语义）②sub_devices 表（user_id+kind+key 唯一防并发双插；kind=hwid 记订阅端 X-Client-Hwid 头、kind=ip 记来源 IP——与 3x-ui ClientHwid 同口径）③执行在订阅端点：请求先查在册，未在册且名额已满即 403 拒访；已在册老设备/老 IP 不受收紧影响（只拦新 key 防误伤存量）④ip 面 24h 滚动窗口（窗口外旧行顺带清，防陈年 IP 永占名额）；hwid 面按设备集合计（无窗口，随令牌重置清空重计）⑤超限告警 device_limit kind 经 herald outbox（admin 目标，按用户按日去重）⑥令牌重置与用户删除清设备/IP 记录（安全态不留孤儿）⑦GET /api/users/:id/devices 查询面⑧dash UsersView 表单两字段（设备数上限/IP 数上限）。卡点如实标注（原判核心原因）：hwid 面依赖客户端带 X-Client-Hwid 上报，客户端不报则该面对该请求不生效（IP 面不依赖客户端总是生效）；IP 数按 gin ClientIP 口径（与订阅限频同信任模型，反代部署依赖代理覆写 XFF）。测试=subdevice_test.go（设备超限 403/老设备放行/无 hwid 不受限/告警按日去重一条；IP 窗口超限与旧行清；令牌重置清记录+新令牌可用；限额校验 400+devices 清单端点）。make test 全绿（55 包+3 前端）。commit=df4b3c7
-- [x] [P2-5] 公告三项增强（2026-10-11 续批单解禁开工落地，原「观察项」三条开工条件全部实现）：①起止时间/定时撤下——Notification 加 starts_at/ends_at，starts_at 未来=定时发布（只落站级锚点行 user_id=0，到点由 notifyscan Sweep 内 announce.RunDue 扇出，fanout_at 回写防重扇）；ends_at 到点即撤下（panel 列表/未读数过滤 `ends_at IS NULL OR ends_at > now`，RSS 同口径且 fanout_at 非空照出，行保留 dash 全量可查）；②触达统计回流——用户行经 anchor_id 关联锚点行，GET /api/notifications/announcements 返回锚点行+sent/read（发 n/读 m，dash「公告触达与重发」卡）；③外通道重发位——POST /api/notifications/announcements/:id/resend 补一轮 notice 事件外发（只补站外不重落站内信行），限频 6h/公告（429，resend_at 基准），窗口已结束不重发（400，撤下语义优先），dedup_key 按轮次分钟合并。dash 发布表单加开始/结束 datetime 选择器（start 未来=定时发布提示）。内部重构：扇出逻辑从 handler 抽 internal/announce 包（Fanout/RunDue/Resend，管理 API 与定时扫描共用）。测试=announcement_test.go（定时发布到点扇出/重复 RunDue 不重扇/撤下三面不可见行保留/RSS 窗口过滤/发 2 读 1 统计/重发一轮 notice+2 事件站内信不重落/6h 限频 429/窗口关闭 400/404）。make test 全绿（55 包+3 前端）。commit=dc28ae0
-- [x] P2-6（观察项转正已落地）系统级操作审计日志：各家未见独立审计表（来源：各家 grep 无命中。**2026-10-09 验收批复评**：现状=LoginLog 登录审计（P1 安全批）+ringlog 运行日志（内存环，P1-11），无持久操作审计表；开工条件=①admin 写操作统一审计表（who/when/what/target/before-after，middleware 捕获）②dash 审计查询页（按操作者/对象/时间过滤）③保留与轮转策略。触发条件=多管理员/DS 代理并管或合规要求出现时派工，单管理员自用场景现有两件已够，不自行开工。**2026-10-10 转正**：DS 批（2026-10-08）落地代理账目面即构成「DS 代理并管」，触发成立 → 立账 AU 批（见上），按 ①②③ 开工条件执行）
-- [x] [P2-7] 协议支持范围收窄（2026-10-11 续批单口径确认，收窄口径落地完成）：范围=vless/vmess/trojan/shadowsocks 四协议+用户点名单增 hysteria2（2026-10-10 hy2 批，二进制适配）共五种，**不做 Hiddify 19 种协议全家桶**（小面板定位，单项增补不构成解禁）。落地证据：`model.go` ValidProtocol 白名单五协议（ProtoHysteria2 收录），建/改节点唯一校验点 node.go 拒绝白名单外协议；订阅侧五协议出站/链接/YAML 随 hy2+SB 批补全（links/clash/singbox 三格式同构）；面板 NodesView 五协议 schema。无需新代码，本条性质=口径声明确认，回写收口。
-
-拍板（2026-10-09 审计刷新）：docs/审计-文档一致性.md 全表复核——复核 39 行、已落地/已修 35 行、维持原判 2 行、新增缺口 8 行。35 行=2026-10-08 修法全部确认执行到位，其中出表后按拍板落地的行随刷新改记「已落地」：C-05（2FA/登录审计）、C-07（订阅限频，安全设计 §4 已写落地口径）、C-09（周期备份/恢复三件套+S3 真实外发 3eb290a）、C-10（health 三 checks）、C-12（alloc 权重 dash 可配）、O-03（订单来源筛选）；维持原判 2 行=C-03 unix socket IPC、C-06 token 轮换/CRL（源码仍零实现、文档均已标「未实现」与源码一致；拍板依据=2026-10-09 安全巡检：维持原状不重开）；修法未执行仍成立 2 行=C-04 入口设计双接口代码块未替换（:134 注释「packages/ 共享类型、agent/internal/relay」路径双过时）、C-11 README Node 24 硬性表述无 engines/.nvmrc 支撑——均待派。新增缺口 8 条 N-01..N-08 只登记待派本批未修（P1 2：N-05 notifications DDL 幽灵外键 CASCADE+复合索引主张、N-06 card_codes 批次删除实为 DB 级联而 §3.1 写「应用层关联」且 handler/card.go:223 援引无出处；P2 6：N-01 调度周期表缺 FERRY_PRICE_WATCH_SEC、N-02 可用性 §5 清单残留「Herald 可达性」、N-03 agent架构缺 ferry-quic sidecar 回写、N-04 payment_orders DDL 缺 refunded、N-07 告警事件清单缺 contact kind、N-08 bill/domains 接线将来时）；C-07/C-09/C-12 三格落地叙事随刷新同批更新；仓内无 md lint/链接检查工具，表格渲染自检通过。
-
-拍板（2026-10-09 dependabot 批）：4 open alerts（vite ≤6.4.1 medium、vite ≤6.4.2 high+medium、esbuild ≤0.24.2 medium）处置结论——根因=docs 的 vitepress 1.6.4 钉 vite ^5.4.14（esbuild 0.21.5 随 vite 5 传递），dash/panel 的 vite 7.3.7/esbuild 0.28.2 不受影响；处置=pnpm-workspace.yaml scoped override `vite@^5.4.14 → 6.4.3`（只命中 vite 5 声明、不动 ^7 链路），vite 6.4.3 自带 esbuild ^0.25.0，4 条随 push ad0c532 重扫清零（0 open）；验证=docs/dash/panel 三前端构建+server 全量测试绿。等待条件：vitepress 2 stable（现仅 2.0.0-alpha.20、钉 vite ^8，alpha 不升）落地后撤 override 直接升 vitepress，override 为过渡态不长期持有。
-
-拍板（2026-10-09 审计缺口批）：文档一致性审计遗留全清——修法未执行 2 行与新增缺口 8 条（C-04/C-11、N-01..N-08）本批全部修复（docs-only 无代码改动）。C-04 入口设计 §C.2 双接口代码块按 tunnel.go:16-25 换单接口并改正 packages//agent/internal/relay 过时路径（随行同修 agent架构设计 §4 同源路径）；C-11 README 两份 Node 24 改开发机口径（无 engines/.nvmrc 如实写明）；N-01 调度周期表补 FERRY_PRICE_WATCH_SEC、N-02 可用性 §5 Herald 项加注不重复探测、N-03 agent架构补 ferry-quic sidecar（目录树/构建段/内存预算三处）、N-04 payment_orders 枚举补 refunded、N-05 notifications 去幽灵外键改单列索引、N-06 §3.1 补批次删除 DB 级联口径、N-07 事件清单补 contact kind、N-08 bill/domains 改完成时；审计表对应行已改「已修」。维持原判 2 行（C-03/C-06）仍不动。验证=docs vitepress 构建绿（无 md lint 工具，表格渲染自检）。
-
-拍板（2026-10-09 dependabot 收口批）：version update run 37922529398（npm_and_yarn in /.，esbuild+vite×3）失败根因=dependabot 的 pnpm updater 不识别 pnpm-workspace.yaml scoped overrides（dependabot-core#11953/#11135 已知缺口），override vite@^5.4.14→6.4.3（上批拍板过渡态）与其解析必然冲突；配置来源查实=账号级 Dependabot 默认配置（仓内无 dependabot.yml、历史无、cuihairu 为个人账号无 org 配置，go_modules 分组 PR 同源）。处置=新增 .github/dependabot.yml 接管账号默认：gomod 六 module（server/agent/packages×3/payments）维持 weekly+go_modules 全量分组原行为，npm 根 ignore vite+esbuild（版本更新交给 pnpm override 管）。兜底条件=若 ignore 后 npm run 仍报 updater 错误（parse 层缺陷不随 ignore 消失的情形），改 npm `open-pull-requests-limit: 0` 关版本更新（security alerts 独立不受影响）；vitepress 2 stable 撤 override 时同步放开 ignore。security alerts 口径不变：state=open 复核=0。**兜底已触发**（2026-10-09 验收批）：ignore 后首跑 run 37943084657（14:17Z）npm 仍 failure 而 go_modules 全绿——parse 层缺陷不随 ignore 消失，npm 改 `open-pull-requests-limit: 0` 关版本更新，重开条件不变（vitepress 2 stable）。
-
-拍板（2026-10-10 servify 真嵌批）：servify C1 剩余项=ferry 侧真嵌验收，连做不等催——①server 侧新增 servify client（server/internal/support/client.go：guest token 签发 + customer 同步，冲突回退更新）与 GET /api/panel/support 配置面（配置门控 FERRY_SUPPORT_URL/FERRY_SUPPORT_SERVICE_KEY，未配置 enabled:false 零依赖；enabled 时签 guest token + 服务端同步客户上下文，servify 宕机降级 enabled:false）；②panel 侧 support.ts 按需加载 widget.js 直嵌（方案 A：icon=headset/color=#6e79d6/theme=auto/brand=ferry 支持），App.vue onMounted 挂 initSupport；③验收实机全链路：GET /api/panel/support enabled:true context_synced:true → servify customer 建（source=ferry，notes 携带套餐状态/流量/到期）→ WS 握手+消息收发+AI 流式通道响应 → POST /api/v1/tickets 201（session 绑定 ferry_user_2，source=chat）→ agent 视图可见工单 → guest token 三层绑定验讫（security.guest_token.required=true 下正确 200/错会话 401/无 token 401）；④验收中发现并顺带修复 ferry admin 数据面裸奔（/api 组整组无鉴权，垃圾 Bearer 可建用户）——新增 apiAuth 统一中间件（管理员 JWT 或 API Token 双凭据）+ apiauth_test.go 7 回归 + POST /api/token 恒 403 死端点复活。落地=commits 18d045b（embed）+ 46d81e7（auth fix）；已回写 servify todo C1 勾收 + acceptance-checklist §15（6f6f89e）。servify 侧 AI 回复报错=预期（零依赖形态需 ai/embedding/knowledge 配置为 local，流式通道本身已通）。
-
-拍板（2026-10-10 test CI 批）：补 test workflow（.github/workflows/test.yml）落主分支与 PR 门禁——go 矩阵 6 module（server/agent/payments/packages×3；拍板口径"四个"实为 6，全量入矩阵）setup-go 1.27.2 按 go.sum 分模块缓存，frontend 矩阵 3 前端（ferry-dash/ferry-panel/ferry-docs，build 含 vue-tsc 类型检查）pnpm 10+node 22+lockfile 缓存（install 口径与 docs.yml 一致）；触发 push main+PR+手动，concurrency 同 ref 取消旧跑。本地 make test 全绿为基线；test-pg（docker PG 三方言）不进 CI（依赖 docker 服务，维持本机口径）。P2-5/P2-6 触发条件未到不开工不变。
-
-拍板（2026-10-10 自定位巡检批）：todo 全勾净（除门禁项）转验收打磨——发现并修复鉴权批部署面缺口：apiAuth 落地后 compose/env.example/部署指南/FAQ 四处均无 FERRY_ADMIN_SECRET/FERRY_API_SECRET，公网部署走缺省常量等于知道常量即可自签管理员令牌（鉴权形同虚设）。补缺：compose 透传两 env + env.example 注释块（缺省仅供本机开发，公网必须随机串）+ 部署指南「首启前必须看清的几张」表加行 + FAQ 补「脚本/自动化怎么调管理 API」（Bearer 令牌两条路：dash JWT 24h / POST /api/token 30 天）。实机走查全绿：登录→JWT 数据面 200→无凭据 401→缺省秘钥伪造 JWT 401（自定义秘钥真实生效）→API Token 签发回流→建用户→panel me/支持面/通知/偏好/订阅端点→admin/status→backup/db，零新 bug；业务面与 bot/agent/客服链路前批已验维持。compose yaml 语法自检过。
-
-拍板（2026-10-10 复查批）：三项复查结论——①vitepress stable 未出（latest 仍 1.6.4，2.x 仅 2.0.0-alpha.20），等待条件未到，pnpm override（vite@^5.4.14→6.4.3）维持不动；②dependabot/安全面零开口（open alerts 0、open PR 0、test/docs 两 workflow 全绿）；③servify 实机复走全绿（对 servify 当前 HEAD：其已演进——auth 路由移 /api/v1/auth、database 配置改 host/port/user 形态仅 postgres 走 DSN 或 DB_DRIVER=sqlite+DB_DSN、WS 首帧新增 webrtc-ice-config）：ferry 侧嵌入链不受其演进影响，panel/support enabled:true+context_synced:true、servify customer source=ferry+notes 携配额（新配额 200GB 正确反映）、guest token 三层绑定（正确 200/错会话 401/无 token 401）、消息落库、建单 201（session 绑 ferry_user_2）、agent 视图可见、widget 资源 200×2、ferry 鉴权回归垃圾 Bearer 401。复走期间 servify 工作树有并行会话在途改动（go.mod go 1.26.0 + statistics 验收脚本，mtime 03:01/03:31）——只读复用其二进制，未碰其树、未在 servify 侧提交（避让并行会话）。
-
-拍板（2026-10-10 环境面补全批）：复查批自定位项——config.go 实读 env 与部署面差集核查：FERRY_BOT_TOKEN 两面（compose+env.example）双缺=真部署缺口（compose 部署无法启用 TG bot 对接面，空即路由 404 禁用），compose 补透传；13 个调度周期旋钮（HEARTBEAT/MONITOR/EVENT_FLUSH/REVIEW/POOL/ALLOC/REPLENISH/RECOVERY/QUOTA_LINK/SAVE_STATS/NOTIFY_SCAN/PRICE_WATCH/TOUCH_SEC+TOUCH_DOMAINS_DAYS/COST）env.example 零登记而文档宣称「全集见 ferry.env.example」——补旋钮全集段（带代码缺省值注释）+ FERRY_DB 旧别名注记；校验=代码 env 全集（grep FERRY_ 常量）与 env.example+compose 差集仅剩注释前缀误报，全集宣称成立。
-
-拍板（2026-10-10 工程面批）：①gofmt 漂移全清——13 文件（注释对齐）+ make fmt 原只盖 3 module 改 6 module 全覆盖（05f9428）；②真 bug 修复：供给执行「单实例不并发」承诺失效——getProvisionManager 每请求 New、恢复/补充循环各自 New，锁互不相干，同 workdir 并发 init/apply 会踩烂 terraform state（重复开机/state 损坏）；新增 provision.Shared 按 (db,bin,root) 进程级单例，HTTP 触发与 main.go 两循环共用一把锁，测试=单例四态（同键同例/异根/异库/空 bin 归一）+ 并发峰值=1；③TestProvisionRunAPI 偶发（04:08-04:09 窗口 2 次、此后全条件 28+ 连净未复现，make test 0.28s 快败）登记为观察项——疑点=单连接池+后台 goroutine FinishJob 争用，复现条件=再次出现时抓 -race+verbose 全量；期间 CPU 有 servify 并行会话验收脚本负载，不排除外部负载诱发。
-
-拍板（2026-10-10 复查续批）：①vitepress 2 stable 复核=未出（npm dist-tags latest 仍 1.6.4、next=2.0.0-alpha.20；vuejs/vitepress releases 最新非 alpha 亦无 2.x）——override 与 dependabot npm ignore 均维持，登记本轮结论；②告警/PR 复核=test/docs 两 workflow 各自最新 run 均 success（main）、dependabot open PR 0、security alerts 0，无红可修；③TestProvisionRunAPI 偶发复放=-race 单测 3 连 + 全包 3 连（223s/134s/88s）全净、0 data race，累计 34+ 连未复现——登记描述更新为「非 data race 型；0.28s 快败疑点维持单连接池+后台 FinishJob 争用假设，复现时抓 -race -v」；④供给/恢复交叉面续扫=recovery L3（recovery/instance.go:49-54）与 replenish（provision/replenish.go:81-88）均走同一 Manager.PrepareLaunch/Execute/FinishJob，provision.Shared 落地后三面（HTTP/恢复/补充）同库同根共一实例串行成立；但发现残留窄洞=Execute 的 main.tf 渲染落盘在锁外（后写者覆盖前者 HCL，先获锁者跑错 HCL：apply 拿 plan 模板丢 cloud-init）——锁上移罩住整轮（渲染+init+plan/apply），新增 TestExecuteHCLIsolation（并发 apply+plan 各轮断言运行期 main.tf 与本 action 匹配；已验前缀代码必失败、修后必过）。
-
-拍板（2026-10-10 codecov/每日构建批）：用户令「缺少 codecov 徽章，还有缺少每日构建」——①codecov：test.yml go 矩阵每模块 `go test -coverprofile=coverage.out` + codecov/codecov-action@v7 上传（OIDC 免 token：公开仓、workflow 级 `id-token: write`，无需 CODECOV_TOKEN secret；flag 步把 `packages/agentproto` 斜杠转连字符入 flag；`fail_ci_if_error: false` 上传抖动不拖红门禁），codecov.yml 只报数（project/patch 全 informational、comment false），README.md/README.zh.md 双语加 codecov 徽章（db 与 license 之间）；实测=run 38000940447 六模块上传全 success（OIDC token length 1847、upload queued complete、结果入 app.codecov.io/github/cuihairu/ferry/commit/3e67780），徽章实测出数 72%；②每日构建：新增 .github/workflows/nightly.yml（cron 23 3 * * * UTC 每日 + workflow_dispatch；go 矩阵 build+vet+test 全量、frontend 矩阵 build、package 任务 make build-server/agent/quic + make package-agent AGENT_VERSION=nightly-日期 + upload-artifact 7 天留存）；手动触发 run 38001005111 全绿、产物 ferry-nightly-1 37.7MB 已传。本地镜像校验=六模块 build+vet+test 全绿、payments coverprofile 89% 出数正常。commit=348a414（nightly）+3e67780（codecov+徽章）。
-
-拍板（2026-10-10 审计二刷批）：自定位增量=文档一致性审计二刷（上刷 2026-10-09，其后落了 servify 真嵌/部署秘钥面/test CI/provision.Shared/codecov-nightly 五批）——39+8 行全量复核原判全维持，O-06 转「已落地」（servify 真嵌批：server/internal/support/client.go + handler/support.go:31 + panel/src/support.ts + config 两 env）；新增缺口 3 条同批修：N-09 用户面板运营 §4/§6 servify 标「P2 未开工源码零引用」已失效改落地口径（P1）、N-10 安全设计 §1 数据面鉴权零覆盖（apiAuth 双凭据/POST /api/token/FERRY_ADMIN_SECRET/FERRY_API_SECRET）补表行+落地口径段（P1）、N-11 面板可用性迁移表 :66 servify「dash 配置更新」不精确实为 env 配置（P2）；C-06 证据注记补 POST /api/token（节点轮换/CRL 主张维持不变）。deploy/README、FAQ、部署指南、横向对比、todo 逐页扫过无新漂移；验证=docs vitepress 构建绿（两轮：修前扫+修后验）。commit=53d3f90。
-
-拍板（2026-10-10 行号刷新批）：审计文档 11 处行号引用全量复核刷新（上轮二刷后代码又动过行位）——T-05 scan.go:77,141/toucher.go:203/herald.go:88/contact.go:141、P-04 router.go:196,228+panel.go:84、O-04 router.go:209+payrecon.go:175-205、C-05 router.go:284-288、C-06 router.go:185、C-08 router.go:251+config.go:129、C-10 router.go:300-343、C-12 router.go:137、C-16 config.go:133-176、N-01 config.go:159、N-02 router.go:336-341，刷新后逐条对源核实引用内容仍在位。CI=774d423 test 38022391466 + docs 38022391515 双绿。commit=774d423。
-
-拍板（2026-10-10 实机走查安全批）：优先拉起令（用户下午「这个仓急需开发功能」）——三面扫（todo/路线图/设计稿）先修 计划扩充设计.md:5 头注自相矛盾（「§3 分销 P2 维持不开工」已失效，DS 已解禁全落地），随后按令走实机验收（自建服 FERRY_ADMIN_SECRET/FERRY_API_SECRET 自定义秘钥 :18099）抓出两个单元测试漏掉的真安全洞并同批修：①distAuthMiddleware 验签硬编码缺省常量而 DistributorLogin 用 cfg.AdminSecret 签发——env 配置后代理自面整面 401（实机六端点全 无效令牌 复现），修=验签同源 cfg+回落；②apiAuth 与 adminAuthMiddleware 只验签名不查 is_admin——代理令牌（DS-1 与管理员同密钥签发）直通 /api/distributors 200 实机复现、可越 /admin 组=代理→管理员全权提升，修=两面只认 is_admin=true（三签发源核实：AdminLogin IsAdmin:true/DistributorLogin role=distributor/apiToken 独立秘钥，合法令牌不受影响）。回归两例入 apiauth_test.go（TestDistributorTokenRejectedOnAdminFaces 五断言含自面不受影响、TestDistributorPortalHonorsAdminSecretEnv）。修后实机复走全绿：dist 六端点 200、dist 令牌 /api/distributors 与 /admin/status 401、admin 不受影响；兑换落账链路全通（建批次 5 张面价 2000 → dist 自查批次/卡密 → 用户兑换 → ledger sale 2000+commission 600 余额 600 → payout 超额 400/adjust+100→700/payout 700 清零 → customers/orders 视图带数据）。make test 全绿（6 模块+3 前端）。安全设计 §1 落地口径补 is_admin 收紧注。
-
-拍板（2026-10-10 操作审计 AU 批）：巡检续派（可开工项已清后自定位下一批）——三面全扫（设计稿 13 篇未落地标记全属闸门：PROMO 远期不开工/优惠码限时活动同族/C-03 IPC、C-06 轮换维持原判；审计表处置列无未决）唯一触发成立点=P2-6 操作审计：登记触发条件「多管理员/DS 代理并管」已随 DS 批（2026-10-08）真实出现——代理账目 payout/adjust 是动钱写操作而现面只有 LoginLog 登录审计+ringlog 内存环，ledger 行无 actor，动钱动作无操作者留痕；按令「观察项开工条件未触发不开」反推：已触发即转正，P2-6 条目回写转正注，AU 批立账（先立账后动工）。三件同批全落地：AU-1（audit_logs 表+middleware 捕获 admin/api 两组写操作+查询 API，请求体脱敏截断，401 不落行业务失败落行）/AU-2（dash /audit 审计页：过滤+expand 快照+分页）/AU-3（FERRY_AUDIT_RETENTION_DAYS 缺省 90 + internal/audit 小时级清扫 + env 登记）。make test 全绿（6 模块+3 前端，dash 新页 vue-tsc 过）。P2-6 剩余面=暂无（③保留轮转已随 AU-3 落地）。commit=cc33912（AU-1）+38870ee（AU-3）+24e6c0c（AU-2）。
-
-拍板（2026-10-10 nightly 日程核验批）：首个日程触发点（2026-10-10 11:23 CST=03:23 UTC）后多轮核查（12:08/13:20/13:46 CST，间隔约 2 小时）schedule 事件 run 恒为 0——cron 行合法（23 3 * * *）、workflow 注册 active、文件在默认分支、触发前已入库 4.5 小时，排除全部仓内成因；dispatch run 38001005111 全绿+产物已传证明流水线本体可用。结论=GitHub 高负载期日程延迟/跳过（官方文档化行为），仓内无可修点，登记为观察项：明日触发点（2026-10-11 11:23 CST）后再核，若仍不触发改用 workflow_dispatch 兜底（每日手动或 cron 外部触发），不视为仓内 bug。**2026-10-11 00:56 CST 追记**：schedule 事件已自愈——run 38043171320 于 2026-10-10 17:56 CST（09:56 UTC）经 schedule 触发成功（2m3s），验证「高负载期延迟」判定（当日触发点 11:23 CST 延迟约 6.5 小时后补跑）；workflow_dispatch 兜底暂不需要，durable cron 11:47 CST 复核今日触发点后可收观察项。**2026-10-11 11:48 CST 复核（durable cron f9b44948 触发）：观察项收口**——schedule 机制已实证可用（38043171320 绿）；本日触发点（11:23 CST）后 25 分钟 run list 尚无本日 run，与已实证的延迟模式一致（10-10 为 +6.5h 补跑），不算失联，预期延迟补跑；此后 GitHub 侧平台延迟不再逐日盯，workflow_dispatch 兜底永久留档备用（需要时手动即可）。
-
-拍板（2026-10-10 菜单三选一）：①PROMO 解禁（连带 DS §3.3 取优判定）——**解禁**；②P2-5 公告三项增强——**维持观察**；③nightly 日程复核——**挂定时**（durable cron f9b44948，2026-10-11 11:47 CST 触发复核，拍板记录见上批）。解禁理由：原「远期不开工」语境=单管理员自用面板无促销需求；DS 批（2026-10-08）落地后语境已变——代理卖卡+终端用户在线下单=真实促销场景，且 DS §3.3 取优判定有明确挂点等 PROMO（「PROMO 解禁时在兑换/下单价签处落取优判定」），PROMO-1 优惠码是 PROMO-2/3 的公共底座（核销+账目快照）。P2-5 维持理由：登记三条触发条件（起止时间/已读统计回流/外通道重发）均无真实需求信号，按登记口径「触发任一再派，不自行开工」。PROMO 按 DS 分期模式连做：PR-1 优惠码基础+下单原子核销+账目三列（list_amount_cents/promo_code/promo_snapshot）+取优判定（一单一优惠源不叠加；兑换链路无支付无叠加点，佣金仍按面价在兑换落账）→ PR-2 dash 促销管理卡 → PR-3 限时活动（PROMO-2 全量）。
-
-## 促销 PROMO 批（2026-10-10 解禁拍板，设计：docs/design/用户面板运营设计.md §5）
-
-- [x] [PROMO-1] PR-1 优惠码基础+下单核销+账目打通：`coupons` 表（code 唯一/kind=cut|pct/value=分或基点(10000=不打折)/scope=all|batch:<id>/min_amount/起止/total(0=不限)/per_user/used，AutoMigrate 增量）；管理面 CRUD `GET/POST/PUT/DELETE /api/coupons`（kind 枚举、pct 1-9999、cut>0、scope 批次存在性、code 唯一 409——gorm.ErrDuplicatedKey+字符串兜底盖方言差异、total/per_user>=0）；panel 下单 `POST /api/panel/orders` 增 coupon_code 可选——两段式（只读预检 couponCheck 不烧码 → 网关下单 → 事务内 applyCouponTx 条件 UPDATE used+1 防超发+订单行同事务，网关失败码分毫不烧）+折扣计算（cut 减额/pct 基点，实付下限 0）+门槛/窗口/总量/每用户/适用范围校验（具体文案回 panel，非兑换防枚举面）+订单落 `list_amount_cents`（原价）/`promo_code`/`promo_snapshot`（原价/折扣/码/实付 JSON）；取优判定（DS §3.3）：一单一优惠源不叠加，佣金口径不变（在线单不落佣金，兑换按面价）。commit=fbf46c7。测试=coupon_test.go（CRUD 校验全边界+下单核销 cut/pct/floor 0/未知/窗口/门槛/范围/每用户/总量/网关失败不烧码/无码零值三列）
-- [x] [PROMO-1] PR-2 dash 促销管理卡：`/promos` 路由+侧栏「促销」+列表（码/力度/范围/门槛/有效期/已用/总量/每用户/状态 tag）+新建/编辑同一表单（cut 录元/pct 录百分比→基点、范围 all/指定批次、窗口 datetimerange、总量/每用户）。停用走编辑窗口置结束于当下（同码编辑口径，未单独开按钮）。commit=33e45cf。dash pnpm build 绿
-- [x] [PROMO-2] PR-3 限时活动：`campaigns` 表（name/kind=first_order|renew|timed/rules JSON/起止 NOT NULL/enabled）+管理面 CRUD `GET/POST/PUT/DELETE /api/campaigns`（rules 收 JSON 字符串或对象，parseCampaignRules 解引号兜底；kind 枚举；起止必填 end>start）+panel 活动位 `GET /api/panel/campaigns`（enabled 且未过期，进行中/即将开始 state）+下单自动适用：bestCampaign 取窗内适用本商品的活动惠大者，与码择优（campPaid<paid 则活动胜出、码不核销；否则码胜出 camp=nil），首单判定=无历史 status=paid 订单、续费=已有 paid 订单、timed 恒可；活动快照 promo_snapshot source=campaign 含 id/name/规则/原价/折扣/实付，活动删除后仍可对账。commit=d30e8e6。测试=campaign_test.go（CRUD 校验+活动位过滤+首单/续费判定+码 vs 活动取优双向+落选码不核销+范围/窗口失效回落面价）
-
-拍板落地（2026-10-10 PROMO 批收尾）：三期连做全落地——PR-1（fbf46c7）优惠码基础+下单原子核销+账目三列；PR-2（33e45cf）dash 促销管理卡；PR-3（d30e8e6）限时活动（PROMO-2 全量：model+CRUD+活动位+自动适用取优）。取优口径（DS §3.3）在 PR-3 收口：一单一优惠源——码与活动各自算惠择大者，落选码零副作用（不核销）；活动间不叠加；首单/续费按历史 paid 订单判定，timed 恒可。make test 全绿（server 模块全过+3 前端 vue-tsc），dash pnpm build 绿。PROMO 批清；剩余未清项=P2-5 观察（触发条件未出现）、nightly 复核（durable cron f9b44948，2026-10-11 11:47 CST）、gated backlog 维持不动。
-
-## Herald 通道看板 HC 批（2026-10-10 立账，设计：docs/design/告警通道设计.md §6 P2 行）
-
-设计稿全扫（14 篇+README）结论：未落地标记全部属闸门（令牌轮换/CRL、C-03 IPC 族、微信支付宝直连等资质、Herald 外通道、P2-5 观察）或 P2 分期；唯一无闸门且价值成立的族=告警通道 P2 三件（投递回执看板/通道故障自检/模板预览）。调度历史权重族文档自注「P2 才考虑自动调，人工调参先行」（C-12 已落）维持挂起；mTLS CA 编排受 mTLS 默认关闭抑制维持挂起。
-
-- [x] [P2] HC-1 投递回执看板：`GET /api/events/deliveries`（limit 1-200 默认 100 + ?channel 过滤；行表 id DESC + 按通道聚合 SUM(status='sent'/'failed') Group channel）→ 健康徽标口径：全败=down、有败=degraded、其余=healthy，附最近失败明细（First where status=failed）。dash 通知页「通道投递与自检」卡：通道健康行表（通道/徽标/成功/失败/最近失败时间+明细）+最近回执表（回执 id/通道/结果 tag/明细/时间）+通道过滤下拉。commit=96fd57e（server）+9277c5b（dash）
-- [x] [P2] HC-2 通道故障自检：被动=HC-1 聚合派生通道健康徽标（落 unhealthy 徽标即可见）；主动=`POST /api/events/test` → herald.Emit(kind=system_test, severity=info, target=admin, body 带时间戳)→201，走完整 outbox→Herald→回执链路（复用退避重试/死信语义，不注入 Sender；pending 停留即 Herald 未配置或不可达），连发自检不合并（每条独立回执）。dash「发送测试事件」按钮（成功后刷新事件列表+回执表）。commit=96fd57e（server）+9277c5b（dash）
-- [x] [P2] HC-3 通知样例预览：`GET /api/events/samples`（distinct kind→每 kind 最近一条实际落库事件作样例——零漂移，不做 16 处 Emit 点的模板注册表重构）→ [{kind,severity,title,body,status,occurred_at}]。dash 预览位：kind 下拉→样例卡（severity tag+投递状态 tag+发生时间+标题+正文 pre-wrap），空仓 el-empty 引导先触发告警或发自检。commit=96fd57e（server）+9277c5b（dash）
-
-拍板落地（2026-10-10 HC 批收尾）：HC-1/2/3 三件全落地——server 侧 96fd57e（eventsapi.go 三端点+路由挂载+heraldboard_test.go：回执聚合与健康徽标/自检不合并/样例取最近），dash 侧 9277c5b（api.ts 三函数+通知页「通道投递与自检」「通知样例预览」两节）。设计取舍：自检不注入 Sender，测试事件走真实投递链路（pending 状态本身即 Herald 未配置信号，复用退避与死信语义）；样例预览取实单不做模板注册表（16 处 Emit 点零漂移）。make test 全绿，dash pnpm build 绿。HC 批清；告警通道设计 §6 P2 行收口，剩余项均属闸门维持不动。
-- [x] [hy2] hysteria2 + sing-box 集成（2026-10-10 续批单开工落地）：协议枚举 ProtoHysteria2（model.go，校验/序列化/表单 schema 同步）+建节点 config.password 必填校验（node.go validateNodeConfig）+订阅三态（links.go hysteria2:// URI 全字段、clash.go type: hysteria2 字段名、singbox.go 新包 outbounds JSON）+进程映射 procForProtocol（pipeline.go，hysteria2→hysteria2 进程，未知回退 xray）+routing 守卫（hy2 不适用 xray routing 语法如实 400）+agent 二进制缺失告警（manager.go 预检+launch 失败两路 proc_crash 告警带 exec 路径，TestBinaryMissingAlarm）+dash NodesView 五协议 schema+配置示例+批量下发进程下拉（hy2 YAML 跳过 JSON.parse）+deploy/README procs[] 三件示例+hy2 server YAML+许可说明+THIRD_PARTY.md 新建（引擎二进制适配不 import 不传染）+开源选型设计 §4 勾账+入口设计 QUIC 行注记（hy2 入口=内核进程，与 E-18b sidecar 是两层）。测试=sub 三件套（links/clash/singbox 同构）+sub_test TestSubscriptionHysteria2+pipeline TestProcForProtocol+procs TestBinaryMissingAlarm。make test 全绿。commit=d869485
-
-## 订阅 sing-box 出站全协议批（SB，2026-10-11 巡检自立项，非闸门）
-- [x] [SB-1] OutboundOf 补 vless/vmess/trojan/shadowsocks 四协议出站（sing-box 官方文档化 outbound schema 纯 JSON 整形，无源码 import 不违二进制适配口径；tls/transport 助手与 clash 同构：ws/grpc/http/httpupgrade 映射、未知 net 报错；trojan 恒 TLS）
-- [x] [SB-2] 测试同构扩面：singbox_test 五协议全字段/最小配置/错误分支 + 混编舰队 PackSingBox + sub_test target=singbox 混编端到端
-- [x] [SB-3] 文档同步：deploy/README、开源选型设计 §4「仅 hy2」注记、P2-7 行 hy2 后口径注、backup.go 外发位陈旧注释顺修
-- [x] [SB 收尾] make test 全绿（55 包+3 前端）。commit=2fa9440（SB-1/2/3 一体）。
-- [x] [SB 追扫修] 巡检续扫三处现状漂移同批修——面板横向对比 ferry 列两格（协议行四→五协议、订阅面双→三格式+SB 注）、用户触达 TOUCH-7 注记（singbox 目标纯 JSON 无注释位、逃生注释不带，sub.go 注释同步）；顺带 backup.go 外发位陈旧注释（S3 已接入）、nightly 观察追记（schedule 事件 2026-10-10 17:56 CST 自愈补跑，兜底暂不需要）。commit=75955ca。剩余未清项全属闸门（P2-4 不做/P2-5 观察三项未触发/P2-7 收窄已注 hy2 口径/agent IPC 待定/token 轮换+CRL 维持原状）；nightly 复核 durable cron 11:47 CST 触发。
-
-拍板（2026-10-11 闸门复核批·报零）：三面全扫触发条件复核（对应用户令「三面自定位闸门复核」）——16 条触发/挂点/观察登记逐条对照近期批次（servify 真嵌、AU 操作审计、HC 通道看板、PROMO、hy2、SB、环境面/工程面、P2-1/2/3、test CI、codecov/nightly、复查续批）：**无触发条件已成立却未立账的项**，全部未触发，不造活、不碰维持原状项。逐条：①P2-6 已转正已清（AU-1/2/3 全落）；②DS §3.3 取优判定挂点已由 PROMO PR-3 收口；③P2-5 公告三条——HC 批只让通道可见性/自检具备，未产生公告需求信号，2026-10-10 菜单三选一同口径复核已维持观察；④P2-4/P2-7 维持原判（hy2 单增口径已注，单项增补不构成解禁）；⑤C-03 agent IPC 待定 / C-06 token 轮换+CRL 维持原状（2026-10-09 拍板，本轮不重开）；⑥nightly 观察——schedule 事件已自愈（run 38043171320 于 2026-10-10 17:56 CST 补跑成功），复核点 11:23/11:47 CST 未到，durable cron f9b44948 接管；⑦TestProvisionRunAPI 偶发——复查续批 -race 3 连+全包 3 连全净、累计 34+ 连未复现，复现条件（再出现时抓 -race -v）未成立；⑧TOUCH-4 周期配置 dash 化——环境面批反强化 env 口径（13 旋钮补 env.example 全集段），评估结论维持；⑨TOUCH-7 边缘探测结论复用——需 probe 面扩 entry_domain target_kind，近期批次无 probe 增量；⑩costref 接真实在线来源——需真实商家 API 选型（外部数据源+license 核验），无触发条件语义，未触发；⑪OSS §3.2 候选（支付 SDK 随 PAY / Xray proto 替换 / GeoIP 随分流批）——三批均未解禁，挂点未开；⑫hy2 二进制真机联调——外部提供项（二进制/证书/防火墙），仓内单测面已全清。未改动任何门禁条目状态。
+# ferry todo（需求清单）
+
+口径：完成项=一行证据（落地日期+commit+测试）；未开工项=需求一句话，触发条件在句尾。闸门与观察项维持原状不重开，触发条件成立再派工。
+调研来源：3x-ui、Marzban、Hiddify、Remnawave（backend 取材 2026-10-08 快照）；横向对比见 [docs/面板横向对比.md](docs/面板横向对比.md)。
+
+## 完成项（按族一行证据）
+
+- [x] P0 核心闭环（P0-1..19）：用户/节点/订阅 v2ray+clash/流量记账/到期停用/工程骨架与门禁——首批 2026-10-06/07 落地，make test 全绿
+- [x] agent 协议契约与骨架（A-1..24）：agentproto/心跳/进程管理/配置下发/流量采集/批量操作/自升级/一键部署——2026-10-07 前后落地，make test 全绿
+- [x] 入口与负载均衡（E-1..E-33）：注册元数据/探测/摘挂状态机/换线/区域传输判定/ws-tls 与 quic/ssh 插件/分配与成本/智能 DNS/成本参考库/价格关注——2026-10-08..09 落地，make test 全绿
+- [x] 支付（PAY-1..11）：Provider 契约/卡密三账/兑换防爆破/epusdt Provider/对账视图/stub 等资质——2026-10-08 落地，make test 全绿
+- [x] 计划扩充（OS-1..4/BR-1..5）：OpenTofu 供给/入池流水线/判封恢复/域名前置/IP 池/证书 ACME/动作留痕——2026-10-08..09 落地，make test 全绿
+- [x] 分销与客服（DS-1..3/SV-1..2）：代理账目/代理面板/servify 客服真嵌——DS 2026-10-08、servify 2026-10-10（18d045b/46d81e7），make test 全绿
+- [x] 开源优先换件（OSS-1..3）：gopsutil 已换；libdns 与 lego 核验后保留自有实现（选型留档开源选型设计.md）——2026-10-08
+- [x] 用户触达（TOUCH-1..7）：联系绑定/RSS 公告/月账单与例行邮件/投递失败闭环/TG bot/断联容灾——2026-10-08 落地，make test 全绿
+- [x] 流量节省（SAVE-1..8）：GeoIP 分流/静态域名直连/缓存层指标位/广告拦截/配额联动降档/节省报表/panel 汇总——2026-10-08 落地（SAVE-5 复用率不可执行如实注记），make test 全绿
+- [x] 告警通道（HERALD-1..5）：outbox/Herald 集成/九类告警/触达事件/回执端点验签——2026-10-08 落地，make test 全绿
+- [x] 面板可用性（BK-1..3）：周期备份/手动留痕/恢复 runbook——2026-10-08 落地（S3 外发 2026-10-09 接入），make test 全绿
+- [x] P1 安全面（P1-12/13）：2FA/恢复码/登录审计与告警——2026-10-08 落地，make test 全绿
+- [x] 操作审计（AU-1..3）：审计表/middleware 捕获/查询页/保留轮转——2026-10-10（cc33912/38870ee/24e6c0c），make test 全绿
+- [x] 环境面与工程面：env 全集登记/compose 透传/gofmt 全覆盖/provision.Shared 单例/鉴权实机走查（apiAuth 双凭据+dist 令牌收紧）——2026-10-10，make test 全绿
+- [x] CI 与构建面：test.yml 门禁（6 模块+3 前端）/codecov 徽章/nightly 每日构建——2026-10-10（3e67780/348a414），CI 双绿
+- [x] 面板运营（OD/NT/PROMO）：订单中心/通知中心与触发/优惠码与活动（取优判定收口）——2026-10-08..10（PROMO fbf46c7/33e45cf/d30e8e6），make test 全绿
+- [x] Herald 通道看板（HC-1..3）：投递回执看板/通道自检/样例预览——2026-10-10（96fd57e/9277c5b），make test 全绿
+- [x] 协议扩充（hy2+SB）：hysteria2 二进制适配全链/订阅三格式五协议出站——2026-10-10（d869485）/2026-10-11（2fa9440/75955ca），make test 全绿
+- [x] P2-1..3：standby 主从同步/多级管理员配额/按用户带宽限速——2026-10-10（0862bc1/79c0f70/cc7009d），make test 全绿
+- [x] P2-4 设备面：HWID/设备数/IP 数限制——2026-10-11（df4b3c7），make test 55 包+3 前端绿
+- [x] P2-5 公告三项：起止时间/触达统计/外通道重发位——2026-10-11（dc28ae0），make test 55 包+3 前端绿
+- [x] P2-7 协议收窄：五协议白名单口径确认（hy2 单增不构成解禁）——2026-10-11，无需新代码
+- [x] 公告受众分段：全员/临期分组扇出——2026-10-11（3a803a6），make test 全绿
+- [x] 用户批量导入/导出（迁移保址）：export 含令牌/import 沿用——2026-10-11（a543781/7305257），make test 全绿
+- [x] 公告级联撤回与设备可见性：删锚点即撤扇出/panel 设备用量卡——2026-10-11（781fd17/fdc1fee），make test 全绿
+- [x] 测试缝隙补齐（巡检 13 轮）：5 个零覆盖查询端点+loginlog 边界+证书任务/恢复流水线查询——2026-10-11（be4d10c/6475f4e），make test 全绿
+- [x] 审计与刷新：文档一致性审计出表与五刷行号重钉——2026-10-08..11（53d3f90/774d423/3808cc7 等），docs vitepress 构建绿
+- [x] nightly 日程复核：schedule 延迟自愈实证可用，dispatch 兜底留档——2026-10-11（92c9547）
+
+## 未开工项（需求一句话）
+
+- [ ] agent 组件独立进程与 unix socket IPC（C-03）：当前组件为进程内角色调用；拍板维持原状不重开
+- [ ] 节点令牌轮换窗口与吊销 CRL（C-06）：未实现；拍板维持原状不重开
+- [ ] mTLS CA 编排：受 mTLS 默认关闭抑制，维持挂起；开启 CA 消费方后再评估
+- [ ] 微信/支付宝直连支付：等商户资质到位再开工
+- [ ] 通道维度偏好：单项增补不构成解禁，维持不做
+- [ ] TOUCH-4 触达周期 dash 化：已核实 env 配置口径更优，维持不做
+- [ ] TOUCH-7 边缘探测结论复用（判定源）：需 probe 面扩 entry_domain target_kind，未开工
+- [ ] costref 接真实在线来源：需真实商家 API 选型与 license 核验，未触发
+- [ ] 调度历史权重自动调参（P2 族）：人工调参先行，P2 分期
+- [ ] 节点级流量预算与告警百分比（横向对比观察）：多机放量后再议
+- [ ] MONTH_ROLLING 滚动重置档（横向对比观察）：小站自然月账单够用，维持
+- [ ] OSS 支付 SDK / Xray proto 替换 / GeoIP 随分流批三候选：均未解禁，挂点未开
+- [ ] hy2 二进制真机联调：外部提供项（二进制/证书/防火墙），仓内单测面已全清
+- [ ] TestProvisionRunAPI 偶发观察：-race 连跑全净未复现；再出现时抓 -race -verbose
+- [ ] 上游等待：vitepress 2 stable 落地后撤 pnpm override 直升；dependabot npm ignore 重开条件（vitepress stable 时同步放开）
