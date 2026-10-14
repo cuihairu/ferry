@@ -3,7 +3,10 @@ package monitor
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,7 +14,9 @@ import (
 
 	"github.com/cuihairu/ferry/packages/agentproto"
 	"github.com/cuihairu/ferry/server/internal/aggregate"
+	"github.com/cuihairu/ferry/server/internal/notify"
 	"github.com/cuihairu/ferry/server/internal/storage"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -201,5 +206,70 @@ func TestRunStops(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run did not stop after cancel")
+	}
+}
+
+// TestApplyVerdictNotifies 配置 webhook 后状态迁移三档都外发：failed /
+// degraded / recovered 各一条，Send 失败只记日志不阻断。
+func TestApplyVerdictNotifies(t *testing.T) {
+	db := openTestDB(t)
+	// 已关闭的服务地址：连接即刻被拒，错误走日志分支。
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	u := srv.URL
+	srv.Close()
+	if err := storage.SetSetting(db, notify.KeyURL, u); err != nil {
+		t.Fatal(err)
+	}
+	logger, buf := newLogger()
+
+	failed := aggregate.Verdict{Dimension: aggregate.DimensionRegion, Scope: "华北",
+		Sick: 3, Total: 3, Failed: true}
+	if err := applyVerdict(db, logger, failed); err != nil {
+		t.Fatal(err)
+	}
+	degraded := aggregate.Verdict{Dimension: aggregate.DimensionISP, Scope: "联通",
+		Sick: 1, Total: 6}
+	if err := applyVerdict(db, logger, degraded); err != nil {
+		t.Fatal(err)
+	}
+	healthy := aggregate.Verdict{Dimension: aggregate.DimensionRegion, Scope: "华北"}
+	if err := applyVerdict(db, logger, healthy); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"notify webhook", "notify webhook"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Fatalf("webhook error log missing: %q", buf.String())
+		}
+	}
+}
+
+// TestSweepUnmigratedDB 未迁移库上 Judge 查表失败：sweep 冒错；Run 周期
+// 记日志不 panic、cancel 后退出。
+func TestSweepUnmigratedDB(t *testing.T) {
+	dsn := fmt.Sprintf("file:monitor-raw-%d?mode=memory&cache=shared", time.Now().UnixNano())
+	raw, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger, buf := newLogger()
+	if err := sweep(raw, logger); err == nil {
+		t.Fatal("sweep on unmigrated db should error")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		Run(ctx, raw, 5*time.Millisecond, logger)
+		close(done)
+	}()
+	time.Sleep(30 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not stop after cancel")
+	}
+	if !strings.Contains(buf.String(), "dimension sweep") {
+		t.Fatalf("sweep error log missing: %q", buf.String())
 	}
 }
