@@ -43,6 +43,14 @@ func main() {
 		return
 	}
 
+	if err := runCore(ctx, cfg); err != nil && !errors.Is(err, context.Canceled) {
+		log.Fatalf("run: %v", err)
+	}
+}
+
+// runCore 跑核心组件：装配 app 后维持与面板的出站长连接，含自升级
+// 验证（A-23）。返回错误交 main 统一退出（context.Canceled 是正常停机）。
+func runCore(ctx context.Context, cfg config.Config) error {
 	a := app.New(cfg, version)
 
 	// 自升级验证（A-23）：存在待验证标记说明上次升级后未完成启动验证，
@@ -56,9 +64,7 @@ func main() {
 	}
 
 	log.Printf("ferry-agent %s starting, panel=%s agent_id=%s", version, cfg.PanelURL, cfg.AgentID)
-	if err := a.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		log.Fatalf("run: %v", err)
-	}
+	return a.Run(ctx)
 }
 
 // runRole 以独立进程跑角色组件（E-5/E-7）：与核心只经 spool/配置文件交互，

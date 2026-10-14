@@ -53,3 +53,13 @@ func TestRunRoleDispatch(t *testing.T) {
 		t.Fatal("relay with corrupt override must fail")
 	}
 }
+
+// TestRunCoreCancelledCtx 核心组件入口：ctx 已取消即立即回收连接循环，
+// 不发起网络、不悬挂。
+func TestRunCoreCancelledCtx(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := runCore(ctx, config.Config{}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("runCore = %v; want canceled", err)
+	}
+}
