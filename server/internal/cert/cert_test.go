@@ -4,11 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/notify"
 	"github.com/cuihairu/ferry/server/internal/secret"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"gorm.io/gorm"
@@ -347,5 +351,173 @@ func TestRealRunExec(t *testing.T) {
 	out, err = (&Manager{}).realRun(ctx, []string{"--version"}, nil)
 	if err == nil {
 		t.Fatalf("default bin = %q, %v; want exec failure (acme.sh absent)", out, err)
+	}
+}
+
+// testCertPEM 自签测试证书（ecdsa P-256，notAfter 2027-01-12），供 Expiry
+// 真实 openssl 解析路径使用。
+const testCertPEM = `-----BEGIN CERTIFICATE-----
+MIIBizCCATGgAwIBAgIUB/Q1fjIl3XQ8L5471PCxXdT3ckQwCgYIKoZIzj0EAwIw
+GzEZMBcGA1UEAwwQZWRnZS5leGFtcGxlLmNvbTAeFw0yNjEwMTQxMDU5MjdaFw0y
+NzAxMTIxMDU5MjdaMBsxGTAXBgNVBAMMEGVkZ2UuZXhhbXBsZS5jb20wWTATBgcq
+hkjOPQIBBggqhkjOPQMBBwNCAATv7jPoD+55EDqAMGfj+tXHrWIjXFJuPnq9tzVJ
+F7ARabk0yTHOdaS0C6uObMGwUnz7BO/YPIziOXK+BWcXfXduo1MwUTAdBgNVHQ4E
+FgQUVQlct50FeeAeN/NyBQwT38vjYDQwHwYDVR0jBBgwFoAUVQlct50FeeAeN/Ny
+BQwT38vjYDQwDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNIADBFAiBOnb/5
+gmoLn8H5qlOSBG6+KRsr9qcLcmyQShoJQFl0tAIhAP/WGk0JHRywOXx3ZZVlu4MM
+g0+wOSS8PYVT5WVmhJbL
+-----END CERTIFICATE-----
+`
+
+// TestExpiryReadsRealCert 覆盖 Expiry 缺省 openssl 路径：真证书解出
+// notAfter，缺文件报错。
+func TestExpiryReadsRealCert(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, "edge.example.com_ecc")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "fullchain.cer"), []byte(testCertPEM), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := &Manager{Home: home}
+	got, err := m.Expiry("edge.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := time.Date(2027, 1, 12, 10, 59, 27, 0, time.UTC); !got.Equal(want) {
+		t.Fatalf("expiry = %v; want %v", got, want)
+	}
+	if _, err := m.Expiry("missing.example.com"); err == nil {
+		t.Fatal("missing cert must error")
+	}
+}
+
+// TestSweepRenewFailureAlerts 续期失败路径：翻 failed 留原因、webhook
+// 告警外发（通道已配置）；已过期证书临期标题走「已到期」文案。
+func TestSweepRenewFailureAlerts(t *testing.T) {
+	db := newDB(t)
+	now := time.Now()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	u := srv.URL
+	srv.Close()
+	if err := storage.SetSetting(db, notify.KeyURL, u); err != nil {
+		t.Fatal(err)
+	}
+	expired := now.Add(-24 * time.Hour)
+	mkTask(t, db, func(tk *storage.CertTask) { tk.State, tk.NotAfter = StateOK, &expired })
+
+	rr := &recRunner{results: []error{errors.New("acme fail")}}
+	m := newMgr(rr, now)
+	if err := Sweep(context.Background(), db, m, nil, now, nil); err != nil {
+		t.Fatal(err)
+	}
+	var got storage.CertTask
+	if err := db.First(&got, 1).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got.State != StateFailed || !strings.Contains(got.LastError, "acme error detail") {
+		t.Fatalf("after failed renew = %+v", got)
+	}
+	var evs []storage.Event
+	if err := db.Where("kind = ?", "cert_expiring").Find(&evs).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 || !strings.Contains(evs[0].Title, "已到期") {
+		t.Fatalf("expired events = %+v", evs)
+	}
+}
+
+// TestSweepIssueCredentialFailures dns-01 凭证四类失败分支：商缺失、
+// 商停用、master key 未配置、解密失败——runner 一律不被调用。
+func TestSweepIssueCredentialFailures(t *testing.T) {
+	db := newDB(t)
+	now := time.Now()
+	// 停用的商（GORM default:true 吞零值：建后显式改）。
+	disabled := storage.DNSProvider{Name: "cf-off", Type: "cloudflare", APIKey: "x", Enabled: true}
+	if err := db.Create(&disabled).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&storage.DNSProvider{}).Where("id = ?", disabled.ID).Update("enabled", false).Error; err != nil {
+		t.Fatal(err)
+	}
+	// 启用但用 k1 密封凭证。
+	sealed, err := secret.NewStore("k1").Encrypt("tok-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prov := storage.DNSProvider{Name: "cf", Type: "cloudflare", APIKey: sealed, Enabled: true}
+	if err := db.Create(&prov).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	noProv := mkTask(t, db, func(tk *storage.CertTask) { tk.DNSProviderID = 999 })
+	offProv := mkTask(t, db, func(tk *storage.CertTask) { tk.DNSProviderID = disabled.ID })
+	noKey := mkTask(t, db, func(tk *storage.CertTask) { tk.DNSProviderID = prov.ID })
+	badKey := mkTask(t, db, func(tk *storage.CertTask) { tk.DNSProviderID = prov.ID })
+
+	rr := &recRunner{}
+	m := newMgr(rr, now)
+	// noKey 一轮 store=nil；badKey 用错误 master 解密（失败任务须越过
+	// 退避点才会重试，第二轮取 now+FailBackoff；该轮会连带重刷前三者，
+	// 故断言按轮拆开）。
+	if err := Sweep(context.Background(), db, m, nil, now, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(rr.calls) != 0 {
+		t.Fatalf("runner must not be called on credential failures: %v", rr.calls)
+	}
+	for task, want := range map[storage.CertTask]string{
+		noProv: "dns provider missing", offProv: "dns provider disabled",
+		noKey: "secret master key not configured",
+	} {
+		var got storage.CertTask
+		if err := db.First(&got, task.ID).Error; err != nil {
+			t.Fatal(err)
+		}
+		if got.State != StateFailed || !strings.Contains(got.LastError, want) {
+			t.Fatalf("task=%d state=%s err=%q; want %q", task.ID, got.State, got.LastError, want)
+		}
+	}
+	if err := Sweep(context.Background(), db, m, secret.NewStore("k2"), now.Add(FailBackoff+time.Minute), nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(rr.calls) != 0 {
+		t.Fatalf("runner must not be called on credential failures: %v", rr.calls)
+	}
+	var bad storage.CertTask
+	if err := db.First(&bad, badKey.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if bad.State != StateFailed || !strings.Contains(bad.LastError, "dns token decrypt failed") {
+		t.Fatalf("badKey state=%s err=%q", bad.State, bad.LastError)
+	}
+}
+
+// TestIssueAndRenewEdgeArgs 参数边界：空域名拒绝、自定义 CA 进命令行、
+// Run 未注入时走真实 exec（acme.sh 缺失即报错）。
+func TestIssueAndRenewEdgeArgs(t *testing.T) {
+	rr := &recRunner{}
+	m := newMgr(rr, time.Now())
+	if _, err := m.Issue(context.Background(), nil, MethodDNS01, "cloudflare", nil); err == nil {
+		t.Fatal("empty domains must fail")
+	}
+	if _, err := m.Renew(context.Background(), ""); err == nil {
+		t.Fatal("empty domain must fail")
+	}
+	m.CA = "custom-ca"
+	if _, err := m.Issue(context.Background(), []string{"d.example.com"}, MethodHTTP01, "", nil); err == nil {
+		t.Fatal("missing webroot must fail")
+	}
+	m.Webroot = "/var/www"
+	if _, err := m.Issue(context.Background(), []string{"d.example.com"}, MethodHTTP01, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rr.calls[len(rr.calls)-1], "--server custom-ca") {
+		t.Fatalf("ca args = %q", rr.calls[len(rr.calls)-1])
+	}
+	// Run 未注入：runner() 回退 realRun，acme.sh 不存在即执行报错。
+	if _, err := (&Manager{}).Renew(context.Background(), "d.example.com"); err == nil {
+		t.Fatal("default runner must exec and fail")
 	}
 }

@@ -1,10 +1,17 @@
 package alloc
 
 import (
+	"context"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/cuihairu/ferry/packages/agentproto"
+	"github.com/cuihairu/ferry/server/internal/notify"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"gorm.io/gorm"
 )
@@ -533,5 +540,165 @@ func TestSavePolicyWeights(t *testing.T) {
 	}
 	if got, _ := LoadPolicy(db); got.WLoad != DefaultWLoad {
 		t.Fatalf("全零应落缺省: %+v", got)
+	}
+}
+
+// TestCapacityMbpsFallbacks 容量取值口径：实测校准 > 套餐下行 > 上行 > 100 兜底。
+func TestCapacityMbpsFallbacks(t *testing.T) {
+	cases := []struct {
+		name string
+		node storage.Node
+		want int
+	}{
+		{"measured wins", storage.Node{SpeedMeasuredMbps: 50, BwDownMbps: 100}, 50},
+		{"bwdown next", storage.Node{BwDownMbps: 100, BwUpMbps: 30}, 100},
+		{"bwup fallback", storage.Node{BwUpMbps: 30}, 30},
+		{"default floor", storage.Node{}, 100},
+	}
+	for _, tc := range cases {
+		if got := (Candidate{Node: tc.node}).CapacityMbps(); got != tc.want {
+			t.Fatalf("%s: capacity = %d; want %d", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestShouldSwitchBalanced 峰时 balanced 判定：综合分显著更优（0.15 分差）
+// 才动；优质线减项可翻转判定。
+func TestShouldSwitchBalanced(t *testing.T) {
+	// 三候选拉开归一区间：cur=1.0、win=0.75，分差 0.125 < 0.15 不动。
+	mid := Candidate{Node: storage.Node{Name: "mid", BwDownMbps: 100}, Conns: 60, Healthy: true}
+	cur := Candidate{Node: storage.Node{Name: "cur", BwDownMbps: 100}, Conns: 100, Healthy: true}
+	win := Candidate{Node: storage.Node{Name: "win", BwDownMbps: 100}, Conns: 90, Healthy: true}
+	cands := []Candidate{mid, cur, win}
+	w := DefaultPolicySetting().Weights()
+	if shouldSwitch(PolicyBalanced, "out", w, cands, 1, 2) {
+		t.Fatal("0.125 score gap must not switch")
+	}
+	// win 是优质线（回国）：减 0.2 后分差 0.325 > 0.15 动。
+	prem := Candidate{Node: storage.Node{Name: "prem", BwDownMbps: 100, LineType: "cn2_gia"}, Conns: 90, Healthy: true}
+	cands = []Candidate{mid, cur, prem}
+	if !shouldSwitch(PolicyBalanced, "in", w, cands, 1, 2) {
+		t.Fatal("premium discount must flip decision")
+	}
+}
+
+// TestLoopSweepsHooksAndStops Loop 周期扫表：启动即分配、每轮回调用
+// （空轮也回调）、cancel 后返回。
+func TestLoopSweepsHooksAndStops(t *testing.T) {
+	db := newTestDB(t)
+	seedNode(t, db, "entry", "entry", "out", nil)
+	seedNode(t, db, "land", "landing", "out", nil)
+
+	logger := log.New(io.Discard, "", 0)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	calls := make(chan []SwitchEvent, 128)
+	done := make(chan struct{})
+	go func() {
+		Loop(ctx, db, 20*time.Millisecond, logger, func(evs []SwitchEvent) {
+			select {
+			case calls <- evs:
+			default:
+			}
+		})
+		close(done)
+	}()
+
+	deadline := time.After(3 * time.Second)
+	var first []SwitchEvent
+	for first == nil {
+		select {
+		case evs := <-calls:
+			if len(evs) > 0 {
+				first = evs
+			}
+		case <-deadline:
+			t.Fatal("no switch event within deadline")
+		}
+	}
+	if first[0].ToName != "land" {
+		t.Fatalf("event = %+v", first[0])
+	}
+	// 稳态空轮也有回调（防抖动=空列表），再等一轮证明周期在跑。
+	select {
+	case <-calls:
+	case <-deadline:
+		t.Fatal("loop stopped ticking")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("loop did not stop on cancel")
+	}
+}
+
+// TestLoopAnnounceWebhookFailure 通知渠道配了不可达 webhook：外发失败
+// 只记日志不阻断分配回调。
+func TestLoopAnnounceWebhookFailure(t *testing.T) {
+	db := newTestDB(t)
+	seedNode(t, db, "entry", "entry", "out", nil)
+	seedNode(t, db, "land", "landing", "out", nil)
+	// 已关闭的服务地址：连接即刻被拒。
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	u := srv.URL
+	srv.Close()
+	if err := storage.SetSetting(db, notify.KeyURL, u); err != nil {
+		t.Fatal(err)
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	got := make(chan struct{}, 1)
+	done := make(chan struct{})
+	go func() {
+		Loop(ctx, db, 20*time.Millisecond, logger, func(evs []SwitchEvent) {
+			if len(evs) > 0 {
+				select {
+				case got <- struct{}{}:
+				default:
+				}
+			}
+		})
+		close(done)
+	}()
+	select {
+	case <-got:
+	case <-time.After(3 * time.Second):
+		t.Fatal("no switch event")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("loop did not stop")
+	}
+}
+
+// TestSweepDanglingCurrentLandingName 现行落地节点已从候选中消失（删号）：
+// 换线事件 FromName 回退 "#id" 占位，不 panic。方向取 in 覆盖 policyFor
+// 回国档分支。
+func TestSweepDanglingCurrentLandingName(t *testing.T) {
+	db := newTestDB(t)
+	entry := seedNode(t, db, "entry", "entry", "in", nil)
+	land := seedNode(t, db, "land", "landing", "in", nil)
+	// 现行行指向一个不存在的落地 ID（无 FK 约束，可悬空）。
+	dangling := land.ID + 999
+	if err := db.Create(&storage.LandingAssignment{
+		EntryNodeID: &entry.ID, LandingNodeID: dangling,
+		Direction: "in", Strategy: PolicyPerfFirst, AssignedAt: time.Now(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	events, err := Sweep(db)
+	if err != nil || len(events) != 1 {
+		t.Fatalf("events = %+v err=%v", events, err)
+	}
+	if events[0].FromName != fmt.Sprintf("#%d", dangling) {
+		t.Fatalf("from = %q; want #%d", events[0].FromName, dangling)
+	}
+	if events[0].ToName != "land" || events[0].Direction != "in" {
+		t.Fatalf("event = %+v", events[0])
 	}
 }
