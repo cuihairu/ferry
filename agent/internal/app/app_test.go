@@ -2,12 +2,23 @@ package app
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"io"
 	"log"
+	"math/big"
+	"os"
+	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/cuihairu/ferry/agent/internal/config"
 	"github.com/cuihairu/ferry/agent/internal/procs"
 	"github.com/cuihairu/ferry/agent/internal/traffic"
 	"github.com/cuihairu/ferry/packages/agentproto"
@@ -53,9 +64,11 @@ func TestLoadWatch(t *testing.T) {
 }
 
 // newDispatchApp 造最小可分发 App：不接真实进程/探测/流量组件。
+// version 对齐生产构造器 New(cfg, version) 的入参，握手断言要用。
 func newDispatchApp() *App {
 	return &App{
 		log:        log.New(io.Discard, "", 0),
+		version:    "v1.2.3-batch",
 		interval:   30 * time.Second,
 		certAlarms: map[string]time.Time{},
 	}
@@ -350,5 +363,243 @@ func TestWatchAlarmsHighLoadStreakAndCooldown(t *testing.T) {
 	a.watchAlarms(high) // streak 2 但冷却期内（30m），抑制
 	if got := rec.count(); got != 1 {
 		t.Fatalf("cooldown should suppress; got %d", got)
+	}
+}
+
+// TestNewWiresComponents 覆盖装配：空配置也能建全组件（mgr/cfgd/probe/trafs）
+// 与心跳快照口、告警节流 map。
+func TestNewWiresComponents(t *testing.T) {
+	a := New(config.Config{}, "v1.2.3")
+	if a.mgr == nil || a.cfgd == nil || a.probe == nil || a.traf == nil {
+		t.Fatal("New must wire mgr/cfgd/probe/traf")
+	}
+	if a.Procs == nil {
+		t.Fatal("New must wire Procs snapshot fn")
+	}
+	if a.certAlarms == nil {
+		t.Fatal("New must init cert alarm throttle map")
+	}
+	if a.version != "v1.2.3" {
+		t.Fatalf("version = %q; want v1.2.3", a.version)
+	}
+}
+
+// TestReportStatusAndAlarm 覆盖进程状态/告警上报：连着发送口时封装
+// proc.report 与 alarm 信封送出。
+func TestReportStatusAndAlarm(t *testing.T) {
+	a := newDispatchApp()
+	rec := &recorder{}
+	a.setSend(rec.send)
+
+	a.reportStatus(agentproto.ProcStatus{Name: "xray", State: "running"})
+	env := rec.last(t)
+	if env.Type != agentproto.MsgProcReport {
+		t.Fatalf("type = %q; want proc.report", env.Type)
+	}
+	var pr agentproto.ProcReport
+	mustDecode(t, env, &pr)
+	if len(pr.Procs) != 1 || pr.Procs[0].Name != "xray" || pr.Procs[0].State != "running" {
+		t.Fatalf("procs = %+v", pr.Procs)
+	}
+
+	a.reportAlarm(agentproto.Alarm{Kind: agentproto.AlarmKindHighLoad, Severity: "warn", Message: "hot"})
+	env = rec.last(t)
+	if env.Type != agentproto.MsgAlarm {
+		t.Fatalf("type = %q; want alarm", env.Type)
+	}
+	var al agentproto.Alarm
+	mustDecode(t, env, &al)
+	if al.Kind != agentproto.AlarmKindHighLoad || al.Message != "hot" {
+		t.Fatalf("alarm = %+v", al)
+	}
+}
+
+// TestOnConnectedHelloAck 覆盖握手成功路径：发 hello（带令牌/标识）→
+// 收 ack 校准心跳周期、面板权威元数据覆盖本地 → 起心跳、回调 OnHelloOK。
+func TestOnConnectedHelloAck(t *testing.T) {
+	a := newDispatchApp()
+	a.traf = traffic.New(nil, time.Second, nil, a.log)
+	a.cfg.Token = "tok-1"
+	a.cfg.AgentID = "ag-1"
+	helloOK := false
+	a.OnHelloOK = func() { helloOK = true }
+	rec := &recorder{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() { errCh <- a.OnConnected(ctx, rec.send) }()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for rec.count() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("hello never sent")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	env := rec.last(t)
+	if env.Type != agentproto.MsgHello {
+		t.Fatalf("type = %q; want hello", env.Type)
+	}
+	var h agentproto.Hello
+	mustDecode(t, env, &h)
+	if h.Token != "tok-1" || h.AgentID != "ag-1" || h.Version != "v1.2.3-batch" {
+		t.Fatalf("hello = %+v", h)
+	}
+
+	a.mu.Lock()
+	ch := a.hello
+	a.mu.Unlock()
+	if ch == nil {
+		t.Fatal("hello ack chan not armed")
+	}
+	ack, _ := agentproto.NewEnvelope("", agentproto.MsgHelloAck, agentproto.HelloAck{
+		HeartbeatIntervalSec: 45,
+		Meta:                 agentproto.NodeMeta{Role: "entry", ISP: "hw"},
+	})
+	ch <- ack
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("OnConnected = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("OnConnected did not return after ack")
+	}
+	if got := a.currentInterval(); got != 45*time.Second {
+		t.Fatalf("interval = %v; want 45s", got)
+	}
+	if a.cfg.Meta.Role != "entry" || a.cfg.Meta.ISP != "hw" {
+		t.Fatalf("meta not overridden: %+v", a.cfg.Meta)
+	}
+	if !helloOK {
+		t.Fatal("OnHelloOK not called")
+	}
+	a.mu.Lock()
+	started := a.hbStop != nil
+	a.mu.Unlock()
+	if !started {
+		t.Fatal("heartbeat not started")
+	}
+	a.stopHeartbeat()
+}
+
+// TestOnConnectedCancelWhileWaiting 覆盖握手等待期取消：ctx 取消即返回错误。
+func TestOnConnectedCancelWhileWaiting(t *testing.T) {
+	a := newDispatchApp()
+	a.traf = traffic.New(nil, time.Second, nil, a.log)
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- a.OnConnected(ctx, func(agentproto.Envelope) error { return nil })
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		a.mu.Lock()
+		h := a.hello
+		a.mu.Unlock()
+		if h != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("hello chan never armed")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case err := <-errCh:
+		if err == nil {
+			t.Fatal("cancelled wait should error")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no return after cancel")
+	}
+}
+
+// TestCollectCerts 覆盖配置证书挖掘：cert 键命中 inline PEM 出状态，
+// 空 ConfigPath 跳过。
+func TestCollectCerts(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notAfter := time.Now().Add(90 * 24 * time.Hour)
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "hk.example.com"},
+		NotBefore:    time.Now().Add(-24 * time.Hour),
+		NotAfter:     notAfter,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pemText := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "xray.json")
+	body := `{"tls":{"certificate":` + strconv.Quote(pemText) + `}}`
+	if err := os.WriteFile(cfgPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	a := newDispatchApp()
+	a.cfg.Procs = []config.ProcSpec{{Name: "xray", ConfigPath: cfgPath}, {Name: "bare"}}
+	got := a.collectCerts()
+	if len(got) != 1 {
+		t.Fatalf("certs = %d, want 1", len(got))
+	}
+	if got[0].Domain != "hk.example.com" || got[0].NotAfter.Unix() != notAfter.Unix() {
+		t.Fatalf("status = %+v; want hk.example.com @ %v", got[0], notAfter)
+	}
+}
+
+// TestBuildHeartbeatAndStartHeartbeat 覆盖心跳组装与周期发送：
+// 快照带进程状态与时间戳；周期发包按 seq 递增；stop 后停发。
+func TestBuildHeartbeatAndStartHeartbeat(t *testing.T) {
+	a := newDispatchApp()
+	a.version = "v1.2.3-batch"
+	a.Procs = func() []agentproto.ProcStatus {
+		return []agentproto.ProcStatus{{Name: "xray", State: "running"}}
+	}
+	hb := a.buildHeartbeat()
+	if len(hb.Procs) != 1 || hb.Procs[0].Name != "xray" {
+		t.Fatalf("hb procs = %+v", hb.Procs)
+	}
+	if hb.At.IsZero() {
+		t.Fatal("hb timestamp not set")
+	}
+
+	a.setInterval(20 * time.Millisecond)
+	rec := &recorder{}
+	a.setSend(rec.send)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a.startHeartbeat(ctx, rec.send)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for rec.count() < 2 {
+		if time.Now().After(deadline) {
+			t.Fatalf("heartbeats = %d; want >= 2", rec.count())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	env := rec.last(t)
+	if env.Type != agentproto.MsgHeartbeat {
+		t.Fatalf("type = %q; want heartbeat", env.Type)
+	}
+	var out agentproto.Heartbeat
+	mustDecode(t, env, &out)
+	if len(out.Procs) != 1 || out.Procs[0].Name != "xray" {
+		t.Fatalf("heartbeat procs = %+v", out.Procs)
+	}
+
+	a.stopHeartbeat()
+	n := rec.count()
+	time.Sleep(100 * time.Millisecond)
+	if rec.count() != n {
+		t.Fatalf("heartbeat continued after stop: %d -> %d", n, rec.count())
 	}
 }
