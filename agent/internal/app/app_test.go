@@ -1,16 +1,21 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"io"
 	"log"
 	"math/big"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -602,5 +607,117 @@ func TestBuildHeartbeatAndStartHeartbeat(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	if rec.count() != n {
 		t.Fatalf("heartbeat continued after stop: %d -> %d", n, rec.count())
+	}
+}
+
+// TestProcSpecLookup 进程规格查找：命中与未命中两条口径。
+func TestProcSpecLookup(t *testing.T) {
+	a := newDispatchApp()
+	a.cfg.Procs = []config.ProcSpec{{Name: "xray"}, {Name: "relay"}}
+	if _, ok := a.procSpec("xray"); !ok {
+		t.Fatal("xray should be found")
+	}
+	if _, ok := a.procSpec("relay"); !ok {
+		t.Fatal("relay should be found")
+	}
+	if _, ok := a.procSpec("ghost"); ok {
+		t.Fatal("ghost should not be found")
+	}
+}
+
+// TestOnMessageConfigPushBadPayload 载荷解码失败：无从定位 proc/version，
+// ack 无从构造，静默放弃不外发。
+func TestOnMessageConfigPushBadPayload(t *testing.T) {
+	a := newDispatchApp()
+	rec := &recorder{}
+	a.setSend(rec.send)
+
+	env := agentproto.Envelope{
+		V: agentproto.ProtocolVersion, ID: "bad-1", Type: agentproto.MsgConfigPush,
+		Payload: json.RawMessage(`{not json`),
+	}
+	a.OnMessage(context.Background(), env, a.sendIfConnected)
+	if rec.count() != 0 {
+		t.Fatalf("bad payload should not reply; got %d", rec.count())
+	}
+}
+
+// TestOnMessageConfigPushSendFails 应答发出失败：走失败分支只记日志，
+// ack 仍构造并发一次。
+func TestOnMessageConfigPushSendFails(t *testing.T) {
+	a := newDispatchApp()
+	delivered := make(chan agentproto.Envelope, 1)
+	a.setSend(func(env agentproto.Envelope) error {
+		delivered <- env
+		return errors.New("link down")
+	})
+
+	env, err := agentproto.NewEnvelope("p9", agentproto.MsgConfigPush,
+		agentproto.ConfigPush{Proc: "ghost", Kind: "xray", Version: "v9", Payload: "{}"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.OnMessage(context.Background(), env, a.sendIfConnected)
+
+	select {
+	case got := <-delivered:
+		var ack agentproto.ConfigAck
+		mustDecode(t, got, &ack)
+		if ack.OK || ack.Proc != "ghost" {
+			t.Fatalf("ack = %+v; want rejected ghost", ack)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("ack not attempted")
+	}
+}
+
+// TestMaybeCalibrateReports 有套餐容量且面板可达：测速结果回报一次，
+// 二次调用走 calibrated 短路。
+func TestMaybeCalibrateReports(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/speedtest/bytes" {
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+		_, _ = w.Write(bytes.Repeat([]byte("x"), 4<<20))
+	}))
+	defer srv.Close()
+
+	a := newDispatchApp()
+	a.cfg.PanelURL = srv.URL
+	a.cfg.Meta.BwDownMbps = 200
+	rec := &recorder{}
+	a.maybeCalibrate(rec.send)
+	a.maybeCalibrate(rec.send)
+
+	if got := rec.count(); got != 1 {
+		t.Fatalf("calibrations = %d; want 1", got)
+	}
+	last := rec.last(t)
+	if last.Type != agentproto.MsgCalibrate {
+		t.Fatalf("type = %q", last.Type)
+	}
+	var cal agentproto.Calibrate
+	mustDecode(t, last, &cal)
+	if cal.MeasuredDownMbps <= 0 || cal.Bytes <= 0 {
+		t.Fatalf("cal = %+v; want positive measurement", cal)
+	}
+}
+
+// TestMaybeCalibrateFailures 面板地址非法与面板不可达：只记日志不上报。
+func TestMaybeCalibrateFailures(t *testing.T) {
+	for name, url := range map[string]string{
+		"bad scheme":  "",
+		"unreachable": "http://127.0.0.1:9",
+	} {
+		t.Run(name, func(t *testing.T) {
+			a := newDispatchApp()
+			a.cfg.PanelURL = url
+			a.cfg.Meta.BwDownMbps = 200
+			rec := &recorder{}
+			a.maybeCalibrate(rec.send)
+			if rec.count() != 0 {
+				t.Fatalf("%s: calibrations = %d; want 0", name, rec.count())
+			}
+		})
 	}
 }

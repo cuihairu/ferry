@@ -171,3 +171,28 @@ func TestProvisionRunAPI(t *testing.T) {
 func itoa64(n int) string {
 	return strconv.FormatInt(int64(n), 10)
 }
+
+// TestListProvisionJobsLimit 留痕列表分页口径：limit 合法生效、
+// 非数字/非正数/越界一律 400。
+func TestListProvisionJobsLimit(t *testing.T) {
+	r, _ := newTestRouterWithDB(t)
+
+	for path, want := range map[string]int{
+		"/api/provision-jobs":           http.StatusOK,
+		"/api/provision-jobs?limit=5":   http.StatusOK,
+		"/api/provision-jobs?limit=abc": http.StatusBadRequest,
+		"/api/provision-jobs?limit=0":   http.StatusBadRequest,
+		"/api/provision-jobs?limit=201": http.StatusBadRequest,
+	} {
+		rec := doJSON(t, r, "GET", path, nil)
+		if rec.Code != want {
+			t.Fatalf("%s: status = %d body=%s", path, rec.Code, rec.Body)
+		}
+	}
+
+	// limit=5：合法且返回数组（空库返回空切片而非 null）。
+	rec := doJSON(t, r, "GET", "/api/provision-jobs?limit=5", nil)
+	if rec.Body.String() == "null\n" {
+		t.Fatalf("empty list should be [], got %s", rec.Body)
+	}
+}
