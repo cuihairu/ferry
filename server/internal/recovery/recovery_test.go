@@ -1,10 +1,13 @@
 package recovery
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -449,5 +452,245 @@ func TestActionNames(t *testing.T) {
 	}
 	if got := (&StandbyAction{}).Name(); got != "standby_promote" {
 		t.Errorf("standby name = %q", got)
+	}
+}
+
+// logBuf 是并发安全的日志缓冲（Loop goroutine 与断言共读共写）。
+type logBuf struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *logBuf) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *logBuf) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
+// closeDB 关闭底层连接（错误分支注入位：库不可用即各层冒错/记日志）。
+func closeDB(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sqlDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestNodeByIDBranches 节点查找三分支：命中、不存在返回 (nil, nil)、
+// 库故障冒错。
+func TestNodeByIDBranches(t *testing.T) {
+	db := newTestDB(t)
+	n := suspendedNode(t, db, "entry-1", "连续 3 次探测 sick", time.Now())
+	got, err := nodeByID(db, n.ID)
+	if err != nil || got == nil || got.Name != "entry-1" {
+		t.Fatalf("found = %+v err=%v", got, err)
+	}
+	got, err = nodeByID(db, 999)
+	if got != nil || err != nil {
+		t.Fatalf("missing = %+v err=%v; want nil,nil", got, err)
+	}
+	closeDB(t, db)
+	if got, err := nodeByID(db, n.ID); err == nil || got != nil {
+		t.Fatalf("closed db = %+v err=%v; want error", got, err)
+	}
+}
+
+// TestSweepNodeDeletedFails 状态行在而节点被删：直接终态失败，不悬置。
+// 顺带覆盖 reg/logger 缺省（nil 注册表、缺省日志器）。
+func TestSweepNodeDeletedFails(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Now()
+	rec := storage.Recovery{NodeID: 999, NodeName: "gone", Level: 1, State: StateRunning,
+		ActionState: ActionUnset, LevelStartedAt: now, StartedAt: now, UpdatedAt: now}
+	if err := db.Create(&rec).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := Sweep(db, now, Options{}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	got := loadRecovery(t, db, 999)
+	if got.State != StateFailed || got.LastErr != "节点已删除" {
+		t.Fatalf("deleted-node rec = %+v", got)
+	}
+}
+
+// TestHeraldEmitFailureTolerated 事件 outbox 故障：判封开线与失败终态
+// 都只记日志不阻断状态机（emit 失败不回滚恢复流水线）。
+func TestHeraldEmitFailureTolerated(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Now()
+	suspendedNode(t, db, "entry-1", "连续 3 次探测 sick", now.Add(-15*time.Minute))
+	if err := db.Migrator().DropTable(&storage.Event{}); err != nil {
+		t.Fatal(err)
+	}
+	// 判封开线：事件落库失败照常开线。
+	if err := Sweep(db, now, Options{}, Registry{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if rec := loadRecovery(t, db, 1); rec.State != StateRunning {
+		t.Fatalf("open-line blocked by emit failure: %+v", rec)
+	}
+	// 失败终态：升级事件落库失败照常收尾。
+	rec := storage.Recovery{NodeID: 999, NodeName: "gone", Level: 1, State: StateRunning,
+		ActionState: ActionUnset, LevelStartedAt: now, StartedAt: now, UpdatedAt: now}
+	if err := db.Create(&rec).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := Sweep(db, now, Options{}, Registry{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := loadRecovery(t, db, 999); got.State != StateFailed {
+		t.Fatalf("finish blocked by emit failure: %+v", got)
+	}
+}
+
+// TestSweepAndLoopOnClosedDB 库不可用：Sweep 冒错、Loop 对 Sweep 失败只
+// 记日志不停摆（下轮继续尝试）。
+func TestSweepAndLoopOnClosedDB(t *testing.T) {
+	db := newTestDB(t)
+	closeDB(t, db)
+	var buf logBuf
+	lg := log.New(&buf, "", 0)
+	if err := Sweep(db, time.Now(), Options{}, Registry{}, lg); err == nil {
+		t.Fatal("sweep on closed db must fail")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		Loop(ctx, db, 5*time.Millisecond, Options{}, Registry{}, lg)
+	}()
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("loop did not stop after cancel")
+	}
+	if !strings.Contains(buf.String(), "recovery sweep:") {
+		t.Fatalf("loop log = %q; want sweep error logged", buf.String())
+	}
+}
+
+// TestAdvanceOKAndRunningWindows 等待窗口口径：OK 未超时原地等探测恢复；
+// OK 超时进下一级；Running 窗口内不重复动作。
+func TestAdvanceOKAndRunningWindows(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Now()
+	n1 := suspendedNode(t, db, "entry-1", "连续 3 次探测 sick", now)
+	n2 := suspendedNode(t, db, "entry-2", "连续 3 次探测 sick", now)
+	lg := log.New(io.Discard, "", 0)
+	opts := Options{LevelTimeout: time.Minute}
+
+	okRec := storage.Recovery{NodeID: n1.ID, NodeName: "entry-1", Level: 1, State: StateRunning,
+		Action: "dns_switch", ActionState: ActionOK, LevelStartedAt: now, StartedAt: now, UpdatedAt: now}
+	if err := db.Create(&okRec).Error; err != nil {
+		t.Fatal(err)
+	}
+	runRec := storage.Recovery{NodeID: n2.ID, NodeName: "entry-2", Level: 2, State: StateRunning,
+		Action: "fake", ActionState: ActionRunning, LevelStartedAt: now, StartedAt: now, UpdatedAt: now}
+	if err := db.Create(&runRec).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// OK 未超时：原地等待，不推进。
+	if err := advance(db, okRec, n1, now, opts, Registry{}, lg); err != nil {
+		t.Fatal(err)
+	}
+	if got := loadRecovery(t, db, n1.ID); got.Level != 1 || got.ActionState != ActionOK {
+		t.Fatalf("OK within window advanced: %+v", got)
+	}
+	// OK 超时：进下一级且动作态复位。
+	if err := advance(db, okRec, n1, now.Add(2*time.Minute), opts, Registry{}, lg); err != nil {
+		t.Fatal(err)
+	}
+	if got := loadRecovery(t, db, n1.ID); got.Level != 2 || got.ActionState != ActionUnset {
+		t.Fatalf("OK timeout did not advance: %+v", got)
+	}
+	// Running 窗口内：不超时不动。
+	if err := advance(db, runRec, n2, now, opts, Registry{}, lg); err != nil {
+		t.Fatal(err)
+	}
+	if got := loadRecovery(t, db, n2.ID); got.ActionState != ActionRunning || got.LastErr != "" {
+		t.Fatalf("running within window disturbed: %+v", got)
+	}
+}
+
+// TestRunActionTruncatesAndLateDrop 动作结果回写口径：超长错误只留尾部
+// 500 字；流水线已终态时迟到结果丢弃。
+func TestRunActionTruncatesAndLateDrop(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Now()
+	node := suspendedNode(t, db, "entry-1", "连续 3 次探测 sick", now)
+	rec := storage.Recovery{NodeID: node.ID, NodeName: "entry-1", Level: 1, State: StateRunning,
+		Action: "fake", ActionState: ActionRunning, LevelStartedAt: now, StartedAt: now, UpdatedAt: now}
+	if err := db.Create(&rec).Error; err != nil {
+		t.Fatal(err)
+	}
+	lg := log.New(io.Discard, "", 0)
+
+	// 超长错误：last_err 截尾 500 字（保尾部现场）。
+	long := errors.New(strings.Repeat("x", 600))
+	runAction(db, &fakeAction{name: "fake", err: long}, rec, node, lg)
+	got := loadRecovery(t, db, node.ID)
+	if got.ActionState != ActionFailed || len(got.LastErr) != 500 {
+		t.Fatalf("truncated = state %s errLen %d", got.ActionState, len(got.LastErr))
+	}
+
+	// 迟到结果：流水线已终态，回写落空即丢弃。
+	if err := db.Model(&storage.Recovery{}).Where("id = ?", got.ID).
+		Update("state", StateDone).Error; err != nil {
+		t.Fatal(err)
+	}
+	runAction(db, &fakeAction{name: "fake", err: errors.New("late")}, got, node, lg)
+	if got := loadRecovery(t, db, node.ID); got.State != StateDone {
+		t.Fatalf("late result overwrote terminal state: %+v", got)
+	}
+}
+
+// TestTraceHelpersOnClosedDB 留痕辅助的容错口径：库不可用时留痕只记日志
+// 不炸，收尾/推进类冒错交上层。
+func TestTraceHelpersOnClosedDB(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Now()
+	node := suspendedNode(t, db, "entry-1", "连续 3 次探测 sick", now)
+	rec := storage.Recovery{NodeID: node.ID, NodeName: "entry-1", Level: 1, State: StateRunning,
+		Action: "fake", ActionState: ActionUnset, LevelStartedAt: now, StartedAt: now, UpdatedAt: now}
+	if err := db.Create(&rec).Error; err != nil {
+		t.Fatal(err)
+	}
+	var buf logBuf
+	lg := log.New(&buf, "", 0)
+	closeDB(t, db)
+
+	traceRecovery(db, rec, storage.RecoveryAction{RecoveryID: rec.ID, Level: 1,
+		State: ActionRunning, StartedAt: now, UpdatedAt: now}, lg)
+	finishTrace(db, rec, ActionFailed, "boom", now, lg)
+	if err := finishRecovery(db, rec, StateFailed, "库没了"); err == nil {
+		t.Fatal("finishRecovery on closed db must fail")
+	}
+	if err := advanceNext(db, rec, now, lg); err == nil {
+		t.Fatal("advanceNext on closed db must fail")
+	}
+	// 未注册级别：更新留痕落库失败冒错（skipped 推进前）。
+	if err := advance(db, rec, node, now, Options{}, Registry{}, lg); err == nil {
+		t.Fatal("advance unregistered on closed db must fail")
+	}
+	// 已注册级别：置 running 的更新失败冒错。
+	if err := advance(db, rec, node, now, Options{}, Registry{1: &fakeAction{name: "fake"}}, lg); err == nil {
+		t.Fatal("advance registered on closed db must fail")
+	}
+	if !strings.Contains(buf.String(), "recovery trace:") ||
+		!strings.Contains(buf.String(), "recovery trace finish:") {
+		t.Fatalf("trace logs = %q", buf.String())
 	}
 }

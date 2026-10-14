@@ -3,12 +3,14 @@ package recovery
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/cuihairu/ferry/server/internal/dns"
 	"github.com/cuihairu/ferry/server/internal/secret"
 	"github.com/cuihairu/ferry/server/internal/storage"
+	"gorm.io/gorm"
 )
 
 // fakeDNS 记录每次 upsert（name|type|value），可注入失败。
@@ -216,5 +218,113 @@ func TestOnDoneRestoresDNS(t *testing.T) {
 	var got storage.Recovery
 	if err := db.First(&got, rec.ID).Error; err != nil || got.State != StateDone {
 		t.Fatalf("recovery = %+v err=%v", got, err)
+	}
+}
+
+// TestParseBackups 备用 IP 解析口径：空串/全空项为空集，非字符串数组
+// 报 JSON 错（错误文案带配置字段名便于排障）。
+func TestParseBackups(t *testing.T) {
+	ips, err := parseBackups("")
+	if err != nil || len(ips) != 0 {
+		t.Fatalf("empty raw = %v err=%v", ips, err)
+	}
+	ips, err = parseBackups(`["",""]`)
+	if err != nil || len(ips) != 0 {
+		t.Fatalf("all blanks = %v err=%v", ips, err)
+	}
+	ips, err = parseBackups(`["10.0.0.2",""]`)
+	if err != nil || len(ips) != 1 || ips[0] != "10.0.0.2" {
+		t.Fatalf("filtered = %v err=%v", ips, err)
+	}
+	if _, err := parseBackups("not json"); err == nil ||
+		!strings.Contains(err.Error(), "JSON string array") {
+		t.Fatalf("bad json err = %v", err)
+	}
+	if _, err := parseBackups(`[1,2]`); err == nil ||
+		!strings.Contains(err.Error(), "JSON string array") {
+		t.Fatalf("number array err = %v", err)
+	}
+}
+
+// TestDNSActionFactoryDefault 未注入工厂时缺省走 dns.New 插件位。
+func TestDNSActionFactoryDefault(t *testing.T) {
+	if a := (&DNSAction{}); a.factory() == nil {
+		t.Fatal("default factory must resolve to dns.New")
+	}
+}
+
+// TestDNSActionNoMasterKey 未配置主密钥：Restore 阶段解不出凭证即失败，
+// 不冒称回切成功。
+func TestDNSActionNoMasterKey(t *testing.T) {
+	a := setupDNSAction(t, `["10.0.0.2"]`, &fakeDNS{})
+	if err := a.Run(context.Background(), storage.Node{Name: "entry-1"}); err != nil {
+		t.Fatal(err)
+	}
+	// 另一实例只带库不带密钥库：切离记录回切时在 providerFor 处失败。
+	b := &DNSAction{DB: a.DB}
+	err := b.Restore(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "master key not configured") {
+		t.Fatalf("err = %v; want master key not configured", err)
+	}
+	if f := loadFront(t, a); !f.Switched {
+		t.Fatalf("front must stay switched on failed restore: %+v", f)
+	}
+}
+
+// TestDNSActionRestoreUpsertFailed 回切时 DNS 商报错：失败冒出，切离态
+// 不被清（下轮收尾再试）。
+func TestDNSActionRestoreUpsertFailed(t *testing.T) {
+	fake := &fakeDNS{}
+	a := setupDNSAction(t, `["10.0.0.2"]`, fake)
+	if err := a.Run(context.Background(), storage.Node{Name: "entry-1"}); err != nil {
+		t.Fatal(err)
+	}
+	fake.err = errors.New("api down")
+	err := a.Restore(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "recovery: dns restore edge.example.com: api down") {
+		t.Fatalf("err = %v; want restore upsert failure", err)
+	}
+	if f := loadFront(t, a); !f.Switched {
+		t.Fatalf("front cleared on failed restore: %+v", f)
+	}
+}
+
+// failUpdates 注册一个必失败的更新回调（gorm 注错位），模拟落库失败。
+func failUpdates(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	if err := db.Callback().Update().Before("gorm:update").Register("test:fail_update",
+		func(tx *gorm.DB) { tx.AddError(errors.New("db down")) }); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestDNSActionSwitchDBUpdateFailed upsert 成功但落 switched 失败：错误
+// 冒出且不留半态（switched 不置位，下轮重切）。
+func TestDNSActionSwitchDBUpdateFailed(t *testing.T) {
+	a := setupDNSAction(t, `["10.0.0.2"]`, &fakeDNS{})
+	failUpdates(t, a.DB)
+	err := a.Run(context.Background(), storage.Node{Name: "entry-1"})
+	if err == nil || !strings.Contains(err.Error(), "db down") {
+		t.Fatalf("err = %v; want db failure", err)
+	}
+	if f := loadFront(t, a); f.Switched || f.CurrentIP != "" {
+		t.Fatalf("half state leaked: %+v", f)
+	}
+}
+
+// TestDNSActionRestoreDBUpdateFailed 回切 upsert 成功但清 switched 落库
+// 失败：错误冒出，记录保持切离（幂等重试安全）。
+func TestDNSActionRestoreDBUpdateFailed(t *testing.T) {
+	a := setupDNSAction(t, `["10.0.0.2"]`, &fakeDNS{})
+	if err := a.Run(context.Background(), storage.Node{Name: "entry-1"}); err != nil {
+		t.Fatal(err)
+	}
+	failUpdates(t, a.DB)
+	err := a.Restore(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "db down") {
+		t.Fatalf("err = %v; want db failure", err)
+	}
+	if f := loadFront(t, a); !f.Switched {
+		t.Fatalf("switched cleared despite db failure: %+v", f)
 	}
 }
