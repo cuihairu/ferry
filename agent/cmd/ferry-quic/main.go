@@ -15,6 +15,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -29,26 +30,36 @@ import (
 
 func main() {
 	log.SetFlags(0)
-	if len(os.Args) < 2 {
-		usage()
-		os.Exit(2)
-	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-
-	var err error
-	switch os.Args[1] {
-	case "client":
-		err = runClient(ctx, os.Args[2:])
-	case "server":
-		err = runServer(ctx, os.Args[2:])
-	default:
-		usage()
-		os.Exit(2)
-	}
-	if err != nil {
+	if err := run(ctx, os.Args[1:]); err != nil {
+		if errors.Is(err, context.Canceled) {
+			return // 正常停机
+		}
+		if errors.Is(err, ErrUsage) {
+			os.Exit(2) // 用法错误沿用 2
+		}
 		log.Fatalf("ferry-quic: %v", err)
 	}
+}
+
+// ErrUsage 表示缺模式或未知模式（main 据此按用法错误退出 2）。
+var ErrUsage = errors.New("需要模式 client|server")
+
+// run 分发模式：client 起本地桥，server 起 QUIC 监听。用法错误返回 ErrUsage。
+func run(ctx context.Context, args []string) error {
+	if len(args) < 1 {
+		usage()
+		return ErrUsage
+	}
+	switch args[0] {
+	case "client":
+		return runClient(ctx, args[1:])
+	case "server":
+		return runServer(ctx, args[1:])
+	}
+	usage()
+	return ErrUsage
 }
 
 func usage() {

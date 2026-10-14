@@ -531,3 +531,123 @@ func TestApplyRuleLibReloadRecoversViaRollback(t *testing.T) {
 		t.Fatalf("rolled-back rulelib should be removed: %v", err)
 	}
 }
+
+// roDir 建只读目录（写路径失败注入位），测试结束恢复权限供 t.TempDir 清理。
+func roDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	return dir
+}
+
+// TestApplyWriteFailures 配置写入链路的失败口径：目录建不出/临时文件写
+// 不出/替换目标为目录，都明确报错不冒称成功（reload 不被触发）。
+func TestApplyWriteFailures(t *testing.T) {
+	d := New(log.New(io.Discard, "", 0))
+	calls := 0
+	// 目录建不出：父目录只读，子目录 MkdirAll 失败。
+	spec := config.ProcSpec{Name: "xray", Kind: "xray",
+		ConfigPath: filepath.Join(roDir(t), "sub", "xray.json")}
+	if ack := d.Apply(spec, pushFor("{}"), reloadOK(&calls)); ack.OK ||
+		!strings.Contains(ack.Error, "prepare config dir") {
+		t.Fatalf("ack = %+v; want prepare config dir failure", ack)
+	}
+	// 临时文件写不出：配置目录只读。
+	spec.ConfigPath = filepath.Join(t.TempDir(), "ro", "xray.json")
+	ro := filepath.Dir(spec.ConfigPath)
+	if err := os.Mkdir(ro, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(ro, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(ro, 0o700) })
+	if ack := d.Apply(spec, pushFor("{}"), reloadOK(&calls)); ack.OK ||
+		!strings.Contains(ack.Error, "write temp config") {
+		t.Fatalf("ack = %+v; want write temp config failure", ack)
+	}
+	// （rename 失败分支在 Linux 不可达：目标为目录会先在 readIfExists
+	// 处报 EISDIR，见十二批复核记录，不硬凑。）
+	if calls != 0 {
+		t.Fatalf("reload calls = %d; want 0 (failures must not reload)", calls)
+	}
+}
+
+// TestApplyRuleLibFailures 规则库写入链路的失败口径：资产目录建不出/
+// 临时文件写不出/目标为目录，都明确报错不冒称成功。
+func TestApplyRuleLibFailures(t *testing.T) {
+	d := New(log.New(io.Discard, "", 0))
+	calls := 0
+	push := rulelibPush("geoip.dat", "geo-data")
+	// 资产目录建不出：父目录只读。
+	spec := config.ProcSpec{Name: "xray", Kind: "xray",
+		ConfigPath: filepath.Join(t.TempDir(), "xray.json"),
+		AssetDir:   filepath.Join(roDir(t), "assets")}
+	if ack := d.Apply(spec, push, reloadOK(&calls)); ack.OK ||
+		!strings.Contains(ack.Error, "prepare asset dir") {
+		t.Fatalf("ack = %+v; want prepare asset dir failure", ack)
+	}
+	// 临时文件写不出：资产目录只读（已存在时 MkdirAll 放行，CreateTemp 拒）。
+	spec.AssetDir = roDir(t)
+	if ack := d.Apply(spec, push, reloadOK(&calls)); ack.OK ||
+		!strings.Contains(ack.Error, "write rulelib temp") {
+		t.Fatalf("ack = %+v; want write rulelib temp failure", ack)
+	}
+	// （rename 失败分支同 TestApplyWriteFailures：readIfExists 先报 EISDIR，
+	// Linux 不可达，不硬凑。）
+	if calls != 0 {
+		t.Fatalf("reload calls = %d; want 0 (failures must not reload)", calls)
+	}
+}
+
+// TestRollbackPermissionFailures 回滚自身的失败口径：删不掉新文件/临时
+// 文件写不出，错误明确冒出。
+func TestRollbackPermissionFailures(t *testing.T) {
+	d := &Deployer{}
+	ro := t.TempDir()
+	target := filepath.Join(ro, "new.json")
+	if err := os.WriteFile(target, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(ro, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(ro, 0o700) })
+
+	// 无旧文件：目录只读删不掉新文件。
+	if err := d.rollback(target, nil, false, func() error { return nil }, ".tmp-*"); err == nil ||
+		!strings.Contains(err.Error(), "remove new file") {
+		t.Fatalf("err = %v; want remove new file failure", err)
+	}
+	// 有旧文件：目录只读写不出回滚临时文件。
+	if err := d.rollback(target, []byte("old"), true, func() error { return nil }, ".tmp-*"); err == nil ||
+		!strings.Contains(err.Error(), "write rollback temp") {
+		t.Fatalf("err = %v; want write rollback temp failure", err)
+	}
+}
+
+// TestRollbackRenameFails 旧内容还原时 rename 覆盖不了目标（目标为目录）：
+// 错误冒出且临时残留已清理。
+func TestRollbackRenameFails(t *testing.T) {
+	d := &Deployer{}
+	dir := t.TempDir()
+	target := filepath.Join(dir, "dirtarget")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	loads := 0
+	if err := d.rollback(target, []byte("old"), true, reloadOK(&loads), ".tmp-*"); err == nil ||
+		!strings.Contains(err.Error(), "restore file") {
+		t.Fatalf("err = %v; want restore file failure", err)
+	}
+	if loads != 0 {
+		t.Fatalf("reload calls = %d; want 0", loads)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("dir has %d entries err=%v; want only target", len(entries), err)
+	}
+}

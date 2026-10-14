@@ -81,6 +81,21 @@ func TestRunServerBadCertPair(t *testing.T) {
 	}
 }
 
+// TestRunDispatch 模式分发口径：缺模式/未知模式回用法错误（ErrUsage，
+// main 据此退出 2）；client 模式正常进入启动链路（ctx 已取消即回收）。
+func TestRunDispatch(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, args := range [][]string{nil, {"bogus"}} {
+		if err := run(context.Background(), args); !errors.Is(err, ErrUsage) {
+			t.Fatalf("run(%v) = %v; want ErrUsage", args, err)
+		}
+	}
+	if err := run(ctx, []string{"client", "--listen", "127.0.0.1:0", "--insecure"}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("run(client) = %v; want canceled", err)
+	}
+}
+
 // TestRunClientServesUntilCancel 覆盖起监听后的主路径：本地桥监听成功，
 // ctx 取消即回收（Serve 按 ctx 口径返回 context.Canceled）。
 func TestRunClientServesUntilCancel(t *testing.T) {
