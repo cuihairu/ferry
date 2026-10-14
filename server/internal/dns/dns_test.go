@@ -183,3 +183,49 @@ func TestTruncate(t *testing.T) {
 		t.Fatalf("truncate long = %d bytes; want 50 x + ellipsis", len(got))
 	}
 }
+
+// TestCloudflareDefaults 未注入时的缺省：HTTP 客户端兜底非 nil、Base 回退官方 API。
+func TestCloudflareDefaults(t *testing.T) {
+	c := &Cloudflare{Token: "tok"}
+	if c.client() == nil {
+		t.Fatal("default client should be non-nil")
+	}
+	if got := c.base(); got != defaultBase {
+		t.Fatalf("base = %q; want %q", got, defaultBase)
+	}
+}
+
+// TestCloudflareDoErrors do 的四类失败：非法方法构造即败、端点不可达、
+// 非 JSON 响应体走 http %d 口径、success=false 报首条错误消息。
+func TestCloudflareDoErrors(t *testing.T) {
+	c := &Cloudflare{Token: "tok"}
+	if _, err := c.do(context.Background(), "BAD METHOD", "/zones", nil); err == nil {
+		t.Fatal("bad method should error")
+	}
+
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	dead.Close()
+	c = &Cloudflare{Token: "tok", Base: dead.URL}
+	if _, err := c.do(context.Background(), http.MethodGet, "/zones", nil); err == nil {
+		t.Fatal("unreachable endpoint should error")
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("<html>oops</html>"))
+	}))
+	defer srv.Close()
+	c = &Cloudflare{Token: "tok", Base: srv.URL}
+	if _, err := c.do(context.Background(), http.MethodGet, "/zones", nil); err == nil || !strings.Contains(err.Error(), "http 500") {
+		t.Fatalf("non-json body err = %v", err)
+	}
+
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"success":false,"errors":[{"message":"zone gone"}]}`))
+	}))
+	defer srv2.Close()
+	c = &Cloudflare{Token: "tok", Base: srv2.URL}
+	if _, err := c.do(context.Background(), http.MethodGet, "/zones", nil); err == nil || !strings.Contains(err.Error(), "zone gone") {
+		t.Fatalf("success=false err = %v", err)
+	}
+}

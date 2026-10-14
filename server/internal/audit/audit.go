@@ -13,8 +13,8 @@ import (
 )
 
 // sweepInterval 是清扫 tick 周期：保留粒度是天，小时级 tick 足够且单条
-// 带索引 DELETE 便宜。
-const sweepInterval = time.Hour
+// 带索引 DELETE 便宜。声明为变量便于测试缩短周期。
+var sweepInterval = time.Hour
 
 // Prune 删除超过保留天数的审计行，返回删除行数。
 func Prune(db *gorm.DB, retentionDays int, now time.Time) (int64, error) {

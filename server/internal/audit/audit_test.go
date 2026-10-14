@@ -101,3 +101,41 @@ func TestLoopNilLoggerDefaults(t *testing.T) {
 		t.Fatal("loop with nil logger did not return after cancel")
 	}
 }
+
+// TestLoopTickSweepsAndStops 覆盖 tick 清扫主路径：到点删除超窗行，
+// ctx 取消即退出（窗口天数由 retention 传，tick 临时缩短）。
+func TestLoopTickSweepsAndStops(t *testing.T) {
+	db := newDB(t)
+	seed(t, db, time.Now().AddDate(0, 0, -31)) // 窗外（retention=30 天）
+	seed(t, db, time.Now().AddDate(0, 0, -1))  // 窗内
+
+	old := sweepInterval
+	sweepInterval = 10 * time.Millisecond
+	t.Cleanup(func() { sweepInterval = old })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		Loop(ctx, db, 30, log.New(io.Discard, "", 0))
+		close(done)
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var cnt int64
+		db.Model(&storage.AuditLog{}).Count(&cnt)
+		if cnt == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("loop tick never pruned; rows = %d", cnt)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("loop did not stop after cancel")
+	}
+}

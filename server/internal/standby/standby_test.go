@@ -1,11 +1,15 @@
 package standby
 
 import (
+	"bytes"
 	"context"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -241,5 +245,120 @@ func TestSQLitePath(t *testing.T) {
 func TestDBPathFromDSNExport(t *testing.T) {
 	if got := DBPathFromDSN("file:/data/ferry.db?_pragma=journal_mode(WAL)"); got != "/data/ferry.db" {
 		t.Fatalf("DBPathFromDSN = %q", got)
+	}
+}
+
+// TestSyncOnceGuardsAndBadSnap 补齐守卫与坏快照分支：空 dbPath、非法 URL、
+// 解密通过但非 sqlite 库文件（错钥外另三类拒收口）。
+func TestSyncOnceGuardsAndBadSnap(t *testing.T) {
+	store := secret.NewStore("standby-master")
+	db, path := mkTarget(t)
+
+	// 空 dbPath：替换无目标。
+	if _, err := SyncOnce(Options{MasterURL: "http://x", Token: "t", DBPath: ""}, db, store); err == nil {
+		t.Fatal("empty db path should fail")
+	}
+	// 非法 URL：请求构造即失败，不触网。
+	if _, err := SyncOnce(Options{MasterURL: "http://bad host", Token: "t", DBPath: path}, db, store); err == nil {
+		t.Fatal("invalid url should fail")
+	}
+	// 解密成功但不是 sqlite 库：magic 校验拒收。
+	enc, err := store.EncryptBytes([]byte("definitely not a sqlite db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SyncOnce(Options{MasterURL: newBodyServer(t, enc), Token: "t", DBPath: path}, db, store); err == nil || !strings.Contains(err.Error(), "not a sqlite db") {
+		t.Fatalf("non-sqlite body err = %v", err)
+	}
+}
+
+// TestSyncOnceSnapshotReadError 响应体截断：ReadAll 报错冒上，本机库不动。
+func TestSyncOnceSnapshotReadError(t *testing.T) {
+	store := secret.NewStore("standby-master")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "1000")
+		_, _ = w.Write([]byte("trunc"))
+		if hj, ok := w.(http.Hijacker); ok {
+			if conn, _, err := hj.Hijack(); err == nil {
+				conn.Close()
+			}
+		}
+	}))
+	defer srv.Close()
+	db, path := mkTarget(t)
+	if _, err := SyncOnce(Options{MasterURL: srv.URL, Token: "t", DBPath: path}, db, store); err == nil || !strings.Contains(err.Error(), "read snapshot") {
+		t.Fatalf("truncated snapshot err = %v", err)
+	}
+	var v string
+	if err := db.Raw("SELECT v FROM mark").Scan(&v).Error; err != nil || v != "old" {
+		t.Fatalf("old db unusable: %q %v", v, err)
+	}
+}
+
+// TestSyncOnceTmpAndReplaceFail 落盘两处失败：tmp 目录缺失开文件失败、
+// rename 目标被目录占住。
+func TestSyncOnceTmpAndReplaceFail(t *testing.T) {
+	store := secret.NewStore("standby-master")
+	body := mkSource(t, store, "from-master")
+	url := newBodyServer(t, body)
+
+	db, _ := mkTarget(t)
+	// tmp 父目录缺失：OpenFile 失败。
+	if _, err := SyncOnce(Options{MasterURL: url, Token: "t", DBPath: "/no-such-dir-xyz/ferry.db"}, db, store); err == nil || !strings.Contains(err.Error(), "write tmp") {
+		t.Fatalf("missing tmp dir err = %v", err)
+	}
+	// dbPath 是目录：rename 报错。
+	if _, err := SyncOnce(Options{MasterURL: url, Token: "t", DBPath: t.TempDir()}, db, store); err == nil || !strings.Contains(err.Error(), "replace db") {
+		t.Fatalf("dir target err = %v", err)
+	}
+}
+
+// syncBuf 互斥保护的日志缓冲：Loop 协程写、测试协程读不构成竞争。
+type syncBuf struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuf) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuf) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// TestLoopRetriesAndStops 主面板不可达：按 tick 记错重试不放弃；ctx 取消即退。
+func TestLoopRetriesAndStops(t *testing.T) {
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	dead.Close()
+	var out syncBuf
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		Loop(ctx, Options{MasterURL: dead.URL, Token: "t", DBPath: t.TempDir() + "/ferry.db",
+			Sec: 1, tick: 10 * time.Millisecond, Logger: log.New(&out, "", 0)},
+			nil, nil, func() {})
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if strings.Contains(out.String(), "standby: sync:") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("loop never logged a failed sync; out = %q", out.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("loop did not stop after cancel")
 	}
 }

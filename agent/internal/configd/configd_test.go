@@ -470,3 +470,64 @@ func TestRollbackTempCreateFails(t *testing.T) {
 		t.Fatalf("rollback err = %v; want write rollback temp failure", err)
 	}
 }
+
+// reloadFailOnce 首次失败其后成功：模拟 reload 失败但回滚 reload 恢复。
+func reloadFailOnce(n *int) func() error {
+	return func() error {
+		*n++
+		if *n == 1 {
+			return errors.New("reload boom")
+		}
+		return nil
+	}
+}
+
+// TestApplyReloadRecoversViaRollback 主配置 reload 失败但回滚成功：旧配置
+// 恢复、ack 标 Reverted 且报错走 rolled back 口径。
+func TestApplyReloadRecoversViaRollback(t *testing.T) {
+	spec := testSpec(t, "")
+	d := New(log.New(io.Discard, "", 0))
+	if err := os.WriteFile(spec.ConfigPath, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	calls := 0
+	ack := d.Apply(spec, pushFor("new"), reloadFailOnce(&calls))
+	if ack.OK || !ack.Reverted {
+		t.Fatalf("want revert, got %+v", ack)
+	}
+	if !strings.Contains(ack.Error, "(rolled back)") || !strings.Contains(ack.Error, "reload boom") {
+		t.Fatalf("ack = %+v", ack)
+	}
+	if calls != 2 {
+		t.Fatalf("reload calls = %d, want 2", calls)
+	}
+	if got := readFile(t, spec.ConfigPath); got != "old" {
+		t.Fatalf("config = %q, want old", got)
+	}
+}
+
+// TestApplyRuleLibReloadRecoversViaRollback 规则库 reload 失败但回滚成功：
+// 无旧文件时新文件撤除，报错同样走 rolled back 口径。
+func TestApplyRuleLibReloadRecoversViaRollback(t *testing.T) {
+	spec := testSpec(t, "")
+	spec.AssetDir = filepath.Join(t.TempDir(), "xray-assets")
+	d := New(log.New(io.Discard, "", 0))
+
+	push := pushFor("geo-data")
+	push.Kind = "rulelib:geosite.dat"
+	calls := 0
+	ack := d.Apply(spec, push, reloadFailOnce(&calls))
+	if ack.OK || !ack.Reverted {
+		t.Fatalf("want revert, got %+v", ack)
+	}
+	if !strings.Contains(ack.Error, "(rolled back)") {
+		t.Fatalf("ack = %+v", ack)
+	}
+	if calls != 2 {
+		t.Fatalf("reload calls = %d, want 2", calls)
+	}
+	if _, err := os.Stat(filepath.Join(spec.AssetDir, "geosite.dat")); !os.IsNotExist(err) {
+		t.Fatalf("rolled-back rulelib should be removed: %v", err)
+	}
+}
