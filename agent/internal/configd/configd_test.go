@@ -272,3 +272,76 @@ func TestApplyRuleLibShaMismatch(t *testing.T) {
 		t.Fatalf("want sha failure, got %+v", ack)
 	}
 }
+
+// TestRollbackRestoresOldContent 回滚口径：有旧文件时内容还原后重试 reload；
+// reload 仍失败则冒错（不回滚成功）。
+func TestRollbackRestoresOldContent(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(target, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d := &Deployer{}
+
+	// 旧内容还原 + reload 成功
+	loads := 0
+	if err := d.rollback(target, []byte("old"), true, func() error { loads++; return nil }, ".tmp-*"); err != nil {
+		t.Fatalf("rollback = %v", err)
+	}
+	if loads != 1 {
+		t.Fatalf("reload calls = %d; want 1", loads)
+	}
+	got, err := os.ReadFile(target)
+	if err != nil || string(got) != "old" {
+		t.Fatalf("content = %q, %v; want old", got, err)
+	}
+	// 临时文件不留残留
+	entries, _ := os.ReadDir(dir)
+	if len(entries) != 1 {
+		t.Fatalf("dir has %d entries; want only target", len(entries))
+	}
+
+	// reload 仍失败：冒错不改内容
+	wantErr := errors.New("reload boom")
+	if err := d.rollback(target, []byte("older"), true, func() error { return wantErr }, ".tmp-*"); !errors.Is(err, wantErr) {
+		t.Fatalf("rollback err = %v; want %v", err, wantErr)
+	}
+	if got, _ := os.ReadFile(target); string(got) != "older" {
+		t.Fatalf("content = %q; want older", got)
+	}
+}
+
+// TestRollbackWithoutOldFile 无旧文件时删掉新文件；文件已不在（IsNotExist）
+// 视为回滚到位，reload 仍照跑。
+func TestRollbackWithoutOldFile(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(target, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d := &Deployer{}
+	loads := 0
+	if err := d.rollback(target, nil, false, func() error { loads++; return nil }, ".tmp-*"); err != nil {
+		t.Fatalf("rollback = %v", err)
+	}
+	if loads != 1 || !os.IsNotExist(mustStatErr(t, target)) {
+		t.Fatalf("loads=%d, file removed=%v; want 1, true", loads, !os.IsNotExist(mustStatErr(t, target)))
+	}
+
+	// 文件已不存在：容忍 IsNotExist
+	if err := d.rollback(target, nil, false, func() error { return nil }, ".tmp-*"); err != nil {
+		t.Fatalf("rollback on absent file = %v", err)
+	}
+
+	// 目录不可写无法稳定构造，跳过；reload 失败口径在此覆盖：
+	wantErr := errors.New("reload boom")
+	if err := d.rollback(filepath.Join(dir, "absent.json"), nil, false, func() error { return wantErr }, ".tmp-*"); !errors.Is(err, wantErr) {
+		t.Fatalf("rollback err = %v; want %v", err, wantErr)
+	}
+}
+
+func mustStatErr(t *testing.T, path string) error {
+	t.Helper()
+	_, err := os.Stat(path)
+	return err
+}
