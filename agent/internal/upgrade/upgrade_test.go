@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -197,5 +199,112 @@ func TestDoBadDownloadURL(t *testing.T) {
 	}
 	if Pending(self) {
 		t.Fatal("no pending marker on failure")
+	}
+}
+
+func TestDoMalformedURL(t *testing.T) {
+	self, _ := writeFakeBin(t, t.TempDir(), "agent", "#!/bin/sh\n")
+	stubExec(t)
+	// URL 无法构造请求：应止于建请求，不触网、不替换二进制。
+	err := Do(context.Background(), self, agentproto.Upgrade{
+		Version: "v2", URL: "http://%zz",
+	}, nil)
+	if err == nil || !strings.HasPrefix(err.Error(), "build request") {
+		t.Fatalf("malformed url should fail at request build: %v", err)
+	}
+	if got, _ := os.ReadFile(self); string(got) != "#!/bin/sh\n" {
+		t.Fatalf("self binary must stay intact: %q", got)
+	}
+}
+
+func TestDoSelfMissing(t *testing.T) {
+	stubExec(t)
+	self := filepath.Join(t.TempDir(), "absent-agent")
+	err := Do(context.Background(), self, agentproto.Upgrade{
+		Version: "v2", URL: "http://127.0.0.1:1/nope",
+	}, nil)
+	if err == nil || !strings.HasPrefix(err.Error(), "self binary") {
+		t.Fatalf("missing self should fail first: %v", err)
+	}
+}
+
+// TestDoBackupRenameFails 备份路径被非空目录占住：替换中止，原二进制保持。
+func TestDoBackupRenameFails(t *testing.T) {
+	dir := t.TempDir()
+	self, _ := writeFakeBin(t, dir, "agent", "#!/bin/sh\n")
+	stubExec(t)
+	// os.Remove 对非空目录失败（被忽略），随后 rename 目标非空目录 → 失败。
+	if err := os.MkdirAll(filepath.Join(bakPath(self), "keep"), 0o755); err != nil {
+		t.Fatalf("mkdir blocker: %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("#!/bin/sh\necho v2\n"))
+	}))
+	defer srv.Close()
+
+	err := Do(context.Background(), self, agentproto.Upgrade{Version: "v2", URL: srv.URL}, nil)
+	if err == nil || !strings.HasPrefix(err.Error(), "backup self") {
+		t.Fatalf("blocked backup should fail: %v", err)
+	}
+	if got, _ := os.ReadFile(self); string(got) != "#!/bin/sh\n" {
+		t.Fatalf("self binary must stay intact: %q", got)
+	}
+	if Pending(self) {
+		t.Fatal("no pending marker when backup fails")
+	}
+}
+
+// TestRollbackPendingRemoveError 待验证标记路径被非空目录占住：回滚冒错且不动二进制。
+func TestRollbackPendingRemoveError(t *testing.T) {
+	dir := t.TempDir()
+	self, _ := writeFakeBin(t, dir, "agent", "#!/bin/sh\n")
+	if err := os.MkdirAll(filepath.Join(pendingPath(self), "keep"), 0o755); err != nil {
+		t.Fatalf("mkdir blocker: %v", err)
+	}
+	err := Rollback(self)
+	if err == nil || !strings.HasPrefix(err.Error(), "remove pending marker") {
+		t.Fatalf("err = %v; want remove pending marker failure", err)
+	}
+	if got, _ := os.ReadFile(self); string(got) != "#!/bin/sh\n" {
+		t.Fatalf("self binary must stay intact: %q", got)
+	}
+}
+
+// TestWatchdogRollbackFailure 回滚失败时只记日志、不重启（留在新版本等人工处理）。
+func TestWatchdogRollbackFailure(t *testing.T) {
+	dir := t.TempDir()
+	self, _ := writeFakeBin(t, dir, "agent", "#!/bin/sh\n")
+	calls := stubExec(t)
+	if err := os.MkdirAll(filepath.Join(pendingPath(self), "keep"), 0o755); err != nil {
+		t.Fatalf("mkdir blocker: %v", err)
+	}
+
+	Watchdog(self, 50*time.Millisecond, log.New(io.Discard, "", 0))
+	if len(*calls) != 0 {
+		t.Fatalf("failed rollback must not re-exec: %v", *calls)
+	}
+}
+
+// TestRollbackWithoutBackup 只清标记、无备份可还原：正常返回。
+func TestRollbackWithoutBackup(t *testing.T) {
+	self, _ := writeFakeBin(t, t.TempDir(), "agent", "#!/bin/sh\n")
+	if err := os.WriteFile(pendingPath(self), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Rollback(self); err != nil {
+		t.Fatalf("Rollback without backup = %v; want nil", err)
+	}
+	if Pending(self) {
+		t.Fatal("pending marker should be cleared")
+	}
+	if got, _ := os.ReadFile(self); string(got) != "#!/bin/sh\n" {
+		t.Fatalf("self must stay: %q", got)
+	}
+}
+
+func TestSha256FileMissing(t *testing.T) {
+	if _, err := sha256File(filepath.Join(t.TempDir(), "absent")); err == nil {
+		t.Fatal("missing file should error")
 	}
 }

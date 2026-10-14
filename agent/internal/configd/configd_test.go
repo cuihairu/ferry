@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cuihairu/ferry/agent/internal/config"
@@ -344,4 +345,100 @@ func mustStatErr(t *testing.T, path string) error {
 	t.Helper()
 	_, err := os.Stat(path)
 	return err
+}
+
+func TestNewNilLogger(t *testing.T) {
+	if d := New(nil); d == nil || d.log == nil {
+		t.Fatal("New(nil) should fall back to log.Default()")
+	}
+}
+
+// TestReadIfExists 目录读法报错；不存在按「无旧内容」口径返回。
+func TestReadIfExists(t *testing.T) {
+	dir := t.TempDir()
+	raw, had, err := readIfExists(dir)
+	if err == nil || had || raw != nil {
+		t.Fatalf("readIfExists(dir) = %q, %v, %v; want error", raw, had, err)
+	}
+	raw, had, err = readIfExists(filepath.Join(dir, "absent.json"))
+	if err != nil || had || raw != nil {
+		t.Fatalf("readIfExists(absent) = %q, %v, %v; want nil,false,nil", raw, had, err)
+	}
+}
+
+// TestApplyReadCurrentConfigError 配置路径指向目录：读旧内容即失败，不落盘。
+func TestApplyReadCurrentConfigError(t *testing.T) {
+	spec := testSpec(t, "")
+	if err := os.MkdirAll(spec.ConfigPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ack := New(nil).Apply(spec, pushFor("new"), func() error { return nil })
+	if ack.OK || !strings.Contains(ack.Error, "read current config") {
+		t.Fatalf("ack = %+v; want read current config failure", ack)
+	}
+}
+
+// TestApplyRuleLibNoPaths 规则库既无 asset_dir 也无 config_path：不落盘。
+func TestApplyRuleLibNoPaths(t *testing.T) {
+	spec := config.ProcSpec{Name: "xray", Kind: "xray"}
+	ack := New(nil).Apply(spec, rulelibPush("geoip.dat", "data"), func() error { return nil })
+	if ack.OK || !strings.Contains(ack.Error, "neither config_path nor asset_dir") {
+		t.Fatalf("ack = %+v; want no-path failure", ack)
+	}
+}
+
+// TestApplyRuleLibMkdirFails asset_dir 指向普通文件：建目录失败即中止。
+func TestApplyRuleLibMkdirFails(t *testing.T) {
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	spec := testSpec(t, "")
+	spec.AssetDir = blocker
+	ack := New(nil).Apply(spec, rulelibPush("geoip.dat", "data"), func() error { return nil })
+	if ack.OK || !strings.Contains(ack.Error, "prepare asset dir") {
+		t.Fatalf("ack = %+v; want prepare asset dir failure", ack)
+	}
+}
+
+// TestApplyRuleLibRollbackAlsoFails 回滚后 reload 仍失败：两个错误都冒出来。
+func TestApplyRuleLibRollbackAlsoFails(t *testing.T) {
+	spec := testSpec(t, "")
+	target := filepath.Join(filepath.Dir(spec.ConfigPath), "assets", "geoip.dat")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("old-geo"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ack := New(nil).Apply(spec, rulelibPush("geoip.dat", "new-geo"),
+		func() error { return errors.New("reload boom") })
+	if ack.OK || !ack.Reverted {
+		t.Fatalf("ack = %+v; want reverted failure", ack)
+	}
+	if !strings.Contains(ack.Error, "; rollback:") {
+		t.Fatalf("error = %q; want both reload and rollback errors", ack.Error)
+	}
+	if got := readFile(t, target); got != "old-geo" {
+		t.Fatalf("rulelib = %q; want old-geo restored anyway", got)
+	}
+}
+
+// TestValidRuleLibNameEdge 补长度上限与前导 '-' 两处未覆盖分支。
+func TestValidRuleLibNameEdge(t *testing.T) {
+	cases := []struct {
+		name string
+		want bool
+	}{
+		{"-geoip.dat", false}, // 前导 '-' 拒绝
+		{"geoip.dat", true},   // 正常名
+		{"a..b", false},       // 含 .. 拒绝
+		{strings.Repeat("a", 64), true},
+		{strings.Repeat("a", 65), false}, // 超 64 拒绝
+	}
+	for _, c := range cases {
+		if got := validRuleLibName(c.name); got != c.want {
+			t.Errorf("validRuleLibName(%d chars) = %v; want %v", len(c.name), got, c.want)
+		}
+	}
 }
