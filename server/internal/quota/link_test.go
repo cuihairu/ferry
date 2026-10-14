@@ -1,7 +1,10 @@
 package quota
 
 import (
+	"context"
 	"fmt"
+	"io"
+	"log"
 	"testing"
 	"time"
 
@@ -289,5 +292,54 @@ func TestLinkSweepCostTierAndDisable(t *testing.T) {
 	}
 	if act, _ := ActiveAction(db, u2.ID); act != nil {
 		t.Fatal("disabled user should have no action")
+	}
+}
+
+// TestLinkLoopSweepsAndStops LinkLoop 启停：启动即跑一轮（超额用户被降档
+// 留痕），cancel 后返回。
+func TestLinkLoopSweepsAndStops(t *testing.T) {
+	db := newLinkDB(t)
+	u := seedLinkUser(t, db, "loop-u", 1000)
+	seedTraffic(t, db, u.ID, nil, 900, 0, time.Now()) // 90% 触发
+	if err := SaveLinkSetting(db, LinkSetting{Enabled: true, TrafficPercent: 90}); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		LinkLoop(ctx, db, 20*time.Millisecond, log.New(io.Discard, "", 0))
+		close(done)
+	}()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		var n int64
+		db.Model(&storage.QuotaAction{}).Where("user_id = ?", u.ID).Count(&n)
+		if n > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("loop never downgraded user")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("loop did not stop")
+	}
+}
+
+// TestHumanMB 字节量人读口径：B/MB/GB 三档向上取整。
+func TestHumanMB(t *testing.T) {
+	for b, want := range map[int64]string{
+		512: "512B", 1 << 20: "1MB", (1 << 20) + 1: "2MB",
+		3 << 30: "3GB", (3 << 30) + 1: "4GB",
+	} {
+		if got := humanMB(b); got != want {
+			t.Fatalf("humanMB(%d) = %q, want %q", b, got, want)
+		}
 	}
 }

@@ -236,3 +236,10 @@ func TestSQLitePath(t *testing.T) {
 		}
 	}
 }
+
+// TestDBPathFromDSNExport 导出包装与 sqlitePath 同口径（main 取本机库路径）。
+func TestDBPathFromDSNExport(t *testing.T) {
+	if got := DBPathFromDSN("file:/data/ferry.db?_pragma=journal_mode(WAL)"); got != "/data/ferry.db" {
+		t.Fatalf("DBPathFromDSN = %q", got)
+	}
+}

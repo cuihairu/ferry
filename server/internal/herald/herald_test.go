@@ -225,3 +225,24 @@ func TestLoopDelivers(t *testing.T) {
 		}
 	}
 }
+
+// TestTargetUserAndCount 用户维度 target 与状态计数（dash 红标口径）。
+func TestTargetUserAndCount(t *testing.T) {
+	if got := TargetUser(7); got != "user:7" {
+		t.Fatalf("target = %q", got)
+	}
+	db := newHeraldDB(t)
+	emitOne(t, db, "region_fault")
+	emitOne(t, db, "cert_expiring")
+	emitOne(t, db, "quota_link")
+	if err := db.Model(&storage.Event{}).Where("id = ?", 1).Update("status", StatusSent).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&storage.Event{}).Where("id = ?", 2).Update("status", StatusFailed).Error; err != nil {
+		t.Fatal(err)
+	}
+	pending, sent, failed, err := Count(db)
+	if err != nil || pending != 1 || sent != 1 || failed != 1 {
+		t.Fatalf("count = %d/%d/%d err=%v", pending, sent, failed, err)
+	}
+}
