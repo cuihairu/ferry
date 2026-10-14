@@ -47,6 +47,13 @@ func (c *collector) has(prefix string) bool {
 	return false
 }
 
+// all 返回行快照，供 Fatalf 打印（不能裸读 rows，读循环在后台 goroutine 追加）。
+func (c *collector) all() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.rows...)
+}
+
 // waitFor 等待进程进入目标状态，超时则失败。
 func waitFor(t *testing.T, m *Manager, name, want string) {
 	t.Helper()
@@ -66,6 +73,20 @@ func waitFor(t *testing.T, m *Manager, name, want string) {
 	t.Fatalf("proc %s never became %s (last=%s)", name, want, last)
 }
 
+// waitForEvent 等状态事件落进 collector：setState 经独立 goroutine 投递，
+// waitFor（读同步状态）返回时事件可能尚未到达，断言前必须等事件。
+func waitForEvent(t *testing.T, c *collector, prefix string) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if c.has(prefix) {
+			return
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	t.Fatalf("event %q never fired (rows=%v)", prefix, c.all())
+}
+
 func TestStartStopLifecycle(t *testing.T) {
 	m, c := testManager(t, []config.ProcSpec{{
 		Name: "sleeper", Kind: "xray", Exec: "sh", Args: []string{"-c", "sleep 60"},
@@ -79,8 +100,9 @@ func TestStartStopLifecycle(t *testing.T) {
 		t.Fatalf("stop: %v", err)
 	}
 	waitFor(t, m, "sleeper", agentproto.ProcStopped)
+	waitForEvent(t, c, "status=sleeper:stopped")
 	if !c.has("status=sleeper:running") || !c.has("status=sleeper:stopped") {
-		t.Fatalf("missing status events: %v", c.rows)
+		t.Fatalf("missing status events: %v", c.all())
 	}
 }
 
@@ -107,7 +129,7 @@ func TestCrashAutoRestart(t *testing.T) {
 	}
 crashed:
 	if !c.has("alarm=proc_crash:crasher") {
-		t.Fatalf("missing crash alarm: %v", c.rows)
+		t.Fatalf("missing crash alarm: %v", c.all())
 	}
 
 	// stop 后不再拉起
@@ -222,9 +244,7 @@ func waitForAlarm(t *testing.T, c *collector, prefix string) {
 		}
 		time.Sleep(30 * time.Millisecond)
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	t.Fatalf("alarm %q never fired (rows=%v)", prefix, c.rows)
+	t.Fatalf("alarm %q never fired (rows=%v)", prefix, c.all())
 }
 
 // TestBinaryMissingAlarm 覆盖二进制缺失面（hy2 批）：启动预检显式告警
