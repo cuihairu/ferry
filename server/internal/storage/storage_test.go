@@ -3,6 +3,7 @@ package storage
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -228,5 +229,56 @@ func TestSettings(t *testing.T) {
 	v, ok, err = GetSetting(db, "wm")
 	if err != nil || !ok || v != "100" {
 		t.Fatalf("GetSetting after update = %q, %v, %v; want 100, true, nil", v, ok, err)
+	}
+}
+
+// TestOpenDriverGuards Open 的方言分派：空驱动回退 sqlite、postgres/mysql
+// 空连接串拒绝、未知驱动拒绝。
+func TestOpenDriverGuards(t *testing.T) {
+	db, err := Open("", ":memory:")
+	if err != nil || db == nil {
+		t.Fatalf("empty driver should fall back sqlite: %v", err)
+	}
+	if sqlDB, err := db.DB(); err == nil {
+		_ = sqlDB.Close()
+	}
+	for driver, dsn := range map[string]string{
+		DriverPostgres: "", DriverMySQL: "", "oracle": "x",
+	} {
+		if _, err := Open(driver, dsn); err == nil {
+			t.Fatalf("open %s with %q should error", driver, dsn)
+		}
+	}
+}
+
+// TestSQLiteDSN 连接串补齐：缺省文件名、file: 前缀与 ?/# 段截断、嵌套
+// 目录自建、目录为文件时报错、内存库原样透传。
+func TestSQLiteDSN(t *testing.T) {
+	if got, err := sqliteDSN(""); err != nil || !strings.Contains(got, "ferry.db?") {
+		t.Fatalf("default dsn = %q err=%v", got, err)
+	}
+	if got, err := sqliteDSN(":memory:"); err != nil || got != ":memory:" {
+		t.Fatalf("memory passthrough = %q err=%v", got, err)
+	}
+	if got, err := sqliteDSN("file:/tmp/x.db?_fk=1#frag"); err != nil ||
+		!strings.Contains(got, "file:/tmp/x.db?_fk=1#frag&_pragma=journal_mode(WAL)") {
+		t.Fatalf("file prefix strip = %q err=%v", got, err)
+	}
+	base := t.TempDir()
+	nested := filepath.Join(base, "a", "b", "ferry.db")
+	got, err := sqliteDSN(nested)
+	if err != nil || !strings.Contains(got, nested+"?") || !strings.Contains(got, "_pragma=journal_mode(WAL)") {
+		t.Fatalf("nested dsn = %q err=%v", got, err)
+	}
+	if st, err := os.Stat(filepath.Join(base, "a")); err != nil || !st.IsDir() {
+		t.Fatal("nested dir not created")
+	}
+	// 目录路径被文件占位：建库目录失败。
+	blocker := filepath.Join(t.TempDir(), "file.db")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sqliteDSN(filepath.Join(blocker, "inner.db")); err == nil {
+		t.Fatal("dir blocked by file should error")
 	}
 }
