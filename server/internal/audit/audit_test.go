@@ -83,3 +83,21 @@ func TestLoopSweepsAndStops(t *testing.T) {
 	go Loop(ctx, db, 90, log.New(io.Discard, "", 0))
 	cancel()
 }
+
+// TestLoopNilLoggerDefaults 覆盖 nil logger 兜底：缺省 logger 起协程，
+// ctx 取消即退（retention>0 才能走到兜底分支）。
+func TestLoopNilLoggerDefaults(t *testing.T) {
+	db := newDB(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		Loop(ctx, db, 30, nil)
+		close(done)
+	}()
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("loop with nil logger did not return after cancel")
+	}
+}

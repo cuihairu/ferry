@@ -1,7 +1,9 @@
 package toucher
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -186,4 +188,56 @@ func TestSweepDomains(t *testing.T) {
 
 func contains(s, sub string) bool {
 	return strings.Contains(s, sub)
+}
+
+// TestLoopSweepsAndStops 覆盖 Loop 启停：interval 可注入，启动即跑一轮
+// （月账单闸门落任务），ctx 取消后退出；nil logger 兜底。
+func TestLoopSweepsAndStops(t *testing.T) {
+	db := newTestDB(t)
+	if err := db.Create(&storage.User{Username: "bill-a", SubToken: "ta", Enabled: true}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		Loop(ctx, db, Config{}, 20*time.Millisecond, nil)
+		close(done)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		var jobs []storage.TouchJob
+		if err := db.Find(&jobs).Error; err != nil {
+			t.Fatal(err)
+		}
+		if len(jobs) >= 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("loop first sweep never landed: %+v", jobs)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("loop did not return after cancel")
+	}
+}
+
+// TestFirstErr 覆盖错误合并：前者优先、前者空取后者。
+func TestFirstErr(t *testing.T) {
+	a := errors.New("a")
+	b := errors.New("b")
+	if got := firstErr(a, b); got != a {
+		t.Fatalf("firstErr(a,b) = %v; want a", got)
+	}
+	if got := firstErr(nil, b); got != b {
+		t.Fatalf("firstErr(nil,b) = %v; want b", got)
+	}
+	if got := firstErr(nil, nil); got != nil {
+		t.Fatalf("firstErr(nil,nil) = %v; want nil", got)
+	}
 }

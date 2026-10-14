@@ -419,6 +419,7 @@ func TestReportStatusAndAlarm(t *testing.T) {
 func TestOnConnectedHelloAck(t *testing.T) {
 	a := newDispatchApp()
 	a.traf = traffic.New(nil, time.Second, nil, a.log)
+	a.version = "v1.2.3-batch"
 	a.cfg.Token = "tok-1"
 	a.cfg.AgentID = "ag-1"
 	helloOK := false
