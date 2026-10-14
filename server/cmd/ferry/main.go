@@ -4,13 +4,16 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	_ "github.com/cuihairu/ferry/payments/alipay" // PAY-10：占位渠道（未启用文案）
@@ -50,8 +53,17 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "backup-decrypt" {
 		os.Exit(backupDecrypt(os.Args[2:]))
 	}
-	cfg := config.Load()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx, config.Load()); err != nil && !errors.Is(err, context.Canceled) {
+		log.Fatalf("ferry: %v", err)
+	}
+}
 
+// run 装配并服务一个面板实例：起库、引导管理员、挂全部后台循环，最后
+// 起监听直到 ctx 取消（优雅关停）。返回错误交 main 统一退出；context.
+// Canceled 是正常停机。
+func run(ctx context.Context, cfg config.Config) error {
 	// 运行日志（P1-11）：std log 与 gin 输出镜像进环形缓冲，供管理端查看。
 	ring := ringlog.Default()
 	log.SetOutput(io.MultiWriter(os.Stderr, ring))
@@ -60,37 +72,35 @@ func main() {
 
 	db, err := storage.Open(cfg.DBDriver, cfg.DBDSN)
 	if err != nil {
-		log.Fatalf("init database: %v", err)
+		return fmt.Errorf("init database: %w", err)
 	}
 	sqlDB, err := db.DB()
 	if err != nil {
-		log.Fatalf("db handle: %v", err)
+		return fmt.Errorf("db handle: %w", err)
 	}
 	defer sqlDB.Close()
 
 	// 重启后在线状态一律置离线，等 agent 重连刷新。
 	if err := db.Exec(`UPDATE nodes SET status='offline'`).Error; err != nil {
-		log.Fatalf("reset node status: %v", err)
+		return fmt.Errorf("reset node status: %w", err)
 	}
 
 	// 管理员首启引导（安全设计 §1）：FERRY_ADMIN_PASSWORD 非空且库内无管理员
 	// 时按 FERRY_ADMIN_USER（缺省 admin）建号；已有管理员则忽略，不覆盖密码。
 	if created, err := handler.EnsureAdmin(db, cfg.AdminUser, cfg.AdminPassword); err != nil {
-		log.Fatalf("bootstrap admin: %v", err)
+		return fmt.Errorf("bootstrap admin: %w", err)
 	} else if created {
 		log.Printf("bootstrap admin: created admin user %q", cfg.AdminUser)
 	}
 	// 多级管理员（P2-2）旧号归一：bootstrap 时代的管理员补 super 角色（幂等）。
 	if err := handler.NormalizeAdminRoles(db); err != nil {
-		log.Fatalf("normalize admin roles: %v", err)
+		return fmt.Errorf("normalize admin roles: %w", err)
 	}
 
 	// Xray 内核对接未启用前使用空实现，接口保持稳定。
 	_ = xray.NoopHandler{}
 
 	// 区域/运营商聚合判定：周期聚合探测结论，状态迁移时合并告警。
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	go monitor.Run(ctx, db, time.Duration(cfg.MonitorIntervalSec)*time.Second, nil)
 
 	// 入口池自动摘挂（E-16）：连续 sick 摘除/恢复复位，订阅入口池即时生效；
@@ -125,7 +135,6 @@ func main() {
 		reg[1] = dnsAct
 		// L2（BR-3）：预备清单取一台在线备用入口升池，订阅换线即时生效。
 		reg[2] = &recovery.StandbyAction{DB: db}
-		reg[1] = dnsAct
 		opts := recovery.Options{
 			OnDone: func(nodeID uint, nodeName string) {
 				if err := dnsAct.Restore(context.Background()); err != nil {
@@ -247,23 +256,46 @@ func main() {
 	// 配置损坏启动中止以免静默降级 HTTP；切换证书需重启生效。
 	cert, hasCert, err := handler.WebTLSCert(db)
 	if err != nil {
-		log.Fatalf("load web cert: %v", err)
+		return fmt.Errorf("load web cert: %w", err)
 	}
+	srv := &http.Server{Addr: cfg.Addr, Handler: r}
 	if hasCert {
 		log.Printf("ferry listening on %s (https)", cfg.Addr)
-		srv := &http.Server{
-			Addr:      cfg.Addr,
-			Handler:   r,
-			TLSConfig: &tls.Config{Certificates: []tls.Certificate{*cert}, MinVersion: tls.VersionTLS12},
-		}
-		if err := srv.ListenAndServeTLS("", ""); err != nil {
-			log.Fatalf("serve: %v", err)
-		}
-		return
+		srv.TLSConfig = &tls.Config{Certificates: []tls.Certificate{*cert}, MinVersion: tls.VersionTLS12}
+	} else {
+		log.Printf("ferry listening on %s", cfg.Addr)
 	}
-	log.Printf("ferry listening on %s", cfg.Addr)
-	if err := r.Run(cfg.Addr); err != nil {
-		log.Fatalf("serve: %v", err)
+	return serve(ctx, srv)
+}
+
+// serve 起监听直到 ctx 取消：优雅关停等在途请求收尾（http.ErrServerClosed
+// 是正常停机口径不算错）；TLSConfig 已配即走 TLS 监听。
+func serve(ctx context.Context, srv *http.Server) error {
+	errCh := make(chan error, 1)
+	go func() {
+		if srv.TLSConfig != nil {
+			errCh <- srv.ListenAndServeTLS("", "")
+		} else {
+			errCh <- srv.ListenAndServe()
+		}
+	}()
+	select {
+	case err := <-errCh:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("serve: %w", err)
+		}
+		return nil
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("shutdown: %v", err)
+		}
+		err := <-errCh
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("serve: %w", err)
+		}
+		return nil
 	}
 }
 

@@ -2,10 +2,14 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/secret"
 )
 
@@ -55,5 +59,36 @@ func TestBackupDecryptRoundtrip(t *testing.T) {
 	}
 	if code := backupDecrypt([]string{"-key", "mk"}); code == 0 {
 		t.Fatal("missing -in should exit non-zero")
+	}
+}
+
+// TestRunServesUntilCancel 覆盖装配主路径：起库、引导管理员、挂全部后台
+// 循环并起 HTTP 监听；ctx 取消即优雅关停回收，不悬挂不报错。
+func TestRunServesUntilCancel(t *testing.T) {
+	cfg := config.Default() // Load 的缺省基线：周期字段落默认，避免零值周期
+	cfg.Addr = "127.0.0.1:0"
+	cfg.DBDriver = "sqlite"
+	cfg.DBDSN = filepath.Join(t.TempDir(), "ferry.db")
+	cfg.BackupDir = t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		cancel()
+	}()
+	start := time.Now()
+	if err := run(ctx, cfg); err != nil {
+		t.Fatalf("run = %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("run took %s to stop after cancel", elapsed)
+	}
+}
+
+// TestRunBadDB 库打不开即冒错，不冒称起服。
+func TestRunBadDB(t *testing.T) {
+	cfg := config.Config{DBDriver: "bogus", DBDSN: "x"}
+	err := run(context.Background(), cfg)
+	if err == nil || !strings.Contains(err.Error(), "init database") {
+		t.Fatalf("err = %v; want init database failure", err)
 	}
 }
