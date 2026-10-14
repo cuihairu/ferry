@@ -1,6 +1,7 @@
 package ratelimit
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -76,5 +77,35 @@ func TestReset(t *testing.T) {
 	l.Reset("ip")
 	if !l.Allow("ip") {
 		t.Fatal("reset should clear window and lock")
+	}
+}
+
+// TestSweepLockedDropsStaleKeys 键数越限触发懒清理：窗口外且未锁定的键被
+// 删，锁定中的键与新键保留。
+func TestSweepLockedDropsStaleKeys(t *testing.T) {
+	base := time.Now()
+	var now time.Time = base
+	l := New(Options{Window: time.Minute, MaxAttempts: 10, FailLimit: 1, Lockout: time.Minute})
+	l.now = func() time.Time { return now }
+
+	// 灌满 4097 个键（各占一个窗口内名额）。
+	for i := 0; i < 4097; i++ {
+		if !l.Allow(fmt.Sprintf("k%d", i)) {
+			t.Fatalf("key %d rejected", i)
+		}
+	}
+	// 推进时钟后锁一个键（锁定态不受窗口外清理影响）。
+	now = base.Add(2 * time.Minute)
+	l.RecordFailure("keep")
+	// 新键触发 sweep。
+	if !l.Allow("newkey") {
+		t.Fatal("newkey should be allowed")
+	}
+	if got := len(l.keys); got != 2 {
+		t.Fatalf("keys after sweep = %d; want 2 (keep + newkey)", got)
+	}
+	// 锁定中的键仍拒绝。
+	if l.Allow("keep") {
+		t.Fatal("locked key should be rejected")
 	}
 }

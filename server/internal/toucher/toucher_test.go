@@ -241,3 +241,25 @@ func TestFirstErr(t *testing.T) {
 		t.Fatalf("firstErr(nil,nil) = %v; want nil", got)
 	}
 }
+
+// TestJoinErrAndExpireText joinErr 双错合并口径（任一路失败都冒）、
+// expireText 到期展示（nil=不限期，非 nil 按 UTC 日期）。
+func TestJoinErrAndExpireText(t *testing.T) {
+	db := newTestDB(t)
+	if sqlDB, err := db.DB(); err == nil {
+		// 关连接池：两路清扫都失败，joinErr 必须合并两条而非只回第一条。
+		if err := sqlDB.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Sweep(db, cfg, time.Now()); err == nil || !strings.Contains(err.Error(), "; ") {
+		t.Fatalf("sweep on closed db = %v; want merged errors", err)
+	}
+	if got := expireText(nil); got != "不限期" {
+		t.Fatalf("expireText(nil) = %q", got)
+	}
+	future := time.Date(2027, 1, 2, 10, 0, 0, 0, time.UTC)
+	if got := expireText(&future); got != "2027-01-02" {
+		t.Fatalf("expireText = %q", got)
+	}
+}

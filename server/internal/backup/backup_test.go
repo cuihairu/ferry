@@ -261,3 +261,21 @@ func TestLoopRunsOnceAndPrunes(t *testing.T) {
 		t.Fatalf("new backup file missing: %v", err)
 	}
 }
+
+// noopUploader 恒成功的上传桩：只为撑起「已注入」分支的状态文案。
+type noopUploader struct{}
+
+func (noopUploader) Upload(context.Context, string) error { return nil }
+
+// TestOutboundState 外发位三态文案：关闭、开启未注入、开启已注入。
+func TestOutboundState(t *testing.T) {
+	if got := outboundState(Options{}); got != "disabled" {
+		t.Fatalf("disabled = %q", got)
+	}
+	if got := outboundState(Options{S3Enabled: true}); got != "enabled but uploader not injected (backups stay local; check FERRY_BACKUP_S3_*)" {
+		t.Fatalf("uninjected = %q", got)
+	}
+	if got := outboundState(Options{S3Enabled: true, S3: noopUploader{}}); got != "enabled (s3-compatible endpoint; scope = all files in backup dir)" {
+		t.Fatalf("injected = %q", got)
+	}
+}
