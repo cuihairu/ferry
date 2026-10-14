@@ -2,10 +2,20 @@ package main
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"errors"
+	"math/big"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // 下面只覆盖起监听之前的参数校验路径：真正 listen/serve 会占端口，不进测试。
@@ -69,4 +79,72 @@ func TestRunServerBadCertPair(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "load cert") {
 		t.Fatalf("err = %v; want load cert failure", err)
 	}
+}
+
+// TestRunClientServesUntilCancel 覆盖起监听后的主路径：本地桥监听成功，
+// ctx 取消即回收（Serve 按 ctx 口径返回 context.Canceled）。
+func TestRunClientServesUntilCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+	}()
+	if err := runClient(ctx, []string{"--listen", "127.0.0.1:0", "--insecure"}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("runClient = %v; want canceled", err)
+	}
+}
+
+// TestRunServerServesUntilCancel 覆盖 server 主路径：QUIC（UDP）监听成功，
+// ctx 取消即回收。证书为自签临时对（测试不依赖任何外部资产）。
+func TestRunServerServesUntilCancel(t *testing.T) {
+	certPEM, keyPEM := selfSignedPEM(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+	}()
+	err := runServer(ctx, []string{"--listen", "127.0.0.1:0", "--target", "127.0.0.1:1",
+		"--cert", certPEM, "--key", keyPEM})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("runServer = %v; want canceled", err)
+	}
+}
+
+// selfSignedPEM 生成自签 ECDSA 证书对（server 模式必填 --cert/--key）。
+func selfSignedPEM(t *testing.T) (string, string) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 63))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: "ferry-quic-test"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1")},
+		BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	cert := filepath.Join(dir, "c.pem")
+	if err := os.WriteFile(cert, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	keyPath := filepath.Join(dir, "k.pem")
+	if err := os.WriteFile(keyPath, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return cert, keyPath
 }

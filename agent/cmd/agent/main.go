@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -32,8 +33,13 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	if *role != "" {
-		runRole(*role, cfg, *relaySpec)
+		if err := runRole(ctx, *role, cfg, *relaySpec); err != nil && !errors.Is(err, context.Canceled) {
+			log.Fatalf("role %s: %v", *role, err)
+		}
 		return
 	}
 
@@ -49,9 +55,6 @@ func main() {
 		a.OnHelloOK = func() { upgrade.Commit(self) }
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
 	log.Printf("ferry-agent %s starting, panel=%s agent_id=%s", version, cfg.PanelURL, cfg.AgentID)
 	if err := a.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		log.Fatalf("run: %v", err)
@@ -59,31 +62,26 @@ func main() {
 }
 
 // runRole 以独立进程跑角色组件（E-5/E-7）：与核心只经 spool/配置文件交互，
-// 不直连面板（同节点第二条面板连接会把核心踢下线）。
-func runRole(name string, cfg config.Config, relaySpecPath string) {
+// 不直连面板（同节点第二条面板连接会把核心踢下线）。返回错误交 main 统一
+// 退出（context.Canceled 是正常停机，不 Fatal）。
+func runRole(ctx context.Context, name string, cfg config.Config, relaySpecPath string) error {
 	if !roles.Standalone(name) {
-		log.Fatalf("unknown standalone role %q (known: probe, relay)", name)
+		return fmt.Errorf("unknown standalone role %q (known: probe, relay)", name)
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	logger := log.New(os.Stderr, "agent-"+name+" ", log.LstdFlags)
-	var err error
 	switch name {
 	case "probe":
 		log.Printf("ferry-agent %s role=probe starting (%d specs)", version, len(cfg.Probes))
-		err = proberole.Run(ctx, cfg, logger)
+		return proberole.Run(ctx, cfg, logger)
 	case "relay":
 		if relaySpecPath != "" {
 			log.Printf("ferry-agent %s role=relay starting (override %s)", version, relaySpecPath)
-			err = relay.RunFile(ctx, cfg.Relay, relaySpecPath, logger)
-		} else {
-			log.Printf("ferry-agent %s role=relay starting", version)
-			err = relay.Run(ctx, cfg.Relay, logger)
+			return relay.RunFile(ctx, cfg.Relay, relaySpecPath, logger)
 		}
+		log.Printf("ferry-agent %s role=relay starting", version)
+		return relay.Run(ctx, cfg.Relay, logger)
 	}
-	if err != nil && !errors.Is(err, context.Canceled) {
-		log.Fatalf("role %s: %v", name, err)
-	}
+	return nil // 不可达：Standalone 只放行 probe/relay
 }
 
 func envOr(key, fallback string) string {
