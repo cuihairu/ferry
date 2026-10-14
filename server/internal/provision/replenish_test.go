@@ -132,3 +132,33 @@ func TestReplenishProviderDisabled(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// TestReplenishLoop 覆盖保底循环：首轮立即扫（interval<=0 回退 5m），
+// 池空时开新机；ctx 取消后返回。
+func TestReplenishLoop(t *testing.T) {
+	r, _ := replenishFix(t, true)
+	r.TemplateID = 1 // replenishFix 建的模板即 1
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ReplenishLoop(ctx, r, 0, log.Default())
+	}()
+
+	deadline := 100
+	for countProvisioning(t, r) == 0 && deadline > 0 {
+		time.Sleep(20 * time.Millisecond)
+		deadline--
+	}
+	if countProvisioning(t, r) == 0 {
+		t.Fatal("loop sweep did not launch a node")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("replenish loop did not stop after cancel")
+	}
+}

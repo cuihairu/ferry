@@ -1,6 +1,7 @@
 package notifyscan
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -201,5 +202,40 @@ func TestSweepEmpty(t *testing.T) {
 	db := newTestDB(t)
 	if err := Sweep(db, time.Now()); err != nil {
 		t.Fatalf("sweep on empty db: %v", err)
+	}
+}
+
+// TestLoopSweepsAndStops 覆盖周期循环：到点扫描落库到期提醒，取消即返回。
+func TestLoopSweepsAndStops(t *testing.T) {
+	db := newTestDB(t)
+	u := seedUser(t, db, storage.User{Username: "loop-exp", SubToken: "tl", QuotaBytes: 1 << 30,
+		ExpiresAt: at(3), Enabled: true, NotifyExpiry: true, TrafficWarnPercent: 80})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		Loop(ctx, db, 20*time.Millisecond, nil)
+	}()
+
+	var n int64
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		db.Model(&storage.Notification{}).
+			Where("user_id = ? AND type = ?", u.ID, storage.NotifExpiry).Count(&n)
+		if n == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("loop sweep never notified; count=%d", n)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("loop did not stop after cancel")
 	}
 }

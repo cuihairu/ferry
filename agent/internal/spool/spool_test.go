@@ -2,9 +2,11 @@ package spool
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -182,5 +184,96 @@ func TestWatchForwardsUntilCancel(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Watch did not return after cancel")
+	}
+}
+
+// TestWriteRejectsBadArgs 参数缺失直接拒，不静默吞。
+func TestWriteRejectsBadArgs(t *testing.T) {
+	env := agentproto.Envelope{V: agentproto.ProtocolVersion, ID: "e1", Type: "probe.report"}
+	if err := Write("", "probe", env); err == nil {
+		t.Error("empty dir should error")
+	}
+	if err := Write(t.TempDir(), "", env); err == nil {
+		t.Error("empty role should error")
+	}
+}
+
+// TestWriteDirNotDirectory spool 路径被普通文件占住：建目录失败即冒错。
+func TestWriteDirNotDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "spool")
+	if err := os.WriteFile(dir, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := agentproto.Envelope{V: agentproto.ProtocolVersion, ID: "e1", Type: "probe.report"}
+	err := Write(dir, "probe", env)
+	if err == nil || !strings.Contains(err.Error(), "spool: mkdir") {
+		t.Fatalf("err = %v; want mkdir failure", err)
+	}
+}
+
+// TestWriteBadPayload 载荷是非法 JSON 字节：序列化阶段就拒，不落文件。
+func TestWriteBadPayload(t *testing.T) {
+	dir := t.TempDir()
+	env := agentproto.Envelope{V: agentproto.ProtocolVersion, Type: "probe.report",
+		Payload: json.RawMessage{0xff, 0xfe}}
+	err := Write(dir, "probe", env)
+	if err == nil || !strings.Contains(err.Error(), "spool: marshal") {
+		t.Fatalf("err = %v; want marshal failure", err)
+	}
+	if _, statErr := os.Stat(pathFor(dir, "probe")); !os.IsNotExist(statErr) {
+		t.Fatal("failed write must not create spool file")
+	}
+}
+
+// TestDrainMissingDirIsNoop 目录还没建出来是常态（角色未起），不算错。
+func TestDrainMissingDirIsNoop(t *testing.T) {
+	w := &watcher{dir: filepath.Join(t.TempDir(), "absent"), offsets: map[string]int64{}}
+	if err := w.drain(func(agentproto.Envelope) error { return nil }); err != nil {
+		t.Fatalf("drain on missing dir = %v; want nil", err)
+	}
+}
+
+// TestDrainDirReadError 目录路径被文件占住：ReadDir 报错并冒上去。
+func TestDrainDirReadError(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "spool")
+	if err := os.WriteFile(dir, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	w := &watcher{dir: dir, offsets: map[string]int64{}}
+	if err := w.drain(func(agentproto.Envelope) error { return nil }); err == nil {
+		t.Fatal("drain on non-directory should error")
+	}
+}
+
+// TestDrainFileOpenRace 文件在 ReadDir 之后被删：容忍 IsNotExist 不打断整轮。
+func TestDrainFileOpenRace(t *testing.T) {
+	w := &watcher{dir: t.TempDir(), offsets: map[string]int64{}}
+	if err := w.drainFile(filepath.Join(w.dir, "gone.out"),
+		func(agentproto.Envelope) error { return nil }); err != nil {
+		t.Fatalf("drainFile on missing file = %v; want nil", err)
+	}
+}
+
+// TestDrainSkipsNonSpoolFiles 目录里的子目录与非 .out 文件不参与消费。
+func TestDrainSkipsNonSpoolFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "sub.out"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env, _ := agentproto.NewEnvelope("e1", "probe.report", nil)
+	if err := Write(dir, "probe", env); err != nil {
+		t.Fatal(err)
+	}
+
+	var got []string
+	w := &watcher{dir: dir, offsets: map[string]int64{}}
+	if err := w.drain(func(e agentproto.Envelope) error { got = append(got, e.ID); return nil }); err != nil {
+		t.Fatalf("drain: %v", err)
+	}
+	if len(got) != 1 || got[0] != "e1" {
+		t.Fatalf("forwarded = %v; want only the .out line", got)
 	}
 }

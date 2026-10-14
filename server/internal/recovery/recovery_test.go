@@ -384,3 +384,70 @@ func TestFailedEscalationNotify(t *testing.T) {
 		t.Fatalf("event = %+v", ev)
 	}
 }
+
+// TestLoopSweepsAndStops 覆盖周期循环：首轮立即跑（interval<=0 回退 60s），
+// 判封节点开线；ctx 取消后 Loop 返回。
+func TestLoopSweepsAndStops(t *testing.T) {
+	db := newTestDB(t)
+	suspendedNode(t, db, "entry-1", "连续 3 次探测 sick", time.Now().Add(-15*time.Minute))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // 先停 Loop 再关库（t.Cleanup 在函数返回后跑）
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		Loop(ctx, db, 0, Options{}, Registry{}, nil) // interval 0：走回退分支
+	}()
+
+	// 首轮 Sweep 才落恢复行，行不存在也要继续等。
+	var rec storage.Recovery
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		err := db.Where("node_id = ?", 1).First(&rec).Error
+		if err == nil && rec.State == StateRunning {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("recovery not opened: %+v (err=%v)", rec, err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if rec.Level != 1 {
+		t.Fatalf("opened = %+v", rec)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("loop did not stop after cancel")
+	}
+}
+
+// TestLastLine 日志尾行取错误摘要：去空行后取末行，空串不炸。
+func TestLastLine(t *testing.T) {
+	cases := map[string]string{
+		"a\nb\nc":   "c",
+		"only":      "only",
+		"x\n  \n":   "x",
+		"":          "",
+		"\n\nz\n\n": "z",
+	}
+	for in, want := range cases {
+		if got := lastLine(in); got != want {
+			t.Errorf("lastLine(%q) = %q; want %q", in, got, want)
+		}
+	}
+}
+
+// TestActionNames 三个动作的留痕名固定（Recovery.Action 按名落库）。
+func TestActionNames(t *testing.T) {
+	if got := (&InstanceAction{}).Name(); got != "new_instance" {
+		t.Errorf("instance name = %q", got)
+	}
+	if got := (&DNSAction{}).Name(); got != "dns_switch" {
+		t.Errorf("dns name = %q", got)
+	}
+	if got := (&StandbyAction{}).Name(); got != "standby_promote" {
+		t.Errorf("standby name = %q", got)
+	}
+}

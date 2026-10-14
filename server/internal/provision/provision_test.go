@@ -330,3 +330,14 @@ func TestExecuteHCLIsolation(t *testing.T) {
 		t.Fatalf("plan run saw apply HCL:\n%s", seen["plan"])
 	}
 }
+
+// TestRealRunnerCancelledCtx 真实 runner 用已取消的 ctx：起进程即失败，
+// 不依赖机器上是否装了 tofu。
+func TestRealRunnerCancelledCtx(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	out, err := realRunner(ctx, t.TempDir(), []string{"version"}, map[string]string{"TF_IN_AUTOMATION": "1"})
+	if err == nil {
+		t.Fatalf("realRunner with cancelled ctx = %q, nil; want error", out)
+	}
+}

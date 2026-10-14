@@ -382,3 +382,78 @@ func TestServeHeartbeatLost(t *testing.T) {
 		t.Fatal("ServeHeartbeat did not detect lost connection")
 	}
 }
+
+// TestPluginServeHeartbeatAndClose 四个插件的心跳都是 PingPong 委托、Close 都是
+// 无资源释放，但都要实跑确认不返错（契约面：Tunnel 接口全方法）。
+func TestPluginServeHeartbeatAndClose(t *testing.T) {
+	plugins := []struct {
+		name string
+		tn   Tunnel
+	}{
+		{"tls-camo", &tlsCamo{}},
+		{"ws-tls", &wsTls{}},
+		{"quic-sidecar", &quicSidecar{opts: Options{}}},
+		{"ssh", &sshTunnel{}},
+	}
+	for _, p := range plugins {
+		t.Run(p.name, func(t *testing.T) {
+			conn, stopPeer := hbPeer(t, 20*time.Millisecond)
+			defer conn.Close()
+
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan error, 1)
+			go func() { done <- p.tn.ServeHeartbeat(ctx, conn, 20*time.Millisecond) }()
+			time.Sleep(100 * time.Millisecond)
+			cancel()
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatalf("ServeHeartbeat = %v; want nil", err)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("ServeHeartbeat did not return after cancel")
+			}
+			stopPeer()
+
+			if err := p.tn.Close(); err != nil {
+				t.Fatalf("Close = %v; want nil", err)
+			}
+		})
+	}
+}
+
+// TestWSConnSurface wsConn 的 net.Conn 适配面：地址与读写超时都要透传到底层。
+func TestWSConnSurface(t *testing.T) {
+	addr, caFile := startWSServer(t)
+	tn, err := Open("ws-tls", Options{CAFile: caFile, Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatalf("open ws-tls: %v", err)
+	}
+	conn, err := tn.Dial(t.Context(), addr)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	c, ok := conn.(*wsConn)
+	if !ok {
+		t.Fatalf("conn type = %T; want *wsConn", conn)
+	}
+	if c.LocalAddr() == nil || c.RemoteAddr() == nil {
+		t.Fatal("addr should be delegated to underlying websocket conn")
+	}
+	if err := c.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline: %v", err)
+	}
+	if err := c.SetWriteDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatalf("SetWriteDeadline: %v", err)
+	}
+	if err := c.SetDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatalf("SetDeadline: %v", err)
+	}
+	// 清掉超时，否则 Close 可能被 deadline 卡住。
+	if err := c.SetDeadline(time.Time{}); err != nil {
+		t.Fatalf("clear deadline: %v", err)
+	}
+	if err := c.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}

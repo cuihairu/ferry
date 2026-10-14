@@ -20,7 +20,8 @@ import (
 )
 
 // ackTimeout 覆盖 agent 侧校验命令 + reload 的最坏耗时（与配置下发同口径）。
-const ackTimeout = 60 * time.Second
+// 声明为变量便于测试缩短窗口。
+var ackTimeout = 60 * time.Second
 
 // Pusher 持有库与 agent 连接枢纽，把落地指向变更推到入口。
 type Pusher struct {

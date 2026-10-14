@@ -3,7 +3,9 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
@@ -236,5 +238,79 @@ func TestValidate(t *testing.T) {
 				t.Fatal("expected validation error")
 			}
 		})
+	}
+}
+
+// TestLoadErrors 读取/解析/env 数值三类失败都要冒错（不回退默认值糊过去）。
+func TestLoadErrors(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "absent.json")
+	if _, err := Load(missing); err == nil || !strings.Contains(err.Error(), "read config") {
+		t.Fatalf("missing file err = %v; want read config failure", err)
+	}
+
+	bad := filepath.Join(t.TempDir(), "bad.json")
+	if err := os.WriteFile(bad, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(bad); err == nil || !strings.Contains(err.Error(), "parse config") {
+		t.Fatalf("bad json err = %v; want parse config failure", err)
+	}
+
+	t.Setenv("FERRY_HEARTBEAT_SEC", "abc")
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "FERRY_HEARTBEAT_SEC") {
+		t.Fatalf("bad heartbeat env err = %v", err)
+	}
+	t.Setenv("FERRY_HEARTBEAT_SEC", "")
+	t.Setenv("FERRY_TRAFFIC_SEC", "abc")
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "FERRY_TRAFFIC_SEC") {
+		t.Fatalf("bad traffic env err = %v", err)
+	}
+}
+
+// TestLoadFileMetaEnvOverride 文件给必填项、env 逐项覆盖元数据。
+func TestLoadFileMetaEnvOverride(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agent.json")
+	body := `{"panel_url":"https://panel.example.com","token":"tok-file","agent_id":"agent-file",
+	  "meta":{"bw_up_mbps":10,"bw_down_mbps":50}}`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FERRY_PANEL_URL", "https://env.example.com")
+	t.Setenv("FERRY_NODE_TOKEN", "tok-env")
+	t.Setenv("FERRY_AGENT_ID", "agent-env")
+	t.Setenv("FERRY_SPOOL_DIR", "/var/spool/ferry")
+	t.Setenv("FERRY_NODE_ROLE", agentproto.RoleEntry)
+	t.Setenv("FERRY_NODE_DIRECTION", agentproto.DirectionIn)
+	t.Setenv("FERRY_NODE_REGION", "HK")
+	t.Setenv("FERRY_NODE_ISP", "hkt")
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load = %v", err)
+	}
+	if cfg.PanelURL != "https://env.example.com" || cfg.Token != "tok-env" || cfg.AgentID != "agent-env" {
+		t.Fatalf("env should win over file: %+v", cfg)
+	}
+	if cfg.SpoolDir != "/var/spool/ferry" || cfg.Meta.Role != agentproto.RoleEntry ||
+		cfg.Meta.Direction != agentproto.DirectionIn || cfg.Meta.Region != "HK" || cfg.Meta.ISP != "hkt" {
+		t.Fatalf("meta env overrides not applied: %+v", cfg.Meta)
+	}
+	if cfg.Meta.BwUpMbps != 10 || cfg.Meta.BwDownMbps != 50 {
+		t.Fatalf("file-provided bandwidth lost: %+v", cfg.Meta)
+	}
+}
+
+// TestIntervals 周期口径：流量周期 <=0 表示关闭采集。
+func TestIntervals(t *testing.T) {
+	if got := (Config{HeartbeatSec: 30}).HeartbeatInterval(); got != 30*time.Second {
+		t.Errorf("HeartbeatInterval = %v; want 30s", got)
+	}
+	if got := (Config{TrafficSec: 60}).TrafficInterval(); got != 60*time.Second {
+		t.Errorf("TrafficInterval = %v; want 60s", got)
+	}
+	for _, sec := range []int{0, -1} {
+		if got := (Config{TrafficSec: sec}).TrafficInterval(); got != 0 {
+			t.Errorf("TrafficInterval(%d) = %v; want 0 (disabled)", sec, got)
+		}
 	}
 }
