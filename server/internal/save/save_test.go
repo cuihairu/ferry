@@ -1,6 +1,7 @@
 package save
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -117,5 +118,94 @@ func TestSweepRebuildsWithoutWatermark(t *testing.T) {
 	rows := statRows(t, db)
 	if len(rows) != 1 || rows[0].DirectBytes != 100 {
 		t.Fatalf("rebuild must replace, not accumulate: %+v", rows)
+	}
+}
+
+// TestUserSavings 覆盖 SAVE-8 折算：节点节省按用户当月记账占比分摊，
+// 无记账用户占比为 0 不计、节点当月无记账不摊派、月窗前置数据剔除。
+func TestUserSavings(t *testing.T) {
+	db := newTestDB(t)
+	users := []storage.User{
+		{ID: 1, Username: "u1", SubToken: "tk1"},
+		{ID: 2, Username: "u2", SubToken: "tk2"},
+	}
+	if err := db.Create(&users).Error; err != nil {
+		t.Fatalf("seed users: %v", err)
+	}
+	nodes := []storage.Node{
+		{ID: 1, Name: "n1", Token: "tok-n1"},
+		{ID: 2, Name: "n2", Token: "tok-n2"},
+		{ID: 3, Name: "n3", Token: "tok-n3"},
+	}
+	if err := db.Create(&nodes).Error; err != nil {
+		t.Fatalf("seed nodes: %v", err)
+	}
+	stats := []storage.SaveStat{
+		{NodeID: 1, Day: "2026-10-03", DirectBytes: 1000, CacheHitBytes: 200, BlockedBytes: 100},
+		{NodeID: 2, Day: "2026-10-04", DirectBytes: 500},
+		{NodeID: 3, Day: "2026-10-05", DirectBytes: 777},
+		{NodeID: 1, Day: "2026-09-28", DirectBytes: 9999}, // 月窗前置，不计
+	}
+	if err := db.Create(&stats).Error; err != nil {
+		t.Fatalf("seed save stats: %v", err)
+	}
+	n1, n2 := uint(1), uint(2)
+	monthStart := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	priorMonth := time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC)
+	logs := []storage.TrafficLog{
+		{UserID: 1, NodeID: &n1, RxBytes: 300, TxBytes: 100, RecordedAt: monthStart}, // 节点1：本人 400
+		{UserID: 2, NodeID: &n1, RxBytes: 600, TxBytes: 0, RecordedAt: monthStart},   // 节点1：他人 600
+		{UserID: 2, NodeID: &n2, RxBytes: 600, TxBytes: 0, RecordedAt: monthStart},   // 节点2：仅他人记账
+		{UserID: 1, NodeID: &n1, RxBytes: 5000, TxBytes: 0, RecordedAt: priorMonth},  // 月窗前置，不计
+	}
+	if err := db.Create(&logs).Error; err != nil {
+		t.Fatalf("seed traffic logs: %v", err)
+	}
+
+	direct, cacheHit, blocked, err := UserSavings(db, 1, "2026-10-01")
+	if err != nil {
+		t.Fatalf("UserSavings: %v", err)
+	}
+	// 节点1：占比 400/1000=0.4 → 1000/200/100 各乘 0.4；
+	// 节点2 他人记账占比为 0 不计；节点3 无记账不摊派；9 月数据剔除。
+	if direct != 400 || cacheHit != 80 || blocked != 40 {
+		t.Fatalf("UserSavings = %d, %d, %d; want 400, 80, 40", direct, cacheHit, blocked)
+	}
+}
+
+// TestLoopSweepsAndStopsOnCancel 覆盖 Loop 启停：启动即跑一轮（timer 0），
+// ctx 取消后退出；nil logger 走默认 logger 兜底。
+func TestLoopSweepsAndStopsOnCancel(t *testing.T) {
+	db := newTestDB(t)
+	seedTraffic(t, db,
+		storage.NodeTrafficLog{NodeID: 1, Proc: "xray", DirectBytes: 100, RecordedAt: time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)},
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		Loop(ctx, db, 20*time.Millisecond, nil) // nil logger 兜底分支
+		close(done)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		var rows []storage.SaveStat
+		if err := db.Find(&rows).Error; err != nil {
+			t.Fatalf("query save stats: %v", err)
+		}
+		if len(rows) == 1 && rows[0].DirectBytes == 100 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("loop first sweep never landed: %+v", rows)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("loop did not return after cancel")
 	}
 }

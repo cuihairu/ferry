@@ -2,11 +2,14 @@ package cost
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"log"
 	"testing"
 	"time"
 
+	"github.com/cuihairu/ferry/packages/costref"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"gorm.io/gorm"
 )
@@ -188,5 +191,145 @@ func TestCheckAlerts(t *testing.T) {
 	}
 	if resolved.State != "resolved" || resolved.ResolvedAt == nil {
 		t.Fatalf("alert should auto-resolve: %+v", resolved)
+	}
+}
+
+// TestNodeQueryAndSpecOf 覆盖牌价键映射：缺机房拒绝、区域与档位透传；
+// SpecOf 拼「带宽-流量」档、零段省略。
+func TestNodeQueryAndSpecOf(t *testing.T) {
+	if _, err := NodeQuery(storage.Node{}); err == nil {
+		t.Fatal("node without datacenter should error")
+	}
+	q, err := NodeQuery(storage.Node{Datacenter: "vultr", Region: "tokyo",
+		BwDownMbps: 500, MonthlyTrafficQuotaBytes: 2 * BytesPerGB})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q.Provider != "vultr" || q.Region != "tokyo" || q.Spec != "500M-2G" {
+		t.Fatalf("query = %+v; want vultr/tokyo/500M-2G", q)
+	}
+	if got := SpecOf(0, 0); got != "" {
+		t.Fatalf("SpecOf zero = %q; want empty", got)
+	}
+	if got := SpecOf(100, 0); got != "100M" {
+		t.Fatalf("SpecOf bw only = %q; want 100M", got)
+	}
+	if got := SpecOf(0, 3*BytesPerGB); got != "3G" {
+		t.Fatalf("SpecOf quota only = %q; want 3G", got)
+	}
+}
+
+// TestCheckNode 单节点对账：命中牌价算偏差、超容忍度提示人工复核、
+// 查不到/手录未填/币种不符各回错误。
+func TestCheckNode(t *testing.T) {
+	src := costref.NewStatic("pricelist", []costref.Entry{
+		{Provider: "vultr", Region: "tokyo", Spec: "500M-2G", MonthlyCents: 10000, Currency: "CNY"},
+	})
+	base := storage.Node{Datacenter: "vultr", Region: "tokyo",
+		BwDownMbps: 500, MonthlyTrafficQuotaBytes: 2 * BytesPerGB}
+
+	n := base
+	n.MonthlyCostCents, n.Currency = 9000, "CNY"
+	quote, dev, err := CheckNode(src, n, 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if quote.MonthlyCents != 10000 || dev.Pct != -10 || dev.Off {
+		t.Fatalf("quote=%+v dev=%+v; want 10000 / -10%% / off=false", quote, dev)
+	}
+
+	n.MonthlyCostCents = 15000
+	_, dev, err = CheckNode(src, n, 30)
+	if err != nil || !dev.Off {
+		t.Fatalf("over tolerance = %+v, %v; want off", dev, err)
+	}
+
+	n.MonthlyCostCents = 0
+	if _, _, err := CheckNode(src, n, 30); !errors.Is(err, costref.ErrNoManual) {
+		t.Fatalf("no manual = %v; want ErrNoManual", err)
+	}
+	n.MonthlyCostCents, n.Currency = 9000, "USD"
+	if _, _, err := CheckNode(src, n, 30); !errors.Is(err, costref.ErrCurrencyMismatch) {
+		t.Fatalf("currency mismatch = %v; want ErrCurrencyMismatch", err)
+	}
+	if _, _, err := CheckNode(src, storage.Node{Datacenter: "ghost"}, 30); !errors.Is(err, costref.ErrNotFound) {
+		t.Fatalf("no quote = %v; want ErrNotFound", err)
+	}
+}
+
+// TestLoopChecksAlertsUntilCancel 覆盖 Loop 启停：启动即跑一轮告警检查
+// （超阈值节点落 active 告警），ctx 取消后退出；nil logger 兜底。
+func TestLoopChecksAlertsUntilCancel(t *testing.T) {
+	db := newTestDB(t)
+	metered := seedNode(t, db, "metered", "hk", "按流量", 100, 0)
+	if err := SaveThreshold(db, 5000); err != nil {
+		t.Fatal(err)
+	}
+	seedTraffic(t, db, metered.ID, 60e9, 40e9, time.Now().Add(-time.Hour))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		Loop(ctx, db, 20*time.Millisecond, nil)
+		close(done)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		var alerts []storage.Alert
+		if err := db.Where("kind = ?", AlertKindHighCost).Find(&alerts).Error; err != nil {
+			t.Fatalf("query alerts: %v", err)
+		}
+		if len(alerts) == 1 && alerts[0].State == "active" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("loop first check never alerted: %+v", alerts)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("loop did not return after cancel")
+	}
+}
+
+// TestWatchLoopScansUntilCancel 覆盖 WatchLoop 启停：导入价格表+关注行，
+// 启动即扫出快照，ctx 取消后退出。
+func TestWatchLoopScansUntilCancel(t *testing.T) {
+	db := newTestDB(t)
+	if err := SaveRefTable(db, []byte(`[{"provider":"vultr","region":"tokyo","spec":"1c","monthly_cents":1000}]`)); err != nil {
+		t.Fatal(err)
+	}
+	seedWatch(t, db, "vultr", "tokyo", "1c", 900)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		WatchLoop(ctx, db, 20*time.Millisecond, nil)
+		close(done)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		var snaps []storage.PriceSnapshot
+		if err := db.Find(&snaps).Error; err != nil {
+			t.Fatalf("query snapshots: %v", err)
+		}
+		if len(snaps) >= 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("watch loop first scan never landed")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("watch loop did not return after cancel")
 	}
 }

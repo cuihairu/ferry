@@ -2,6 +2,7 @@ package pool
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -203,5 +204,64 @@ func TestResume(t *testing.T) {
 	}
 	if _, err := Resume(db, 424242, nil); !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("missing node resume = %v", err)
+	}
+}
+
+// TestSuspend 手动摘除（E-25）：立即出池留痕；重复摘除报已摘、非入口节点
+// 拒绝、未知节点报不存在。
+func TestSuspend(t *testing.T) {
+	db := newDB(t)
+	n := seedNode(t, db, "manual-entry", "entry", true)
+	other := seedNode(t, db, "relay-only", "relay", true)
+
+	got, err := Suspend(db, n.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PoolState != StateSuspended || got.PoolReason != "手动摘除" || got.PoolChangedAt == nil {
+		t.Fatalf("suspended = %+v", got)
+	}
+	if _, err := Suspend(db, n.ID, nil); !errors.Is(err, ErrAlreadySuspended) {
+		t.Fatalf("re-suspend = %v; want ErrAlreadySuspended", err)
+	}
+	if _, err := Suspend(db, other.ID, nil); err == nil {
+		t.Fatal("non-entry node suspend should error")
+	}
+	if _, err := Suspend(db, 424242, nil); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("missing node suspend = %v; want record not found", err)
+	}
+}
+
+// TestLoopSweepsAndStopsOnCancel 覆盖 Loop 启停：启动即跑一轮（连续 sick
+// 节点被摘除），ctx 取消后退出；nil logger 走默认 logger 兜底。
+func TestLoopSweepsAndStopsOnCancel(t *testing.T) {
+	db := newDB(t)
+	n := seedNode(t, db, "sick-entry", "entry", true)
+	for _, age := range []time.Duration{9 * time.Minute, 6 * time.Minute, 3 * time.Minute} {
+		report(t, db, n.ID, agentproto.ProbeVerdictSick, age)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		Loop(ctx, db, 20*time.Millisecond, nil)
+		close(done)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if getPoolState(t, db, n.ID).PoolState == StateSuspended {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("loop first sweep never suspended sick node")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("loop did not return after cancel")
 	}
 }

@@ -1,6 +1,7 @@
 package review
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -135,5 +136,56 @@ func TestDisableInactiveRespectsResetCycle(t *testing.T) {
 	}
 	if byName["none-u"] {
 		t.Fatal("none 用户全量 260 ≥ 100 应被停用")
+	}
+}
+
+// TestRunZeroIntervalReturns 覆盖 Run 关闭口径：interval<=0 直接返回不起循环。
+func TestRunZeroIntervalReturns(t *testing.T) {
+	Run(context.Background(), nil, 0) // 不应 panic 也不起 ticker
+}
+
+// TestRunTickDisablesAndStopsOnCancel 覆盖 Run 循环：到点执行 DisableInactive
+// （过期用户被停用），ctx 取消后退出。
+func TestRunTickDisablesAndStopsOnCancel(t *testing.T) {
+	db, err := storage.Open(storage.DriverSQLite, filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	past := time.Now().Add(-24 * time.Hour)
+	if err := db.Create(&storage.User{Username: "expired", SubToken: "t-run", Enabled: true, ExpiresAt: &past}).Error; err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		Run(ctx, db, 20*time.Millisecond)
+		close(done)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		var u storage.User
+		if err := db.Where("username=?", "expired").First(&u).Error; err != nil {
+			t.Fatalf("load user: %v", err)
+		}
+		if !u.Enabled {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("run tick never disabled expired user")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("run did not return after cancel")
 	}
 }

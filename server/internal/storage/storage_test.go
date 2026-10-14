@@ -206,3 +206,27 @@ func TestCardBatchCascade(t *testing.T) {
 		t.Fatalf("card codes should cascade, got %d", cnt)
 	}
 }
+
+// TestSettings 覆盖 GetSetting/SetSetting：写入后读回、缺失键 ok=false、
+// 覆盖更新同键。
+func TestSettings(t *testing.T) {
+	db := openTest(t)
+
+	if _, ok, err := GetSetting(db, "missing-key"); err != nil || ok {
+		t.Fatalf("GetSetting missing = %q, %v, %v; want \"\", false, nil", "", ok, err)
+	}
+	if err := SetSetting(db, "wm", "42"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+	v, ok, err := GetSetting(db, "wm")
+	if err != nil || !ok || v != "42" {
+		t.Fatalf("GetSetting = %q, %v, %v; want 42, true, nil", v, ok, err)
+	}
+	if err := SetSetting(db, "wm", "100"); err != nil {
+		t.Fatalf("SetSetting update: %v", err)
+	}
+	v, ok, err = GetSetting(db, "wm")
+	if err != nil || !ok || v != "100" {
+		t.Fatalf("GetSetting after update = %q, %v, %v; want 100, true, nil", v, ok, err)
+	}
+}

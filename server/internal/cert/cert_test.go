@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -250,5 +251,101 @@ func TestSweepFailedBackoff(t *testing.T) {
 	}
 	if got.State != StateFailed || !strings.Contains(got.LastError, "acme error detail") {
 		t.Fatalf("after retry = %+v", got)
+	}
+}
+
+// TestLoopSweepsAndStopsOnCancel 覆盖 Loop 启停：启动即跑一轮（pending
+// 被签发转 ok），ctx 取消后退出；nil logger 走默认 logger 兜底。
+func TestLoopSweepsAndStopsOnCancel(t *testing.T) {
+	db := newDB(t)
+	provID := dnsFix(t, db)
+	task := mkTask(t, db, func(tk *storage.CertTask) { tk.DNSProviderID = provID })
+	m := newMgr(&recRunner{}, time.Now().Add(90*24*time.Hour))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		Loop(ctx, db, m, secret.NewStore("cert-master"), 20*time.Millisecond, nil)
+		close(done)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		var got storage.CertTask
+		if err := db.First(&got, task.ID).Error; err != nil {
+			t.Fatal(err)
+		}
+		if got.State == StateOK {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("loop first sweep never issued: state=%s", got.State)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("loop did not return after cancel")
+	}
+}
+
+// TestIssueNowIssuesAsync 覆盖手动签发：置 issuing 后异步执行，终态与
+// 到期回填；未知任务 ID 报错。
+func TestIssueNowIssuesAsync(t *testing.T) {
+	db := newDB(t)
+	provID := dnsFix(t, db)
+	task := mkTask(t, db, func(tk *storage.CertTask) { tk.DNSProviderID = provID })
+	m := newMgr(&recRunner{}, time.Now().Add(90*24*time.Hour))
+
+	if err := IssueNow(context.Background(), db, m, secret.NewStore("cert-master"), task.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		var got storage.CertTask
+		if err := db.First(&got, task.ID).Error; err != nil {
+			t.Fatal(err)
+		}
+		if got.State == StateOK && got.NotAfter != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("issue now never finished: state=%s", got.State)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := IssueNow(context.Background(), db, m, nil, 9999, nil); err == nil {
+		t.Fatal("issue now of unknown task should error")
+	}
+}
+
+// TestRealRunExec 覆盖真实执行位：合并输出、附加 env 进环境、工作目录
+// 生效；Bin 缺省回退 acme.sh（本环境未装，应报找不到而非挂死）。
+func TestRealRunExec(t *testing.T) {
+	m := &Manager{Bin: "sh"}
+	ctx := context.Background()
+	out, err := m.realRun(ctx, []string{"-c", "echo hi"}, nil)
+	if err != nil || !strings.Contains(out, "hi") {
+		t.Fatalf("plain run = %q, %v", out, err)
+	}
+
+	home := t.TempDir()
+	m.Home = home
+	out, err = m.realRun(ctx, []string{"-c", "pwd"}, nil)
+	if err != nil || !strings.Contains(out, filepath.Base(home)) {
+		t.Fatalf("dir run = %q, %v; want pwd under %s", out, err, home)
+	}
+
+	m.Home = ""
+	out, err = m.realRun(ctx, []string{"-c", "echo $FERRY_TEST_TOKEN"}, map[string]string{"FERRY_TEST_TOKEN": "bar"})
+	if err != nil || !strings.Contains(out, "bar") {
+		t.Fatalf("env run = %q, %v; want env merged", out, err)
+	}
+
+	out, err = (&Manager{}).realRun(ctx, []string{"--version"}, nil)
+	if err == nil {
+		t.Fatalf("default bin = %q, %v; want exec failure (acme.sh absent)", out, err)
 	}
 }

@@ -15,6 +15,7 @@ type cfFake struct {
 	records  []cfRec // 既有记录
 	posts    []map[string]any
 	puts     []map[string]any
+	deletes  []string // 被删记录 ID
 	zoneGets []string
 }
 
@@ -53,6 +54,9 @@ func (f *cfFake) handler() http.Handler {
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			f.puts = append(f.puts, body)
 			write(map[string]string{"id": "rid1"})
+		case strings.HasPrefix(path, "/zones/zid1/dns_records/") && r.Method == http.MethodDelete:
+			f.deletes = append(f.deletes, strings.TrimPrefix(path, "/zones/zid1/dns_records/"))
+			write(map[string]string{"id": "deleted"})
 		case path == "/zones/zid1/dns_records" && r.Method == http.MethodPost:
 			var body map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&body)
@@ -135,5 +139,47 @@ func TestNewKinds(t *testing.T) {
 	}
 	if _, err := New("cloudflare", ""); err == nil {
 		t.Fatal("empty token must fail")
+	}
+}
+
+// TestCloudflareDelete 覆盖全挂撤记录：命中 rtype 记录逐个删、无记录
+// 直接成功、zone 外名称报错；Kind 名固定 cloudflare。
+func TestCloudflareDelete(t *testing.T) {
+	c, f := newFake(t)
+	if got := c.Kind(); got != "cloudflare" {
+		t.Fatalf("kind = %q; want cloudflare", got)
+	}
+
+	f.records = []cfRec{{ID: "r1", Type: "A", Name: "a.example.com"}, {ID: "r2", Type: "A", Name: "a.example.com"}}
+	if err := c.Delete(context.Background(), "a.example.com", "A"); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.deletes) != 2 || f.deletes[0] != "r1" || f.deletes[1] != "r2" {
+		t.Fatalf("deletes = %v; want r1,r2", f.deletes)
+	}
+
+	// 无记录：直接成功，零删除调用
+	f.records, f.deletes = nil, nil
+	if err := c.Delete(context.Background(), "clean.example.com", "A"); err != nil {
+		t.Fatalf("delete with no records: %v", err)
+	}
+	if len(f.deletes) != 0 {
+		t.Fatalf("no-record delete issued %v", f.deletes)
+	}
+
+	// zone 外名称：findZone 找不到托管 zone
+	if err := c.Delete(context.Background(), "elsewhere.org", "A"); err == nil {
+		t.Fatal("delete outside zone should error")
+	}
+}
+
+// TestTruncate 截断超长错误摘要：短串原样、长串按字节截断加省略号。
+func TestTruncate(t *testing.T) {
+	if got := truncate("short", 10); got != "short" {
+		t.Fatalf("truncate short = %q; want unchanged", got)
+	}
+	got := truncate(strings.Repeat("x", 100), 50)
+	if len(got) != 53 || !strings.HasSuffix(got, "…") || strings.Count(got, "x") != 50 {
+		t.Fatalf("truncate long = %d bytes; want 50 x + ellipsis", len(got))
 	}
 }
