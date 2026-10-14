@@ -442,3 +442,31 @@ func TestValidRuleLibNameEdge(t *testing.T) {
 		}
 	}
 }
+
+// TestApplyRuleLibReadCurrentError asset 目标被同名目录占位：读现状即失败，
+// 不落盘不 reload。
+func TestApplyRuleLibReadCurrentError(t *testing.T) {
+	spec := testSpec(t, "")
+	dir := filepath.Join(filepath.Dir(spec.ConfigPath), "assets")
+	if err := os.MkdirAll(filepath.Join(dir, "geoip.dat"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ack := New(nil).Apply(spec, rulelibPush("geoip.dat", "data"), func() error { return nil })
+	if ack.OK || !strings.Contains(ack.Error, "read current rulelib") {
+		t.Fatalf("ack = %+v; want read current rulelib failure", ack)
+	}
+}
+
+// TestRollbackTempCreateFails 回滚临时文件落在文件占位目录：冒
+// 「write rollback temp」而非静默丢旧内容。
+func TestRollbackTempCreateFails(t *testing.T) {
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d := &Deployer{}
+	err := d.rollback(filepath.Join(blocker, "cfg.json"), []byte("old"), true, func() error { return nil }, ".tmp-*")
+	if err == nil || !strings.Contains(err.Error(), "write rollback temp") {
+		t.Fatalf("rollback err = %v; want write rollback temp failure", err)
+	}
+}
