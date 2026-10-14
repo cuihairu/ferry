@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cuihairu/ferry/packages/agentproto"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 )
@@ -248,5 +249,113 @@ func TestParseOutboundStats(t *testing.T) {
 	}
 	if got.Direct != 130 {
 		t.Fatalf("direct = %d, want 130", got.Direct)
+	}
+}
+
+// TestCollectorQueries 覆盖 Collector 三口径：节点级增量=用户增量求和
+// 且 conns 恒 0、per-email 零增量不上报、出站按 pattern 分别查询。
+func TestCollectorQueries(t *testing.T) {
+	srv, seen := startFakeStats(t, []Stat{
+		{Name: "user>>>alice>>>traffic>>>uplink", Value: 10},
+		{Name: "user>>>alice>>>traffic>>>downlink", Value: 40},
+		{Name: "user>>>bob>>>traffic>>>downlink", Value: 2},
+		{Name: "user>>>idle>>>traffic>>>downlink", Value: 0}, // 零增量不上报
+	})
+	addr := strings.TrimPrefix(srv.URL, "http://")
+	c := NewCollector(addr, log.New(io.Discard, "", 0))
+
+	rx, tx, conns, err := c.Collect("xray")
+	if err != nil {
+		t.Fatalf("Collect = %v", err)
+	}
+	if rx != 42 || tx != 10 || conns != 0 {
+		t.Fatalf("Collect = %d, %d, %d; want 42, 10, 0", rx, tx, conns)
+	}
+	if seen.pattern != "user>>>" || !seen.reset {
+		t.Fatalf("query = %+v; want user>>> reset", *seen)
+	}
+
+	users, err := c.CollectUsers("xray")
+	if err != nil {
+		t.Fatalf("CollectUsers = %v", err)
+	}
+	if len(users) != 2 {
+		t.Fatalf("users = %+v; want 2 (zero delta dropped)", users)
+	}
+	byEmail := map[string]agentproto.UserTraffic{}
+	for _, u := range users {
+		byEmail[u.Email] = u
+	}
+	if a := byEmail["alice"]; a.Rx != 40 || a.Tx != 10 {
+		t.Fatalf("alice = %+v; want rx 40 tx 10", a)
+	}
+}
+
+// TestCollectorOutbound 出站采集走 outbound>>> 口径。
+func TestCollectorOutbound(t *testing.T) {
+	srv, seen := startFakeStats(t, []Stat{
+		{Name: "outbound>>>direct>>>traffic>>>uplink", Value: 100},
+		{Name: "outbound>>>block>>>traffic>>>uplink", Value: 7},
+	})
+	c := NewCollector(strings.TrimPrefix(srv.URL, "http://"), nil) // nil logger 走默认
+	direct, blocked, err := c.CollectOutbound("xray")
+	if err != nil {
+		t.Fatalf("CollectOutbound = %v", err)
+	}
+	if direct != 100 || blocked != 7 {
+		t.Fatalf("direct, blocked = %d, %d; want 100, 7", direct, blocked)
+	}
+	if seen.pattern != "outbound>>>" {
+		t.Fatalf("pattern = %q; want outbound>>>", seen.pattern)
+	}
+}
+
+// TestCollectorQueryError 查询失败三口径各自冒错，不吞错。
+func TestCollectorQueryError(t *testing.T) {
+	c := NewCollector("127.0.0.1:1", log.New(io.Discard, "", 0))
+	if _, _, _, err := c.Collect("xray"); err == nil {
+		t.Fatal("Collect on dead addr should error")
+	}
+	if _, err := c.CollectUsers("xray"); err == nil {
+		t.Fatal("CollectUsers on dead addr should error")
+	}
+	if _, _, err := c.CollectOutbound("xray"); err == nil {
+		t.Fatal("CollectOutbound on dead addr should error")
+	}
+}
+
+// TestPBSkip 非关注字段体的跳过：varint/fixed64/length-delimited/fixed32
+// 四种 wire type 都能跳过，长度越界与未知 wire type 报错。
+func TestPBSkip(t *testing.T) {
+	rest := []byte("tail")
+	cases := []struct {
+		name string
+		body []byte
+		wire uint64
+		want string
+	}{
+		{"varint", binary.AppendUvarint(nil, 300), 0, "tail"},
+		{"fixed64", make([]byte, 8), 1, "tail"},
+		{"bytes", append(binary.AppendUvarint(nil, 3), "abc"...), 2, "tail"},
+		{"fixed32", make([]byte, 4), 5, "tail"},
+	}
+	for _, c := range cases {
+		b := append(append([]byte(nil), c.body...), rest...)
+		got, err := pbSkip(b, c.wire)
+		if err != nil || string(got) != c.want {
+			t.Errorf("pbSkip %s = %q, %v; want %q, nil", c.name, got, err, c.want)
+		}
+	}
+	if _, err := pbSkip(make([]byte, 2), 1); err == nil {
+		t.Error("short fixed64 should error")
+	}
+	if _, err := pbSkip([]byte{9}, 2); err == nil {
+		t.Error("length beyond body should error")
+	}
+	if _, err := pbSkip(make([]byte, 1), 5); err == nil {
+		t.Error("short fixed32 should error")
+	}
+	if _, err := pbSkip(nil, 3); err == nil {
+		t.Error("group wire type should error")
 	}
 }

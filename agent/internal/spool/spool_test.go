@@ -1,10 +1,12 @@
 package spool
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
@@ -135,5 +137,50 @@ func TestBadLineSkipped(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].ID != "ok" {
 		t.Fatalf("bad line must not block: %+v", got)
+	}
+}
+
+// TestWatchForwardsUntilCancel Watch 周期扫描转发：写盘后被扫描消费，
+// ctx 取消后返回 ctx.Err()；目录不存在时不崩（IsNotExist 视同空）。
+func TestWatchForwardsUntilCancel(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "later") // Watch 起步时目录还不存在
+	got := make(chan agentproto.Envelope, 4)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- Watch(ctx, dir, func(e agentproto.Envelope) error {
+			got <- e
+			return nil
+		})
+	}()
+	// 目录此时还不存在：Watch 不得因此退出。
+	select {
+	case err := <-done:
+		t.Fatalf("Watch exited on missing dir: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	if err := Write(dir, "probe", mustEnv(t, "w1", agentproto.MsgProbeReport)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case e := <-got:
+		if e.ID != "w1" {
+			t.Fatalf("forwarded %+v; want w1", e)
+		}
+	case <-time.After(PollInterval + 3*time.Second):
+		t.Fatal("Watch did not forward spooled entry")
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Watch err = %v; want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Watch did not return after cancel")
 	}
 }
