@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cuihairu/ferry/packages/costref"
 	"github.com/cuihairu/ferry/server/internal/herald"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"gorm.io/gorm"
@@ -112,5 +113,49 @@ func TestCheckPriceWatches(t *testing.T) {
 	db.Model(&storage.Event{}).Where("kind = ?", herald.KindPriceAlert).Count(&ev)
 	if ev != 2 {
 		t.Fatalf("events after miss scan = %d", ev)
+	}
+}
+
+// TestQuoteURL 价格页附注口径：未附 URL 显式标注。
+func TestQuoteURL(t *testing.T) {
+	if got := quoteURL(costref.Quote{}); got != "（未附）" {
+		t.Errorf("empty URL = %q; want （未附）", got)
+	}
+	if got := quoteURL(costref.Quote{URL: "https://price"}); got != "https://price" {
+		t.Errorf("URL = %q", got)
+	}
+}
+
+// TestEmitPriceAlertBranches 同日去重与事件表故障容错。
+func TestEmitPriceAlertBranches(t *testing.T) {
+	db := newTestDB(t)
+	emitPriceAlert(db, "t1", "b1", "d1")
+	emitPriceAlert(db, "t1", "b1", "d1") // 同 dedup 已落：跳过
+	if got := priceEvents(t, db); got != 1 {
+		t.Fatalf("events = %d; want 1 (dedup)", got)
+	}
+	emitPriceAlert(db, "t2", "b2", "d2") // 不同 dedup：照发
+	if got := priceEvents(t, db); got != 2 {
+		t.Fatalf("events = %d; want 2", got)
+	}
+	// 事件表不可写：只记日志不炸。
+	if err := db.Migrator().DropTable(&storage.Event{}); err != nil {
+		t.Fatal(err)
+	}
+	emitPriceAlert(db, "t3", "b3", "d3")
+}
+
+// TestCheckPriceWatchesDBError 库不可用即冒错；nil 日志器走缺省。
+func TestCheckPriceWatchesDBError(t *testing.T) {
+	db := newTestDB(t)
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sqlDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckPriceWatches(db, time.Now(), nil); err == nil {
+		t.Fatal("closed db must fail")
 	}
 }

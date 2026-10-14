@@ -6,6 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -263,5 +267,92 @@ func TestLoopSweepsAndStopsOnCancel(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("loop did not return after cancel")
+	}
+}
+
+// TestMarkStandbyBranches 预备标记分支：节点不存在/非入口角色/非池内
+// active 各自明确报错；正常入口标预备成功，重复标预备报 ErrNotActive。
+func TestMarkStandbyBranches(t *testing.T) {
+	db := newDB(t)
+	if _, err := MarkStandby(db, 999); err == nil {
+		t.Fatal("missing node must fail")
+	}
+	landing := seedNode(t, db, "landing-1", "landing", true)
+	if _, err := MarkStandby(db, landing.ID); err == nil ||
+		!strings.Contains(err.Error(), "not an entry") {
+		t.Fatalf("err = %v; want not an entry", err)
+	}
+	n := seedNode(t, db, "entry-1", "entry", true)
+	if err := db.Model(&storage.Node{}).Where("id = ?", n.ID).
+		Update("pool_state", StateActive).Error; err != nil {
+		t.Fatal(err)
+	}
+	got, err := MarkStandby(db, n.ID)
+	if err != nil || got.PoolState != StateStandby {
+		t.Fatalf("mark = %+v err=%v", got, err)
+	}
+	if _, err := MarkStandby(db, n.ID); !errors.Is(err, ErrNotActive) {
+		t.Fatalf("re-mark err = %v; want ErrNotActive", err)
+	}
+}
+
+// TestPromote 预备升池：缺省理由「预备补位」，显式理由保留。
+func TestPromote(t *testing.T) {
+	db := newDB(t)
+	n := seedNode(t, db, "spare-1", "entry", true)
+	if err := db.Model(&storage.Node{}).Where("id = ?", n.ID).
+		Update("pool_state", StateStandby).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := Promote(db, n.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	var got storage.Node
+	if err := db.First(&got, n.ID).Error; err != nil || got.PoolState != StateActive ||
+		got.PoolReason != "预备补位" {
+		t.Fatalf("promoted = %+v err=%v", got, err)
+	}
+	if err := db.Model(&storage.Node{}).Where("id = ?", n.ID).
+		Update("pool_state", StateStandby).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := Promote(db, n.ID, "L2 补位"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.First(&got, n.ID).Error; err != nil || got.PoolReason != "L2 补位" {
+		t.Fatalf("custom reason = %+v err=%v", got, err)
+	}
+}
+
+// TestAnnounceWebhook 池事件外发：配置 webhook 后 announce 同步发送；
+// 渠道故障只记日志不阻断。
+func TestAnnounceWebhook(t *testing.T) {
+	db := newDB(t)
+	var mu sync.Mutex
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls++
+		mu.Unlock()
+	}))
+	defer srv.Close()
+	if err := storage.SetSetting(db, "notify_webhook_url", srv.URL); err != nil {
+		t.Fatal(err)
+	}
+	ev := Event{NodeID: 1, Name: "entry-1", Action: "manual_suspend", Reason: "管理员操作"}
+	announce(db, log.New(&bytes.Buffer{}, "", 0), ev)
+	mu.Lock()
+	n := calls
+	mu.Unlock()
+	if n != 1 {
+		t.Fatalf("webhook calls = %d; want 1", n)
+	}
+
+	// 渠道挂了：Send 报错只记日志。
+	srv.Close()
+	var buf bytes.Buffer
+	announce(db, log.New(&buf, "", 0), ev)
+	if !strings.Contains(buf.String(), "notify webhook") {
+		t.Fatalf("log = %q; want send failure logged", buf.String())
 	}
 }

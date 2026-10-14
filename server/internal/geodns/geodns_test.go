@@ -3,6 +3,7 @@ package geodns
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -325,4 +326,44 @@ func TestSyncFailureAlerts(t *testing.T) {
 	if n, err := s.Sync(context.Background()); err != nil || n != 2 {
 		t.Fatalf("recovered sync = %d, %v", n, err)
 	}
+}
+
+// TestFactoryDefault 未注入工厂时缺省 dns.New 插件位。
+func TestFactoryDefault(t *testing.T) {
+	if f := (&Syncer{}).factory(); f == nil {
+		t.Fatal("default factory must resolve to dns.New")
+	}
+}
+
+// TestSyncCredentialFailures 凭证链路失败：未配主密钥/凭证解不开都冒错
+// 不冒称对账成功。
+func TestSyncCredentialFailures(t *testing.T) {
+	fake := &fakeChan{}
+	s, _ := newSyncer(t, fake)
+	addNode(t, s, "us-1", "US", 100)
+
+	// 未配主密钥。
+	noStore := &Syncer{DB: s.DB, New: s.New}
+	if _, err := noStore.Sync(context.Background()); err == nil ||
+		!strings.Contains(err.Error(), "master key not configured") {
+		t.Fatalf("err = %v; want master key not configured", err)
+	}
+	// 凭证密文损坏。
+	if err := s.DB.Model(&storage.DNSProvider{}).Where("id = ?", 1).
+		Update("api_key", "not-sealed").Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Sync(context.Background()); err == nil ||
+		!strings.Contains(err.Error(), "dns provider") {
+		t.Fatalf("err = %v; want provider failure", err)
+	}
+}
+
+// TestEmitSyncFailedToleratesDBError 事件表不可写：告警辅助只记日志不炸。
+func TestEmitSyncFailedToleratesDBError(t *testing.T) {
+	db := newTestDB(t)
+	if err := db.Migrator().DropTable(&storage.Event{}); err != nil {
+		t.Fatal(err)
+	}
+	emitSyncFailed(db, errors.New("boom")) // 只是不能落事件，不 panic 即通过
 }
