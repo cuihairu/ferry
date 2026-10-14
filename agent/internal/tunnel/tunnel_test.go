@@ -8,7 +8,11 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/binary"
 	"encoding/pem"
+	"errors"
+	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"os"
@@ -16,6 +20,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 )
 
 // testCert 现场签一张自签证书（测试专用，不落文件）。
@@ -51,10 +57,12 @@ func testCert(t *testing.T) tls.Certificate {
 }
 
 func TestRegistry(t *testing.T) {
-	if err := Register("dup", func(Options) (Tunnel, error) { return nil, nil }); err != nil {
+	// 插件名带运行序号：注册表是包级全局，-count>1 重跑时同名注册会撞重复。
+	name := fmt.Sprintf("dup-%d", time.Now().UnixNano())
+	if err := Register(name, func(Options) (Tunnel, error) { return nil, nil }); err != nil {
 		t.Fatalf("register: %v", err)
 	}
-	if err := Register("dup", func(Options) (Tunnel, error) { return nil, nil }); err == nil {
+	if err := Register(name, func(Options) (Tunnel, error) { return nil, nil }); err == nil {
 		t.Fatal("duplicate register must fail")
 	}
 	if _, err := Open("no-such-plugin", Options{}); err == nil {
@@ -199,5 +207,178 @@ func TestPingPongDeadPeer(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("no error on dead peer")
+	}
+}
+
+// TestPluginIdentityAndNoopClose 三家拨号插件的 Name 与无状态 Close 口径。
+func TestPluginIdentityAndNoopClose(t *testing.T) {
+	cases := []struct {
+		tn   Tunnel
+		want string
+	}{
+		{&sshTunnel{}, pluginSSH},
+		{&tlsCamo{}, pluginTLSCamo},
+		{&quicSidecar{opts: Options{}}, pluginQUIC},
+	}
+	for _, c := range cases {
+		if got := c.tn.Name(); got != c.want {
+			t.Errorf("Name = %q; want %q", got, c.want)
+		}
+		if err := c.tn.Close(); err != nil {
+			t.Errorf("%s Close = %v; want nil", c.want, err)
+		}
+	}
+}
+
+// TestSSHTunnelResetForeignConn reset 只清自己那条连接：外来指针不动现状。
+func TestSSHTunnelResetForeignConn(t *testing.T) {
+	tn := &sshTunnel{}
+	// sshConn 为 nil，dead 非 nil：不匹配，不应触发 Close（否则 nil 解引用）。
+	tn.reset(new(ssh.Client))
+	if tn.sshConn != nil {
+		t.Fatalf("sshConn = %v; want nil", tn.sshConn)
+	}
+	// Close 空连接为 nil。
+	if err := tn.Close(); err != nil {
+		t.Fatalf("Close on fresh tunnel = %v", err)
+	}
+}
+
+// hbPeer 起一条 TCP 心跳对端，返回本侧连接与停对端的方式。走 TCP 而非
+// net.Pipe：管道无缓冲且两侧 ticker 同相位时，在途 ping 写会撞写超时，
+// 那属于连接已断口径，会污染 ctx 取消路径的断言。
+func hbPeer(t *testing.T, interval time.Duration) (net.Conn, func()) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stop := make(chan struct{})
+	peerDone := make(chan error, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			peerDone <- err
+			return
+		}
+		defer c.Close()
+		ctxPeer, cancelPeer := context.WithCancel(context.Background())
+		go func() {
+			<-stop
+			cancelPeer()
+		}()
+		peerDone <- PingPong(ctxPeer, c, interval)
+	}()
+	conn, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		close(stop)
+		t.Fatal(err)
+	}
+	return conn, func() {
+		close(stop)
+		conn.Close()
+		select {
+		case <-peerDone:
+		case <-time.After(3 * time.Second):
+			t.Error("peer heartbeat did not exit")
+		}
+	}
+}
+
+// TestServeHeartbeatRoundTrip 心跳：两端同跑 PingPong 互答，ctx 取消返回 nil。
+func TestServeHeartbeatRoundTrip(t *testing.T) {
+	tn := &quicSidecar{opts: Options{}}
+	a, stopPeer := hbPeer(t, 20*time.Millisecond)
+	defer a.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	ownDone := make(chan error, 1)
+	go func() { ownDone <- tn.ServeHeartbeat(ctx, a, 20*time.Millisecond) }()
+
+	time.Sleep(150 * time.Millisecond) // 若干轮 ping/pong
+	cancel()
+	select {
+	case err := <-ownDone:
+		if err != nil {
+			t.Fatalf("ServeHeartbeat after cancel = %v; want nil", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("ServeHeartbeat did not return after cancel")
+	}
+	stopPeer()
+}
+
+// silentPeer 起一条只收不回的 TCP 对端：持续收帧（我方写不阻塞）并按 tick
+// 发 ping（我方读侧不超时），但永不复 ping 为 pong——即「连着但不回」。
+func silentPeer(t *testing.T, tick time.Duration) net.Conn {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stop := make(chan struct{})
+	go func() {
+		<-stop
+		_ = ln.Close()
+	}()
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		go func() { // 收侧只丢不答
+			buf := make([]byte, frameLen)
+			for {
+				if _, err := io.ReadFull(c, buf); err != nil {
+					return
+				}
+			}
+		}()
+		tk := time.NewTicker(tick)
+		defer tk.Stop()
+		var nonce uint64
+		for {
+			select {
+			case <-stop:
+				return
+			case <-tk.C:
+				nonce++
+				var out [frameLen]byte
+				out[0] = framePing
+				binary.BigEndian.PutUint64(out[1:], nonce)
+				_ = c.SetWriteDeadline(time.Now().Add(time.Second))
+				if _, err := c.Write(out[:]); err != nil {
+					return
+				}
+			}
+		}
+	}()
+	conn, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		close(stop)
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { close(stop); conn.Close() })
+	return conn
+}
+
+// TestServeHeartbeatLost 失活判定：连接活着、对端也持续发 ping（读侧不超时），
+// 但从不回 pong——连续 3 个周期无响应即判连接已死（ErrHeartbeatLost）。
+//
+// 对端若完全沉默，读超时（3*interval）与第 3 次 miss 落在同一时刻，断言会在
+// 两条错误路径间抖动；让对端只发 ping 不发 pong，可把读超时路径摘干净。
+func TestServeHeartbeatLost(t *testing.T) {
+	a := silentPeer(t, 10*time.Millisecond)
+
+	done := make(chan error, 1)
+	go func() { done <- (&tlsCamo{}).ServeHeartbeat(context.Background(), a, 20*time.Millisecond) }()
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrHeartbeatLost) {
+			t.Fatalf("ServeHeartbeat = %v; want ErrHeartbeatLost", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("ServeHeartbeat did not detect lost connection")
 	}
 }

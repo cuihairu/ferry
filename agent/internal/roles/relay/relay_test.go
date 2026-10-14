@@ -264,3 +264,67 @@ func TestRelayHotRepoint(t *testing.T) {
 		t.Fatal("run did not exit on cancel")
 	}
 }
+
+// TestRelayRunFile RunFile 出口：覆盖文件缺失按空覆盖处理、损坏即启动失败；
+// 正常起监听并随 ctx 取消退出（SIGHUP 注册路径一并覆盖）。
+func TestRelayRunFile(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	logger := log.New(os.Stderr, "test ", 0)
+
+	// 缺失覆盖文件：不阻塞启动（按空覆盖），因 listen 非法而失败
+	if err := RunFile(ctx, config.RelaySpec{}, filepath.Join(t.TempDir(), "absent.json"), logger); err == nil {
+		t.Fatal("empty spec must fail")
+	}
+
+	// 损坏覆盖文件：启动失败尽早在 run 内暴露
+	bad := filepath.Join(t.TempDir(), "ov.json")
+	if err := os.WriteFile(bad, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunFile(ctx, config.RelaySpec{Listen: "127.0.0.1:0", LandingAddr: "127.0.0.1:1",
+		Tunnel: "plain-test"}, bad, logger); err == nil {
+		t.Fatal("corrupt override must fail startup")
+	}
+
+	// 正常路径：占一个端口号让 RunFile 自己监听
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := probe.Addr().String()
+	_ = probe.Close()
+
+	ok := filepath.Join(t.TempDir(), "ov.json")
+	if err := os.WriteFile(ok, []byte(`{"landing_addr":"127.0.0.1:1"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- RunFile(ctx, config.RelaySpec{
+			Listen: addr, LandingAddr: "127.0.0.1:1", Tunnel: "plain-test",
+		}, ok, logger)
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if c, derr := net.Dial("tcp", addr); derr == nil {
+			_ = c.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			cancel()
+			<-done
+			t.Fatal("RunFile did not listen")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("RunFile err = %v; want context.Canceled", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("RunFile did not return after cancel")
+	}
+}
