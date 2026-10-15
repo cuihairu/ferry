@@ -204,3 +204,20 @@
 本轮逐条复核：偶发项 TestProvisionRunAPI 仍无新复现（R1015D 五连跑证据仍有效，-race 门禁连跑三轮全净）；vitepress 2 stable 仍未发布（latest=1.6.4）；token 轮换/mTLS CA/直连支付/通道偏好/TOUCH-4/TOUCH-7/costref 真源/P2 调参/流量预算/MONTH_ROLLING/OSS 三候选/hy2 真机触发条件全部不变。
 
 依据：todo 可推进线（补覆盖）已清账，未勾项触发条件全部不成立；本轮单 commit 纯文档落账，main 与 origin/main 同步。
+
+## 巡检结论（PATROL1016）
+
+2026-10-16 巡检轮（PATROL1016）：15 项未勾解锁条件逐条实测复核，全部仍不成立，维持挂起不重开；无合法开工项。docs-only 落账不编译不跑测试套件。
+
+逐条实测（相对 R1016D 段的新鲜证据）：
+- 偶发项 TestProvisionRunAPI：`go test ./internal/handler/ -run '^TestProvisionRunAPI$' -race -count=5` → ok 4.006s，五连跑再净，未复现。
+- vitepress（#15）：registry dist-tags latest=1.6.4 / next=2.0.0-alpha.20，2.x stable 仍零 tag。
+- C-06（#2）：router.go 对 rotate/crl/revoc 仍零命中；mTLS（#3）：安全设计.md:66 默认关闭、:97-98 CA 编排挂起不变。
+- 直连支付（#4）：payments/ 全文对 app_id/merchant_id/mch_id 零命中。
+- TOUCH-7（#7）：probe.go 仍仅透传 TargetKind，探测面 entry_domain 零命中；costref 真源（#8）：packages/costref 仍仅 compare/costref/static 三件（stdlib 静态表）。
+- 调参（#9）：调度核心设计.md:109 P2 维持不变；OSS 三候选（#12）：开源选型设计.md:42-43、56-57 保留自有的核验改判不变。
+- 拍板关闭项（#1/#5/#6/#11）：无解锁条件，不重开；hy2（#13）外部提供项、流量预算（#10）观察项，条件未变。
+
+补覆盖战役（三十九批→五十二批）已在前轮收官（98.5%，5408/5492，收官 commit 45e596c），无批次五十三；memex 侧本轮巡检 clean（HEAD=origin=8e31ff9）。
+
+依据：15 条触发条件全部不成立（外部未提供/上游未发布/拍板关闭无解锁条件），无合法开工项；本轮单 commit 纯文档落账，main 与 origin/main 同步。
