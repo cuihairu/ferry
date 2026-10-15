@@ -2,11 +2,14 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/cuihairu/ferry/server/internal/storage"
+	"gorm.io/gorm"
 )
 
 // TestReconcile 覆盖三账对账（PAY-9）：按订单分组、缺失环节标注
@@ -249,5 +252,120 @@ func TestOrderRefundAndDetail(t *testing.T) {
 	}
 	if out.Summary.PaidOrders != 0 || out.Summary.PaidCents != 0 {
 		t.Fatalf("summary = %+v", out.Summary)
+	}
+}
+
+// TestReconcileGuards 覆盖对账 limit 负例/合法值与退款坏体 400。
+func TestReconcileGuards(t *testing.T) {
+	r, _ := newTestRouterWithDB(t)
+	for _, q := range []string{"?limit=abc", "?limit=0", "?limit=501"} {
+		if rec := doJSON(t, r, "GET", "/api/payments/reconcile"+q, nil); rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s: %d", q, rec.Code)
+		}
+	}
+	if rec := doJSON(t, r, "GET", "/api/payments/reconcile?limit=5", nil); rec.Code != http.StatusOK {
+		t.Fatalf("limit=5: %d %s", rec.Code, rec.Body)
+	}
+	// 退款坏体 400（note 选填但 JSON 解析失败仍拒）。
+	if rec := doRaw(t, r, "POST", "/api/payments/orders/x/refund", "{bad"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("refund bad json: %d", rec.Code)
+	}
+}
+
+// TestReconcileDBErrors 覆盖对账与退款取数/落账失败 → 500（gorm 回调注错，
+// 对齐既有口径）：订单/流水/发放取数、空库游离记录取数、退款状态流转。
+func TestReconcileDBErrors(t *testing.T) {
+	scenarios := []struct {
+		name   string
+		seed   bool // 预置一笔 paid 订单（空库走游离记录分支）
+		refund bool // 打退款而非对账
+		reg    func(db *gorm.DB)
+	}{
+		{"orders query", true, false, func(db *gorm.DB) {
+			db.Callback().Query().Before("gorm:query").Register("t:recon", func(tx *gorm.DB) {
+				if _, ok := tx.Statement.Dest.(*[]storage.PaymentOrder); ok {
+					tx.AddError(errors.New("db down"))
+				}
+			})
+		}},
+		{"txns query", true, false, func(db *gorm.DB) {
+			db.Callback().Query().Before("gorm:query").Register("t:recon", func(tx *gorm.DB) {
+				if _, ok := tx.Statement.Dest.(*[]storage.PaymentTransaction); ok {
+					tx.AddError(errors.New("db down"))
+				}
+			})
+		}},
+		{"grants query", true, false, func(db *gorm.DB) {
+			db.Callback().Query().Before("gorm:query").Register("t:recon", func(tx *gorm.DB) {
+				if _, ok := tx.Statement.Dest.(*[]storage.Grant); ok {
+					tx.AddError(errors.New("db down"))
+				}
+			})
+		}},
+		{"orphan txns query", false, false, func(db *gorm.DB) {
+			db.Callback().Query().Before("gorm:query").Register("t:recon", func(tx *gorm.DB) {
+				if _, ok := tx.Statement.Dest.(*[]storage.PaymentTransaction); ok {
+					tx.AddError(errors.New("db down"))
+				}
+			})
+		}},
+		{"orphan grants query", false, false, func(db *gorm.DB) {
+			db.Callback().Query().Before("gorm:query").Register("t:recon", func(tx *gorm.DB) {
+				if _, ok := tx.Statement.Dest.(*[]storage.Grant); ok {
+					tx.AddError(errors.New("db down"))
+				}
+			})
+		}},
+		{"refund update", true, true, func(db *gorm.DB) {
+			db.Callback().Update().Before("gorm:update").Register("t:refund", func(tx *gorm.DB) {
+				if _, ok := tx.Statement.Model.(*storage.PaymentOrder); ok {
+					tx.AddError(errors.New("db down"))
+				}
+			})
+		}},
+	}
+	for _, sc := range scenarios {
+		t.Run(sc.name, func(t *testing.T) {
+			r, db := newTestRouterWithDB(t)
+			if sc.seed {
+				if err := db.Create(&storage.PaymentOrder{
+					OrderNo: "x-o1", UserID: 1, Provider: "epusdt",
+					AmountCents: 1000, Product: "p", Status: "paid",
+				}).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			sc.reg(db)
+			var rec *httptest.ResponseRecorder
+			if sc.refund {
+				rec = doJSON(t, r, "POST", "/api/payments/orders/x-o1/refund", map[string]any{"note": "n"})
+			} else {
+				rec = doJSON(t, r, "GET", "/api/payments/reconcile", nil)
+			}
+			if rec.Code != http.StatusInternalServerError {
+				t.Fatalf("%s: %d %s", sc.name, rec.Code, rec.Body)
+			}
+		})
+	}
+}
+
+// TestRefundRowLoadFail 覆盖退款成功后三账视图读不到订单的兜底分支（注错
+// 只拦读取不拦更新）：200 且 {"ok":true}，即状态流转确已落库。
+func TestRefundRowLoadFail(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	if err := db.Create(&storage.PaymentOrder{
+		OrderNo: "y-o1", UserID: 1, Provider: "epusdt",
+		AmountCents: 1000, Product: "p", Status: "paid",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	db.Callback().Query().Before("gorm:query").Register("t:refundload", func(tx *gorm.DB) {
+		if _, ok := tx.Statement.Dest.(*storage.PaymentOrder); ok {
+			tx.AddError(errors.New("db down"))
+		}
+	})
+	rec := doJSON(t, r, "POST", "/api/payments/orders/y-o1/refund", map[string]any{"note": "n"})
+	if rec.Code != http.StatusOK || rec.Body.String() != `{"ok":true}` {
+		t.Fatalf("refund with load fail: %d %s", rec.Code, rec.Body)
 	}
 }

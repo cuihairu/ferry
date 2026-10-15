@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // redeemCreate 造用户与卡批次，返回用户 id、批次码列表。
@@ -251,6 +253,189 @@ func TestDisableCardCode(t *testing.T) {
 	// 未知 id：与不可禁用同归 409（防枚举口径，见 card_test.go）
 	if rec := doJSON(t, r, "PATCH", "/api/card-codes/999/disable", nil); rec.Code != http.StatusConflict {
 		t.Fatalf("missing: %d", rec.Code)
+	}
+}
+
+// TestRedeemEdges 覆盖兑换负例与文案边界：坏 JSON/空码/缺用户 400 统一文案、
+// MB 档发放通知文案、有到期用户的时长续期从现有到期起算。
+func TestRedeemEdges(t *testing.T) {
+	r, _ := newTestRouterWithDB(t)
+	userID, _ := redeemCreate(t, r, "edge-a", map[string]any{
+		"grant_type": "add_quota", "grant_value": 1 << 30,
+	}, 1)
+
+	// 坏 JSON → 400 统一文案（不暴露解析细节）。
+	if rec := doRaw(t, r, "POST", "/api/redeem", "{bad"); rec.Code != http.StatusBadRequest || rec.Body.String() != `{"error":"兑换失败"}` {
+		t.Fatalf("bad json: %d %s", rec.Code, rec.Body)
+	}
+	// 空码 / 缺用户 → 400。
+	if rec := doJSON(t, r, "POST", "/api/redeem", map[string]any{"code": "", "user_id": userID}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("empty code: %d", rec.Code)
+	}
+	if rec := doJSON(t, r, "POST", "/api/redeem", map[string]any{"code": "AAAA-BBBB-CCCC"}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("no user: %d", rec.Code)
+	}
+
+	// MB 档文案：300MB 配额发放 → 站内信标题按 MB 计。
+	r2, db2 := newTestRouterWithDB(t)
+	user2, codes2 := redeemCreate(t, r2, "edge-b", map[string]any{
+		"grant_type": "add_quota", "grant_value": 300 << 20,
+	}, 1)
+	if rec := doJSON(t, r2, "POST", "/api/redeem", map[string]any{"code": codes2[0], "user_id": user2}); rec.Code != http.StatusOK {
+		t.Fatalf("mb redeem: %d %s", rec.Code, rec.Body)
+	}
+	var note storage.Notification
+	if err := db2.Where("user_id = ?", user2).First(&note).Error; err != nil {
+		t.Fatal(err)
+	}
+	if note.Title != "流量已到账：+300 MB" {
+		t.Fatalf("notification title = %q", note.Title)
+	}
+
+	// 有到期用户：时长续期从现有到期起算（+10 天再 +30 → 约 +40 天）。
+	r3, db3 := newTestRouterWithDB(t)
+	user3, codes3 := redeemCreate(t, r3, "edge-c", map[string]any{
+		"grant_type": "extend_days", "grant_value": 30,
+	}, 1)
+	if err := db3.Model(&storage.User{}).Where("id = ?", user3).
+		Update("expires_at", time.Now().Add(10*24*time.Hour)).Error; err != nil {
+		t.Fatal(err)
+	}
+	if rec := doJSON(t, r3, "POST", "/api/redeem", map[string]any{"code": codes3[0], "user_id": user3}); rec.Code != http.StatusOK {
+		t.Fatalf("extend redeem: %d %s", rec.Code, rec.Body)
+	}
+	var eu storage.User
+	if err := db3.First(&eu, user3).Error; err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Until(*eu.ExpiresAt); d < 39*24*time.Hour || d > 41*24*time.Hour {
+		t.Fatalf("expires_at until = %v, want ~40d", d)
+	}
+}
+
+// TestRedeemDBErrors 覆盖兑换事务各步取数/落账失败 → 500 且整体回滚零写入
+// （gorm 回调注错，对齐既有口径）；另含删批次与坏代理引用两种 500。
+func TestRedeemDBErrors(t *testing.T) {
+	scenarios := []struct {
+		name string
+		reg  func(db *gorm.DB)
+	}{
+		{"order create", func(db *gorm.DB) {
+			db.Callback().Create().Before("gorm:create").Register("t:order", func(tx *gorm.DB) {
+				if _, ok := tx.Statement.Dest.(*storage.PaymentOrder); ok {
+					tx.AddError(errors.New("db down"))
+				}
+			})
+		}},
+		{"ledger create", func(db *gorm.DB) {
+			db.Callback().Create().Before("gorm:create").Register("t:ledger", func(tx *gorm.DB) {
+				if _, ok := tx.Statement.Dest.(*[]storage.DistributorLedger); ok {
+					tx.AddError(errors.New("db down"))
+				}
+			})
+		}},
+		{"txn create", func(db *gorm.DB) {
+			db.Callback().Create().Before("gorm:create").Register("t:txn", func(tx *gorm.DB) {
+				if _, ok := tx.Statement.Dest.(*storage.PaymentTransaction); ok {
+					tx.AddError(errors.New("db down"))
+				}
+			})
+		}},
+		{"grant create", func(db *gorm.DB) {
+			db.Callback().Create().Before("gorm:create").Register("t:grant", func(tx *gorm.DB) {
+				if _, ok := tx.Statement.Dest.(*storage.Grant); ok {
+					tx.AddError(errors.New("db down"))
+				}
+			})
+		}},
+		{"notification create", func(db *gorm.DB) {
+			db.Callback().Create().Before("gorm:create").Register("t:note", func(tx *gorm.DB) {
+				if _, ok := tx.Statement.Dest.(*storage.Notification); ok {
+					tx.AddError(errors.New("db down"))
+				}
+			})
+		}},
+		{"user update", func(db *gorm.DB) {
+			db.Callback().Update().Before("gorm:update").Register("t:userupd", func(tx *gorm.DB) {
+				if _, ok := tx.Statement.Model.(*storage.User); ok {
+					tx.AddError(errors.New("db down"))
+				}
+			})
+		}},
+		{"code read", func(db *gorm.DB) {
+			db.Callback().Query().Before("gorm:query").Register("t:codeload", func(tx *gorm.DB) {
+				if _, ok := tx.Statement.Dest.(*storage.CardCode); ok {
+					tx.AddError(errors.New("db down"))
+				}
+			})
+		}},
+		{"user read", func(db *gorm.DB) {
+			db.Callback().Query().Before("gorm:query").Register("t:userload", func(tx *gorm.DB) {
+				if _, ok := tx.Statement.Dest.(*storage.User); ok {
+					tx.AddError(errors.New("db down"))
+				}
+			})
+		}},
+		{"batch read", func(db *gorm.DB) {
+			db.Callback().Query().Before("gorm:query").Register("t:batchload", func(tx *gorm.DB) {
+				if _, ok := tx.Statement.Dest.(*storage.CardBatch); ok {
+					tx.AddError(errors.New("db down"))
+				}
+			})
+		}},
+		{"distributor missing", nil},
+	}
+	for _, sc := range scenarios {
+		t.Run(sc.name, func(t *testing.T) {
+			r, db := newTestRouterWithDB(t)
+			userID, codes := redeemCreate(t, r, "dbx", map[string]any{
+				"grant_type": "add_quota", "grant_value": 1 << 30,
+			}, 1)
+			var codeRow storage.CardCode
+			if err := db.Where("code = ?", codes[0]).First(&codeRow).Error; err != nil {
+				t.Fatal(err)
+			}
+			switch sc.name {
+			case "ledger create":
+				// 真实代理：批次挂代理带面价，佣金行照常记账。
+				rec := doJSON(t, r, "POST", "/api/distributors", map[string]any{
+					"username": "dbx-dist", "password": "secret123", "discount_percent": 30,
+				})
+				if rec.Code != http.StatusCreated {
+					t.Fatalf("create distributor: %d %s", rec.Code, rec.Body)
+				}
+				var created struct {
+					Distributor map[string]any `json:"distributor"`
+				}
+				_ = json.Unmarshal(rec.Body.Bytes(), &created)
+				if err := db.Model(&storage.CardBatch{}).Where("id = ?", codeRow.BatchID).
+					Updates(map[string]any{
+						"distributor_id": uint(created.Distributor["id"].(float64)),
+						"price_cents":    100,
+					}).Error; err != nil {
+					t.Fatal(err)
+				}
+			case "distributor missing":
+				if err := db.Model(&storage.CardBatch{}).Where("id = ?", codeRow.BatchID).
+					Updates(map[string]any{"distributor_id": 999, "price_cents": 100}).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			if sc.reg != nil {
+				sc.reg(db)
+			}
+			rec := doJSON(t, r, "POST", "/api/redeem", map[string]any{"code": codes[0], "user_id": userID})
+			if rec.Code != http.StatusInternalServerError {
+				t.Fatalf("redeem: %d %s", rec.Code, rec.Body)
+			}
+			// 事务回滚零写入：无订单无发放。
+			var orders, grants int64
+			db.Model(&storage.PaymentOrder{}).Count(&orders)
+			db.Model(&storage.Grant{}).Count(&grants)
+			if orders != 0 || grants != 0 {
+				t.Fatalf("leaked rows: orders=%d grants=%d", orders, grants)
+			}
+		})
 	}
 }
 
