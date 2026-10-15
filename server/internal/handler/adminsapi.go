@@ -9,6 +9,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 // 多级管理员/子管理员配额（P2-2）管理面：两级口径对齐 Marzban is_sudo——
@@ -156,7 +157,13 @@ func (h *Handler) updateAdmin(c *gin.Context) {
 	}
 	var u storage.User
 	if err := h.db.First(&u, id).Error; err != nil {
-		replyFind(c, err)
+		// gorm 的 ErrRecordNotFound 与 errNotFound 不是同一哨兵，必须显式判定，
+		// 否则经 replyFind 落 500（用户可见的应是 404）。
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			fail(c, http.StatusNotFound, errors.New("admin not found"))
+			return
+		}
+		fail(c, http.StatusInternalServerError, err)
 		return
 	}
 	if !u.IsAdmin {
@@ -223,7 +230,12 @@ func (h *Handler) deleteAdmin(c *gin.Context) {
 	}
 	var u storage.User
 	if err := h.db.First(&u, id).Error; err != nil {
-		replyFind(c, err)
+		// 查无同 update：显式判 gorm 记录不存在回 404，经 replyFind 会落 500。
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			fail(c, http.StatusNotFound, errors.New("admin not found"))
+			return
+		}
+		fail(c, http.StatusInternalServerError, err)
 		return
 	}
 	if !u.IsAdmin {
