@@ -197,12 +197,13 @@ func (h *Handler) createDistributor(c *gin.Context) {
 	if in.Note != nil {
 		note = strings.TrimSpace(*in.Note)
 	}
+	enabled := true
+	if in.Enabled != nil {
+		enabled = *in.Enabled
+	}
 	d := storage.Distributor{
 		Username: username, PasswordHash: string(hash),
-		DiscountPercent: dp, Note: note, Enabled: true,
-	}
-	if in.Enabled != nil {
-		d.Enabled = *in.Enabled
+		DiscountPercent: dp, Note: note, Enabled: enabled,
 	}
 	if err := h.db.Create(&d).Error; err != nil {
 		if isDup(err) {
@@ -212,12 +213,14 @@ func (h *Handler) createDistributor(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
-	if !d.Enabled {
+	if !enabled {
 		// Enabled 带 default:true，零值 false 会被 GORM 略过落库默认值，需显式补写。
+		// Create 后结构体被库缺省 true 回填（RETURNING），按入参判定。
 		if err := h.db.Model(&storage.Distributor{}).Where("id=?", d.ID).Update("enabled", false).Error; err != nil {
 			fail(c, http.StatusInternalServerError, err)
 			return
 		}
+		d.Enabled = false
 	}
 	c.JSON(http.StatusCreated, gin.H{"distributor": d})
 }
