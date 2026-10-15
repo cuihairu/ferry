@@ -15,8 +15,8 @@ import (
 // 二十四批补口：用户 CRUD 各 400/404/500 口径——校验失败（坏绑定/空名/超长/
 // 负配额/非法带宽/非法设备数/非法周期）、模板与落库故障、改名冲突与回落
 // 再查失败、删用户与重置令牌的两段清理各自失败。
-// 留白：RandomToken 的 crypto/rand 错误与 isDup 的并发竞态（唯一约束被
-// ensureUsernameFree 前置拦住，正常流程不可达）不硬凑。
+// 四十九批补口：落库侧唯一冲突文本（isDup）的 409 归类按注入错误直测。
+// 留白：RandomToken 的 crypto/rand 错误不硬凑。
 
 // isUserModel 判断语句是否落在用户表上（Find 链 Model 是切片指针）。
 func isUserModel(v any) bool {
@@ -357,5 +357,46 @@ func TestResetSubTokenErrors(t *testing.T) {
 	rec = doJSON(t, r, http.MethodPost, "/api/users/1/sub-token", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("reset ok: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// TestUserDupTextErrors 覆盖落库侧唯一冲突文本归类 409：常规路径由
+// ensureUsernameFree 前置拦截，此处按注入的唯一冲突错误直测 isDup 分支
+// （并发建/改同名只在落库侧暴露）。
+func TestUserDupTextErrors(t *testing.T) {
+	// 建号：预检放行（新名），落库注入唯一冲突文本 → 409。
+	r, db := newTestRouterWithDB(t)
+	db.Callback().Create().Before("gorm:create").Register("test:user_dup_create", func(tx *gorm.DB) {
+		if isUserModel(tx.Statement.Dest) {
+			tx.AddError(errors.New("UNIQUE constraint failed: users.username"))
+		}
+	})
+	if rec := doJSON(t, r, http.MethodPost, "/api/users", map[string]any{"username": "dup-create"}); rec.Code != http.StatusConflict {
+		t.Fatalf("create dup: %d %s", rec.Code, rec.Body)
+	}
+
+	// 改名：预检放行（改到空闲名），落库注入唯一冲突文本 → 409。
+	r, db = newTestRouterWithDB(t)
+	seedUser(t, r, db, "dup-ren")
+	db.Callback().Update().Before("gorm:update").Register("test:user_dup_update", func(tx *gorm.DB) {
+		if isUserModel(tx.Statement.Model) {
+			tx.AddError(errors.New("UNIQUE constraint failed: users.username"))
+		}
+	})
+	if rec := doJSON(t, r, http.MethodPut, "/api/users/1", map[string]any{"username": "dup-ren-2"}); rec.Code != http.StatusConflict {
+		t.Fatalf("rename dup: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// TestIsDup 直测错误文本分类：nil 与不含关键词的错误都不算重复。
+func TestIsDup(t *testing.T) {
+	if isDup(nil) {
+		t.Fatal("nil should not be dup")
+	}
+	if isDup(errors.New("disk I/O error")) {
+		t.Fatal("unrelated error should not be dup")
+	}
+	if !isDup(errors.New("UNIQUE constraint failed")) || !isDup(errors.New("Duplicate entry")) {
+		t.Fatal("unique/duplicate text should be dup")
 	}
 }
