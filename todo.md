@@ -163,3 +163,21 @@
 当日覆盖工作（已完成，完成行留痕）：十一批 relaypush/recovery/notifyscan/provision/replenish/config/spool/tunnel（b6f28f8）、十二批 audit/standby/dns/configd（45cc193）、十三批 handler/ratelimit/toucher/backup（14a0187）、十四批 app/handler 分页（720be9b）。十一批为工作区遗留未提交增量（10-14 15:22..15:53 落盘，无活跃会话），本次只读复核+门禁通过后收编提交。
 
 依据：门禁按批跑受影响路径（go test + -race -count=2..3 全净，gofmt/vet 零输出），todo 增量即提即推，main 与 origin/main 同步；覆盖剩余洼地为 cmd 三入口 main() 装配体（覆盖需重构注入）与 DB 错误注入类深分支，不再有低成本批次可推。
+
+## 巡检结论（R1015D）
+
+2026-10-15 巡检轮（R1015D）：15 项未勾逐条复核，触发条件仍全部不成立，无可推进项，按闸门维持挂起不代拍板；纯核验轮，唯一改动为本结论落账（docs-only，门禁只跑文档检查不编译不跑测试套件）。
+
+逐条实测证据：
+- 偶发项 TestProvisionRunAPI：`go test ./internal/handler/ -run '^TestProvisionRunAPI$' -race -count=5` → ok 5.050s exit 0，五连跑未复现（此前一轮误把 `-run` 打在 ./internal/provision 包上返回 no tests to run，本轮已纠正到 handler 包重跑）。
+- vitepress 升级（挂起）：registry dist-tags latest=1.6.4 / next=2.0.0-alpha.20，2.x stable 零 tag，上游等待项未满足。
+- token 轮换/CRL（拍板关闭）：router.go 对 rotate/crl/revoc 零命中，无回潮。
+- mTLS CA 编排（挂起）：安全设计.md:66 mTLS 为可开关且默认关闭，:97-98 CA 自动化签发编排未实现，维持挂起。
+- 探测复用（待触发）：probe.go:94 仅透传 TargetKind，探测面无 entry_domain 字段，触发条件不成立。
+- costref 真实在线来源（待触发）：packages/costref 仅 compare.go/costref.go/static.go（stdlib 静态表），无商户 API 依据。
+- 微信/支付宝直连（挂起）：payments/ 全文对 app_id/merchant_id/mch_id 零命中，商户资质未到位。
+- 台账唯一性：find 全仓仅 ./todo.md 一个台账文件，零遗漏。
+
+更正一处旧账：PATROL1015 段「不再有低成本批次可推」与当前实测不符——handler 包在 35~38 批收口到 89.3%（4904/5492）后仍有 588 语句未覆盖，且多为既有测试模式的常规目标：landing.go 33 句（65.3%）、userio.go 28 句（78.5%）、routing.go 26 句（73.7%）、costwatch.go 25 句（74.0%）、costref.go 25 句（75.7%）、status.go 22 句（79.4%）、alerts.go 22 句（66.7%）等；下一巡检轮可按既有批次模式继续推进，不属硬卡点。
+
+依据：外部触发条件未满足（上游未发布/无商户资质/无真机环境/拍板关闭项无解锁条件），无可开工功能项；本轮单 commit 纯文档落账，main 与 origin/main 同步。
