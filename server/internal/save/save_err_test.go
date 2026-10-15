@@ -162,3 +162,25 @@ func TestLoopLogsSweepError(t *testing.T) {
 		t.Fatal("Loop did not stop on cancel")
 	}
 }
+
+// TestLoopDefaultsInterval interval<=0 回落 30s 缺省：首拍照常跑一轮。
+func TestLoopDefaultsInterval(t *testing.T) {
+	db := newTestDB(t)
+	seedTraffic(t, db, traffic1())
+
+	buf := &syncBuf{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		Loop(ctx, db, 0, log.New(buf, "", 0))
+		close(done)
+	}()
+	waitForLog(t, "save stats: 1 traffic row(s) aggregated", buf)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Loop did not stop on cancel")
+	}
+}

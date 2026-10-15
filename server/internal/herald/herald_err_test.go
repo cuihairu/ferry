@@ -156,6 +156,7 @@ func TestDeliverErrorPaths(t *testing.T) {
 }
 
 // TestLoopLogsDeliverError 循环内投递失败只记日志、不退出。
+// interval 传 0 顺带覆盖 30s 缺省回落分支（首拍照常执行）。
 func TestLoopLogsDeliverError(t *testing.T) {
 	db := newHeraldDB(t)
 	closeDB(t, db) // 每轮到期查询失败
@@ -165,7 +166,7 @@ func TestLoopLogsDeliverError(t *testing.T) {
 	defer cancel()
 	done := make(chan struct{})
 	go func() {
-		Loop(ctx, db, 5*time.Millisecond, func(storage.Event) error { return nil }, log.New(buf, "", 0))
+		Loop(ctx, db, 0, func(storage.Event) error { return nil }, log.New(buf, "", 0))
 		close(done)
 	}()
 	waitForLog(t, "herald deliver:", buf)

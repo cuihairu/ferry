@@ -2,11 +2,13 @@ package support
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -70,15 +72,34 @@ func TestSyncCustomerCreateErrors(t *testing.T) {
 		}
 	}
 
-	// 409 后回落再查失败：按查询错误冒错。
+	// 首查即失败：建档未发生，查询错误原样冒给调用方。
 	{
-		s := newStubServify(t)
-		s.onCreate = func(w http.ResponseWriter, _ map[string]any) {
-			w.WriteHeader(http.StatusConflict)
-		}
 		cl := &Client{BaseURL: "http://" + deadAddr(t), ServiceKey: "sk-test"}
 		if err := cl.SyncCustomer(context.Background(), errSnap()); err == nil {
-			t.Fatal("want re-search error")
+			t.Fatal("want first-search error")
+		}
+	}
+
+	// 409 后回落再查失败：首查命中空表、建档 409、回落重查 500——按查询错误冒错。
+	{
+		var searches int32
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPost {
+				w.WriteHeader(http.StatusConflict)
+				return
+			}
+			if atomic.AddInt32(&searches, 1) > 1 {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
+		}))
+		t.Cleanup(srv.Close)
+		cl := &Client{BaseURL: srv.URL, ServiceKey: "sk-test"}
+		err := cl.SyncCustomer(context.Background(), errSnap())
+		if err == nil || !strings.Contains(err.Error(), "500") {
+			t.Fatalf("err = %v, want re-search 500", err)
 		}
 	}
 
