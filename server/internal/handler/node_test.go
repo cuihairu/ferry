@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cuihairu/ferry/server/internal/config"
@@ -72,6 +73,18 @@ func doJSON(t *testing.T, r *gin.Engine, method, path string, body any) *httptes
 func doBare(t *testing.T, r *gin.Engine, method, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	return rec
+}
+
+// doRaw 发原始字符串体（坏 JSON 负例用，doJSON 只能发合法 JSON）：
+// 其余口径与 doJSON 一致，默认带管理员 JWT。
+func doRaw(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminJWT(t))
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	return rec

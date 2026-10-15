@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cuihairu/ferry/packages/agentproto"
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
@@ -161,6 +162,93 @@ func TestRuleLibPush(t *testing.T) {
 	db.Model(&storage.NodeConfig{}).Where("node_id=999").Count(&cnt)
 	if cnt != 0 {
 		t.Fatalf("missing node 不应落快照，got %d", cnt)
+	}
+
+	// 节点 id 非法：推送与版本史都 404
+	if rec := raw("POST", "/api/nodes/abc/rulelib?proc=xray&name=geoip.dat", body); rec.Code != http.StatusNotFound {
+		t.Fatalf("bad id push: %d", rec.Code)
+	}
+	if rec := doJSON(t, r, "GET", "/api/nodes/abc/rulelib", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("bad id list: %d", rec.Code)
+	}
+	// 版本史 limit 合法值生效
+	rec = doJSON(t, r, "GET", "/api/nodes/1/rulelib?limit=5", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list limit: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// TestRuleLibPushAck 覆盖规则库推送的应答链路：agent 回 OK ack → 快照
+// applied 且响应不回带文件内容；回不可解析 ack → 502 且快照 failed 带错因。
+func TestRuleLibPushAck(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	id, token := createNodeFor(t, r, "rl-ack")
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+	c := fakeAgent(t, srv.URL, "rl-ack", token)
+
+	// 应答器：首次回 OK ack，第二次回不可解析载荷（覆盖坏 ack 分支）。
+	go func() {
+		first := true
+		for {
+			var env agentproto.Envelope
+			if err := c.ReadJSON(&env); err != nil {
+				return
+			}
+			if env.Type != agentproto.MsgConfigPush {
+				continue
+			}
+			var payload any = agentproto.ConfigAck{Proc: "xray", OK: true, Validated: true}
+			if !first {
+				payload = []byte("junk-not-json")
+			}
+			first = false
+			ack, err := agentproto.NewEnvelope(env.ID, agentproto.MsgConfigAck, payload)
+			if err != nil {
+				return
+			}
+			if err := c.WriteJSON(ack); err != nil {
+				return
+			}
+		}
+	}()
+
+	raw := func(path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("POST", path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/octet-stream")
+		req.Header.Set("Authorization", "Bearer "+adminJWT(t))
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+
+	// 成功：ack OK → 200，快照 applied 且响应与版本史都不回带文件内容
+	rec := raw(fmt.Sprintf("/api/nodes/%d/rulelib?proc=xray&name=geosite.dat", id), "ack-bytes")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ack push: %d %s", rec.Code, rec.Body)
+	}
+	if strings.Contains(rec.Body.String(), "ack-bytes") {
+		t.Fatal("推送响应不应回带文件内容")
+	}
+	var row storage.NodeConfig
+	if err := db.Where("node_id=? AND kind=?", id, "rulelib:geosite.dat").First(&row).Error; err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	if row.Status != "applied" || !row.Validated {
+		t.Fatalf("applied snapshot = %+v", row)
+	}
+
+	// 坏 ack：载荷不可解析 → 502，快照 failed 且错因落库
+	rec = raw(fmt.Sprintf("/api/nodes/%d/rulelib?proc=xray&name=geoip.dat", id), "bad-ack-bytes")
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("bad ack push: %d %s", rec.Code, rec.Body)
+	}
+	var badRow storage.NodeConfig
+	if err := db.Where("node_id=? AND kind=?", id, "rulelib:geoip.dat").First(&badRow).Error; err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	if badRow.Status != "failed" || !strings.Contains(badRow.Error, "bad config_ack") {
+		t.Fatalf("bad ack snapshot = %+v", badRow)
 	}
 }
 

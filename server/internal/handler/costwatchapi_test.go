@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -98,6 +99,66 @@ func TestPriceWatchAPI(t *testing.T) {
 	}
 	if w.AtTarget { // 目标 700 未到位
 		t.Fatalf("at_target should be false: %+v", w)
+	}
+
+	// 校验负例：坏载荷、创建即停用、改/删/快照的坏 id 与坏载荷
+	if rec := doRaw(t, r, "POST", "/api/cost/watches", "{bad"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("create bad json: %d", rec.Code)
+	}
+	rec = doJSON(t, r, "POST", "/api/cost/watches", map[string]any{"provider": "hetzner", "spec": "2c", "target_price": 900, "enabled": false})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create disabled: %d %s", rec.Code, rec.Body)
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &w); err != nil {
+		t.Fatal(err)
+	}
+	if w.Enabled || w.ID == 0 {
+		t.Fatalf("created disabled = %+v", w)
+	}
+	second := w.ID
+	if rec := doJSON(t, r, "PUT", "/api/cost/watches/abc", map[string]any{"enabled": true}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("update bad id: %d", rec.Code)
+	}
+	if rec := doRaw(t, r, "PUT", fmt.Sprintf("/api/cost/watches/%d", second), "{bad"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("update bad json: %d", rec.Code)
+	}
+	if rec := doJSON(t, r, "PUT", fmt.Sprintf("/api/cost/watches/%d", second), map[string]any{"target_price": -1}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("negative update target: %d", rec.Code)
+	}
+	if rec := doJSON(t, r, "DELETE", "/api/cost/watches/abc", nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("delete bad id: %d", rec.Code)
+	}
+	if rec := doJSON(t, r, "GET", "/api/cost/watches/abc/snapshots", nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("snapshots bad id: %d", rec.Code)
+	}
+	// 快照 limit 越界：回落默认 20，不报错
+	rec = doJSON(t, r, "GET", fmt.Sprintf("/api/cost/watches/%d/snapshots?limit=500", second), nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("snapshots limit fallback: %d %s", rec.Code, rec.Body)
+	}
+
+	// 到位判定与零前值护栏（第二条关注，目标 900）：快照 0 → 500，
+	// 最新 500 ≤ 900 即到位；前值为 0 时不产生涨跌（除零护栏）。
+	db.Create(&storage.PriceSnapshot{WatchID: second, MonthlyCents: 0, Source: "pricelist", CapturedAt: time.Now().Add(-time.Hour)})
+	db.Create(&storage.PriceSnapshot{WatchID: second, MonthlyCents: 500, Source: "pricelist", CapturedAt: time.Now()})
+	rec = doJSON(t, r, "GET", "/api/cost/watches", nil)
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	var got *watchView
+	for i := range list {
+		if list[i].ID == second {
+			got = &list[i]
+		}
+	}
+	if got == nil || got.LatestCents == nil || *got.LatestCents != 500 {
+		t.Fatalf("second watch dynamics = %+v", got)
+	}
+	if !got.AtTarget {
+		t.Fatalf("at_target should be true: %+v", got)
+	}
+	if got.PrevCents == nil || *got.PrevCents != 0 || got.ChangePct != nil {
+		t.Fatalf("zero prev guard = %+v", got)
 	}
 
 	// 删除级联：关注与快照同删。

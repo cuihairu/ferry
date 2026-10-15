@@ -74,10 +74,75 @@ func TestLandingAssignment(t *testing.T) {
 		t.Fatalf("active rows = %d, want 2", len(rows))
 	}
 
+	// direction 过滤：只出 in 向那条
+	rec = doJSON(t, r, "GET", "/api/landings?direction=in", nil)
+	_ = json.Unmarshal(rec.Body.Bytes(), &rows)
+	if len(rows) != 1 || rows[0]["direction"] != "in" {
+		t.Fatalf("direction filter = %+v", rows)
+	}
+
+	// 建：坏载荷 400
+	if rec := doRaw(t, r, "POST", "/api/landings", "{bad"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad json: %d", rec.Code)
+	}
+	// 建：权重越界 400
+	if rec := doJSON(t, r, "POST", "/api/landings", map[string]any{
+		"region": "hk", "landing_node_id": landing, "direction": "out", "weight": 1001,
+	}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("weight range: %d", rec.Code)
+	}
+	// 建：落地节点不存在 400
+	if rec := doJSON(t, r, "POST", "/api/landings", map[string]any{
+		"region": "hk", "landing_node_id": 99999, "direction": "out",
+	}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("missing landing node: %d", rec.Code)
+	}
+	// 建：入口节点不存在 400
+	if rec := doJSON(t, r, "POST", "/api/landings", map[string]any{
+		"entry_node_id": 99999, "landing_node_id": landing, "direction": "out",
+	}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("missing entry node: %d", rec.Code)
+	}
+	// 建：入口角色不合规 400（landing 角色节点不能当入口）
+	landingOnly := mk("landing-jp", "landing")
+	if rec := doJSON(t, r, "POST", "/api/landings", map[string]any{
+		"entry_node_id": landingOnly, "landing_node_id": landing, "direction": "out",
+	}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("entry role: %d", rec.Code)
+	}
+	// 建：同节点既作入口又作落地 400（both 角色两关都过，靠 ID 相等拦下）
+	both := mk("both-sg", "both")
+	if rec := doJSON(t, r, "POST", "/api/landings", map[string]any{
+		"entry_node_id": both, "landing_node_id": both, "direction": "out",
+	}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("same node both roles: %d", rec.Code)
+	}
+
 	// 调权重
 	rec = doJSON(t, r, "PUT", fmt.Sprintf("/api/landings/%d", landingRowID), map[string]any{"weight": 60})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("weight update: %d %s", rec.Code, rec.Body)
+	}
+
+	// 改的负路径：id 非法/行不存在 404、坏载荷 400、权重缺失/越界 400
+	if rec := doJSON(t, r, "PUT", "/api/landings/abc", map[string]any{"weight": 1}); rec.Code != http.StatusNotFound {
+		t.Fatalf("update bad id: %d", rec.Code)
+	}
+	if rec := doJSON(t, r, "PUT", "/api/landings/99999", map[string]any{"weight": 1}); rec.Code != http.StatusNotFound {
+		t.Fatalf("update missing row: %d", rec.Code)
+	}
+	if rec := doRaw(t, r, "PUT", fmt.Sprintf("/api/landings/%d", landingRowID), "{bad"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("update bad json: %d", rec.Code)
+	}
+	if rec := doJSON(t, r, "PUT", fmt.Sprintf("/api/landings/%d", landingRowID), map[string]any{}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("weight required: %d", rec.Code)
+	}
+	if rec := doJSON(t, r, "PUT", fmt.Sprintf("/api/landings/%d", landingRowID), map[string]any{"weight": 2000}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("update weight range: %d", rec.Code)
+	}
+	// 释放：id 非法 404
+	if rec := doJSON(t, r, "DELETE", "/api/landings/abc", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("release bad id: %d", rec.Code)
 	}
 
 	// 释放：置 released_at 留痕；再释放 409；默认列表不再出现

@@ -55,6 +55,29 @@ func TestEntryDomainsCRUD(t *testing.T) {
 	if rec := doJSON(t, r, "PUT", "/api/entry-domains/1", map[string]any{"role": "x"}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad update role: %d", rec.Code)
 	}
+	// 坏载荷 400（建与改）
+	if rec := doRaw(t, r, "POST", "/api/entry-domains", "{bad"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("create bad json: %d", rec.Code)
+	}
+	if rec := doRaw(t, r, "PUT", "/api/entry-domains/1", "{bad"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("update bad json: %d", rec.Code)
+	}
+	// 改：域名置空 400
+	if rec := doJSON(t, r, "PUT", "/api/entry-domains/1", map[string]any{"domain": "  "}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("empty update domain: %d", rec.Code)
+	}
+	// 改：域名归一（剥协议与尾斜杠）与区域去首尾空白
+	rec = doJSON(t, r, "PUT", "/api/entry-domains/1", map[string]any{"domain": "https://new.example.com/", "region": " us "})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update domain: %d %s", rec.Code, rec.Body)
+	}
+	var one map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &one); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if one["domain"] != "new.example.com" || one["region"] != "us" {
+		t.Fatalf("normalized row = %+v", one)
+	}
 
 	// 删：删除后列表一条，再删/再改 404
 	if rec := doJSON(t, r, "DELETE", "/api/entry-domains/2", nil); rec.Code != http.StatusOK {

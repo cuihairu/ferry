@@ -701,14 +701,16 @@ type AuditLog struct {
 // 「商家+区域+配置档」一个牌价键，降价或现价到位（target_price>0）经
 // Herald price_alert 提示；条件与参考价同词表（costref 价格表键）。
 type PriceWatch struct {
-	ID          uint      `gorm:"primaryKey" json:"id"`
-	Provider    string    `gorm:"size:128;not null;uniqueIndex:idx_price_watch" json:"provider"`
-	Region      string    `gorm:"size:128;not null;default:'';uniqueIndex:idx_price_watch" json:"region"`
-	Spec        string    `gorm:"size:128;not null;uniqueIndex:idx_price_watch" json:"spec"`
-	TargetPrice int64     `gorm:"default:0" json:"target_price"` // 目标价位（分/月），0=只盯降价
-	Enabled     bool      `gorm:"default:true" json:"enabled"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          uint   `gorm:"primaryKey" json:"id"`
+	Provider    string `gorm:"size:128;not null;uniqueIndex:idx_price_watch" json:"provider"`
+	Region      string `gorm:"size:128;not null;default:'';uniqueIndex:idx_price_watch" json:"region"`
+	Spec        string `gorm:"size:128;not null;uniqueIndex:idx_price_watch" json:"spec"`
+	TargetPrice int64  `gorm:"default:0" json:"target_price"` // 目标价位（分/月），0=只盯降价
+	// Enabled 不带 default 标签：default:true 会让 Create 略过零值字段、
+	// 落库吃进列默认值，建关注时传 enabled:false 会被静默改回 true。
+	Enabled   bool      `json:"enabled"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // PriceSnapshot 是一次关注键的牌价快照（扫描周期从参考价表抓取，比对

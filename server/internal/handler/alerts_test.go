@@ -270,3 +270,73 @@ func TestAgentWSAlarmMultiNode(t *testing.T) {
 		t.Fatalf("node filter mismatch: %v", list)
 	}
 }
+
+// TestAlertGuards 覆盖告警面兜底与过滤校验：severity 缺省落 warning、
+// limit/state/node_id 非法 400、合法 limit 生效、resolve id 非法 404。
+func TestAlertGuards(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	id, token := createNodeFor(t, r, "alm-guard")
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+	c := fakeAgent(t, srv.URL, "alm-guard", token)
+
+	// severity 缺省上报 → 落 warning（recordAlert 兜底）
+	al, _ := agentproto.NewEnvelope("g1", agentproto.MsgAlarm, agentproto.Alarm{
+		Kind: agentproto.AlarmKindConfigError, Proc: "xray", Message: "配置下发失败", At: time.Now(),
+	})
+	if err := c.WriteJSON(al); err != nil {
+		t.Fatalf("write alarm: %v", err)
+	}
+	if env := readEnv(t, c); env.Type != agentproto.MsgAlarmAck {
+		t.Fatalf("expected alarm_ack, got %s", env.Type)
+	}
+	var row storage.Alert
+	if err := db.Order("id DESC").First(&row).Error; err != nil {
+		t.Fatalf("query alert: %v", err)
+	}
+	if row.Severity != agentproto.AlarmSeverityWarning || row.NodeID != id {
+		t.Fatalf("default severity row = %+v", row)
+	}
+
+	// 列表：limit 非法/越界 400，合法 limit 生效
+	if rec := doJSON(t, r, "GET", "/api/alerts?limit=abc", nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad limit: %d", rec.Code)
+	}
+	if rec := doJSON(t, r, "GET", "/api/alerts?limit=501", nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("limit range: %d", rec.Code)
+	}
+	rec := doJSON(t, r, "GET", "/api/alerts?limit=5", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("limit 5: %d %s", rec.Code, rec.Body)
+	}
+	var rows []storage.Alert
+	if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(rows))
+	}
+
+	// state 非法 400；node_id 非法 400；合法过滤组合命中
+	if rec := doJSON(t, r, "GET", "/api/alerts?state=bogus", nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad state: %d", rec.Code)
+	}
+	if rec := doJSON(t, r, "GET", "/api/alerts?node_id=abc", nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad node_id: %d", rec.Code)
+	}
+	rec = doJSON(t, r, "GET", fmt.Sprintf("/api/alerts?state=active&kind=config_error&node_id=%d", id), nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("filtered list: %d %s", rec.Code, rec.Body)
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil {
+		t.Fatalf("decode filtered: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Kind != agentproto.AlarmKindConfigError {
+		t.Fatalf("filtered rows = %+v", rows)
+	}
+
+	// 手动处理：id 非法 404
+	if rec := doJSON(t, r, "POST", "/api/alerts/abc/resolve", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("resolve bad id: %d", rec.Code)
+	}
+}
