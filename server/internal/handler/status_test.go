@@ -44,6 +44,10 @@ SwapTotal:         0 kB
 	if _, err := parseMemInfo([]byte("SwapTotal: 0 kB\n")); err == nil {
 		t.Fatal("missing MemTotal should error")
 	}
+	// 冒号后无值：空字段行跳过 → 仍按缺 MemTotal 报错
+	if _, err := parseMemInfo([]byte("MemTotal:\nMemAvailable: 100 kB\n")); err == nil {
+		t.Fatal("valueless MemTotal line should be skipped and error")
+	}
 }
 
 // TestParseLoadAvgUptimeCPU 覆盖负载/运行时长/CPU jiffies 解析。
@@ -189,5 +193,38 @@ func TestSysStatusDBErrors(t *testing.T) {
 	})
 	if w := doAdmin(t, r2, "GET", "/admin/status", nil); w.Code != http.StatusInternalServerError {
 		t.Fatalf("user count fail: %d %s", w.Code, w.Body)
+	}
+}
+
+// TestSysStatusOnlineCountsFail 覆盖在线节点计数与启用用户计数（各自
+// 类型的第二次 Count）失败 → 500：按 Model 类型 + 序号定向注错。
+func TestSysStatusOnlineCountsFail(t *testing.T) {
+	fail2ndCount := func(db *gorm.DB, name string, match func(*gorm.DB) bool) {
+		calls := 0
+		db.Callback().Query().Before("gorm:query").Register(name, func(tx *gorm.DB) {
+			if _, ok := tx.Statement.Dest.(*int64); ok && match(tx) {
+				calls++
+				if calls == 2 {
+					tx.AddError(errors.New("db down"))
+				}
+			}
+		})
+	}
+	r, db := newTestRouterWithDB(t)
+	fail2ndCount(db, "test:status_online_fail", func(tx *gorm.DB) bool {
+		_, ok := tx.Statement.Model.(*storage.Node)
+		return ok
+	})
+	if w := doAdmin(t, r, "GET", "/admin/status", nil); w.Code != http.StatusInternalServerError {
+		t.Fatalf("online count fail: %d %s", w.Code, w.Body)
+	}
+
+	r2, db2 := newTestRouterWithDB(t)
+	fail2ndCount(db2, "test:status_enabled_fail", func(tx *gorm.DB) bool {
+		_, ok := tx.Statement.Model.(*storage.User)
+		return ok
+	})
+	if w := doAdmin(t, r2, "GET", "/admin/status", nil); w.Code != http.StatusInternalServerError {
+		t.Fatalf("enabled count fail: %d %s", w.Code, w.Body)
 	}
 }
