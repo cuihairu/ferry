@@ -46,6 +46,14 @@ func TestCostRefTableAndProbe(t *testing.T) {
 		t.Fatalf("setting missing: ok=%v", ok)
 	}
 
+	// 已导入后：node_id 非数 400；node_id 与自由键都缺 400。
+	if rec := doJSON(t, r, "GET", "/api/cost/ref?node_id=abc", nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad node_id: %d", rec.Code)
+	}
+	if rec := doJSON(t, r, "GET", "/api/cost/ref", nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("missing keys: %d", rec.Code)
+	}
+
 	// 自由键试查命中、不带手录价 → hit + reason（无偏差说明）。
 	rec = doJSON(t, r, "GET", "/api/cost/ref?provider=VULTR&region=Tokyo&spec=100M-500G", nil)
 	if rec.Code != http.StatusOK {
@@ -165,6 +173,12 @@ func TestCostRefTableAndProbe(t *testing.T) {
 // 未命中只进计数，机房/月固定成本不齐的不参查。
 func TestCostRefCheck(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
+
+	// 未导入价格表：对账 400 明确指引导入端点。
+	if rec := doJSON(t, r, "GET", "/api/cost/ref-check", nil); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "ref-table") {
+		t.Fatalf("no table check status=%d body=%s", rec.Code, rec.Body)
+	}
+
 	rec := doJSON(t, r, "PUT", "/api/cost/ref-table", map[string]any{"table": refTestTable})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("put table status=%d", rec.Code)
@@ -196,11 +210,12 @@ func TestCostRefCheck(t *testing.T) {
 		t.Fatalf("ref-check status=%d body=%s", rec.Code, rec.Body)
 	}
 	var out struct {
-		Source    string `json:"source"`
-		Tolerance int64  `json:"tolerance_pct"`
-		Checked   int    `json:"checked"`
-		Hits      int    `json:"hits"`
-		Items     []struct {
+		Source     string `json:"source"`
+		Tolerance  int64  `json:"tolerance_pct"`
+		Checked    int    `json:"checked"`
+		Hits       int    `json:"hits"`
+		Mismatches int    `json:"mismatches"`
+		Items      []struct {
 			NodeID      uint   `json:"node_id"`
 			NodeName    string `json:"node_name"`
 			ManualCents int64  `json:"manual_cents"`
@@ -222,5 +237,44 @@ func TestCostRefCheck(t *testing.T) {
 	if len(out.Items) != 1 || out.Items[0].NodeName != "hk-1" ||
 		out.Items[0].Deviation.Pct != -35 || !out.Items[0].Deviation.Off {
 		t.Fatalf("items=%+v", out.Items)
+	}
+
+	// tolerance_pct 解析与夹取：非法值回落缺省 30，越界夹进 1..200。
+	for _, tc := range []struct {
+		q    string
+		want int64
+	}{
+		{"tolerance_pct=50", 50},
+		{"tolerance_pct=0", 1},
+		{"tolerance_pct=500", 200},
+		{"tolerance_pct=abc", 30},
+	} {
+		rec = doJSON(t, r, "GET", "/api/cost/ref-check?"+tc.q, nil)
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		if out.Tolerance != tc.want {
+			t.Fatalf("%s tolerance=%d, want %d", tc.q, out.Tolerance, tc.want)
+		}
+	}
+
+	// 币种不符行：命中 USD 牌价但手录 CNY → 只进 mismatches 计数不进列表。
+	extended := strings.TrimSuffix(refTestTable, "]") + `,
+ {"provider":"vultr","region":"tokyo","spec":"200m-500g","monthly_cents":900,"currency":"USD"}]`
+	if rec := doJSON(t, r, "PUT", "/api/cost/ref-table", map[string]any{"table": extended}); rec.Code != http.StatusOK {
+		t.Fatalf("extend table: %d %s", rec.Code, rec.Body)
+	}
+	if err := db.Exec(`INSERT INTO nodes (name, address, port, protocol, token, datacenter, region,
+		bw_down_mbps, monthly_traffic_quota_bytes, monthly_cost_cents, currency, enabled)
+		VALUES ('tky-1', 'tky.example.com', 443, 'vless', 'chk-4', 'vultr', 'tokyo',
+		200, 500000000000, 900, 'CNY', 1)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	rec = doJSON(t, r, "GET", "/api/cost/ref-check", nil)
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Checked != 3 || out.Hits != 1 || out.Mismatches != 1 {
+		t.Fatalf("mismatch counters=%+v", out)
 	}
 }

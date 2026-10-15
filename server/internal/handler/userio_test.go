@@ -149,8 +149,43 @@ func TestUserImportValidation(t *testing.T) {
 	if rec := doJSON(t, r, "POST", "/api/users/import", map[string]any{"users": rows}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("oversize: %d, want 400", rec.Code)
 	}
+	// 坏载荷 400。
+	if rec := doRaw(t, r, "POST", "/api/users/import", "{bad"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad json: %d, want 400", rec.Code)
+	}
+	// 行级校验负例：超长令牌/负配额/非法带宽/非法设备数，整批 400 零写入。
+	for _, row := range []map[string]any{
+		{"username": "v1", "sub_token": strings.Repeat("t", 65)},
+		{"username": "v2", "quota_bytes": -1},
+		{"username": "v3", "bw_up_mbps": -1},
+		{"username": "v4", "device_limit": 1001},
+	} {
+		if rec := doJSON(t, r, "POST", "/api/users/import", map[string]any{"users": []map[string]any{row}}); rec.Code != http.StatusBadRequest {
+			t.Fatalf("row %s: %d %s", row["username"], rec.Code, rec.Body)
+		}
+	}
 	if n := before(); n != 0 {
 		t.Fatalf("rejected imports wrote %d users, want 0", n)
+	}
+
+	// 套模板导入：模板值补进行内缺省项。
+	if rec := doJSON(t, r, "PUT", "/api/user-template", map[string]any{
+		"quota_bytes": 1073741824, "expire_days": 30, "reset_cycle": "month",
+	}); rec.Code != http.StatusOK {
+		t.Fatalf("put template: %d %s", rec.Code, rec.Body)
+	}
+	rec = doJSON(t, r, "POST", "/api/users/import", map[string]any{"users": []map[string]any{
+		{"username": "tpl-user", "use_template": true},
+	}})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("template import: %d %s", rec.Code, rec.Body)
+	}
+	var tplUser storage.User
+	if err := db.Where("username = ?", "tpl-user").First(&tplUser).Error; err != nil {
+		t.Fatal(err)
+	}
+	if tplUser.QuotaBytes != 1073741824 || tplUser.ResetCycle != "month" {
+		t.Fatalf("template applied = %+v", tplUser)
 	}
 }
 

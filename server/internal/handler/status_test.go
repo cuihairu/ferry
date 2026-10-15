@@ -2,8 +2,12 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"testing"
+
+	"github.com/cuihairu/ferry/server/internal/storage"
+	"gorm.io/gorm"
 )
 
 // TestParseMemInfo 合成 /proc/meminfo 验证 used 与占用比（P1-8）。
@@ -123,5 +127,67 @@ func TestSysStatus(t *testing.T) {
 	// 无令牌 401
 	if w := doBare(t, r, "GET", "/admin/status"); w.Code != http.StatusUnauthorized {
 		t.Fatalf("without token should 401: %d", w.Code)
+	}
+}
+
+// TestStatusParseEdges 覆盖 /proc 解析器的负例与边界：可用内存大于总量的
+// 钳零、非数值行跳过、缺空格与非数值的 uptime、过短与非数值的 cpu 行、
+// percent 除零护栏。
+func TestStatusParseEdges(t *testing.T) {
+	// available > total → used 钳 0，占比 0
+	m, err := parseMemInfo([]byte("MemTotal: 100 kB\nMemAvailable: 200 kB\n"))
+	if err != nil {
+		t.Fatalf("clamp parse: %v", err)
+	}
+	if m.UsedBytes != 0 || m.UsagePercent != 0 {
+		t.Fatalf("clamped meminfo = %+v", m)
+	}
+	// 非数值行被跳过 → 仍按缺 MemTotal 报错
+	if _, err := parseMemInfo([]byte("MemTotal: x kB\n")); err == nil {
+		t.Fatal("garbage MemTotal should error")
+	}
+	if _, err := parseLoadAvg([]byte("a b c d e")); err == nil {
+		t.Fatal("garbage loadavg should error")
+	}
+	if _, err := parseUptime([]byte("12345")); err == nil {
+		t.Fatal("uptime without idle part should error")
+	}
+	if _, err := parseUptime([]byte("abc 123")); err == nil {
+		t.Fatal("garbage uptime should error")
+	}
+	if _, _, err := parseCPUStat([]byte("cpu  1 1\n")); err == nil {
+		t.Fatal("short cpu line should error")
+	}
+	if _, _, err := parseCPUStat([]byte("cpu  10 x 10 70 10\n")); err == nil {
+		t.Fatal("garbage cpu stat should error")
+	}
+	if p := percent(1, 0); p != 0 {
+		t.Fatalf("percent(1,0) = %v, want 0", p)
+	}
+}
+
+// TestSysStatusDBErrors 覆盖系统状态的取数故障面：节点计数与用户计数
+// 任一失败 → 500（gorm 回调注错，对齐既有错误注入口径）。
+func TestSysStatusDBErrors(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	db.Callback().Query().Before("gorm:query").Register("test:status_node_fail", func(tx *gorm.DB) {
+		if _, ok := tx.Statement.Model.(*storage.Node); ok {
+			tx.AddError(errors.New("db down"))
+		}
+	})
+	if w := doAdmin(t, r, "GET", "/admin/status", nil); w.Code != http.StatusInternalServerError {
+		t.Fatalf("node count fail: %d %s", w.Code, w.Body)
+	}
+
+	// 用户计数失败：独立库独立回调。
+	r2, db2 := newTestRouterWithDB(t)
+	db2.Callback().Query().Before("gorm:query").Register("test:status_user_fail", func(tx *gorm.DB) {
+		if _, ok := tx.Statement.Model.(*storage.User); ok {
+			tx.AddError(errors.New("db down"))
+		}
+	})
+	if w := doAdmin(t, r2, "GET", "/admin/status", nil); w.Code != http.StatusInternalServerError {
+		t.Fatalf("user count fail: %d %s", w.Code, w.Body)
 	}
 }
