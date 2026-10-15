@@ -1,5 +1,5 @@
-# ferry 统一入口：make build / make test / make dev
-.PHONY: build build-server build-agent build-quic package-agent build-dash build-panel test test-pg dev dev-server dev-dash dev-panel fmt
+# ferry 统一入口：make build / make test / make dev / make up
+.PHONY: build build-server build-agent build-quic package-agent build-dash build-panel test test-pg dev dev-server dev-dash dev-panel up fmt
 
 # AGENT_VERSION 是发布包版本号（package-agent 用，与 deploy/agent-install.sh 的 --version 对应）。
 AGENT_VERSION ?= dev
@@ -77,6 +77,12 @@ dev-dash:
 
 dev-panel:
 	cd panel && pnpm dev
+
+# 一键启动（容器编排）：./deploy/start.sh 的等价入口。
+# 与 make dev 区分：dev 是本机联调（go run + vite，起在本机不进容器），
+# up 是整机容器部署（compose 构建镜像并起服务）。
+up:
+	./deploy/start.sh
 
 fmt:
 	gofmt -w server agent packages/agentproto packages/costref packages/payment payments

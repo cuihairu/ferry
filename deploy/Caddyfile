@@ -1,8 +1,21 @@
 :80 {
 	encode gzip
 
-	# 后端接口与 agent 通道
+	# 后端接口面（按顶层前缀全量枚举，新增顶层路由必须在此登记）。
+	# 注意：光有 /api/* 不够——后端还有三组顶层路由也走后端而非静态文件：
+	#   /admin/*      后台登录与两步验证、备份导出、证书、系统状态与日志
+	#   /distributor/* 分销商面
+	#   /agent/ws     agent WebSocket（/ws 升级由 reverse_proxy 自动处理）
+	# 漏登记的后果不是"请求落到静态目录返回 404 文件"，而是被下面那条兜底
+	# handle 的 file_server 接住：GET /admin/login 返回 index.html(200)、
+	# POST 返回 405——后台能打开页面却永远登录不上，极难从现象反推。
 	handle /api/* {
+		reverse_proxy ferry-server:8080
+	}
+	handle /admin/* {
+		reverse_proxy ferry-server:8080
+	}
+	handle /distributor/* {
 		reverse_proxy ferry-server:8080
 	}
 	handle /sub/* {

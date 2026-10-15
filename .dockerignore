@@ -1,0 +1,37 @@
+# Build context trimming. The three Dockerfiles COPY only what they need
+# (server/, packages/, pnpm workspace files, dash/ or panel/, deploy/*), so
+# everything else only slows the context upload. Patterns are .gitignore
+# style: a bare name matches at any depth.
+#
+# Kept out of the context:
+#   bin/            55MB of local build output (make build)
+#   node_modules/   dash/ panel/ docs/ all reinstall inside the build stage
+#   .env            holds secrets; never needed by any build stage
+#   docs 内容        only docs/package.json is COPYed (workspace install)
+#   .git / 文档 /   metadata and prose, no build dependency
+
+.git
+bin
+node_modules
+dist
+.vite
+.env
+*.log
+*.db
+*.db-shm
+*.db-wal
+*.coverprofile
+profile.cov
+server/ferry
+.github
+Makefile
+README.md
+README.zh.md
+todo.md
+THIRD_PARTY.md
+docs/.vitepress
+docs/guide
+docs/design
+docs/deploy
+docs/public
+docs/*.md

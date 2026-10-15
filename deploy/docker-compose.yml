@@ -85,6 +85,20 @@ services:
     ports:
       - "${FERRY_HTTP_PORT:-8080}:80"
 
+  # 用户面板（自助订阅/流量查询，Vue 3）：与 ferry-dash 同构——pnpm 构建静态
+  # 产物 + Caddy 托管并反代后端。此前 compose 只发 dash，用户端在容器部署里
+  # 没有入口；panel/ 目录虽在仓内构建（make build-panel），但 dist 从未被
+  # 任何 compose 服务 COPY 进去。
+  ferry-panel:
+    build:
+      context: ..
+      dockerfile: deploy/ferry-panel.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - ferry-server
+    ports:
+      - "${FERRY_PANEL_PORT:-8081}:80"
+
   # 切 postgres 存储：docker compose --env-file ferry.env --profile postgres up -d
   ferry-postgres:
     image: postgres:15-alpine

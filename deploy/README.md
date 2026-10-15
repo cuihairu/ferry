@@ -2,14 +2,30 @@
 
 面板与服务端的容器部署物。
 
+## 一键启动
+
 ```sh
-cp deploy/ferry.env.example deploy/ferry.env   # 按需修改
-docker compose --env-file deploy/ferry.env -f deploy/docker-compose.yml up -d --build
+./deploy/start.sh                     # 等价：make up
+./deploy/start.sh --profile postgres  # 同时起 postgres 存储
 ```
 
-- `ferry-server`：服务端单二进制，默认 sqlite 落卷 `/data`。
-- `ferry-dash`：Caddy 托管面板静态产物，并反代 `/api`、`/sub`、`/agent`、`/feed.xml` 到服务端。
-- `ferry-postgres`：可选（`--profile postgres`），切换存储见 `ferry.env.example` 注释。
+`start.sh` 首次运行从仓根 `.env.example` 生成 `.env`（已存在不覆盖），构建起
+服务、最多等 180 秒 `/api/health` 就绪，并校验库文件落盘；打印的地址取 compose
+实际映射端口。前置要求、常见问题见根 README「一键启动」节。
+
+按老口径手起（等价，只是不做就绪与建库校验）：
+
+```sh
+cp .env.example .env                  # 或沿用 ferry.env.example 的全量参数集
+docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
+```
+
+- `ferry-server`：服务端单二进制，默认 sqlite 落卷 `/data`，启动即 `AutoMigrate` 建表（幂等，可重复执行）。
+- `ferry-dash`：Caddy 托管管理端静态产物，并反代 `/api`、`/sub`、`/agent`、`/feed.xml` 到服务端；端口 `${FERRY_HTTP_PORT:-8080}`。
+- `ferry-panel`：Caddy 托管用户端静态产物，反代规则同上；端口 `${FERRY_PANEL_PORT:-8081}`。
+- `ferry-postgres`：可选（`--profile postgres`），切换存储见 `.env.example` / `ferry.env.example` 注释。
+
+`payments/` 是编译进 `ferry-server` 的 Go 库（无 `main`），不经此 compose。
 
 agent 部署在节点上，不经此 compose（见《agent架构设计》）。
 
