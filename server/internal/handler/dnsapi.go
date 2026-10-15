@@ -75,13 +75,23 @@ func (h *Handler) createDNSProvider(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
-	row := storage.DNSProvider{Name: in.Name, Type: in.Type, APIKey: sealed, Enabled: true}
+	enabled := true
 	if in.Enabled != nil {
-		row.Enabled = *in.Enabled
+		enabled = *in.Enabled
 	}
+	row := storage.DNSProvider{Name: in.Name, Type: in.Type, APIKey: sealed, Enabled: enabled}
 	if err := h.db.Create(&row).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
+	}
+	if !enabled {
+		// Enabled 带 default:true，零值 false 会被 GORM 略过落库默认值，需显式补写。
+		// Create 后结构体被库缺省 true 回填（RETURNING），按入参判定。
+		if err := h.db.Model(&storage.DNSProvider{}).Where("id=?", row.ID).Update("enabled", false).Error; err != nil {
+			fail(c, http.StatusInternalServerError, err)
+			return
+		}
+		row.Enabled = false
 	}
 	c.JSON(http.StatusOK, dnsProviderView{ID: row.ID, Name: row.Name, Type: row.Type,
 		Enabled: row.Enabled, HasAPIKey: true})
