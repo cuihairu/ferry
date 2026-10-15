@@ -194,3 +194,13 @@
 更正一处旧账：PATROL1015 段「不再有低成本批次可推」与当前实测不符——handler 包在 35~38 批收口到 89.3%（4904/5492）后仍有 588 语句未覆盖，且多为既有测试模式的常规目标：landing.go 33 句（65.3%）、userio.go 28 句（78.5%）、routing.go 26 句（73.7%）、costwatch.go 25 句（74.0%）、costref.go 25 句（75.7%）、status.go 22 句（79.4%）、alerts.go 22 句（66.7%）等；下一巡检轮可按既有批次模式继续推进，不属硬卡点。
 
 依据：外部触发条件未满足（上游未发布/无商户资质/无真机环境/拍板关闭项无解锁条件），无可开工功能项；本轮单 commit 纯文档落账，main 与 origin/main 同步。
+
+## 巡检结论（R1016D）
+
+2026-10-16 巡检轮（R1016D）：15 项未勾逐条复核（解锁条件表第 1-15 行），触发条件仍全部不成立，按闸门维持挂起不代拍板；上一段更正所指的补覆盖战役本轮收官，纯核验+落账轮，docs-only 不编译不跑测试套件。
+
+补覆盖战役收官（承接 R1015D 更正）：三十九批起至五十二批共 14 批推进，handler 包 89.3%（4904/5492）→ 98.5%（5408/5492）；五十二批后剩余 84 条未覆盖语句逐条复核均为已落账留白（crypto/rand、JWT/HS256 签名、json.Marshal 纯基础类型、NewEnvelope、hub 握手后并发断连窗口、x509/ecdsa 证书生成错误、cpuPercent 真读 /proc、servify 对端不可观测、防御性不可达分支）；subdevice.go:95 空表归一化为覆盖映射幽灵——行为已由 TestUserDevicesErrors（无记录回 200 `[]` 非 null）钉住。战役关闭，不再有批次五十三。收官 commit 45e596c（race 门禁 1332.5s 全绿）。
+
+本轮逐条复核：偶发项 TestProvisionRunAPI 仍无新复现（R1015D 五连跑证据仍有效，-race 门禁连跑三轮全净）；vitepress 2 stable 仍未发布（latest=1.6.4）；token 轮换/mTLS CA/直连支付/通道偏好/TOUCH-4/TOUCH-7/costref 真源/P2 调参/流量预算/MONTH_ROLLING/OSS 三候选/hy2 真机触发条件全部不变。
+
+依据：todo 可推进线（补覆盖）已清账，未勾项触发条件全部不成立；本轮单 commit 纯文档落账，main 与 origin/main 同步。
