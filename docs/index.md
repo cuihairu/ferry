@@ -18,6 +18,12 @@ hero:
     - theme: alt
       text: GitHub 仓库
       link: https://github.com/cuihairu/ferry
+    - theme: alt
+      text: English
+      link: /index.en
+    - theme: alt
+      text: 中文
+      link: /index
 
 features:
   - title: 节点编排与调度
@@ -29,3 +35,7 @@ features:
   - title: 设计即文档
     details: 设计文档随码落地并标注口径，文档与源码一致性定期审计，在线站与仓库同源。
 ---
+
+[English](index.en.md) | [中文](index.md)
+
+> 说明：上方按钮指向的部署指南、使用指南与设计文档目前仅有中文版；现阶段只有四篇顶层文档（本首页、herald 对接实录、面板横向对比、文档一致性审计）提供了英文版。

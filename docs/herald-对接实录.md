@@ -1,3 +1,5 @@
+[English](herald-integration-log.en.md) | [中文](herald-对接实录.md)
+
 # herald 对接实录（HERALD-1~5）
 
 > 本实录 2026-10-08 自 herald 仓 `docs/guide/ferry-integration.md` 移交至本仓归档：对接方私有细节（outbox 表、FERRY_* 配置、shim、HERALD-x 改造项）由对接方仓自记，herald 仓文档只保留通用接入指南（其 `docs/guide/integration.md`）。文中 §N.N 指 herald 仓 `docs/design-audience-relations.md` 章节号（herald 设计文档），herald 是本系统投递基建的被依赖方，按后端来源如实引用。
