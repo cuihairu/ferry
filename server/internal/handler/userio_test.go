@@ -5,14 +5,19 @@ package handler
 // 空载荷与超行数上限 400。
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cuihairu/ferry/server/internal/storage"
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // TestUserExportImport 覆盖导出全量与导入建号/重名跳过。
@@ -258,5 +263,132 @@ func TestUserImportPreserveToken(t *testing.T) {
 	}
 	if gen.SubToken == "" || gen.SubToken == "legacy-token-value-1" {
 		t.Fatalf("generated token = %q", gen.SubToken)
+	}
+}
+
+// doJSONToken 与 doJSON 同口径但用指定令牌（operator 层级配额面用例用）。
+func doJSONToken(t *testing.T, r *gin.Engine, token, method, path string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	var buf bytes.Buffer
+	if body != nil {
+		if err := json.NewEncoder(&buf).Encode(body); err != nil {
+			t.Fatalf("encode body: %v", err)
+		}
+	}
+	req := httptest.NewRequest(method, path, &buf)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	return rec
+}
+
+// TestUserImportDBErrors 覆盖导出/导入各步取数与落库失败分支：导出取数、
+// 模板读取、沿用令牌查重、子管理员配额计数与无账号整批 403（operator 令牌
+// 口径）、事务内重名计数/建号/停用补写失败且回滚零写入。
+func TestUserImportDBErrors(t *testing.T) {
+	// 导出取数失败 → 500。
+	r, db := newTestRouterWithDB(t)
+	closeSQL(t, db)
+	if rec := doJSON(t, r, "GET", "/api/users/export", nil); rec.Code != http.StatusInternalServerError {
+		t.Fatalf("export: %d %s", rec.Code, rec.Body)
+	}
+
+	// 套模板导入时模板读取失败 → 500。
+	r2, db2 := newTestRouterWithDB(t)
+	closeSQL(t, db2)
+	if rec := doJSON(t, r2, "POST", "/api/users/import", map[string]any{
+		"users": []map[string]any{{"username": "tpl-err", "use_template": true}},
+	}); rec.Code != http.StatusInternalServerError {
+		t.Fatalf("template load: %d %s", rec.Code, rec.Body)
+	}
+
+	// 沿用令牌查重失败 → 500（db 侧错误按空用户名走 500，不按 400 驳回）。
+	r3, db3 := newTestRouterWithDB(t)
+	closeSQL(t, db3)
+	if rec := doJSON(t, r3, "POST", "/api/users/import", map[string]any{
+		"users": []map[string]any{{"username": "tk-err", "sub_token": "tk-1"}},
+	}); rec.Code != http.StatusInternalServerError {
+		t.Fatalf("token check: %d %s", rec.Code, rec.Body)
+	}
+
+	// operator 无对应管理员账号 → 整批 403 零写入。
+	r4, db4 := newTestRouterWithDB(t)
+	if rec := doJSONToken(t, r4, opJWT(t, "ghost-op"), "POST", "/api/users/import",
+		map[string]any{"users": []map[string]any{{"username": "imp-1"}}}); rec.Code != http.StatusForbidden {
+		t.Fatalf("missing operator: %d %s", rec.Code, rec.Body)
+	}
+	var zero4 int64
+	if err := db4.Model(&storage.User{}).Count(&zero4).Error; err != nil {
+		t.Fatal(err)
+	}
+	if zero4 != 0 {
+		t.Fatalf("quota reject wrote %d users, want 0", zero4)
+	}
+
+	// operator 配额计数失败 → 403（计数查询注错，定位查询先放行）。
+	r5, db5 := newTestRouterWithDB(t)
+	seedAdminRow(t, db5, "imp-op")
+	db5.Callback().Query().Before("gorm:query").Register("t:quotacount", func(tx *gorm.DB) {
+		if _, ok := tx.Statement.Dest.(*int64); ok {
+			tx.AddError(errors.New("db down"))
+		}
+	})
+	if rec := doJSONToken(t, r5, opJWT(t, "imp-op"), "POST", "/api/users/import",
+		map[string]any{"users": []map[string]any{{"username": "imp-2"}}}); rec.Code != http.StatusForbidden {
+		t.Fatalf("quota count: %d %s", rec.Code, rec.Body)
+	}
+
+	// 事务内重名计数失败 → 500。
+	r6, db6 := newTestRouterWithDB(t)
+	db6.Callback().Query().Before("gorm:query").Register("t:dupcount", func(tx *gorm.DB) {
+		if _, ok := tx.Statement.Dest.(*int64); ok {
+			tx.AddError(errors.New("db down"))
+		}
+	})
+	if rec := doJSON(t, r6, "POST", "/api/users/import", map[string]any{
+		"users": []map[string]any{{"username": "imp-3"}},
+	}); rec.Code != http.StatusInternalServerError {
+		t.Fatalf("dup count: %d %s", rec.Code, rec.Body)
+	}
+
+	// 事务内建号失败 → 500（回滚零写入）。
+	r7, db7 := newTestRouterWithDB(t)
+	db7.Callback().Create().Before("gorm:create").Register("t:importcreate", func(tx *gorm.DB) {
+		if _, ok := tx.Statement.Dest.(*storage.User); ok {
+			tx.AddError(errors.New("db down"))
+		}
+	})
+	if rec := doJSON(t, r7, "POST", "/api/users/import", map[string]any{
+		"users": []map[string]any{{"username": "imp-4"}},
+	}); rec.Code != http.StatusInternalServerError {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body)
+	}
+	var zero7 int64
+	if err := db7.Model(&storage.User{}).Count(&zero7).Error; err != nil {
+		t.Fatal(err)
+	}
+	if zero7 != 0 {
+		t.Fatalf("import rollback leaked %d users", zero7)
+	}
+
+	// 停用补写失败 → 500（显式 enabled:false 的补写分支，回滚零写入）。
+	r8, db8 := newTestRouterWithDB(t)
+	db8.Callback().Update().Before("gorm:update").Register("t:disablewrite", func(tx *gorm.DB) {
+		if _, ok := tx.Statement.Model.(*storage.User); ok {
+			tx.AddError(errors.New("db down"))
+		}
+	})
+	if rec := doJSON(t, r8, "POST", "/api/users/import", map[string]any{
+		"users": []map[string]any{{"username": "imp-5", "enabled": false}},
+	}); rec.Code != http.StatusInternalServerError {
+		t.Fatalf("disable write: %d %s", rec.Code, rec.Body)
+	}
+	var zero8 int64
+	if err := db8.Model(&storage.User{}).Count(&zero8).Error; err != nil {
+		t.Fatal(err)
+	}
+	if zero8 != 0 {
+		t.Fatalf("disable write leaked %d users", zero8)
 	}
 }

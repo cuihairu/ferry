@@ -2,8 +2,10 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"testing"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/secret"
 	"github.com/cuihairu/ferry/server/internal/storage"
+	"gorm.io/gorm"
 )
 
 // TestProvisionRunAPI 覆盖供给执行（OS-2）：模板触发 plan/apply 立即回
@@ -194,5 +197,146 @@ func TestListProvisionJobsLimit(t *testing.T) {
 	rec := doJSON(t, r, "GET", "/api/provision-jobs?limit=5", nil)
 	if rec.Body.String() == "null\n" {
 		t.Fatalf("empty list should be [], got %s", rec.Body)
+	}
+}
+
+// regQueryFail 按查询目标类型注错（gorm 回调，对齐既有错误注入口径）；
+// 同包其他用例复用。dest 传 (*T)(nil) 形式的类型占位。
+func regQueryFail(name string, db *gorm.DB, dest any) {
+	db.Callback().Query().Before("gorm:query").Register(name, func(tx *gorm.DB) {
+		if reflect.TypeOf(tx.Statement.Dest) == reflect.TypeOf(dest) {
+			tx.AddError(errors.New("db down"))
+		}
+	})
+}
+
+// provisionFixture 起带主密钥的路由并落一个可用模板与凭证，返回路由、库、
+// 模板 id（触发链需要解密密文与有效提供商）。
+func provisionFixture(t *testing.T) (*gin.Engine, *gorm.DB, uint) {
+	t.Helper()
+	r, db := newTestRouterCfg(t, func(cfg *config.Config) { cfg.SecretKey = "test-master-key" })
+	prov := storage.Provider{Name: "vultr", Type: "vultr", Enabled: true}
+	if err := db.Create(&prov).Error; err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := secret.NewStore("test-master-key").Encrypt("sk-live")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prov.AccessKey = sealed
+	if err := db.Save(&prov).Error; err != nil {
+		t.Fatal(err)
+	}
+	tpl := storage.ProvisionTemplate{Name: "hk-3t", ProviderID: prov.ID, Plan: "vc2-1c-1gb",
+		Region: "hkg", Config: `{"inbounds":[]}`}
+	if err := db.Create(&tpl).Error; err != nil {
+		t.Fatal(err)
+	}
+	return r, db, tpl.ID
+}
+
+// TestProvisionRunErrors 覆盖触发链各校验与库故障分支：坏 id 404、模板指向
+// 不存在提供商 400、无主密钥 400、凭证解不开 400、apply 预签发建 job 失败 500、
+// plan 建档失败 500。
+func TestProvisionRunErrors(t *testing.T) {
+	r, db, _ := provisionFixture(t)
+
+	// 坏 id → 404（不进校验链）。
+	if rec := doJSON(t, r, "POST", "/api/provision-templates/abc/plan", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("bad id: %d", rec.Code)
+	}
+	// 模板指向不存在提供商 → 400。
+	ghost := storage.ProvisionTemplate{Name: "ghost", ProviderID: 999, Plan: "x"}
+	if err := db.Create(&ghost).Error; err != nil {
+		t.Fatal(err)
+	}
+	if rec := doJSON(t, r, "POST", "/api/provision-templates/"+itoa64(int(ghost.ID))+"/plan", nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("missing provider: %d", rec.Code)
+	}
+
+	// 无主密钥 → 400（默认测试配置 SecretKey 为空）。
+	r2, db2 := newTestRouterWithDB(t)
+	if err := db2.Create(&storage.Provider{Name: "v2", Type: "vultr", Enabled: true, AccessKey: "plain"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	tpl2 := storage.ProvisionTemplate{Name: "hk-2t", ProviderID: 1, Plan: "x", Config: `{}`}
+	if err := db2.Create(&tpl2).Error; err != nil {
+		t.Fatal(err)
+	}
+	if rec := doJSON(t, r2, "POST", "/api/provision-templates/"+itoa64(int(tpl2.ID))+"/plan", nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("no master key: %d %s", rec.Code, rec.Body)
+	}
+
+	// 凭证解不开 → 400。
+	r3, db3 := newTestRouterCfg(t, func(cfg *config.Config) { cfg.SecretKey = "test-master-key" })
+	if err := db3.Create(&storage.Provider{Name: "v3", Type: "vultr", Enabled: true, AccessKey: "not-a-sealed-key"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	tpl3 := storage.ProvisionTemplate{Name: "hk-3t", ProviderID: 1, Plan: "x", Config: `{}`}
+	if err := db3.Create(&tpl3).Error; err != nil {
+		t.Fatal(err)
+	}
+	if rec := doJSON(t, r3, "POST", "/api/provision-templates/"+itoa64(int(tpl3.ID))+"/plan", nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("undecryptable: %d %s", rec.Code, rec.Body)
+	}
+
+	// apply 预签发建 job 失败 → 500（PrepareLaunch 建 job 步冒错）。
+	r4, db4, tpl4 := provisionFixture(t)
+	db4.Callback().Create().Before("gorm:create").Register("t:jobcreate", func(tx *gorm.DB) {
+		if _, ok := tx.Statement.Dest.(*storage.ProvisionJob); ok {
+			tx.AddError(errors.New("db down"))
+		}
+	})
+	if rec := doJSON(t, r4, "POST", "/api/provision-templates/"+itoa64(int(tpl4))+"/apply", nil); rec.Code != http.StatusInternalServerError {
+		t.Fatalf("apply prepare: %d %s", rec.Code, rec.Body)
+	}
+
+	// plan 建档失败 → 500。
+	r5, db5, tpl5 := provisionFixture(t)
+	db5.Callback().Create().Before("gorm:create").Register("t:plancreate", func(tx *gorm.DB) {
+		if _, ok := tx.Statement.Dest.(*storage.ProvisionJob); ok {
+			tx.AddError(errors.New("db down"))
+		}
+	})
+	if rec := doJSON(t, r5, "POST", "/api/provision-templates/"+itoa64(int(tpl5))+"/plan", nil); rec.Code != http.StatusInternalServerError {
+		t.Fatalf("plan create: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// TestRecoveryListErrors 覆盖恢复流水线留痕列表：limit 负例与取数失败、
+// 动作回放坏 id 与取数失败。
+func TestRecoveryListErrors(t *testing.T) {
+	r, _ := newTestRouterWithDB(t)
+	for _, q := range []string{"?limit=abc", "?limit=0", "?limit=201"} {
+		if rec := doJSON(t, r, "GET", "/api/recoveries"+q, nil); rec.Code != http.StatusBadRequest {
+			t.Fatalf("recoveries %s: %d", q, rec.Code)
+		}
+	}
+	if rec := doJSON(t, r, "GET", "/api/recoveries?limit=5", nil); rec.Code != http.StatusOK {
+		t.Fatalf("recoveries ok: %d", rec.Code)
+	}
+	if rec := doJSON(t, r, "GET", "/api/recoveries/abc/actions", nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("actions bad id: %d", rec.Code)
+	}
+	if rec := doJSON(t, r, "GET", "/api/recoveries/0/actions", nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("actions zero id: %d", rec.Code)
+	}
+
+	// 三路取数失败 → 500。
+	sets := []struct {
+		name string
+		path string
+		dest any
+	}{
+		{"jobs", "/api/provision-jobs", (*[]storage.ProvisionJob)(nil)},
+		{"recoveries", "/api/recoveries", (*[]storage.Recovery)(nil)},
+		{"actions", "/api/recoveries/1/actions", (*[]storage.RecoveryAction)(nil)},
+	}
+	for _, sc := range sets {
+		r6, db6 := newTestRouterWithDB(t)
+		regQueryFail("t:recon", db6, sc.dest)
+		if rec := doJSON(t, r6, "GET", sc.path, nil); rec.Code != http.StatusInternalServerError {
+			t.Fatalf("%s query fail: %d %s", sc.name, rec.Code, rec.Body)
+		}
 	}
 }
