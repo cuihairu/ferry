@@ -261,3 +261,9 @@
 - 观察项（#14）本轮未能取得有效测试结论：server/go.mod 要求 Go 1.27.2，本机为 1.27.1；默认 GOTOOLCHAIN 下载工具链两次因网络 unexpected EOF/中断失败，GOTOOLCHAIN=local 则被版本检查拒绝。上轮 R1023PATROL `-race -count=5` ok 3.456s 仍为最近有效证据，本轮不伪造复跑结果。
 
 依据：除 #14 因工具链下载/网络临时受限未复跑外，其余 14 条触发条件全部不成立；无 open PR/issue/告警。本轮单 commit 纯文档落账，main 与 origin/main 同步。
+
+## 巡检结论（PATROL1017C）
+
+2026-10-17 巡检轮（PATROL1017C）：15 项未勾复核，无新凭据/新裁决/新需求立项/真机材料，上游 vitepress 2 stable 仍未发布，GitHub 无 open PR/issue/Dependabot 告警；完成 0 条、剩余 15 条，维持挂起/拍板关闭不重开。docs-only 落账，不编译不跑全量套件。
+
+新鲜证据：TestProvisionRunAPI（#14）`-race -count=5` → ok 3.177s exit 0，五连跑未复现；vitepress registry latest=1.6.4 / next=2.0.0-alpha.20；router.go 对节点令牌 rotate/crl/revoc 零命中，payments 商户凭据零命中，agent entry_domain 零命中，costref 仍静态三件；main 与 origin/main 同步且 tree clean。
