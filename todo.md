@@ -267,3 +267,9 @@
 2026-10-17 巡检轮（PATROL1017C）：15 项未勾复核，无新凭据/新裁决/新需求立项/真机材料，上游 vitepress 2 stable 仍未发布，GitHub 无 open PR/issue/Dependabot 告警；完成 0 条、剩余 15 条，维持挂起/拍板关闭不重开。docs-only 落账，不编译不跑全量套件。
 
 新鲜证据：TestProvisionRunAPI（#14）`-race -count=5` → ok 3.177s exit 0，五连跑未复现；vitepress registry latest=1.6.4 / next=2.0.0-alpha.20；router.go 对节点令牌 rotate/crl/revoc 零命中，payments 商户凭据零命中，agent entry_domain 零命中，costref 仍静态三件；main 与 origin/main 同步且 tree clean。
+
+## 巡检结论（PATROL1017G）
+
+2026-10-17 巡检轮（PATROL1017G）：15 项未勾复核，仍无新凭据/新裁决/新需求立项/上游 stable 发版/真机材料，GitHub 无 open PR/issue/Dependabot 告警；完成 0 条、剩余 15 条，维持挂起/拍板关闭不重开，本轮无合法开工项。docs-only 落账，不编译不跑全量套件。
+
+新鲜证据：TestProvisionRunAPI（#14）`-race -count=5` → ok 4.209s exit 0，未复现；vitepress registry latest=1.6.4 / next=2.0.0-alpha.20；外部材料/凭据/证书零新增，节点令牌 rotate-crl、商户凭据、agent entry_domain、costref 真源实现面仍零命中；main 与 origin/main 同步且 tree clean。
