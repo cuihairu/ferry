@@ -273,3 +273,9 @@
 2026-10-17 巡检轮（PATROL1017G）：15 项未勾复核，仍无新凭据/新裁决/新需求立项/上游 stable 发版/真机材料，GitHub 无 open PR/issue/Dependabot 告警；完成 0 条、剩余 15 条，维持挂起/拍板关闭不重开，本轮无合法开工项。docs-only 落账，不编译不跑全量套件。
 
 新鲜证据：TestProvisionRunAPI（#14）`-race -count=5` → ok 4.209s exit 0，未复现；vitepress registry latest=1.6.4 / next=2.0.0-alpha.20；外部材料/凭据/证书零新增，节点令牌 rotate-crl、商户凭据、agent entry_domain、costref 真源实现面仍零命中；main 与 origin/main 同步且 tree clean。
+
+## 巡检结论（PATROL1017A）
+
+2026-10-17 巡检轮（PATROL1017A）：15 项未勾复核，仍无新凭据/新裁决/新需求立项/上游 stable 发版/真机材料，GitHub 无 open PR/issue/Dependabot 告警；完成 0 条、剩余 15 条，按闸门维持挂起/拍板关闭不重开。docs-only 落账，不编译不跑全量套件。
+
+新鲜证据：TestProvisionRunAPI（#14）`-race -count=5` → ok 3.217s exit 0，未复现；vitepress registry latest=1.6.4 / next=2.0.0-alpha.20；商户凭据、节点令牌 rotate-crl、agent 判定源复用、costref 真源实现面仍无新增；台账唯一性仍为 ./todo.md 一个。
