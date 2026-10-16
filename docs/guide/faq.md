@@ -28,7 +28,7 @@
 ## 节点与订阅
 
 **agent 装完不上线？**
-按序查三处：`journalctl -u ferry-agent -f`（连接报错会打在这里）→ 面板域名反代是否放行 `/agent/ws`（Caddy 模板四路径：`/api`、`/sub`、`/agent`、`/feed.xml`）→ 节点令牌是否与面板一致。上线后 `/api/health` 的 `agents_online` 应 +1。
+按序查三处：`journalctl -u ferry-agent -f`（连接报错会打在这里）→ 面板域名反代是否放行 `/agent/ws`（Caddy 模板七组路径：`/api`、`/admin`、`/distributor`、`/sub`、`/agent`、`/feed.xml` 与静态资源）→ 节点令牌是否与面板一致。上线后 `/api/health` 的 `agents_online` 应 +1。
 
 **用户拉订阅 404？**
 令牌错或用户被停用。注意保护机制：同一 IP 连续 20 次未命中会锁 15 分钟（防枚举），测试时别拿错令牌连打。
