@@ -227,3 +227,19 @@
 2026-10-16 巡检轮（FW1016D，带代决授权）：逐条对照「卡在待拍板/设计选择/需求取舍/排期」判定，15 条无一真正待决——6 条拍板关闭（#1/#2/#5/#6/#11/#12）、3 条已成文维持挂起（mTLS CA=安全设计.md:98「mTLS 默认关闭抑制价值，维持挂起」、调度自动调参=调度核心设计.md:109「P2 才考虑自动调，人工调参先行」、节点级流量预算=面板横向对比.md:77「挂观察，不开工」）、3 条外部阻塞（直连支付/costref 真源/hy2 真机）、1 条上游等待（vitepress registry latest=1.6.4 / next=2.0.0-alpha.20，2.x stable 零 tag）、1 条观察项（TestProvisionRunAPI `-race -count=5` ok 4.006s 未复现）、1 条 TOUCH-7 账面表述与裁决记录不符。代决动作仅一处：TOUCH-7 原写「未开工/待触发」，实际设计 2026-10-08 落地口径已裁决判定源走管理员手动标记（已落地并测试：outage_mode + dash 断联卡 + 订阅逃生注释），探测复用判「不可执行」注记留待——本轮已代决把该行补正为「已代决留待」并写明触发条件（用户点名扩 probe 面新增 target_kind 与 agent 侧实现后再评估），不重开原裁决、不虚构任务。docs-only 落账，不编译不跑测试套件；两仓 clean 与 origin 同步（ferry 本轮前置 `539b9d8`，memex `8e31ff9`）。
 
 依据：代决授权核遍 15 条，无可执行的待拍板对象（已成文裁决不重开、外部条件不解、观察项不硬造）；本轮单 commit 纯文档落账，main 与 origin/main 同步。
+
+## 巡检结论（R1021PATROL）
+
+2026-10-16 巡检轮（R1021PATROL）：15 项未勾逐条取新鲜证据复核，触发条件全部仍不成立，维持挂起/拍板关闭不重开，本轮完成 0 条、剩余 15 条（6 拍板关闭+3 成文挂起+3 外部阻塞+1 上游等待+1 观察项+1 已代决留待）；无可开工功能项，无低成本补覆盖批次（五十二批收官结论仍有效，98.5%=5408/5492）。docs-only 落账，不编译不跑测试套件。
+
+本轮新鲜实测：
+- 偶发项 TestProvisionRunAPI（#14）：`go test ./internal/handler/ -run '^TestProvisionRunAPI$' -race -count=5` → ok 3.841s exit 0，五连跑再净，未复现。
+- vitepress（#15）：本轮实拉 registry dist-tags latest=1.6.4 / next=2.0.0-alpha.20，2.x stable 仍零 tag，pnpm override 不可撤。
+- GitHub 面：open PR=0、open issue=0、dependabot open alerts=0，无外部可接手事项。
+- C-06（#2）：router.go 对 rotate/crl/revoc 零命中；直连支付（#4）：payments/ 对 app_id/merchant_id/mch_id 零命中；TOUCH-7（#7）：agent 侧 entry_domain 零命中、probe TargetKind 仅 tunnel/exit/peer，手动判定面 GET/PUT /api/outage 在位（router.go:179-180）；costref（#8）：packages/costref 仍仅 compare/costref/static 三件+测试。
+- 成文挂起口径复核不变：mTLS CA（#3）安全设计.md P2 行「默认关闭抑制价值，维持挂起」；自动调参（#9）调度核心设计.md:109 P2 挂起；流量预算（#10）面板横向对比.md:77「挂观察，不开工」；OSS 三候选（#12）开源选型设计.md 保留自有改判不变。
+- 拍板关闭（#1/#5/#6/#11）无解锁条件不重开；hy2（#13）外部二进制/证书/防火墙未提供；台账唯一性 find 实测仅 ./todo.md 一个。
+
+工作区：tree clean；发现 17:17 已落盘未推送的 docs 提交 `41a4baf`（Caddy 反代路由文档与三十九批实际修复对齐：deploy 部署指南+faq 补 /admin、/distributor），属本仓既有已提交工作，本轮 pull --rebase 后随本结论一并推送，不改其内容。
+
+依据：15 条触发条件全部不成立（外部未提供/上游未发布/拍板关闭无解锁条件），无 open PR/issue/告警；本轮单 commit 纯文档落账。
