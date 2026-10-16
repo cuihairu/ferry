@@ -247,3 +247,17 @@
 ## 巡检结论（R1023PATROL）
 
 2026-10-16 巡检轮（R1023PATROL）：台账与工作区与上轮 R1021PATROL 完全一致（HEAD 70dc94b、tree clean、未勾仍 15、find 仅 ./todo.md），完成 0 条/剩余 15 条，触发条件逐条复核仍全部不成立，维持挂起/拍板关闭不重开。新鲜证据：TestProvisionRunAPI `-race -count=5` ok 3.456s 未复现；vitepress registry latest=1.6.4 / next=2.0.0-alpha.20（2.x stable 零 tag）；open PR=0、open issue=0、dependabot open=0；router.go rotate/crl/revoc 零命中、payments 商户凭据零命中、agent entry_domain 零命中、costref 仍静态三件。docs-only 落账，不编译不跑全量套件。
+
+## 巡检结论（R1024PATROL）
+
+2026-10-17 巡检轮（R1024PATROL）：15 项未勾逐条取新鲜证据复核，触发条件仍全部不成立，维持挂起/拍板关闭不重开；本轮完成 0 条/剩余 15 条（6 拍板关闭+3 成文挂起+3 外部阻塞+1 上游等待+1 观察项+1 已代决留待），无可开工功能项，无补覆盖批次五十三（五十二批收官结论仍有效，98.5%=5408/5492）。docs-only 落账，不编译不跑全量套件。
+
+本轮新鲜实测：
+- vitepress（#15）：registry dist-tags 仍为 latest=1.6.4 / next=2.0.0-alpha.20，2.x stable 零 tag，pnpm override 不可撤。
+- GitHub 面：open PR=0、open issue=0、dependabot open alerts=0，无外部可接手事项。
+- C-06（#2）：router.go 对 rotate/crl/revoc 零命中（仅订阅条目轮换实现命中 rotate，非节点令牌轮换）；直连支付（#4）：payments/ 对 app_id/merchant_id/mch_id 零命中；TOUCH-7（#7）：agent 侧 entry_domain 零命中、probe TargetKind 仅透传且无判定源消费；costref（#8）：packages/costref 仍仅 compare/costref/static 三件+测试。
+- 成文挂起口径复核不变：mTLS CA（#3）docs/design/安全设计.md:97-98；自动调参（#9）docs/design/调度核心设计.md:89/109；流量预算（#10）docs/面板横向对比.md:77；OSS 三候选（#12）docs/design/开源选型设计.md 保留自有改判不变。
+- 拍板关闭（#1/#5/#6/#11）无解锁条件不重开；hy2（#13）外部二进制/证书/防火墙未提供；台账唯一性 find 实测仅 ./todo.md 一个。
+- 观察项（#14）本轮未能取得有效测试结论：server/go.mod 要求 Go 1.27.2，本机为 1.27.1；默认 GOTOOLCHAIN 下载工具链两次因网络 unexpected EOF/中断失败，GOTOOLCHAIN=local 则被版本检查拒绝。上轮 R1023PATROL `-race -count=5` ok 3.456s 仍为最近有效证据，本轮不伪造复跑结果。
+
+依据：除 #14 因工具链下载/网络临时受限未复跑外，其余 14 条触发条件全部不成立；无 open PR/issue/告警。本轮单 commit 纯文档落账，main 与 origin/main 同步。
