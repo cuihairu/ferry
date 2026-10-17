@@ -357,3 +357,9 @@
 2026-10-18 巡检轮（PATROL-R1018C，增量轮）：HEAD 0975650 与 origin/main 同步且 tree clean（无他席新提交），解锁证据全零——vitepress 仍 latest=1.6.4/next=2.0.0-alpha.20（#15 无发版）、gh open PR=0/issue=0/dependabot=0、CI 最近两 run 均 success（dispatch 39050670334 / test 39050616680）、用户侧无新凭据/新裁决/新立项。账本 14 条未勾全部已在上轮 PATROL1018R1 阻塞表逐条点名，无未点名 [ ] 可挑，无可开工项，按单收工；memex 侧同步 clean（25b5385）。docs-only 落账，vitepress build 绿。
 
 依据：14 条触发条件仍全部不成立且无未点名条目；本轮单 commit 纯文档落账，main 与 origin/main 同步。
+
+## 巡检结论（PATROL-R1018C2）
+
+2026-10-18 04:35 增量轮（ferry.md 更新版）：HEAD fb2c926 与 origin/main 同步、tree clean，解锁证据仍全零（vitepress latest=1.6.4/next=2.0.0-alpha.20、gh open PR=0/issue=0/dependabot=0、无新凭据/裁决/立项），14 条未勾全部处于既有卡点（阻塞对象表见 PATROL1018R1 段），逐项按单回报后收工；memex 侧同步 clean（25b5385）。docs-only 落账，vitepress build 绿。
+
+依据：全部条目卡点未变且证据零新增；本轮单 commit 纯文档落账，main 与 origin/main 同步。
