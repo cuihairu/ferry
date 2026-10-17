@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/storage"
@@ -207,4 +208,75 @@ func TestNodeMetaInput(t *testing.T) {
 			t.Fatalf("bad %s status = %d", k, rec.Code)
 		}
 	}
+}
+
+func TestNodeTokenRotation(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	oldToken := "old-node-token"
+	node := storage.Node{Name: "rotate", Address: "rotate.example.com", Port: 443,
+		Protocol: "vless", Token: oldToken, Enabled: true, Status: "online"}
+	if err := db.Create(&node).Error; err != nil {
+		t.Fatalf("seed node: %v", err)
+	}
+
+	rec := doJSON(t, r, "POST", "/api/nodes/1/token", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("rotate: %d %s", rec.Code, rec.Body)
+	}
+	var rotated storage.Node
+	if err := json.Unmarshal(rec.Body.Bytes(), &rotated); err != nil || rotated.Token == "" {
+		t.Fatalf("decode rotate: %v %q", err, rec.Body)
+	}
+	if rotated.OldToken != oldToken || rotated.Token == oldToken {
+		t.Fatalf("rotation fields: old=%q new=%q", rotated.OldToken, rotated.Token)
+	}
+	if rotated.TokenRotatedAt == nil || time.Since(*rotated.TokenRotatedAt) > time.Minute {
+		t.Fatalf("rotated at = %v", rotated.TokenRotatedAt)
+	}
+
+	var row storage.Node
+	if err := db.First(&row, node.ID).Error; err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if row.Token != rotated.Token || row.OldToken != oldToken || row.TokenRotatedAt == nil {
+		t.Fatalf("rotation not persisted: %+v", row)
+	}
+}
+
+func TestNodeTokenRevocation(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	oldToken := "grace-token"
+	node := storage.Node{Name: "revoke", Address: "revoke.example.com", Port: 443,
+		Protocol: "vless", Token: "current-token", OldToken: oldToken,
+		TokenRotatedAt: ptrTime(time.Now()), Enabled: true, Status: "online"}
+	if err := db.Create(&node).Error; err != nil {
+		t.Fatalf("seed node: %v", err)
+	}
+
+	if rec := doJSON(t, r, "POST", "/api/nodes/1/token/revoke", map[string]any{}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("missing token: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doJSON(t, r, "POST", "/api/nodes/1/token/revoke", map[string]any{"token": "current-token"}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("current token: %d %s", rec.Code, rec.Body)
+	}
+	rec := doJSON(t, r, "POST", "/api/nodes/1/token/revoke", map[string]any{"token": oldToken})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("revoke: %d %s", rec.Code, rec.Body)
+	}
+
+	var revocations []storage.NodeTokenRevocation
+	if err := db.Find(&revocations).Error; err != nil || len(revocations) != 1 || revocations[0].Token != oldToken {
+		t.Fatalf("revocations = %+v err=%v", revocations, err)
+	}
+	var row storage.Node
+	if err := db.First(&row, node.ID).Error; err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if row.OldToken != "" || row.TokenRotatedAt != nil || row.Token != "current-token" {
+		t.Fatalf("grace not closed: %+v", row)
+	}
+}
+
+func ptrTime(value time.Time) *time.Time {
+	return &value
 }

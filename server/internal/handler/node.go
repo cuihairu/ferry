@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cuihairu/ferry/server/internal/model"
 	"github.com/cuihairu/ferry/server/internal/storage"
@@ -143,6 +144,15 @@ func (h *Handler) updateNode(c *gin.Context) {
 }
 
 func (h *Handler) deleteNode(c *gin.Context) {
+	var n storage.Node
+	if err := h.db.First(&n, c.Param("id")).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
+			return
+		}
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
 	res := h.db.Where("id=?", c.Param("id")).Delete(&storage.Node{})
 	if res.Error != nil {
 		fail(c, http.StatusInternalServerError, res.Error)
@@ -152,7 +162,72 @@ func (h *Handler) deleteNode(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
 		return
 	}
+	if err := h.db.Where("node_id=?", n.ID).Delete(&storage.NodeTokenRevocation{}).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
 	c.JSON(http.StatusNoContent, nil)
+}
+
+// rotateNodeToken issues a new token and briefly accepts the former token so
+// an already-running agent can reconnect while replacing its configuration.
+func (h *Handler) rotateNodeToken(c *gin.Context) {
+	n, err := h.findNode(c.Param("id"))
+	if err != nil {
+		replyFind(c, err)
+		return
+	}
+	token, err := RandomToken()
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	now := time.Now()
+	updates := map[string]any{"old_token": n.Token, "token": token, "token_rotated_at": now}
+	if err := h.db.Model(&storage.Node{}).Where("id=?", n.ID).Updates(updates).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	n.OldToken = n.Token
+	n.Token = token
+	n.TokenRotatedAt = &now
+	c.JSON(http.StatusOK, n)
+}
+
+// revokeNodeToken immediately rejects a former token, closing the rotation
+// window early without disturbing the currently issued token.
+func (h *Handler) revokeNodeToken(c *gin.Context) {
+	n, err := h.findNode(c.Param("id"))
+	if err != nil {
+		replyFind(c, err)
+		return
+	}
+	var in nodeTokenRevokeInput
+	if err := c.ShouldBindJSON(&in); err != nil || in.Token == "" {
+		fail(c, http.StatusBadRequest, errors.New("token is required"))
+		return
+	}
+	if in.Token != n.OldToken {
+		fail(c, http.StatusBadRequest, errors.New("token is not the current grace token"))
+		return
+	}
+	revocation := storage.NodeTokenRevocation{NodeID: n.ID, Token: in.Token, RevokedAt: time.Now()}
+	if err := h.db.Create(&revocation).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	if err := h.db.Model(&storage.Node{}).Where("id=?", n.ID).
+		Updates(map[string]any{"old_token": "", "token_rotated_at": nil}).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	n.OldToken = ""
+	n.TokenRotatedAt = nil
+	c.JSON(http.StatusOK, n)
+}
+
+type nodeTokenRevokeInput struct {
+	Token string `json:"token"`
 }
 
 // findNode 按主键查节点，不存在返回 errNotFound（非法 id 同样视为不存在）。

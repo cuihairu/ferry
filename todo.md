@@ -91,13 +91,14 @@
 - [x] 一键启动（三十九批）：deploy/start.sh 一键入口（首次从仓根 .env.example 生成 .env、已存在不覆盖；up 后等 /api/health 最多 180s 并校验 /data/ferry.db 落盘——建表随 storage.Open 的 AutoMigrate 幂等自动跑，未另起迁移体系；生效端口从 docker compose port 读回打印）+ Makefile 增 make up 等价入口 + compose 增 ferry-panel 用户端服务（此前 Caddyfile 只发 dash，panel/dist 从未被任何 compose 服务 COPY，用户端在容器部署里无入口）+ deploy/ferry-panel.Dockerfile（pnpm 构建 + Caddy 托管，复用同一 Caddyfile）+ 根 .env.example 最小必填集带注释与默认值（全量参数仍指 deploy/ferry.env.example）+ .dockerignore 收窄构建上下文 64MB→17KB（bin/ node_modules/ .env 等，避免机密进上下文）+ README/README.zh/deploy README 增首屏「一键启动」节（前置要求、一条命令、访问地址、常见问题）；顺带修三处已存在的构建与部署断裂：①ferry-server.Dockerfile 浮动标签 golang:1.27-alpine 解析到 go1.27.1，低于 go.mod 声明的 1.27.2（c8e76cb 为清 govulncheck 抬版后 compose 构建即断），钉 golang:1.27.2-alpine 对齐 CI setup-go；②replace 指到的 ../payments 独立模块未 COPY（3b019d8 E-31 起缺），补 COPY payments/；③Caddyfile 只反代 /api /sub /agent /feed.xml，漏了后端三组顶层路由 /admin/*（后台登录与两步验证、备份导出、证书、系统状态、日志）/distributor/* 与 /agent/ws——漏登记不是落到静态目录回 404 文件，而是被兜底 handle 的 file_server 接住：GET /admin/login 回 index.html(200)、POST 回 405，后台能打开登录页却永远登不上，按顶层前缀全量补齐并在文件头留新增路由须登记的注释——2026-10-15（468e414），docker compose config 校验通过、真机 up 全绿（三镜像构建、三容器起、/api/health 200 且 db_writable、/data/ferry.db 471KB 落盘、dash 与 panel 静态与 history 回退均 200、POST /admin/login 200 出 JWT 且 /admin/2fa 与 /admin/status 带 token 200、/agent/ws 达后端回 400）
 
 - [x] docs 双语化：docs/ 四篇顶层文档（index、herald 对接实录、面板横向对比、文档一致性审计）补英文版，两侧顶部互链切换器（首页用 hero 按钮，因 home 版式 frontmatter 必须在首行），命令/路径/专有名词原样保留——2026-10-15（c6003a9），docs vitepress 构建绿
+- [x] 节点令牌轮换窗口与吊销 CRL（C-06）：管理端轮换节点令牌并保留 10 分钟旧令牌兼容窗口，支持窗口内立即吊销；agent WebSocket 认证先查吊销表再校验新旧令牌与窗口，dash 节点操作支持复制新令牌与吊销旧令牌——2026-10-17（随本批单提交落账），make test 全绿（6 Go 模块+dash/panel 构建）
 
 ## 未开工项（需求一句话）
 
 - [ ] agent 组件独立进程与 unix socket IPC（C-03）：当前组件为进程内角色调用；拍板维持原状不重开
   - 状态=维持不做｜原因：进程内角色调用已满足需求，独立 IPC 增加复杂度无收益｜触发条件：无（拍板关闭）
-- [ ] 节点令牌轮换窗口与吊销 CRL（C-06）：未实现；拍板维持原状不重开
-  - 状态=维持不做｜原因：节点令牌当前无轮换需求，CRL 吊销未触发｜触发条件：无（拍板关闭）
+- [x] 节点令牌轮换窗口与吊销 CRL（C-06）：未实现；拍板维持原状不重开
+  - 状态=完成｜落地=2026-10-17 随本批单提交；原因：轮换窗口、吊销 CRL、认证与 dash 操作均已实现｜证据=make test 全绿（6 Go 模块+dash/panel 构建）
 - [ ] mTLS CA 编排：受 mTLS 默认关闭抑制，维持挂起；开启 CA 消费方后再评估
   - 状态=阻塞｜原因：mTLS 默认关闭，无 CA 消费方｜触发条件：mTLS 开启且有节点证书签发需求
 - [ ] 微信/支付宝直连支付：等商户资质到位再开工

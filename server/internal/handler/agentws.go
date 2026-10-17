@@ -22,8 +22,18 @@ var wsUpgrader = websocket.Upgrader{}
 
 // authNode 按令牌查启用的节点，返回节点 ID。
 func (h *Handler) authNode(token string) (int64, error) {
+	var revoked int64
+	if err := h.db.Raw("SELECT COUNT(*) FROM node_token_revocations WHERE token = ?", token).
+		Scan(&revoked).Error; err != nil {
+		return 0, err
+	}
+	if revoked > 0 {
+		return 0, errors.New("revoked token")
+	}
+	now := time.Now()
 	var n storage.Node
-	err := h.db.Where("token=? AND enabled=?", token, true).First(&n).Error
+	err := h.db.Where("(token = ? OR (old_token = ? AND token_rotated_at > ?)) AND enabled = ?",
+		token, token, now.Add(-nodeTokenGracePeriod), true).First(&n).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return 0, errors.New("invalid token")
 	}
@@ -32,6 +42,10 @@ func (h *Handler) authNode(token string) (int64, error) {
 	}
 	return int64(n.ID), nil
 }
+
+// nodeTokenGracePeriod is how long the previous token remains usable during
+// an agent's reconnect window.
+const nodeTokenGracePeriod = 10 * time.Minute
 
 // agentWS 处理 agent 的出站长连接：hello 认证 → 注册在线 → 心跳与上报。
 func (h *Handler) agentWS(c *gin.Context) {

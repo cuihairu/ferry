@@ -60,16 +60,19 @@ type SubDevice struct {
 
 // Node 是一台代理节点。Token 供 agent 出站连接认证。
 type Node struct {
-	ID       uint       `gorm:"primaryKey" json:"id"`
-	Name     string     `gorm:"size:64" json:"name"`
-	Address  string     `gorm:"size:255" json:"address"`
-	Port     int        `gorm:"not null" json:"port"`
-	Protocol string     `gorm:"size:16" json:"protocol"` // vless/vmess/trojan/shadowsocks/hysteria2
-	Config   string     `gorm:"type:text" json:"config"` // 协议配置模板 JSON
-	Enabled  bool       `gorm:"default:true" json:"enabled"`
-	Token    string     `gorm:"size:64;uniqueIndex" json:"token"`
-	LastSeen *time.Time `json:"last_seen,omitempty"`
-	Status   string     `gorm:"size:16;default:unknown" json:"status"` // online/offline/unknown
+	ID       uint   `gorm:"primaryKey" json:"id"`
+	Name     string `gorm:"size:64" json:"name"`
+	Address  string `gorm:"size:255" json:"address"`
+	Port     int    `gorm:"not null" json:"port"`
+	Protocol string `gorm:"size:16" json:"protocol"` // vless/vmess/trojan/shadowsocks/hysteria2
+	Config   string `gorm:"type:text" json:"config"` // 协议配置模板 JSON
+	Enabled  bool   `gorm:"default:true" json:"enabled"`
+	Token    string `gorm:"size:64;uniqueIndex" json:"token"`
+	// Token rotation grace: an agent replaces local config and reconnects.
+	OldToken       string     `gorm:"size:64;index" json:"old_token,omitempty"`
+	TokenRotatedAt *time.Time `json:"token_rotated_at,omitempty"`
+	LastSeen       *time.Time `json:"last_seen,omitempty"`
+	Status         string     `gorm:"size:16;default:unknown" json:"status"` // online/offline/unknown
 	// 注册元数据（入口与负载均衡设计 §C.3/C.6）：agent 注册上报初值，
 	// 面板可改且以面板为准（meta_init 置位后注册不再覆盖）。
 	Role                     string     `gorm:"size:16;default:landing" json:"role"` // entry/landing/both
@@ -375,6 +378,14 @@ type Campaign struct {
 	EndsAt    time.Time `json:"ends_at"`
 	Enabled   bool      `gorm:"default:true" json:"enabled"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// NodeTokenRevocation is a former node token that must not authenticate.
+type NodeTokenRevocation struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	NodeID    uint      `gorm:"index" json:"node_id"`
+	Token     string    `gorm:"size:64;uniqueIndex" json:"token"`
+	RevokedAt time.Time `json:"revoked_at"`
 }
 
 // PaymentTransaction 是支付流水（三账之二：外部实际发生的收付）。

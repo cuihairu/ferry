@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { get, post, put, del, resolveAlert, upgradeNode, getNodeProcs, type Node, type DimensionStatus, type NodeShare, type BatchProcResult, type BatchConfigResult, type Alert, type NodeLoad, type NodeProcRow } from '../api'
+import { get, post, put, del, resolveAlert, upgradeNode, getNodeProcs, rotateNodeToken, revokeNodeToken, type Node, type DimensionStatus, type NodeShare, type BatchProcResult, type BatchConfigResult, type Alert, type NodeLoad, type NodeProcRow } from '../api'
 import QRCode from 'qrcode'
 import RuleLibDialog from '../components/RuleLibDialog.vue'
 
@@ -287,6 +287,26 @@ async function openShare(n: Node) {
 async function copyShareLink() {
   await navigator.clipboard.writeText(shareLink.value)
   ElMessage.success('分享链接已复制')
+}
+
+async function rotateToken(n: Node) {
+  await ElMessageBox.confirm(
+    '旧令牌保留 10 分钟兼容窗口，请立即更新 agent 配置；可随后撤销旧令牌。',
+    '轮换节点令牌',
+    { type: 'warning' },
+  )
+  const rotated = await rotateNodeToken(n.id)
+  await navigator.clipboard.writeText(rotated.token)
+  Object.assign(n, rotated)
+  ElMessage.success('新令牌已复制，请更新 agent 配置')
+}
+
+async function revokeToken(n: Node) {
+  if (!n.old_token) return
+  await ElMessageBox.confirm('旧令牌将立即失效，确认吊销？', '吊销旧令牌', { type: 'warning' })
+  const revoked = await revokeNodeToken(n.id, n.old_token)
+  Object.assign(n, revoked)
+  ElMessage.success('旧令牌已吊销')
 }
 
 // 进程状态对话框（SAVE-3）：agent 心跳上报的被管进程快照（含缓存命中统计）。
@@ -689,6 +709,8 @@ async function remove(n: Node) {
           <el-button link type="primary" @click="openRuleLib(row)">分流</el-button>
           <el-button link type="primary" @click="openProcs(row)">进程</el-button>
           <el-button link type="primary" @click="openUpgrade(row)">升级</el-button>
+          <el-button link type="warning" @click="rotateToken(row)">换令牌</el-button>
+          <el-button v-if="row.old_token" link type="danger" @click="revokeToken(row)">吊销旧令牌</el-button>
           <el-button
             v-if="(row.role === 'entry' || row.role === 'both') && row.enabled"
             link :type="row.pool_state === 'suspended' || row.pool_state === 'standby' ? 'success' : 'warning'"

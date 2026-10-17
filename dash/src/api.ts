@@ -79,6 +79,8 @@ export interface Node {
   config: string
   enabled: boolean
   token: string
+  old_token?: string
+  token_rotated_at?: string | null
   status: string
   role: string
   direction: string
@@ -399,6 +401,16 @@ export function getAlerts(params?: { state?: string; node_id?: number; kind?: st
   if (params?.limit) qs.set('limit', String(params.limit))
   const q = qs.toString()
   return get<Alert[]>(`/api/alerts${q ? `?${q}` : ''}`)
+}
+
+/** NodeTokenRotation is the response of POST /api/nodes/:id/token. */
+export function rotateNodeToken(id: number): Promise<Node> {
+  return post<Node>(`/api/nodes/${id}/token`)
+}
+
+/** revokeNodeToken closes the rotation grace window immediately. */
+export function revokeNodeToken(id: number, token: string): Promise<Node> {
+  return post<Node>(`/api/nodes/${id}/token/revoke`, { token })
 }
 
 export function resolveAlert(id: number): Promise<Alert> {

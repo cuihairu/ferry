@@ -110,6 +110,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&GeoDNSRecord{},
 		&Coupon{},
 		&Campaign{},
+		&NodeTokenRevocation{},
 	)
 }
 
