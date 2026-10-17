@@ -91,7 +91,7 @@
 - [x] 一键启动（三十九批）：deploy/start.sh 一键入口（首次从仓根 .env.example 生成 .env、已存在不覆盖；up 后等 /api/health 最多 180s 并校验 /data/ferry.db 落盘——建表随 storage.Open 的 AutoMigrate 幂等自动跑，未另起迁移体系；生效端口从 docker compose port 读回打印）+ Makefile 增 make up 等价入口 + compose 增 ferry-panel 用户端服务（此前 Caddyfile 只发 dash，panel/dist 从未被任何 compose 服务 COPY，用户端在容器部署里无入口）+ deploy/ferry-panel.Dockerfile（pnpm 构建 + Caddy 托管，复用同一 Caddyfile）+ 根 .env.example 最小必填集带注释与默认值（全量参数仍指 deploy/ferry.env.example）+ .dockerignore 收窄构建上下文 64MB→17KB（bin/ node_modules/ .env 等，避免机密进上下文）+ README/README.zh/deploy README 增首屏「一键启动」节（前置要求、一条命令、访问地址、常见问题）；顺带修三处已存在的构建与部署断裂：①ferry-server.Dockerfile 浮动标签 golang:1.27-alpine 解析到 go1.27.1，低于 go.mod 声明的 1.27.2（c8e76cb 为清 govulncheck 抬版后 compose 构建即断），钉 golang:1.27.2-alpine 对齐 CI setup-go；②replace 指到的 ../payments 独立模块未 COPY（3b019d8 E-31 起缺），补 COPY payments/；③Caddyfile 只反代 /api /sub /agent /feed.xml，漏了后端三组顶层路由 /admin/*（后台登录与两步验证、备份导出、证书、系统状态、日志）/distributor/* 与 /agent/ws——漏登记不是落到静态目录回 404 文件，而是被兜底 handle 的 file_server 接住：GET /admin/login 回 index.html(200)、POST 回 405，后台能打开登录页却永远登不上，按顶层前缀全量补齐并在文件头留新增路由须登记的注释——2026-10-15（468e414），docker compose config 校验通过、真机 up 全绿（三镜像构建、三容器起、/api/health 200 且 db_writable、/data/ferry.db 471KB 落盘、dash 与 panel 静态与 history 回退均 200、POST /admin/login 200 出 JWT 且 /admin/2fa 与 /admin/status 带 token 200、/agent/ws 达后端回 400）
 
 - [x] docs 双语化：docs/ 四篇顶层文档（index、herald 对接实录、面板横向对比、文档一致性审计）补英文版，两侧顶部互链切换器（首页用 hero 按钮，因 home 版式 frontmatter 必须在首行），命令/路径/专有名词原样保留——2026-10-15（c6003a9），docs vitepress 构建绿
-- [x] 节点令牌轮换窗口与吊销 CRL（C-06）：管理端轮换节点令牌并保留 10 分钟旧令牌兼容窗口，支持窗口内立即吊销；agent WebSocket 认证先查吊销表再校验新旧令牌与窗口，dash 节点操作支持复制新令牌与吊销旧令牌——2026-10-17（随本批单提交落账），make test 全绿（6 Go 模块+dash/panel 构建）
+- [x] 节点令牌轮换窗口与吊销 CRL（C-06）：管理端轮换节点令牌并保留 10 分钟旧令牌兼容窗口，支持窗口内立即吊销；agent WebSocket 认证先查吊销表再校验新旧令牌与窗口，dash 节点操作支持复制新令牌与吊销旧令牌——2026-10-17（f61b1d9），make test 全绿（6 Go 模块+dash/panel 构建），PATROL1017S 选择性复测 `go test ./internal/handler/ -run 'TestAuthNodeTokenRotationWindow|TestNodeTokenRotation$|TestNodeTokenRevocation' -count=1 -v` 3/3 PASS
 
 ## 未开工项（需求一句话）
 
@@ -131,7 +131,7 @@
 | # | 条目 | 卡在哪（行级证据） | 需要什么才能解锁 |
 |---|------|---------------------|------------------|
 | 1 | C-03 IPC | `agent/internal/spool/spool.go:1` spool 已是角色组件 IPC；进程内调用已满足 | 拍板关闭，无解锁条件 |
-| 2 | C-06 令牌轮换 | `server/internal/handler/` 无 rotate/CRL 端点（grep 零命中） | 拍板关闭，无解锁条件 |
+| 2 | C-06 令牌轮换 | 2026-10-17 f61b1d9 已落地：`POST /api/nodes/:id/token` 轮换（10 分钟兼容窗口）+ `/token/revoke` 吊销，agentws 认证先查吊销表 | 已完成（make test 全绿 + PATROL1017S 复测 3/3 PASS） |
 | 3 | mTLS CA 编排 | `docs/design/安全设计.md:66` mTLS 默认关闭；`:97-98` CA 编排未实现 | mTLS 开启且有节点证书签发需求 |
 | 4 | 微信/支付宝直连 | 仓内无商户资质代码（grep 零命中） | 用户提供商户资质（appid/merchant_id/证书） |
 | 5 | 通道维度偏好 | 拍板关闭（`docs/design/告警通道设计.md` 单通道口径） | 拍板关闭，无解锁条件 |
@@ -280,3 +280,11 @@
 2026-10-17 巡检轮（PATROL1017A）：15 项未勾复核，仍无新凭据/新裁决/新需求立项/上游 stable 发版/真机材料，GitHub 无 open PR/issue/Dependabot 告警；完成 0 条、剩余 15 条，按闸门维持挂起/拍板关闭不重开。docs-only 落账，不编译不跑全量套件。
 
 新鲜证据：TestProvisionRunAPI（#14）`-race -count=5` → ok 3.217s exit 0，未复现；vitepress registry latest=1.6.4 / next=2.0.0-alpha.20；商户凭据、节点令牌 rotate-crl、agent 判定源复用、costref 真源实现面仍无新增；台账唯一性仍为 ./todo.md 一个。
+
+## 巡检结论（PATROL1017S）
+
+2026-10-17 巡检轮（PATROL1017S）：本仓自上轮 21bad04 前进至 f61b1d9——期间多席巡检落账（P1016AM/R1021~1024/PATROL1017C/G/A），且 **C-06 节点令牌轮换与吊销已由 f61b1d9 落地**（`POST /api/nodes/:id/token` 轮换留 10 分钟兼容窗口 + `/token/revoke` 立即吊销，agentws 认证先查吊销表再校验新旧令牌，dash 节点操作补复制/吊销入口），未勾 15→14。本轮对 C-06 做独立复核并补齐台账：选择性复测 `go test ./internal/handler/ -run 'TestAuthNodeTokenRotationWindow|TestNodeTokenRotation$|TestNodeTokenRevocation' -count=1 -v` 3/3 PASS，解锁条件表第 2 行从「无 rotate/CRL 端点」更新为已完成（原行已与仓库现状相悖）。
+
+其余 14 条复核：C-03 拍板关闭；mTLS CA/调度自动调参/流量预算已成文挂起；TOUCH-7 已代决留待；直连支付/costref 真源/hy2 真机外部阻塞；vitepress registry 复查仍 latest=1.6.4 / next=2.0.0-alpha.20（2.x stable 零 tag）；TestProvisionRunAPI 连日多轮 `-race -count=5` 全净未复现。无新增开工项，docs-only 落账不编译不跑测试套件；memex 侧由他席英文化工作流推进中（本席不动其行）。
+
+依据：C-06 已完成（唯一可落地项由他席落地并经本席复核），其余触发条件全部不成立；本轮单 commit 纯文档落账，main 与 origin/main 同步。
