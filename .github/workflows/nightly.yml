@@ -11,8 +11,6 @@ permissions:
 jobs:
   gate:
     runs-on: ubuntu-latest
-    needs: gate
-    if: needs.gate.outputs.skip != 'true'
     outputs:
       skip: ${{ steps.check.outputs.skip }}
     steps:
@@ -36,6 +34,8 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
   go:
+    needs: gate
+    if: needs.gate.outputs.skip != 'true'
     name: go (${{ matrix.module }})
     runs-on: ubuntu-latest
     strategy:
@@ -57,6 +57,8 @@ jobs:
           go test ./...
 
   frontend:
+    needs: gate
+    if: needs.gate.outputs.skip != 'true'
     name: frontend (${{ matrix.app }})
     runs-on: ubuntu-latest
     strategy:
@@ -81,6 +83,8 @@ jobs:
         run: pnpm --filter ${{ matrix.app }} build
 
   package:
+    needs: gate
+    if: needs.gate.outputs.skip != 'true'
     name: package nightly artifacts
     runs-on: ubuntu-latest
     needs: [go, frontend]
