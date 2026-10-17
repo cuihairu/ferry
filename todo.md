@@ -303,3 +303,17 @@
 - memex 侧（两仓点检）：todo.md 全 [x] 零未勾（双语路由 locales 收尾已完成）；工作区遗留 .gitignore 增量（node_modules 忽略，2026-10-17 15:18 落盘无活跃会话）复核后收编提交 25b5385 推送。
 
 依据：14 条触发条件全部不成立（外部未提供/上游未发布/拍板关闭无解锁条件）；nightly 修复经 dispatch 实跑验证全绿；本轮两 commit（ci 修复 c275271+本结论落账），main 与 origin/main 同步。
+
+## 巡检结论（PATROL1018B）
+
+2026-10-18 巡检轮（PATROL1018B）：台账与上轮 PATROL1018A 收工态一致（HEAD 859f107、tree clean、未勾仍 14、find 仅 ./todo.md），14 项未勾逐条重取新鲜证据，触发条件全部仍不成立，维持挂起/拍板关闭不重开；本轮完成 0 条/剩余 14 条，无可开工项（nightly 修复上轮已收口并 dispatch 验证 success）。docs-only 落账，不编译不跑全量套件（仅 vitepress build 绿）。
+
+本轮新鲜实测：
+- TestProvisionRunAPI（#14）：`-race -count=5` → ok 3.590s exit 0，五连跑再净未复现（自 R1015D 起连续九轮五连跑全净，唯 R1024PATROL 因工具链下载受限未复跑）。
+- vitepress（#15）：registry dist-tags 仍 latest=1.6.4 / next=2.0.0-alpha.20，2.x stable 零 tag。
+- GitHub 面：open PR=0、open issue=0、dependabot open alerts=0；CI 三路绿（test 39050616680 on c275271、nightly dispatch 39050670334 success、docs 39043232778 on faf647e）。
+- 直连支付（#4）：payments/ 对 app_id/merchant_id/mch_id 零命中；TOUCH-7（#7）：agent 侧 entry_domain 零命中；costref（#8）：packages/costref 仍仅 compare/costref/static 三件+测试。
+- 成文挂起与拍板关闭项（#1/#3/#5/#6/#9/#10/#11/#12/#13）：本轮无新用户令/新凭据/新裁决，设计文档挂起口径未变，不重开。
+- memex 侧（两仓点检）：main 与 origin/main 同步（25b5385）、tree clean、todo.md 零未勾。
+
+依据：14 条触发条件全部不成立（外部未提供/上游未发布/拍板关闭无解锁条件），无 open PR/issue/告警；本轮单 commit 纯文档落账，main 与 origin/main 同步。
