@@ -288,3 +288,18 @@
 其余 14 条复核：C-03 拍板关闭；mTLS CA/调度自动调参/流量预算已成文挂起；TOUCH-7 已代决留待；直连支付/costref 真源/hy2 真机外部阻塞；vitepress registry 复查仍 latest=1.6.4 / next=2.0.0-alpha.20（2.x stable 零 tag）；TestProvisionRunAPI 连日多轮 `-race -count=5` 全净未复现。无新增开工项，docs-only 落账不编译不跑测试套件；memex 侧由他席英文化工作流推进中（本席不动其行）。
 
 依据：C-06 已完成（唯一可落地项由他席落地并经本席复核），其余触发条件全部不成立；本轮单 commit 纯文档落账，main 与 origin/main 同步。
+
+## 巡检结论（PATROL1018A）
+
+2026-10-18 巡检轮（PATROL1018A）：14 项未勾逐条取新鲜证据复核，触发条件仍全部不成立，维持挂起/拍板关闭不重开；本轮唯一开工项=CI 面新证据——nightly workflow 自 83dbb8f 起文件级解析失败（58a4612 给 package 加 `needs: gate` 未删原 `needs: [go, frontend]`，YAML 重复键→整文件无效，此后两次 push 均 0s failure，不修则当晚 schedule 必炸），c275271 合并为 `needs: [gate, go, frontend]` 修复，actionlint 先复现报错（duplicated in "package" job）后清零，workflow_dispatch 实跑 run 39050670334 全链 success（gate skip=false 正确→6 go+3 frontend+package artifacts 齐出）。docs-only 落账不编译不跑全量套件（仅 vitepress build 绿 5.64s）。
+
+本轮新鲜实测：
+- TestProvisionRunAPI（#14）：`-race -count=5` → ok 3.512s exit 0，五连跑未复现（上轮 R1024PATROL 工具链网络受限未能复跑，本轮 GOTOOLCHAIN auto 下载 1.27.2 成功，复跑能力恢复）。
+- vitepress（#15）：registry dist-tags 仍 latest=1.6.4 / next=2.0.0-alpha.20，2.x stable 零 tag，pnpm override 不可撤。
+- GitHub 面：open PR=0、open issue=0、dependabot open alerts=0；faf647e 上 test/docs 两 workflow 绿。
+- 直连支付（#4）：payments/ 对 app_id/merchant_id/mch_id 零命中；TOUCH-7（#7）：agent 侧 entry_domain 零命中；costref（#8）：packages/costref 仍仅 compare/costref/static 三件+测试。
+- 成文挂起口径复核不变：mTLS CA（#3）安全设计.md P2 行；自动调参（#9）调度核心设计.md P2 行；流量预算（#10）面板横向对比.md「挂观察，不开工」；OSS 三候选（#12）开源选型设计.md 保留自有改判不变。
+- 拍板关闭（#1/#5/#6/#11）无解锁条件不重开；hy2（#13）外部二进制/证书/防火墙未提供；台账唯一性 find 实测仅 ./todo.md 一个。
+- memex 侧（两仓点检）：todo.md 全 [x] 零未勾（双语路由 locales 收尾已完成）；工作区遗留 .gitignore 增量（node_modules 忽略，2026-10-17 15:18 落盘无活跃会话）复核后收编提交 25b5385 推送。
+
+依据：14 条触发条件全部不成立（外部未提供/上游未发布/拍板关闭无解锁条件）；nightly 修复经 dispatch 实跑验证全绿；本轮两 commit（ci 修复 c275271+本结论落账），main 与 origin/main 同步。
