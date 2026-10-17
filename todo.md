@@ -317,3 +317,25 @@
 - memex 侧（两仓点检）：main 与 origin/main 同步（25b5385）、tree clean、todo.md 零未勾。
 
 依据：14 条触发条件全部不成立（外部未提供/上游未发布/拍板关闭无解锁条件），无 open PR/issue/告警；本轮单 commit 纯文档落账，main 与 origin/main 同步。
+
+## 巡检结论（PATROL1018R1）
+
+2026-10-18 巡检轮（PATROL1018R1）：台账载体 find 实测仅 ./todo.md 一个，未勾仍 14 条，与 PATROL1018B 收工态零差异（HEAD ea3425f、tree clean）；本轮重取外部证据全部无新变化，无可开工项，按单第 6 条逐条写明阻塞对象后收工。docs-only 落账，不编译不跑全量套件（仅 vitepress build 绿）。
+
+逐条阻塞对象与依据（编号=行级证据表行）：
+- #1 C-03 IPC / #5 通道偏好 / #6 TOUCH-4 / #11 MONTH_ROLLING：用户拍板关闭（2026-10 各轮代决留档），无解锁条件，等待对象=无。
+- #2 C-06：2026-10-17 f61b1d9 已完成收账，非阻塞项。
+- #3 mTLS CA 编排：等待对象=用户开启 mTLS 且出现节点证书签发需求；依据=docs/design/安全设计.md:97-98「mTLS 默认关闭抑制价值，维持挂起」。
+- #4 微信/支付宝直连：等待对象=用户提供商户资质（appid/merchant_id/证书）；依据=payments/ 全文对 app_id/merchant_id/mch_id 零命中（本轮 grep 复核仍零）。
+- #7 TOUCH-7 探测复用：已代决留待（FW1016D）；等待对象=用户点名扩 probe 面；依据=agent/internal/probe/probe.go:94 TargetKind 仅透传 tunnel/exit/peer，agent 侧 entry_domain 本轮 grep 仍零命中。
+- #8 costref 在线真源：等待对象=用户提供商家 API 文档+license；依据=packages/costref/ 仍仅 compare/costref/static+测试（本轮 ls 复核）。
+- #9 调度自动调参：等待对象=P2 分期开启且人工调参瓶颈；依据=docs/design/调度核心设计.md:109。
+- #10 节点流量预算：等待对象=多机部署且预算管理需求出现；依据=docs/面板横向对比.md:77「挂观察，不开工」。
+- #12 OSS 三候选：等待对象=各自解禁评审通过；依据=docs/design/开源选型设计.md:42-43、56-57 保留自有改判。
+- #13 hy2 真机联调：等待对象=用户提供测试二进制+证书+防火墙环境；依据=docs/design/agent架构设计.md:40。
+- #14 TestProvisionRunAPI 偶发：观察项；依据=本轮 HEAD（ea3425f）server 树与 PATROL1018B 复跑时逐字节一致，00:52 `-race -count=5` ok 3.590s 证据仍有效（自 R1015D 起连续九轮全净，唯 R1024PATROL 工具链受限未复跑）。
+- #15 vitepress 2 stable：等待对象=上游发版；本轮 registry dist-tags 仍 latest=1.6.4 / next=2.0.0-alpha.20，2.x stable 零 tag。
+- GitHub 面：open PR=0、open issue=0、dependabot open alerts=0（本轮复查）。
+- memex 侧（两仓点检）：main 与 origin/main 同步（25b5385）、tree clean、todo.md 零未勾。
+
+依据：14 条触发条件全部不成立且阻塞对象逐条列明；无 open PR/issue/告警；本轮单 commit 纯文档落账，main 与 origin/main 同步。
