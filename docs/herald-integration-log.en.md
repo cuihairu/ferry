@@ -1,4 +1,3 @@
-[English](herald-integration-log.en.md) | [中文](herald-对接实录.md)
 
 # herald Integration Log (HERALD-1~5)
 

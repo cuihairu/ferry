@@ -1,4 +1,3 @@
-[English](panel-comparison.en.md) | [中文](面板横向对比.md)
 
 # Panel Landscape Comparison (research appendix)
 

@@ -37,6 +37,5 @@ features:
 
 ---
 
-[English](index.en.md) | [中文](index.md)
 
 > Note: the deployment guide, usage guide, and design docs reachable from the buttons above are currently Chinese-only; only the four top-level documents (this home page, the herald integration log, the panel landscape comparison, and the doc consistency audit) have English versions so far.

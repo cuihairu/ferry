@@ -1,4 +1,3 @@
-[English](doc-consistency-audit.en.md) | [中文](审计-文档一致性.md)
 
 # Documentation / Source Code Consistency Audit (table issued 2026-10-08, refreshed 2026-10-09, second pass 2026-10-10, third pass 2026-10-11 line-reference pass)
 
