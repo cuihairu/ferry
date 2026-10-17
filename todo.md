@@ -339,3 +339,9 @@
 - memex 侧（两仓点检）：main 与 origin/main 同步（25b5385）、tree clean、todo.md 零未勾。
 
 依据：14 条触发条件全部不成立且阻塞对象逐条列明；无 open PR/issue/告警；本轮单 commit 纯文档落账，main 与 origin/main 同步。
+
+## 巡检结论（PATROL1018）
+
+2026-10-18 巡检轮（PATROL1018）：与 PATROL1018R1 收工态零差异（HEAD c87cbd1、tree clean、未勾 14），本轮轻量复核逐项一句话：vitepress registry 仍 latest=1.6.4/next=2.0.0-alpha.20（#15 无发版）；GitHub open PR=0/issue=0/dependabot=0（无外部可接手件）；工作树自 R1 起零新 commit，#4/#7/#8 的零命中 grep 证据对同一树逐字节有效；#14 观察项 00:52 ok 3.590s 证据仍有效（server 树未变）；#1/#5/#6/#11 拍板关闭、#3/#9/#10/#12/#13 等用户/分期/真机材料，阻塞对象见上段 PATROL1018R1 逐条表（本轮不复述）。新凭据/新裁决/网络恢复/新立项：零。无可开工项，按单收工。memex 侧两仓点检 clean（25b5385 同步）。docs-only 落账，vitepress build 绿。
+
+依据：全部触发条件仍不成立且证据树未变；本轮单 commit 纯文档落账，main 与 origin/main 同步。
