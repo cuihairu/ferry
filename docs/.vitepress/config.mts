@@ -13,7 +13,6 @@ export default defineConfig({
       { text: '部署指南', link: '/deploy/部署指南' },
       { text: '使用指南', link: '/guide/使用指南' },
       { text: '设计文档', link: '/design/调度核心设计' },
-      { text: 'GitHub', link: 'https://github.com/cuihairu/ferry' }
     ],
     sidebar: [
       {
