@@ -363,3 +363,9 @@
 2026-10-18 04:35 增量轮（ferry.md 更新版）：HEAD fb2c926 与 origin/main 同步、tree clean，解锁证据仍全零（vitepress latest=1.6.4/next=2.0.0-alpha.20、gh open PR=0/issue=0/dependabot=0、无新凭据/裁决/立项），14 条未勾全部处于既有卡点（阻塞对象表见 PATROL1018R1 段），逐项按单回报后收工；memex 侧同步 clean（25b5385）。docs-only 落账，vitepress build 绿。
 
 依据：全部条目卡点未变且证据零新增；本轮单 commit 纯文档落账，main 与 origin/main 同步。
+
+## 巡检结论（PATROL1018D）
+
+2026-10-18 09:13 轮：HEAD 2d23163 与 origin/main 同步、tree clean；14 条未勾卡点零新证据（vitepress 仍 latest=1.6.4/next=2.0.0-alpha.20、issue=0、dependabot open alerts=0、无新凭据/裁决/立项）。本轮唯一新证据=**dependabot PR #6 open**（app/dependabot，2026-10-18T00:43Z 提交，head eda7dca9ff，mergeable clean、全 10 项 checks 通过）：go_modules 组跨 agent/ 与 server/ 两目录 +2 更新，实际改动仅 golang.org/x/crypto v0.57→v0.58、x/net v0.60→v0.61、x/sys v0.48→v0.49、x/text v0.42→v0.43（均补丁级、同模块同 BSD-3 许可、已入 THIRD_PARTY 登记，未触 go 指令与本项目版本字段）。**未合并，交用户拍板**：合并即改 go.mod require 版本号，与「version 字段一律不动／版本号由用户给定」红线条文冲突，席位不代决；请用户一句话指令（squash merge / 关闭 / 留置）后即执行。memex 侧同步 clean（25b5385）。docs-only 落账，vitepress build 绿。
+
+依据：14 条卡点零新证据；PR #6 属版本字段变更需用户拍板，未代决；本轮单 commit 纯文档落账，main 与 origin/main 同步。
