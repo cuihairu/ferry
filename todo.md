@@ -117,8 +117,8 @@
   - 状态=待触发｜原因：当前单站规模未达多机放量｜触发条件：多机部署且流量预算管理需求出现
 - [ ] MONTH_ROLLING 滚动重置档（横向对比观察）：小站自然月账单够用，维持
   - 状态=维持不做｜原因：小站自然月账单已满足，滚动重置无实际需求｜触发条件：无（拍板关闭）
-- [ ] OSS 支付 SDK / Xray proto 替换 / GeoIP 随分流批三候选：均未解禁，挂点未开
-  - 状态=阻塞｜原因：三项均未解禁（license/资质/分流批未开）｜触发条件：各自解禁条件满足（OSS 三候选评审通过）
+- [ ] OSS 三候选（余支付 SDK 一腿等资质；Xray proto/GeoIP 两腿 2026-10-18 已代决收口）
+  - 状态=阻塞（余支付 SDK 一腿）｜原因：Xray proto 评审已毕维持自有实现（docs/design/开源选型设计.md §3.2.1 已代决 PATROL1018E：MPL-2.0 核验通过但 E-4 实测省 8.3MB 为硬约束，重评触发两条在档）、GeoIP license 已核（geoip2-golang 实为 ISC 纠偏、dat CC-BY-SA-4.0 归属注意项在档）维持随分流批立项；余支付 SDK 等商户资质外部材料不代决｜触发条件：用户提供商户资质（appid/merchant_id/证书）
 - [ ] hy2 二进制真机联调：外部提供项（二进制/证书/防火墙），仓内单测面已全清
   - 状态=阻塞｜原因：二进制/证书/防火墙均为外部提供项，仓内无法联调｜触发条件：用户提供测试二进制+证书+防火墙环境
 - [ ] TestProvisionRunAPI 偶发观察：-race 连跑全净未复现；再出现时抓 -race -verbose
@@ -141,7 +141,7 @@
 | 9 | 调度自动调参 | `docs/design/调度核心设计.md:109` P2 才考虑自动调 | P2 分期开启且人工调参瓶颈 |
 | 10 | 流量预算告警 | 横向对比观察项，`docs/面板横向对比.md` | 多机部署且流量预算管理需求出现 |
 | 11 | MONTH_ROLLING | 拍板关闭（小站自然月账单够用） | 拍板关闭，无解锁条件 |
-| 12 | OSS 三候选 | `docs/design/开源选型设计.md:42-43` libdns/lego 核验后保留自有；`:56-57` Xray proto/GeoIP 候选未解禁 | 各自解禁条件满足（OSS 评审通过） |
+| 12 | OSS 三候选 | Xray/GeoIP 两腿已代决收口（`docs/design/开源选型设计.md:61-66` 评审记录：Xray 维持自有重评触发两条在档、GeoIP license 已核等分流批立项）；余支付 SDK 一腿卡商户资质 | 支付 SDK 腿解锁=用户提供商户资质（appid/merchant_id/证书） |
 | 13 | hy2 真机联调 | `docs/design/agent架构设计.md:40` hysteria2 进程管理；二进制/证书/防火墙均为外部提供 | 用户提供测试二进制+证书+防火墙环境 |
 | 14 | TestProvisionRunAPI | -race 连跑全净未复现 | 偶发复现时抓 -race -verbose 日志 |
 | 15 | 上游等待 | `docs/package.json:10` vitepress ^1.6.4；`pnpm-workspace.yaml:7-11` override 钉 vite ^5.4.14 | vitepress 2 stable 发布（https://github.com/vuejs/vitepress）且构建验证通过 |
@@ -369,3 +369,9 @@
 2026-10-18 09:13 轮：HEAD 2d23163 与 origin/main 同步、tree clean；14 条未勾卡点零新证据（vitepress 仍 latest=1.6.4/next=2.0.0-alpha.20、issue=0、dependabot open alerts=0、无新凭据/裁决/立项）。本轮唯一新证据=**dependabot PR #6 open**（app/dependabot，2026-10-18T00:43Z 提交，head eda7dca9ff，mergeable clean、全 10 项 checks 通过）：go_modules 组跨 agent/ 与 server/ 两目录 +2 更新，实际改动仅 golang.org/x/crypto v0.57→v0.58、x/net v0.60→v0.61、x/sys v0.48→v0.49、x/text v0.42→v0.43（均补丁级、同模块同 BSD-3 许可、已入 THIRD_PARTY 登记，未触 go 指令与本项目版本字段）。**未合并，交用户拍板**：合并即改 go.mod require 版本号，与「version 字段一律不动／版本号由用户给定」红线条文冲突，席位不代决；请用户一句话指令（squash merge / 关闭 / 留置）后即执行。memex 侧同步 clean（25b5385）。docs-only 落账，vitepress build 绿。
 
 依据：14 条卡点零新证据；PR #6 属版本字段变更需用户拍板，未代决；本轮单 commit 纯文档落账，main 与 origin/main 同步。
+
+## 巡检结论（PATROL1018E）
+
+2026-10-18 12:15 轮（带代决授权）：14 条未勾复核后按单规则 2 处理——唯一真正「待拍板」项=OSS 三候选评审（解锁钥匙=评审这个动作本身，非外部材料），本轮代决收口两腿：**Xray proto 腿=维持自有实现**（Xray-core MPL-2.0 实抓核验通过，但 E-4 实测手写省 8.3MB 为硬约束、协议面冻结、测试在位；重评触发两条入档：protobuf/grpc 因他依赖入场边际成本归零 / stats API 扩面超手写覆盖）、**GeoIP 腿=license 已核选型确认**（纠偏一处：geoip2-golang 实为 ISC 原稿误记 Apache-2.0 已改；v2fly dat CC-BY-SA-4.0+DB-IP CC-BY-4.0 归属注意项入档，维持随分流批立项）；**支付 SDK 腿不代决**（外部商户资质）。评审记录=docs/design/开源选型设计.md §3.2.1（:61-66），#12 行与解锁条件表已同步收窄。其余 13 条无一属待拍板：4 拍板关闭、mTLS/调参/流量预算已成文维持挂起（FW1016D 先例不重开）、TOUCH-7 已代决留待、直连支付/costref/hy2 真机卡外部材料、#14 观察项、#15 上游。PR #6 仍 open 未动（00:43Z），合并触版本号红线不代决。夜间构建 schedule 窗口（03:23Z）后 52 分钟仍未触发（GitHub cron 负载延迟常态，dispatch 腿已全链 success），下轮复查。docs-only 落账，vitepress build 绿。
+
+依据：#12 两腿代决收口（docs 决策记录已写）；其余卡点钥匙在用户/上游/外部材料，无代决空间；本轮单 commit 纯文档落账，main 与 origin/main 同步。
