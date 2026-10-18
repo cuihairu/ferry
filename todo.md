@@ -381,3 +381,9 @@
 2026-10-18 07:45Z 增量轮（ferry.md）：**唯一新证据=dependabot PR #6 已由用户合并**——merge commit `bb8a092`（2026-10-18T07:25Z，cuihairu），并入 golang.org/x/crypto v0.57.0→v0.58.0、x/net v0.60.0→v0.61.0、x/sys v0.48.0→v0.49.0、x/text v0.42.0→v0.43.0（agent/ 与 server/ 两目录 go.mod/go.sum，均补丁级）。合并质量双侧证据：PR 侧 11/11 checks 全绿（6 go+3 frontend+codecov patch/project），合并后 main push 触发 test workflow **success**（`bb8a092`，07:25:10Z）+ Dependency Graph success；THIRD_PARTY.md 为名称级登记无版本锚定、开源选型设计.md:16 为历史量测记录（v0.54.0 时点），均不受本次 bump 影响，无遗留动作——PATROL1018D 挂账的「等用户裁决」就此收口。其余解锁证据零变动：vitepress 仍 latest=1.6.4/next=2.0.0-alpha.20、open issue=0、dependabot open alerts=0、14 条未勾卡点全部照旧（无开工项）；nightly schedule 腿今日尚未触发（本仓常态延迟：历史实际触发 07:5x–10:4xZ），届时将首次以修复后 YAML 跑 schedule 腿，下轮复查。memex 侧同步 clean（25b5385）。docs-only 落账，vitepress build 绿（5.32s）。
 
 依据：PR #6 用户拍板合并且 CI 双侧绿（PR 11/11 + main push test success）；其余条目触发条件仍全部不成立；本轮单 commit 纯文档落账，main 与 origin/main 同步。
+
+## 巡检结论（2026-10-18 16:25 增量轮，docs 构建修复）
+
+2026-10-18 08:20Z 轮：nightly schedule 腿 08:10:41Z 首次触发——**修复后 YAML 的 schedule 路径首跑，框架面全部验证通过**（gate success 且 skip=false、go×6+frontend×2 全绿、重复 needs 修复生效），仅 **frontend(ferry-docs) failure**：根因=并行会话 07:46Z 落地的 `0aa0ec2`（外部评审 953 行）在 `docs/review/review-2026-10-18-install-release.md:231` 尾部带裸伪标签 `</WritingBlock>`（写作工具泄露物，无配对开标签），vitepress 1.6.4（本地与 CI 同版本）解析为 Invalid end tag 构建失败，`docs push 0aa0ec2` 07:46:33Z 同因 failure。修复=删除该伪标签（全文件唯一一处，正文零改动），本地 `pnpm build` 绿 5.20s；本日夜间 artifacts 因该失败 skipped，明晨 schedule 窗口自动恢复，今日产物需要可 workflow_dispatch 手动触发。备注：07:50 轮本地 docs build 绿（5.32s）跑在 bb8a092 树上（pull --rebase 尚未带入 0aa0ec2），非漏测。其余 14 条卡点零新证据（vitepress latest=1.6.4/next=2.0.0-alpha.20、issue=0、alert=0）；memex clean（25b5385）。
+
+依据：docs 构建损坏属仓内可修复项（非外部阻塞），修复有本地同版本构建门禁证明；其余触发条件仍全部不成立；本轮单 commit（修复+落账），main 与 origin/main 同步。
