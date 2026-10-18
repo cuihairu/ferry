@@ -937,17 +937,23 @@ FERRY-004 可以先搭建最小集成测试骨架，与前面的任务并行准�
 **本轮完成标准：不是把 TODO 全部打勾，而是让节点注册、安装发布和生产密钥管理真正可靠，并有测试证据证明。**
 ---
 
-## 核验结论（待核对，勿直接实施）
+## 核验结论（2026-10-19 FIRE1019 轮核对）
 
 | 审核条目 | 核验结果 | 证据 file:line |
 |---|---|---|
-| deploy/agent-install.sh --register 直调 POST /api/nodes 且无凭据 | 待核 | |
-| /api/nodes 受 apiAuth() 保护 | 待核 | |
-| 安装脚本 VERSION=latest 会拼成 vlatest | 待核 | |
-| 仓库无正式 GitHub Release | 待核 | |
+| deploy/agent-install.sh --register 直调 POST /api/nodes 且无凭据 | **属实** | deploy/agent-install.sh 旧版 L122：`curl -X POST $PANEL/api/nodes` 无 Authorization 头，body 仅 name/address/port/protocol |
+| /api/nodes 受 apiAuth() 保护 | **属实** | server/internal/handler/router.go:86-89：`api := r.Group("/api", h.apiAuth(), h.auditMiddleware())`，`api.POST("/nodes", h.createNode)`；无凭据必 401 |
+| 安装脚本 VERSION=latest 会拼成 vlatest | **属实** | 旧版 L150：`URL="$BASE/v$VERSION/..."`，VERSION 默认 latest → `vlatest` 假地址 |
+| 仓库无正式 GitHub Release | **属实** | `gh release list` 空、`gh api repos/cuihairu/ferry/tags` 空；`releases/latest` 实测 HTTP 404（2026-10-19）；夜间构建产物是 workflow artifact（nightly.yml upload-artifact），不在 Releases |
 
 ## 落地跟踪
 
-- [ ] 核对上表四条，填证据
-- [ ] FERRY-001 注册认证闭环（按核对结果实施）
-- [ ] FERRY-002 正式 Release 与 latest 安装流程
+- [x] 核对上表四条，填证据（2026-10-19，本表）
+- [x] FERRY-001 注册认证闭环（2026-10-19 FIRE1019 落地：服务端一次性注册凭据 + 安装脚本接入，见下）
+- [ ] FERRY-002 正式 Release 与 latest 安装流程——**脚本侧已修**（latest 经 GitHub API 解析为实际稳定版，无稳定版时明确报错不拼 vlatest；显式版本不静默回退）；**发版流水线腿卡用户红线**：正式 release 只能用户手动给版本号触发（2026-10-11 红线），agent 不代发，解锁=用户明确说「发版」并给版本号
+
+### FERRY-001 落地记录（2026-10-19）
+
+- 服务端：`storage.EnrollmentToken` 模型（一次性、短时、可吊销、行上留签发人/消费痕迹）+ 管理面 `POST/GET /api/enrollment-tokens`、`DELETE /api/enrollment-tokens/:id`（apiAuth+审计）+ 公开面 `POST /api/enroll`（自带凭据，redeemTx 同款事务原子消费+建节点，双花/重放 401；IP 限流 10 次/分、失败 5 次锁 15 分钟）。
+- 脚本：`--register` 改配 `--enroll-token`（不再匿名直调管理面）；注册时机移到全部资产下载+校验通过之后（失败不留孤儿节点）；响应解析 jq→python3→文本三级降级，失败信息不回显响应体；凭据只走 Authorization 头不进日志。
+- 测试：`server/internal/handler/enroll_test.go` 9 用例（无凭据/坏凭据 401 不建节点、兑换成功、重放 401、过期/吊销 401、坏载荷 400 不烧凭据、签发面鉴权 401、TTL 校验、已用凭据吊销 409、列表不回明文）+ `go test ./internal/handler/ -race -count=2` 全绿。

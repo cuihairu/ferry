@@ -97,7 +97,7 @@
 
 - [ ] agent 组件独立进程与 unix socket IPC（C-03）：当前组件为进程内角色调用；拍板维持原状不重开
   - 状态=维持不做｜原因：进程内角色调用已满足需求，独立 IPC 增加复杂度无收益｜触发条件：无（拍板关闭）
-- [x] 节点令牌轮换窗口与吊销 CRL（C-06）：未实现；拍板维持原状不重开
+- [x] 节点令牌轮换窗口与吊销 CRL（C-06）：已实现（2026-10-17 f61b1d9 落地，本行 2026-10-19 修正摘要残留旧文「未实现」的状态矛盾，FERRY-006 收口点）
   - 状态=完成｜落地=2026-10-17 随本批单提交；原因：轮换窗口、吊销 CRL、认证与 dash 操作均已实现｜证据=make test 全绿（6 Go 模块+dash/panel 构建）
 - [ ] mTLS CA 编排：受 mTLS 默认关闭抑制，维持挂起；开启 CA 消费方后再评估
   - 状态=阻塞｜原因：mTLS 默认关闭，无 CA 消费方｜触发条件：mTLS 开启且有节点证书签发需求
@@ -125,6 +125,16 @@
   - 状态=待触发｜原因：-race 连跑全净未复现，无法定位｜触发条件：偶发复现时抓 -race -verbose 日志
 - [ ] 上游等待：vitepress 2 stable 落地后撤 pnpm override 直升；dependabot npm ignore 重开条件（vitepress stable 时同步放开）
   - 状态=阻塞｜原因：vitepress 2 stable 未发布，pnpm override 不可撤｜触发条件：vitepress 2 stable 发布且构建验证通过
+- [x] FERRY-001 节点注册认证闭环（外部评审 2026-10-18）：一次性短时注册凭据（enrollment token）打通安装脚本首装
+  - 状态=完成｜落地=2026-10-19 FIRE1019：服务端 EnrollmentToken 模型+管理面签发/列表/吊销（apiAuth+审计）+公开面 /api/enroll 事务原子消费（双花/重放 401、IP 限流）；安装脚本 --register 改配 --enroll-token、注册移到资产校验后、JSON 三级解析｜证据=enroll_test.go 9 用例 + handler/storage/model -race -count=2 全绿
+- [ ] FERRY-002 正式 Release 与 latest 安装流程（外部评审 2026-10-18）：脚本侧已修（latest 经 GitHub API 解析实际稳定版，无稳定版明确报错不拼 vlatest；显式版本不静默回退）；发版流水线腿待用户
+  - 状态=半完成｜卡点=正式 release 只能用户手动给版本号触发（2026-10-11 发版红线，agent 不代发）｜触发条件：用户明确说「发版」并给版本号
+- [ ] FERRY-003 生产密钥安全门禁（外部评审 2026-10-18）：密钥空值回退开发常量的治理（首装生成/持久化/生产拒绝默认密钥）
+  - 状态=未开工（下一批）｜依据=评审 P0 第 3 条，涉 config/启动链/env 生成｜触发条件：FERRY-001 收口后接续（本轮已具备）
+- [ ] FERRY-005 安装与升级失败恢复（外部评审 2026-10-18）：安装脚本原子替换/回滚/失败诊断
+  - 状态=未开工｜依据=评审 P1 第 2 条｜触发条件：FERRY-003 之后
+- [ ] FERRY-004 端到端部署与节点通信集成测试（外部评审 2026-10-18）：CI 内可重复的真部署链路验证
+  - 状态=未开工｜依据=评审 P1 第 1 条，验收须用修复后的注册/发布/安全流程｜触发条件：FERRY-003/005 之后
 
 ## 行级证据与解锁条件（R1013B 续）
 
@@ -387,3 +397,16 @@
 2026-10-18 08:20Z 轮：nightly schedule 腿 08:10:41Z 首次触发——**修复后 YAML 的 schedule 路径首跑，框架面全部验证通过**（gate success 且 skip=false、go×6+frontend×2 全绿、重复 needs 修复生效），仅 **frontend(ferry-docs) failure**：根因=并行会话 07:46Z 落地的 `0aa0ec2`（外部评审 953 行）在 `docs/review/review-2026-10-18-install-release.md:231` 尾部带裸伪标签 `</WritingBlock>`（写作工具泄露物，无配对开标签），vitepress 1.6.4（本地与 CI 同版本）解析为 Invalid end tag 构建失败，`docs push 0aa0ec2` 07:46:33Z 同因 failure。修复=删除该伪标签（全文件唯一一处，正文零改动），本地 `pnpm build` 绿 5.20s；本日夜间 artifacts 因该失败 skipped，明晨 schedule 窗口自动恢复，今日产物需要可 workflow_dispatch 手动触发。备注：07:50 轮本地 docs build 绿（5.32s）跑在 bb8a092 树上（pull --rebase 尚未带入 0aa0ec2），非漏测。其余 14 条卡点零新证据（vitepress latest=1.6.4/next=2.0.0-alpha.20、issue=0、alert=0）；memex clean（25b5385）。
 
 依据：docs 构建损坏属仓内可修复项（非外部阻塞），修复有本地同版本构建门禁证明；其余触发条件仍全部不成立；本轮单 commit（修复+落账），main 与 origin/main 同步。
+
+## 巡检结论（FIRE1019，2026-10-19）
+
+2026-10-19 舰队推进轮（FIRE1019）：台账载体 find 实测仅 ./todo.md 一份，14 条未勾逐条取新鲜证据复核——vitepress 仍 latest=1.6.4/next=2.0.0-alpha.20（#15 无发版）、gh open PR=0/issue=0/dependabot open alerts=0、payments/ 对 app_id/merchant_id/mch_id 零命中（#4）、agent 侧 entry_domain 零命中（#7）、packages/costref 仍仅 compare/costref/static+测试（#8）、无新凭据/裁决/立项（阻塞对象表见 PATROL1018R1 段），全部触发条件不成立维持原状不重开。按推进单第 5 条转「最近 git log 找下一批」：开工外部评审（0aa0ec2，953 行）的落地跟踪件——四条待核断言逐条实证**全部属实**（核验表已填证据），随后落地 FERRY-001 全量与 FERRY-002 脚本腿：
+
+- **FERRY-001 注册认证闭环（完成）**：服务端 `storage.EnrollmentToken` 一次性短时注册凭据模型（入 AutoMigrate）+ 管理面 `POST/GET /api/enrollment-tokens`、`DELETE /api/enrollment-tokens/:id`（apiAuth+审计；ttl 缺省 60 分钟、上限 1440，`*int` 区分显式 0 与缺省）+ 公开面 `POST /api/enroll`（redeemTx 同款事务原子消费+建节点：双花/重放 401、坏载荷 400 不烧凭据、IP 限流 10 次/分失败 5 次锁 15 分钟、列表 `json:"-"` 不回凭据明文、已用凭据吊销 409 消费即终态）；createNode 重构出 `newPersistedNode` 共用建节点口径（管理面响应形状不变）。安装脚本 `--register` 改配 `--enroll-token`（不再匿名直调管理面）、注册时机移到全部资产下载+sha256 校验之后（下载/校验失败不留孤儿节点）、注册响应解析 jq→python3→文本三级降级且失败信息不回显响应体、凭据只走 Authorization 头不进日志。测试先行（enroll_test.go 9 用例，其中 TTL 用例逮出显式 0 被静默默认成 60 的契约缺口后修复）；deploy/README.md 与 docs/deploy/部署指南.md 安装节同步新流程（FERRY-006 文档一致性项）。
+- **FERRY-002 latest 安装流程（脚本腿完成）**：`--version latest` 不再拼 `vlatest` 假址——默认 GitHub 基址经 `releases/latest` API 解析实际稳定 tag（本轮对真实 API 实测 404=无正式版，明确报错退出并说明夜间构建是 CI 产物不落地 Releases）；`--base` 自建源要求显式版本；显式版本原样使用不静默回退。发版流水线腿卡 2026-10-11 发版红线（正式 release 仅用户手动给版本号触发），不代决。
+- **FERRY-006 TODO 收口（本轮收口点）**：C-06 行残留「未实现」旧文与 `[x]`/状态=完成 的矛盾修正（评审点名）；FERRY-001..005 按其要求登记入台账。
+- 剩余风险与未验证面：脚本真机链路（root+systemd+真面板+真 Release 资产）未端到端执行——属 FERRY-005 验收范围；dash 暂无注册凭据签发 UI（curl/API Token 可用，评审验收项未要求 UI）。
+
+门禁：go build 绿、server 全模块 `go test ./... -count=1` 绿、handler/storage/model `-race -count=2` 绿、docs vitepress build 绿 5.67s、bash -n+json_field 三级解析逐路实测、latest 解析对真实 GitHub API 实测 404 报错路径。本轮单 commit（实现+测试+脚本+文档+落账）。
+
+依据：14 条旧卡点触发条件全部不成立（证据见上段）；评审四条待核断言全部属实（核验表 file:line）；FERRY-001 评审验收标准逐条对照——无凭据拒绝且不建节点✓、合法凭据换节点令牌✓、过期/已用/无效均拒✓、重复提交不重复建✓、下载校验失败不留注册记录✓（脚本层）、日志不泄令牌✓、新增测试✓、文档与台账更新✓；FERRY-002 发版腿解锁=用户明确说「发版」并给版本号。

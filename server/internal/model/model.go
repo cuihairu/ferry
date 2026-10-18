@@ -45,6 +45,12 @@ type NodeInput struct {
 	Transport  string `json:"transport,omitempty"` // tls/quic/ws-tls/ssh
 }
 
+// EnrollmentTokenInput 是签发一次性注册凭据的请求载荷（FERRY-001）。
+type EnrollmentTokenInput struct {
+	Note       string `json:"note,omitempty"`
+	TTLMinutes *int   `json:"ttl_minutes,omitempty"` // 1..1440，缺省 60；指针区分显式 0 与缺省
+}
+
 // User 是一个订阅用户。
 type User struct {
 	ID         int64      `json:"id"`

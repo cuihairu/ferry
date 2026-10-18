@@ -39,6 +39,9 @@ type Handler struct {
 	// subMissLimiter 按 IP 记订阅未命中（未知 token/停用用户）：窗口内 20 次
 	// 未命中锁 15 分钟——单 token 限频拦不住每次换新 token 的枚举。
 	subMissLimiter *ratelimit.Limiter
+	// enrollLimiter 是节点注册交换口的 IP 限流（FERRY-001：10 次/分钟，
+	// 失败 5 次锁 15 分钟，redeem 同款——挡对凭据的在线爆破）。
+	enrollLimiter *ratelimit.Limiter
 }
 
 // NewRouter 创建 gin 引擎并挂载全部路由，同时交出配置推送器
@@ -70,6 +73,12 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		FailLimit:   20,
 		Lockout:     15 * time.Minute,
 	})
+	h.enrollLimiter = ratelimit.New(ratelimit.Options{
+		Window:      time.Minute,
+		MaxAttempts: 10,
+		FailLimit:   5,
+		Lockout:     15 * time.Minute,
+	})
 	h.pusher = relaypush.New(db, h.hub, nil)
 	h.secrets = secret.NewStore(cfg.SecretKey)
 	r := gin.Default()
@@ -87,6 +96,10 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 	{
 		api.GET("/nodes", h.listNodes)
 		api.POST("/nodes", h.createNode)
+		// 一次性注册凭据（FERRY-001）：签发/列表/吊销在管理面，兑换在 open 组。
+		api.POST("/enrollment-tokens", h.createEnrollmentToken)
+		api.GET("/enrollment-tokens", h.listEnrollmentTokens)
+		api.DELETE("/enrollment-tokens/:id", h.revokeEnrollmentToken)
 		api.GET("/nodes/:id", h.getNode)
 		api.PUT("/nodes/:id", h.updateNode)
 		api.DELETE("/nodes/:id", h.deleteNode)
@@ -285,6 +298,9 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		}
 		// Herald 异步回投的通道分发回执（HERALD-2）：自带 HMAC 验签。
 		open.POST("/internal/event-results", h.eventResult)
+		// 节点首装注册交换（FERRY-001）：自带一次性注册凭据（enroll.go），
+		// 管理面 /api/nodes 仍全程 apiAuth，本口只凭注册凭据换节点令牌。
+		open.POST("/enroll", h.enrollNode)
 		// 在线支付回调（PAY-8）：自带 Provider 验签。
 		open.POST("/pay/epusdt/notify", h.epusdtNotify)
 	}

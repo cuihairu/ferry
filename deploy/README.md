@@ -38,13 +38,17 @@ dash 全部页面走管理员登录（JWT），绑定两步验证后登录再验
 
 ## agent 节点一键安装（A-24）
 
-节点机 root 执行（或面板机上 `--register` 顺手建节点拿令牌）：
+节点机 root 执行（节点令牌已有用 `--token`，没有走一次性注册凭据，FERRY-001）：
 
 ```sh
 deploy/agent-install.sh --panel https://panel.example.com --token <节点令牌>
-# 令牌还没建：
+# 节点令牌还没建——面板机上先签发一次性注册凭据（60 分钟单次有效，可吊销）：
+curl -X POST https://panel.example.com/api/enrollment-tokens \
+  -H "Authorization: Bearer <管理员 JWT 或 API Token>" -d '{"note":"hk1 首装"}'
+# 再在节点机用 --register + --enroll-token 注册并安装：
 deploy/agent-install.sh --panel https://panel.example.com \
-  --register hk1 --address hk1.example.com --port 443 --protocol vless
+  --register hk1 --enroll-token <注册凭据> \
+  --address hk1.example.com --port 443 --protocol vless
 ```
 
 脚本做四件事：下载 `ferry-agent_<版本>_linux_<架构>.tar.gz` 并校验 sha256（`--binary` 可离线装）→

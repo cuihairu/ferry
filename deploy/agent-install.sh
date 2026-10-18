@@ -8,7 +8,8 @@
 #
 # 常用可选参数：
 #   --agent-id NAME     节点标识（默认主机名）
-#   --version V         安装版本（默认 latest，对应 release tag vV）
+#   --version V         安装版本（默认 latest=GitHub 最新稳定 release，经 API
+#                       解析为实际版本号；无稳定版时报错退出，不落 vlatest 假址）
 #   --base URL          下载基址（默认 GitHub Releases，内网可指到自建文件服务）
 #   --binary PATH       用本地二进制安装（跳过下载，离线场景）
 #   --sha256 HEX        手动指定校验值（无伴随 .sha256 文件时）
@@ -35,14 +36,18 @@
 #   --quic-insecure     跳过 QUIC 证书校验（仅引导调试）
 #   --quic-binary PATH  本地 ferry-quic 二进制（离线场景）
 #
-# 令牌还没有？在面板机上用 --register 顺手建节点拿令牌：
+# 节点令牌还没有？先在面板机签发一次性注册凭据（FERRY-001，60 分钟单次有效）：
+#   curl -X POST https://panel.example.com/api/enrollment-tokens \
+#     -H "Authorization: Bearer <管理员 JWT 或 API Token>" -d '{"note":"hk1 首装"}'
+# 再在节点机用 --register + --enroll-token 换节点令牌并装好：
 #   agent-install.sh --panel https://panel.example.com --register hk1 \
-#     --address hk1.example.com --port 443 --protocol vless
+#     --enroll-token <注册凭据> --address hk1.example.com --port 443 --protocol vless
 set -euo pipefail
 
-PANEL="" TOKEN="" REGISTER="" ADDRESS="" PORT=443 PROTOCOL=vless
+PANEL="" TOKEN="" REGISTER="" ENROLL_TOKEN="" ADDRESS="" PORT=443 PROTOCOL=vless
 AGENT_ID="$(hostname)" VERSION="latest"
-BASE="https://github.com/cuihairu/ferry/releases/download"
+BASE_DEFAULT="https://github.com/cuihairu/ferry/releases/download"
+BASE="$BASE_DEFAULT"
 BINARY="" SHA256="" CA="" CERT="" KEY="" BW_UP=100 BW_DOWN=100 NODE_ROLE=""
 CONFIG=/etc/ferry/agent.json INSTALL=/usr/local/bin/ferry-agent SERVICE=ferry-agent
 ROLE="" RELAY_LISTEN=127.0.0.1:1080 RELAY_LANDING="" RELAY_TUNNEL="" RELAY_SNI="" RELAY_CA=""
@@ -52,11 +57,30 @@ QUIC=0 QUIC_LISTEN=127.0.0.1:7300 QUIC_CA="" QUIC_INSECURE="" QUIC_BINARY=""
 die() { echo "agent-install: $*" >&2; exit 1; }
 log() { echo "[install] $*"; }
 
+# json_field 从 JSON 文件取字段值：优先 jq/python3，两者都没有才退文本截取
+#（FERRY-001：注册响应解析不许再依赖易受字段格式影响的简单文本截取）。
+json_field() { # $1=字段名 $2=文件
+  local f="$1" file="$2" v=""
+  if command -v jq >/dev/null 2>&1; then
+    v=$(jq -r --arg k "$f" '.[$k] // empty' "$file" 2>/dev/null) || v=""
+  elif command -v python3 >/dev/null 2>&1; then
+    v=$(python3 -c 'import json,sys
+try:
+    print(json.load(open(sys.argv[2]))[sys.argv[1]])
+except Exception:
+    pass' "$f" "$file" 2>/dev/null) || v=""
+  else
+    v=$(grep -o "\"$f\":\"[^\"]*\"" "$file" 2>/dev/null | head -1 | cut -d'"' -f4)
+  fi
+  printf '%s' "$v"
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --panel)    PANEL="$2"; shift 2 ;;
     --token)    TOKEN="$2"; shift 2 ;;
     --register) REGISTER="$2"; shift 2 ;;
+    --enroll-token) ENROLL_TOKEN="$2"; shift 2 ;;
     --address)  ADDRESS="$2"; shift 2 ;;
     --port)     PORT="$2"; shift 2 ;;
     --protocol) PROTOCOL="$2"; shift 2 ;;
@@ -88,13 +112,16 @@ while [ $# -gt 0 ]; do
     --quic-ca)      QUIC_CA="$2"; shift 2 ;;
     --quic-insecure) QUIC_INSECURE=1; shift ;;
     --quic-binary)  QUIC_BINARY="$2"; shift 2 ;;
-    -h|--help)  sed -n '2,40p' "$0"; exit 0 ;;
+    -h|--help)  sed -n '2,44p' "$0"; exit 0 ;;
     *) die "unknown arg: $1" ;;
   esac
 done
 
 [ "$(id -u)" = 0 ] || die "请用 root 执行"
 [ -n "$PANEL" ] || die "--panel 必填（面板基址，如 https://panel.example.com）"
+[ -n "$TOKEN" ] || [ -n "$REGISTER" ] || die "--token 与 --register 二选一"
+[ -z "$REGISTER" ] || [ -n "$ENROLL_TOKEN" ] || die "--register 需同时给 --enroll-token（一次性注册凭据：管理员侧先签发，见脚本头注释）"
+[ -z "$REGISTER" ] || [ -n "$ADDRESS" ] || die "--register 需要同时给 --address"
 case "$BW_UP$BW_DOWN" in *[!0-9]*) die "--bw-up/--bw-down 需为正整数 Mbps" ;; esac
 [ "$BW_UP" -gt 0 ] && [ "$BW_DOWN" -gt 0 ] || die "--bw-up/--bw-down 需为正整数 Mbps（agent 配置校验必填）"
 [ -z "$NODE_ROLE" ] || case "$NODE_ROLE" in entry|landing|both) ;; *) die "--node-role 仅支持 entry/landing/both" ;; esac
@@ -114,19 +141,6 @@ if [ "$QUIC" = 1 ] && [ -n "$QUIC_BINARY" ]; then
   [ -f "$QUIC_BINARY" ] || die "本地 ferry-quic 不存在：$QUIC_BINARY"
 fi
 
-# ---- 令牌：没给就从面板注册接口现场签发 ----
-if [ -z "$TOKEN" ]; then
-  [ -n "$REGISTER" ] || die "--token 与 --register 二选一"
-  [ -n "$ADDRESS" ] || die "--register 需要同时给 --address"
-  log "向面板注册节点 $REGISTER ..."
-  body=$(curl -fsS -X POST "$PANEL/api/nodes" -H 'Content-Type: application/json' \
-    -d "{\"name\":\"$REGISTER\",\"address\":\"$ADDRESS\",\"port\":$PORT,\"protocol\":\"$PROTOCOL\"}") \
-    || die "注册失败：检查面板地址与网络"
-  TOKEN=$(printf '%s' "$body" | grep -o '"token":"[^"]*"' | head -1 | cut -d'"' -f4)
-  [ -n "$TOKEN" ] || die "未从注册响应取到 token：$body"
-  log "节点已创建，令牌已取得（面板节点页可查）"
-fi
-
 # ---- panel_url：http→ws、https→wss，统一拼 /agent/ws ----
 case "$PANEL" in
   http://*)  WS="ws://${PANEL#http://}" ;;
@@ -138,6 +152,24 @@ PANEL_URL="${WS%/}/agent/ws"
 
 # ---- 取二进制：本地文件或按版本下载 ----
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+
+# 版本解析（FERRY-002）：latest 拼下载址前先经 GitHub API 解析为实际最新
+# 稳定版；解析不到（尚无正式 release）立即失败，绝不拼出 vlatest 假地址；
+# 显式版本原样使用，不静默回退。自建 --base 源无法解析 latest，要求显式版本。
+need_dl=0
+if [ -z "$BINARY" ] || { [ "$QUIC" = 1 ] && [ -z "$QUIC_BINARY" ]; }; then need_dl=1; fi
+if [ "$need_dl" = 1 ] && [ "$VERSION" = "latest" ]; then
+  [ "$BASE" = "$BASE_DEFAULT" ] || die "--version latest 仅支持默认 GitHub Releases 基址；--base 自建源请显式给 --version"
+  log "解析 latest 稳定版本 ..."
+  code=$(curl -sS -o "$tmp/latest.json" -w '%{http_code}' \
+    "https://api.github.com/repos/cuihairu/ferry/releases/latest") \
+    || die "查询最新稳定版失败（GitHub API 不可达）：请显式指定 --version"
+  [ "$code" = 200 ] || die "尚无正式稳定版发布（HTTP $code）：夜间构建是 CI 产物不落地 Releases，请显式指定 --version"
+  tag=$(json_field tag_name "$tmp/latest.json")
+  case "$tag" in v*) VERSION="${tag#v}" ;; *) die "最新版 tag 解析失败：请显式指定 --version" ;; esac
+  log "latest → v$VERSION"
+fi
+
 if [ -n "$BINARY" ]; then
   [ -f "$BINARY" ] || die "本地二进制不存在：$BINARY"
   cp "$BINARY" "$tmp/ferry-agent"
@@ -162,9 +194,9 @@ else
   tar -xzf "$tmp/agent.tar.gz" -C "$tmp"
   [ -f "$tmp/ferry-agent" ] || die "压缩包里没有 ferry-agent"
 fi
-install -m 0755 "$tmp/ferry-agent" "$INSTALL"
 
 # ---- QUIC sidecar（E-18b）：可选发布件，不用 QUIC 传输不装 ----
+# （此处只下载+校验+解包；落盘安装统一放到注册成功之后）
 QUIC_INSTALL=/usr/local/bin/ferry-quic
 if [ "$QUIC" = 1 ]; then
   if [ -n "$QUIC_BINARY" ]; then
@@ -187,6 +219,25 @@ if [ "$QUIC" = 1 ]; then
     tar -xzf "$tmp/quic.tar.gz" -C "$tmp"
     [ -f "$tmp/ferry-quic" ] || die "压缩包里没有 ferry-quic"
   fi
+fi
+
+# ---- 注册（FERRY-001）：资产全部下载校验通过后才建节点，下载/校验失败
+# 不留孤儿节点记录；凭据只在 Authorization 头传递，不进日志不落盘。
+if [ -z "$TOKEN" ]; then
+  log "向面板注册节点 $REGISTER ..."
+  code=$(curl -sS -o "$tmp/enroll.json" -w '%{http_code}' -X POST "$PANEL/api/enroll" \
+    -H "Authorization: Bearer $ENROLL_TOKEN" -H 'Content-Type: application/json' \
+    -d "{\"name\":\"$REGISTER\",\"address\":\"$ADDRESS\",\"port\":$PORT,\"protocol\":\"$PROTOCOL\"}") \
+    || die "注册请求失败：检查面板地址与网络"
+  [ "$code" = 201 ] || die "注册被拒（HTTP $code）：注册凭据无效/过期/已用或载荷不合规，请在面板侧重新签发后再试"
+  TOKEN=$(json_field token "$tmp/enroll.json")
+  [ -n "$TOKEN" ] || die "注册响应里没有 token 字段"
+  log "节点已创建，令牌已取得（面板节点页可查）"
+fi
+
+# ---- 安装：注册成功后才落盘 ----
+install -m 0755 "$tmp/ferry-agent" "$INSTALL"
+if [ "$QUIC" = 1 ]; then
   install -m 0755 "$tmp/ferry-quic" "$QUIC_INSTALL"
 fi
 

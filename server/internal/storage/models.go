@@ -388,6 +388,22 @@ type NodeTokenRevocation struct {
 	RevokedAt time.Time `json:"revoked_at"`
 }
 
+// EnrollmentToken 是一次性短时节点注册凭据（FERRY-001）：/api/nodes 管理面
+// 走 apiAuth，安装脚本首装不能也不应持管理员凭据——管理员先签发本凭据，
+// 节点机凭它在公开面 /api/enroll 换取节点令牌。用过即废（used_at 置位），
+// 可随时吊销；token 明文只在签发响应出现一次，列表不回带。
+type EnrollmentToken struct {
+	ID        uint       `gorm:"primaryKey" json:"id"`
+	Token     string     `gorm:"size:64;uniqueIndex" json:"-"`
+	Note      string     `gorm:"size:200" json:"note"`
+	CreatedBy string     `gorm:"size:100" json:"created_by"`
+	ExpiresAt time.Time  `json:"expires_at"`
+	UsedAt    *time.Time `json:"used_at"`
+	UsedBy    string     `gorm:"size:100" json:"used_by"`
+	RevokedAt *time.Time `json:"revoked_at"`
+	CreatedAt time.Time  `json:"created_at"`
+}
+
 // PaymentTransaction 是支付流水（三账之二：外部实际发生的收付）。
 type PaymentTransaction struct {
 	ID          uint      `gorm:"primaryKey" json:"id"`

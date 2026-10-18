@@ -42,10 +42,21 @@ func (h *Handler) createNode(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	token, err := RandomToken()
+	n, err := newPersistedNode(h.db, &in)
 	if err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
+	}
+	c.JSON(http.StatusCreated, n)
+}
+
+// newPersistedNode 由注册载荷建节点并落库：签发接入令牌→元数据初值→
+// Enabled=false 显式补写。管理面建节点与 FERRY-001 凭据换节点共用此口径，
+// 两路建出的节点形状完全一致。
+func newPersistedNode(db *gorm.DB, in *model.NodeInput) (*storage.Node, error) {
+	token, err := RandomToken()
+	if err != nil {
+		return nil, err
 	}
 	enabled := true
 	if in.Enabled != nil {
@@ -62,20 +73,18 @@ func (h *Handler) createNode(c *gin.Context) {
 		Status:   "unknown",
 	}
 	// 元数据：非空覆盖库默认值，任一出现即 MetaInit（面板接管，注册不再覆盖）。
-	applyMetaInput(&n, &in)
-	if err := h.db.Create(&n).Error; err != nil {
-		fail(c, http.StatusInternalServerError, err)
-		return
+	applyMetaInput(&n, in)
+	if err := db.Create(&n).Error; err != nil {
+		return nil, err
 	}
 	if !enabled {
 		// Enabled 带 default:true，零值 false 会被 GORM 略过落库默认值，需显式补写。
-		if err := h.db.Model(&storage.Node{}).Where("id=?", n.ID).Update("enabled", false).Error; err != nil {
-			fail(c, http.StatusInternalServerError, err)
-			return
+		if err := db.Model(&storage.Node{}).Where("id=?", n.ID).Update("enabled", false).Error; err != nil {
+			return nil, err
 		}
 		n.Enabled = false
 	}
-	c.JSON(http.StatusCreated, n)
+	return &n, nil
 }
 
 func (h *Handler) updateNode(c *gin.Context) {
