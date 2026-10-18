@@ -61,5 +61,7 @@ export default defineConfig({
     ],
     outline: [2, 3],
     socialLinks: [{ icon: 'github', link: 'https://github.com/cuihairu/ferry' }]
-  }
+  },
+  // review/ 是审核底稿（含原始工具记录与未闭合标签），只留档不入站
+  srcExclude: ['review/**'],
 })
