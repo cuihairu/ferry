@@ -375,3 +375,9 @@
 2026-10-18 12:15 轮（带代决授权）：14 条未勾复核后按单规则 2 处理——唯一真正「待拍板」项=OSS 三候选评审（解锁钥匙=评审这个动作本身，非外部材料），本轮代决收口两腿：**Xray proto 腿=维持自有实现**（Xray-core MPL-2.0 实抓核验通过，但 E-4 实测手写省 8.3MB 为硬约束、协议面冻结、测试在位；重评触发两条入档：protobuf/grpc 因他依赖入场边际成本归零 / stats API 扩面超手写覆盖）、**GeoIP 腿=license 已核选型确认**（纠偏一处：geoip2-golang 实为 ISC 原稿误记 Apache-2.0 已改；v2fly dat CC-BY-SA-4.0+DB-IP CC-BY-4.0 归属注意项入档，维持随分流批立项）；**支付 SDK 腿不代决**（外部商户资质）。评审记录=docs/design/开源选型设计.md §3.2.1（:61-66），#12 行与解锁条件表已同步收窄。其余 13 条无一属待拍板：4 拍板关闭、mTLS/调参/流量预算已成文维持挂起（FW1016D 先例不重开）、TOUCH-7 已代决留待、直连支付/costref/hy2 真机卡外部材料、#14 观察项、#15 上游。PR #6 仍 open 未动（00:43Z），合并触版本号红线不代决。夜间构建 schedule 窗口（03:23Z）后 52 分钟仍未触发（GitHub cron 负载延迟常态，dispatch 腿已全链 success），下轮复查。docs-only 落账，vitepress build 绿。
 
 依据：#12 两腿代决收口（docs 决策记录已写）；其余卡点钥匙在用户/上游/外部材料，无代决空间；本轮单 commit 纯文档落账，main 与 origin/main 同步。
+
+## 巡检结论（2026-10-18 15:45 增量轮，PR #6 收口）
+
+2026-10-18 07:45Z 增量轮（ferry.md）：**唯一新证据=dependabot PR #6 已由用户合并**——merge commit `bb8a092`（2026-10-18T07:25Z，cuihairu），并入 golang.org/x/crypto v0.57.0→v0.58.0、x/net v0.60.0→v0.61.0、x/sys v0.48.0→v0.49.0、x/text v0.42.0→v0.43.0（agent/ 与 server/ 两目录 go.mod/go.sum，均补丁级）。合并质量双侧证据：PR 侧 11/11 checks 全绿（6 go+3 frontend+codecov patch/project），合并后 main push 触发 test workflow **success**（`bb8a092`，07:25:10Z）+ Dependency Graph success；THIRD_PARTY.md 为名称级登记无版本锚定、开源选型设计.md:16 为历史量测记录（v0.54.0 时点），均不受本次 bump 影响，无遗留动作——PATROL1018D 挂账的「等用户裁决」就此收口。其余解锁证据零变动：vitepress 仍 latest=1.6.4/next=2.0.0-alpha.20、open issue=0、dependabot open alerts=0、14 条未勾卡点全部照旧（无开工项）；nightly schedule 腿今日尚未触发（本仓常态延迟：历史实际触发 07:5x–10:4xZ），届时将首次以修复后 YAML 跑 schedule 腿，下轮复查。memex 侧同步 clean（25b5385）。docs-only 落账，vitepress build 绿（5.32s）。
+
+依据：PR #6 用户拍板合并且 CI 双侧绿（PR 11/11 + main push test success）；其余条目触发条件仍全部不成立；本轮单 commit 纯文档落账，main 与 origin/main 同步。
