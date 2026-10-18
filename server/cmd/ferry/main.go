@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -28,6 +29,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/geodns"
 	"github.com/cuihairu/ferry/server/internal/handler"
 	"github.com/cuihairu/ferry/server/internal/herald"
+	"github.com/cuihairu/ferry/server/internal/keyinit"
 	"github.com/cuihairu/ferry/server/internal/monitor"
 	"github.com/cuihairu/ferry/server/internal/notifyscan"
 	"github.com/cuihairu/ferry/server/internal/pool"
@@ -70,6 +72,21 @@ func run(ctx context.Context, cfg config.Config) error {
 	gin.DefaultWriter = io.MultiWriter(os.Stdout, ring)
 	gin.DefaultErrorWriter = io.MultiWriter(os.Stderr, ring)
 
+	// 密钥门禁（FERRY-003）：签名/加密密钥按「显式配置 > 密钥文件 > 生成并
+	// 持久化」定值；生产环境（FERRY_ENV=production）缺钥无从持久化、弱钥、
+	// 开发默认常量拒绝启动。日志只报名不报值。
+	resolved, keys, err := keyinit.Resolve(cfg)
+	if err != nil {
+		return fmt.Errorf("key init: %w", err)
+	}
+	cfg = resolved
+	for _, w := range keys.Warnings {
+		log.Printf("keyinit: %s", w)
+	}
+	if len(keys.Generated) > 0 {
+		log.Printf("keyinit: generated %s -> %s", strings.Join(keys.Generated, ","), keys.KeyFile)
+	}
+
 	db, err := storage.Open(cfg.DBDriver, cfg.DBDSN)
 	if err != nil {
 		return fmt.Errorf("init database: %w", err)
@@ -95,6 +112,16 @@ func run(ctx context.Context, cfg config.Config) error {
 	// 多级管理员（P2-2）旧号归一：bootstrap 时代的管理员补 super 角色（幂等）。
 	if err := handler.NormalizeAdminRoles(db); err != nil {
 		return fmt.Errorf("normalize admin roles: %w", err)
+	}
+
+	// 主密钥是本轮新生成、库里已有加密机密（云凭证等）：多半是此前用 env 钥
+	// 写入后被拿掉——提示恢复原钥，而不是让解密错误在使用时才冒出来。
+	if slices.Contains(keys.Generated, "FERRY_SECRET_KEY") {
+		var n int64
+		if err := db.Model(&storage.Provider{}).Count(&n).Error; err == nil && n > 0 {
+			log.Printf("keyinit: FERRY_SECRET_KEY was auto-generated but %d provider row(s) exist; "+
+				"if their credentials were written under an earlier master key, restore that key via FERRY_SECRET_KEY", n)
+		}
 	}
 
 	// Xray 内核对接未启用前使用空实现，接口保持稳定。

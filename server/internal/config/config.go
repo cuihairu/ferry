@@ -45,6 +45,13 @@ type Config struct {
 	// SecretKey 是机密加密主密钥（R24：不入库，部署环境变量/文件注入），
 	// 未配置时云凭证等机密不可录入。可通过 FERRY_SECRET_KEY 覆盖。
 	SecretKey string `json:"-"`
+	// Env 是运行环境口径（FERRY_ENV，FERRY-003）：production=生产，密钥门禁
+	// 硬校验（缺钥/弱钥/开发默认常量拒绝启动，见 keyinit）；空=开发，缺钥
+	// 回退历史开发缺省并告警。
+	Env string `json:"-"`
+	// KeyFile 是签名/加密密钥持久化文件（FERRY_KEYFILE，FERRY-003）：空=默认
+	// 取 sqlite 库文件同目录 ferry-keys.env（非 sqlite 且未配置=不持久化）。
+	KeyFile string `json:"-"`
 	// TofuBin 是 OpenTofu 可执行文件路径（供给引擎，OS-2）。
 	TofuBin string `json:"-"`
 	// TofuWorkdir 是供给工作目录根（state 集中存面板侧，每模板一目录）。
@@ -154,6 +161,8 @@ func Load() Config {
 		AdminUser:            envOr("FERRY_ADMIN_USER", "admin"),
 		AdminPassword:        os.Getenv("FERRY_ADMIN_PASSWORD"),
 		SecretKey:            envOr("FERRY_SECRET_KEY", ""),
+		Env:                  os.Getenv("FERRY_ENV"),
+		KeyFile:              envOr("FERRY_KEYFILE", ""),
 		TofuBin:              envOr("FERRY_TOFU_BIN", "tofu"),
 		TofuWorkdir:          envOr("FERRY_TOFU_DIR", "/var/lib/ferry/tofu"),
 		AgentDownloadBase:    envOr("FERRY_AGENT_BASE", "https://github.com/cuihairu/ferry/releases/download"),

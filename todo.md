@@ -129,8 +129,8 @@
   - 状态=完成｜落地=2026-10-19 FIRE1019：服务端 EnrollmentToken 模型+管理面签发/列表/吊销（apiAuth+审计）+公开面 /api/enroll 事务原子消费（双花/重放 401、IP 限流）；安装脚本 --register 改配 --enroll-token、注册移到资产校验后、JSON 三级解析｜证据=enroll_test.go 9 用例 + handler/storage/model -race -count=2 全绿
 - [ ] FERRY-002 正式 Release 与 latest 安装流程（外部评审 2026-10-18）：脚本侧已修（latest 经 GitHub API 解析实际稳定版，无稳定版明确报错不拼 vlatest；显式版本不静默回退）；发版流水线腿待用户
   - 状态=半完成｜卡点=正式 release 只能用户手动给版本号触发（2026-10-11 发版红线，agent 不代发）｜触发条件：用户明确说「发版」并给版本号
-- [ ] FERRY-003 生产密钥安全门禁（外部评审 2026-10-18）：密钥空值回退开发常量的治理（首装生成/持久化/生产拒绝默认密钥）
-  - 状态=未开工（下一批）｜依据=评审 P0 第 3 条，涉 config/启动链/env 生成｜触发条件：FERRY-001 收口后接续（本轮已具备）
+- [x] FERRY-003 生产密钥安全门禁（外部评审 2026-10-18）：三把服务密钥初始化门禁（生成/持久化/生产拒绝默认密钥与弱钥）
+  - 状态=完成｜落地=2026-10-19 FIRE1019：新包 keyinit（显式配置 > 密钥文件 > 生成并持久化 0600，默认库目录 ferry-keys.env；FERRY_ENV=production 拒缺钥无从持久化/开发默认常量/短钥；显式值不落盘；日志不回显）+ main 接线 + 主密钥新生成遇既有加密行告警恢复原钥 + .env.example/ferry.env.example/部署指南/安全设计 §3.1 同步｜证据=keyinit_test.go 8 用例全绿 + 真机冒烟（生成→重启零重生成→字节稳定；生产拒常量/生产无钥起服务两路实测）
 - [ ] FERRY-005 安装与升级失败恢复（外部评审 2026-10-18）：安装脚本原子替换/回滚/失败诊断
   - 状态=未开工｜依据=评审 P1 第 2 条｜触发条件：FERRY-003 之后
 - [ ] FERRY-004 端到端部署与节点通信集成测试（外部评审 2026-10-18）：CI 内可重复的真部署链路验证
@@ -407,6 +407,8 @@
 - **FERRY-006 TODO 收口（本轮收口点）**：C-06 行残留「未实现」旧文与 `[x]`/状态=完成 的矛盾修正（评审点名）；FERRY-001..005 按其要求登记入台账。
 - 剩余风险与未验证面：脚本真机链路（root+systemd+真面板+真 Release 资产）未端到端执行——属 FERRY-005 验收范围；dash 暂无注册凭据签发 UI（curl/API Token 可用，评审验收项未要求 UI）。
 
-门禁：go build 绿、server 全模块 `go test ./... -count=1` 绿、handler/storage/model `-race -count=2` 绿、docs vitepress build 绿 5.67s、bash -n+json_field 三级解析逐路实测、latest 解析对真实 GitHub API 实测 404 报错路径。本轮单 commit（实现+测试+脚本+文档+落账）。
+- **FERRY-003 生产密钥安全门禁（完成，同轮第二批）**：新包 `server/internal/keyinit`——三把服务密钥（FERRY_ADMIN_SECRET/FERRY_API_SECRET/FERRY_SECRET_KEY）按「显式配置 > 密钥文件 > 生成并持久化」定值；首启自动生成 256 位随机钥写 `ferry-keys.env`（默认 sqlite 库同目录，0600，重启同钥不重生成；FERRY_KEYFILE 可指位）；生产环境（FERRY_ENV=production）缺钥无从持久化、显式配开发默认常量、短钥（<16 字符）一律拒绝启动，开发环境回退历史缺省+告警；显式配置的值绝不落盘；错误与日志只报 env 名不回显值；主密钥自动生成而库里已有加密机密行时启动告警提示恢复原钥。main.go 接线；.env.example/ferry.env.example/部署指南 env 表/安全设计.md（新增 §3.1，顺带修 §6 P1 行残留「节点令牌轮换未实现」的 FERRY-006 矛盾——C-06 已 2026-10-17 落地）同步。测试先行 keyinit_test.go 8 用例（生成/重启稳定/env 优先不落盘/文件回载/生产拒常量/生产拒短钥/生产拒不可持久化/开发无文件回退/合并保既有行）；真机冒烟三段全过。
+
+门禁：go build 绿、server 全模块 `go test ./... -count=1` 绿、handler/storage/model `-race -count=2` 绿（handler 1044.9s）、keyinit 单包 -race 复核、docs vitepress build 绿 5.67s、bash -n+json_field 三级解析逐路实测、latest 解析对真实 GitHub API 实测 404 报错路径、真机起服务冒烟（key 生成/持久化/重启稳定/生产门禁两路）。本轮两 commit（enroll 批 c5029ba + keyinit 批）。
 
 依据：14 条旧卡点触发条件全部不成立（证据见上段）；评审四条待核断言全部属实（核验表 file:line）；FERRY-001 评审验收标准逐条对照——无凭据拒绝且不建节点✓、合法凭据换节点令牌✓、过期/已用/无效均拒✓、重复提交不重复建✓、下载校验失败不留注册记录✓（脚本层）、日志不泄令牌✓、新增测试✓、文档与台账更新✓；FERRY-002 发版腿解锁=用户明确说「发版」并给版本号。
