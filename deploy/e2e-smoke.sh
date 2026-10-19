@@ -75,6 +75,22 @@ poll_health() {
   printf '%s' "$n"
 }
 
+# expect_stays_zero DESC：~10 秒内 agents_online 不得变 1（用于「被拒的 agent
+# 反复重试也上不来」的否定断言；中途变 1 即失败）
+expect_stays_zero() {
+  local i n
+  for i in $(seq 1 20); do
+    curl -s "$BASE/api/health" -o "$TMP/health-poll.json" 2>/dev/null || true
+    n=$(agents_online_count "$TMP/health-poll.json")
+    if [ "$n" != "0" ] && [ -n "$n" ]; then
+      echo "FAIL - $1：agents_online=$n（不该上线却上线）" >&2
+      dump; exit 1
+    fi
+    sleep 0.5
+  done
+  log "ok - $1"
+}
+
 log "构建 ferry-server / ferry-agent 二进制 ..."
 (cd server && go build -o "$TMP/ferry-server" ./cmd/ferry)
 (cd agent && go build -o "$TMP/ferry-agent" ./cmd/agent)
@@ -159,6 +175,50 @@ expect "agent 上线（健康计数=1）" "1" "$(poll_health 1)"
 log "断线回落 ..."
 kill "$AGENT_PID"; AGENT_PID=""
 expect "agent 断线后计数回落" "0" "$(poll_health 0)"
+
+log "令牌轮换 → 兼容窗口 → 吊销（C-06 全链路）..."
+NODE_ID=$(json_get id "$TMP/enroll.json")
+code=$(curl -s -o "$TMP/rotate.json" -w '%{http_code}' -X POST "$BASE/api/nodes/$NODE_ID/token" \
+  -H "Authorization: Bearer $ADMIN_TOKEN")
+expect "轮换令牌成功" 200 "$code"
+NEW_TOKEN=$(json_get token "$TMP/rotate.json")
+[ -n "$NEW_TOKEN" ] && [ "$NEW_TOKEN" != "$NODE_TOKEN" ] \
+  || { echo "FAIL - 轮换响应缺新令牌或与旧令牌相同" >&2; dump; exit 1; }
+
+# 兼容窗口：旧令牌在窗口内仍可握手上线
+cp "$TMP/agent.json" "$TMP/agent-old.json"
+"$TMP/ferry-agent" -config "$TMP/agent-old.json" > "$TMP/agent-old.log" 2>&1 &
+AGENT_PID=$!
+expect "兼容窗口内旧令牌可上线" "1" "$(poll_health 1)"
+kill "$AGENT_PID"; AGENT_PID=""
+expect "旧令牌 agent 断开" "0" "$(poll_health 0)"
+
+# 吊销后：旧令牌立即拒绝（CRL）——agent 保持运行持续重试 ~10 秒，计数不得
+# 变 1（起跑失败不算拒绝，要观察的是「反复重试也上不来」）
+code=$(curl -s -o "$TMP/revoke.json" -w '%{http_code}' -X POST "$BASE/api/nodes/$NODE_ID/token/revoke" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -d "{\"token\":\"$NODE_TOKEN\"}")
+expect "吊销旧令牌成功" 200 "$code"
+"$TMP/ferry-agent" -config "$TMP/agent-old.json" > "$TMP/agent-revoked.log" 2>&1 &
+AGENT_PID=$!
+expect_stays_zero "吊销后旧令牌被拒（重试 10 秒不上线）"
+kill "$AGENT_PID"; AGENT_PID=""
+
+# 新令牌照常上线
+cat > "$TMP/agent-new.json" <<EOF
+{
+  "panel_url": "ws://127.0.0.1:$PORT/agent/ws",
+  "agent_id": "e2e-agent",
+  "token": "$NEW_TOKEN",
+  "heartbeat_sec": 5,
+  "meta": { "bw_up_mbps": 10, "bw_down_mbps": 10 }
+}
+EOF
+"$TMP/ferry-agent" -config "$TMP/agent-new.json" > "$TMP/agent-new.log" 2>&1 &
+AGENT_PID=$!
+expect "新令牌上线" "1" "$(poll_health 1)"
+kill "$AGENT_PID"; AGENT_PID=""
+expect "新令牌 agent 断开" "0" "$(poll_health 0)"
 
 log "PASS：部署→认证→注册→通信→断线链路全通"
 

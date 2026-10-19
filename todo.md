@@ -134,7 +134,7 @@
 - [x] FERRY-005 安装与升级失败恢复（外部评审 2026-10-18）：安装脚本原子替换/回滚/失败诊断
   - 状态=完成｜落地=2026-10-19 FIRE1019（FERRY-003 之后）：agent-install.sh 二进制/unit 先备份 `.prev` 再同目录 rename 原子替换（含 quic unit，sidecar 落盘 `--quic-install` 可指位）、配置临时文件+rename 不落半截、`--config` 落点随路径建目录（修掉硬编码 /etc/ferry 与覆盖值矛盾）；启动失败=journal 最近 20 行诊断先行，再回滚（升级还原上一版重拉起、首装清理本次产物），`.prev` 保留供手动核对、成功才清；ferry-quic sidecar 独立回滚不牵连 agent；unit 目录 FERRY_SYSTEMD_UNIT_DIR 可覆盖（测试/非标环境）｜证据=deploy/install-rollback-test.sh 沙箱回归 43 断言全绿×2（假 id/systemctl/journalctl/curl/sleep 跑真脚本七链路：首装成功/升级成功/升级失败还原字节级一致/首装失败清理/既有配置保留/sidecar 首装/sidecar 失败回滚且 agent 不受牵连），test.yml 新增 deploy-scripts job 接线 CI，deploy/README.md 与部署指南同步
 - [ ] FERRY-004 端到端部署与节点通信集成测试（外部评审 2026-10-18）：CI 内可重复的真部署链路验证
-  - 状态=骨架已落地（2026-10-19 FIRE1019），整体未完不敢勾：deploy/e2e-smoke.sh 真起 ferry-server+ferry-agent 二进制（sqlite 落临时目录、密钥门禁走 keyinit）不 mock 走通——健康三态/库可写、管理员首登+错密码 401+无凭据 401、注册凭据签发、注册换令牌+重放 401、手动备份后健康转 ok、agent 真 WS 握手上线健康计数=1、断线回落=0、compose config 校验（无 docker 环境跳过）；失败打 server/agent 日志尾部；CI test.yml deploy-scripts job 增 e2e step（setup-go 显式装 1.27.2）｜剩余未覆盖：配置下发应答与服务端状态更新细节、断线重连与重复消息、节点令牌轮换/兼容窗口/吊销、备份恢复后的登录与节点数据、dash/panel 静态资源与页面刷新（评审 10 项中后续增量）
+  - 状态=骨架+安全链路已落地（2026-10-19 FIRE1019），整体未完不敢勾：deploy/e2e-smoke.sh 真起 ferry-server+ferry-agent 二进制（sqlite 落临时目录、密钥门禁走 keyinit）不 mock 走通 21 断言——健康三态/库可写、管理员首登+错密码 401+无凭据 401、注册凭据签发、注册换令牌+重放 401、手动备份后健康转 ok、agent 真 WS 握手上线健康计数=1、断线回落=0、**令牌轮换→兼容窗口旧令牌可上线→吊销后旧令牌 10 秒持续重试不上线（CRL 否定断言）→新令牌上线**、compose config 校验（无 docker 环境跳过）；失败打 server/agent 日志尾部；CI test.yml deploy-scripts job 增 e2e step（setup-go 显式装 1.27.2）｜剩余未覆盖：配置下发应答与服务端状态更新细节、断线重连与重复消息、备份恢复后的登录与节点数据、dash/panel 静态资源与页面刷新（评审 10 项中后续增量）
 
 ## 行级证据与解锁条件（R1013B 续）
 
