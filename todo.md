@@ -121,13 +121,13 @@
   - 状态=阻塞（余支付 SDK 一腿）｜原因：Xray proto 评审已毕维持自有实现（docs/design/开源选型设计.md §3.2.1 已代决 PATROL1018E：MPL-2.0 核验通过但 E-4 实测省 8.3MB 为硬约束，重评触发两条在档）、GeoIP license 已核（geoip2-golang 实为 ISC 纠偏、dat CC-BY-SA-4.0 归属注意项在档）维持随分流批立项；余支付 SDK 等商户资质外部材料不代决｜触发条件：用户提供商户资质（appid/merchant_id/证书）
 - [ ] [BLOCKED] hy2 二进制真机联调：缺测试二进制、证书及可配置防火墙的真机环境
   - 状态=阻塞｜原因：二进制/证书/防火墙均为外部提供项，仓内无法联调｜触发条件：用户提供测试二进制+证书+防火墙环境
-- [ ] TestProvisionRunAPI 偶发观察：-race 连跑全净未复现；再出现时抓 -race -verbose
+- [ ] [BLOCKED] TestProvisionRunAPI 偶发观察：缺少可复现故障及 `-race -verbose` 日志；复现后再定位
   - 状态=待触发｜原因：-race 连跑全净未复现，无法定位｜触发条件：偶发复现时抓 -race -verbose 日志
-- [ ] 上游等待：vitepress 2 stable 落地后撤 pnpm override 直升；dependabot npm ignore 重开条件（vitepress stable 时同步放开）
+- [ ] [BLOCKED] 上游等待：VitePress 2 stable 尚未发布；npm latest 仍为 1.6.4，待 stable 发布后验证再撤 override
   - 状态=阻塞｜原因：vitepress 2 stable 未发布，pnpm override 不可撤｜触发条件：vitepress 2 stable 发布且构建验证通过
 - [x] FERRY-001 节点注册认证闭环（外部评审 2026-10-18）：一次性短时注册凭据（enrollment token）打通安装脚本首装
   - 状态=完成｜落地=2026-10-19 FIRE1019：服务端 EnrollmentToken 模型+管理面签发/列表/吊销（apiAuth+审计）+公开面 /api/enroll 事务原子消费（双花/重放 401、IP 限流）；安装脚本 --register 改配 --enroll-token、注册移到资产校验后、JSON 三级解析｜证据=enroll_test.go 9 用例 + handler/storage/model -race -count=2 全绿
-- [ ] FERRY-002 正式 Release 与 latest 安装流程（外部评审 2026-10-18）：脚本侧已修（latest 经 GitHub API 解析实际稳定版，无稳定版明确报错不拼 vlatest；显式版本不静默回退）；发版流水线腿待用户
+- [ ] [BLOCKED] FERRY-002 正式 Release 与 latest 安装流程：脚本侧已修；发版腿缺用户明确发版指令及指定版本号（本轮不 bump 版本）
   - 状态=半完成｜卡点=正式 release 只能用户手动给版本号触发（2026-10-11 发版红线，agent 不代发）｜触发条件：用户明确说「发版」并给版本号
 - [x] FERRY-003 生产密钥安全门禁（外部评审 2026-10-18）：三把服务密钥初始化门禁（生成/持久化/生产拒绝默认密钥与弱钥）
   - 状态=完成｜落地=2026-10-19 FIRE1019：新包 keyinit（显式配置 > 密钥文件 > 生成并持久化 0600，默认库目录 ferry-keys.env；FERRY_ENV=production 拒缺钥无从持久化/开发默认常量/短钥；显式值不落盘；日志不回显）+ main 接线 + 主密钥新生成遇既有加密行告警恢复原钥 + .env.example/ferry.env.example/部署指南/安全设计 §3.1 同步｜证据=keyinit_test.go 8 用例全绿 + 真机冒烟（生成→重启零重生成→字节稳定；生产拒常量/生产无钥起服务两路实测）
