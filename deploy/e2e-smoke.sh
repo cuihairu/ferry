@@ -2,10 +2,10 @@
 # 端到端部署链路冒烟（FERRY-004 最小骨架）：真起 ferry-server 二进制（sqlite
 # 落临时目录）+ 真 ferry-agent 二进制拨真实 WebSocket，一条链路走通
 # 健康检查/库初始化 → 管理员首登与鉴权 → 签发一次性注册凭据 → 注册建节点
-# → agent 握手上线（健康计数+1）→ agent 断线回落。全程不 mock，数据只落
-# 临时目录；任一步失败打印 server 与 agent 日志尾部后非零退出。
-# 评审 FERRY-004 十项验收中的骨架部分（部署/通信/配置与恢复的其余项按
-# 台账后续增量补齐）。CI 见 test.yml deploy-scripts job；本地需 go 工具链。
+# → agent 握手上线（健康计数+1）→ agent 断线回落 → 令牌轮换/兼容窗口/吊销
+# → 配置下发与 agent 应答记账、面板改节点状态可见 → 备份后恢复再登录验证
+# 节点数据。全程不 mock，数据只落临时目录；任一步失败打印全部服务日志尾部
+# 后非零退出。CI 见 test.yml deploy-scripts job；本地需 go 工具链。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -219,6 +219,47 @@ EOF
 "$TMP/ferry-agent" -config "$TMP/agent-new.json" > "$TMP/agent-new.log" 2>&1 &
 AGENT_PID=$!
 expect "新令牌上线" "1" "$(poll_health 1)"
+
+# 配置下发 → agent 应答 → 服务端状态更新（A-18）：proc 故意用面板不存在的
+# 名字，agent 会回「unknown proc」——该报错串只可能来自 agent 侧执行，等于
+# 证明了下行帧真过 WS 抵达 agent 并回执（agent 离线只会走到超时 pending）。
+t0=$(date +%s)
+code=$(curl -s -o "$TMP/push.json" -w '%{http_code}' -X POST "$BASE/api/nodes/$NODE_ID/config" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"proc":"e2e-probe","payload":"{}"}')
+t1=$(date +%s)
+expect "配置下发返回 200" 200 "$code"
+PUSH_STATUS=$(json_get status "$TMP/push.json")
+[ "$PUSH_STATUS" = applied ] || [ "$PUSH_STATUS" = failed ] \
+  || { echo "FAIL - 配置下发无应答（status=$PUSH_STATUS，agent 未回 config.ack）" >&2; dump; exit 1; }
+grep -Eq 'unknown proc|config_path' "$TMP/push.json" \
+  || { echo "FAIL - 应答内容不来自 agent 侧执行：$(cat "$TMP/push.json")" >&2; dump; exit 1; }
+[ $((t1 - t0)) -lt 30 ] \
+  || { echo "FAIL - 配置下发耗时 $((t1 - t0)) 秒，疑似超时未应答" >&2; dump; exit 1; }
+log "ok - 配置下发经 WS 抵达 agent 并回执（status=$PUSH_STATUS，$((t1 - t0)) 秒）"
+
+# 面板改节点元数据 → 服务端状态更新可见（agent 保持在线，不受影响）
+code=$(curl -s -o "$TMP/node-upd.json" -w '%{http_code}' -X PUT "$BASE/api/nodes/$NODE_ID" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"e2e-node","address":"e2e.example.com","port":443,"protocol":"vless","region":"ap-e2e"}')
+expect "面板更新节点元数据" 200 "$code"
+code=$(curl -s -o "$TMP/node-get.json" -w '%{http_code}' "$BASE/api/nodes/$NODE_ID" \
+  -H "Authorization: Bearer $ADMIN_TOKEN")
+expect "读取节点状态" 200 "$code"
+grep -q '"region":"ap-e2e"' "$TMP/node-get.json" \
+  || { echo "FAIL - 节点元数据未更新：$(cat "$TMP/node-get.json")" >&2; dump; exit 1; }
+log "ok - 节点元数据更新落库可见"
+
+# 服务端状态更新：下发结果（含 agent 应答的错误串）已记账可查
+code=$(curl -s -o "$TMP/nconfigs.json" -w '%{http_code}' "$BASE/api/nodes/$NODE_ID/configs" \
+  -H "Authorization: Bearer $ADMIN_TOKEN")
+expect "读取配置下发历史" 200 "$code"
+grep -q '"proc":"e2e-probe"' "$TMP/nconfigs.json" \
+  || { echo "FAIL - 下发记录未落库：$(cat "$TMP/nconfigs.json")" >&2; dump; exit 1; }
+grep -q '"error":' "$TMP/nconfigs.json" \
+  || { echo "FAIL - 下发记录缺 agent 应答错误串" >&2; dump; exit 1; }
+log "ok - 服务端已记账 agent 应答（状态与错误串落库）"
+expect "配置下发后 agent 仍在线" "1" "$(poll_health 1)"
 kill "$AGENT_PID"; AGENT_PID=""
 expect "新令牌 agent 断开" "0" "$(poll_health 0)"
 
@@ -266,7 +307,7 @@ grep -q '"name":"e2e-node"' "$TMP/nodes.json" \
   || { echo "FAIL - 恢复库缺 e2e-node" >&2; dump; exit 1; }
 log "ok - e2e-node 随库恢复"
 
-log "PASS：部署→认证→注册→通信→断线→轮换吊销→备份恢复链路全通"
+log "PASS：部署→认证→注册→通信→断线→轮换吊销→配置下发应答→备份恢复链路全通"
 
 # ---- compose 配置检查（FERRY-004 第 1 项；无 docker 的环境跳过）----
 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
