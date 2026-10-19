@@ -59,15 +59,27 @@ QUIC=0 QUIC_LISTEN=127.0.0.1:7300 QUIC_CA="" QUIC_INSECURE="" QUIC_BINARY="" QUI
 die() { echo "agent-install: $*" >&2; exit 1; }
 log() { echo "[install] $*"; }
 
-# wait_service_active 重启后等服务真正进入 active（最多 5 秒）：restart 返回
+# wait_service_active 重启后等服务真正进入 active（最多 ~10 秒）：restart 返回
 # 不等于就绪，agent 起动还要加载配置、建连；轮询避免把「还在起」误判成失败。
+# 判定用 ActiveState=active 加 Result=success 双条件：只看 is-active 会把
+# crash-loop 单元误判成安装成功——Restart=always 下秒退进程反复被拉起，
+# 单元在重启间隙几乎全程 activating，但 fork 到 exec 失败落账之间存在瞬时
+# active 窗口（慢宿主上可超过 1 秒），连续两次 is-active 都可能撞上；而
+# Result 记最近一次起停结果，exec 失败即 exit-code 且不随自动重启清零，
+# 只有真正起动成功才会回到 success，与采样时机无关。
 wait_service_active() {
   local svc="$1" i
   for i in 1 2 3 4 5; do
-    systemctl is-active --quiet "$svc" >/dev/null 2>&1 && return 0
+    if [ "$(systemctl show -p ActiveState --value "$svc" 2>/dev/null)" = active ] \
+      && [ "$(systemctl show -p Result --value "$svc" 2>/dev/null)" = success ]; then
+      sleep 1
+      [ "$(systemctl show -p ActiveState --value "$svc" 2>/dev/null)" = active ] \
+        && [ "$(systemctl show -p Result --value "$svc" 2>/dev/null)" = success ] && return 0
+    fi
     sleep 1
   done
-  systemctl is-active --quiet "$svc" >/dev/null 2>&1
+  [ "$(systemctl show -p ActiveState --value "$svc" 2>/dev/null)" = active ] \
+    && [ "$(systemctl show -p Result --value "$svc" 2>/dev/null)" = success ]
 }
 
 # dump_service_logs 失败诊断（FERRY-005）：回滚动作执行前把 unit 最近日志

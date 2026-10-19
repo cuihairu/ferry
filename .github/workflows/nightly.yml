@@ -94,6 +94,19 @@ jobs:
       - name: compose deploy smoke (sqlite + postgres)
         run: bash deploy/compose-smoke.sh
 
+  systemd-smoke:
+    needs: [gate]
+    if: needs.gate.outputs.skip != 'true'
+    name: systemd install smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # 容器内真 systemd（cgroup v2 宿主需 privileged + host cgroupns）回归
+      # agent-install.sh：enable/restart 真语义、journal 失败诊断、.prev 回滚
+      # 与首装失败清理；docker 不可用时脚本自身跳过，runner 必有 docker。
+      - name: systemd install smoke
+        run: bash deploy/systemd-smoke.sh
+
   package:
     needs: [gate, go, frontend]
     if: needs.gate.outputs.skip != 'true'

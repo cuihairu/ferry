@@ -40,6 +40,17 @@ cat > "$SB/fakebin/systemctl" <<EOF
 echo "systemctl \$*" >> "$FAKE_LOG"
 case "\$1 \$2" in
   "is-active --quiet") [ -f "$FAKE_FAIL/\$3" ] && exit 3 || exit 0 ;;
+  # show -p ActiveState/Result --value <unit>：wait_service_active 的判定对，
+  # fail 标记服务模拟起动失败后的 activating/exit-code（真实 crash-loop 形态）
+  "show -p")
+    if [ -f "$FAKE_FAIL/\$5" ]; then
+      [ "\$3" = ActiveState ] && echo activating
+      [ "\$3" = Result ] && echo exit-code
+    else
+      [ "\$3" = ActiveState ] && echo active
+      [ "\$3" = Result ] && echo success
+    fi
+    exit 0 ;;
   *) exit 0 ;;
 esac
 EOF
