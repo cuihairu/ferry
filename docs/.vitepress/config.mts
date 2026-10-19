@@ -35,7 +35,8 @@ export default defineConfig({
           { text: 'Agent 架构设计', link: '/design/agent架构设计' },
           { text: '套餐与成本设计', link: '/design/套餐与成本设计' },
           { text: '计划扩充设计', link: '/design/计划扩充设计' },
-          { text: '开源选型设计', link: '/design/开源选型设计' }
+          { text: '开源选型设计', link: '/design/开源选型设计' },
+          { text: '决策记录', link: '/design/决策记录' }
         ]
       },
       {
