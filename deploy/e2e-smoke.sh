@@ -24,10 +24,12 @@ expect() { # $1=描述 $2=期望 $3=实际
   else echo "FAIL - $1：want [$2] got [$3]" >&2; dump; exit 1; fi
 }
 dump() {
-  echo "--- server 日志尾部 ---" >&2
-  tail -n 40 "$TMP/server.log" >&2 || true
-  echo "--- agent 日志尾部 ---" >&2
-  tail -n 40 "$TMP/agent.log" >&2 || true
+  for f in server.log server2.log agent.log agent-old.log agent-new.log agent-revoked.log restore.log; do
+    if [ -f "$TMP/$f" ]; then
+      echo "--- $f 尾部 ---" >&2
+      tail -n 40 "$TMP/$f" >&2 || true
+    fi
+  done
 }
 # json_get FILE KEY：优先 jq/python3，退回文本截取（与安装脚本同口径）
 json_get() {
@@ -220,7 +222,51 @@ expect "新令牌上线" "1" "$(poll_health 1)"
 kill "$AGENT_PID"; AGENT_PID=""
 expect "新令牌 agent 断开" "0" "$(poll_health 0)"
 
-log "PASS：部署→认证→注册→通信→断线链路全通"
+log "备份 → 停机 → 恢复到新目录 → 恢复后登录与节点数据 ..."
+code=$(curl -s -o "$TMP/after-node.enc" -w '%{http_code}' "$BASE/admin/backup/db" \
+  -H "Authorization: Bearer $ADMIN_TOKEN")
+expect "节点在库后手动备份（附件即档）" 200 "$code"
+kill "$SERVER_PID"; wait "$SERVER_PID" 2>/dev/null || true; SERVER_PID=""
+KEY=$(sed -n 's/^FERRY_SECRET_KEY=//p' "$TMP/keys.env")
+[ -n "$KEY" ] || { echo "FAIL - keys.env 缺 FERRY_SECRET_KEY" >&2; dump; exit 1; }
+mkdir -p "$TMP/restored"
+if ! bash deploy/restore.sh --backup "$TMP/after-node.enc" --data-dir "$TMP/restored" \
+    --key "$KEY" --ferry-bin "$TMP/ferry-server" > "$TMP/restore.log" 2>&1; then
+  echo "FAIL - restore.sh 失败：" >&2; tail -n 30 "$TMP/restore.log" >&2; dump; exit 1
+fi
+[ -f "$TMP/restored/ferry.db" ] \
+  || { echo "FAIL - 恢复目录无 ferry.db" >&2; tail -n 30 "$TMP/restore.log" >&2; dump; exit 1; }
+log "ok - 解密+导入完成（restored/ferry.db 就位）"
+
+# 恢复后的实例：同 keyfile 起服务；故意给错误首启密码——已有管理员必须被保留
+wait_health() {
+  for i in $(seq 1 40); do
+    code=$(curl -s -o "$TMP/health.json" -w '%{http_code}' "$BASE/api/health" || true)
+    [ "$code" = 200 ] && return 0
+    sleep 0.5
+  done
+  return 1
+}
+FERRY_ADDR="127.0.0.1:$PORT" \
+FERRY_DB_DRIVER=sqlite FERRY_DB_DSN="$TMP/restored/ferry.db" \
+FERRY_ADMIN_USER=admin FERRY_ADMIN_PASSWORD=wrong-on-purpose-0 \
+FERRY_KEYFILE="$TMP/keys.env" FERRY_BACKUP_DIR="$TMP/backup" \
+  "$TMP/ferry-server" > "$TMP/server2.log" 2>&1 &
+SERVER_PID=$!
+wait_health || { echo "FAIL - 恢复实例健康不可达" >&2; dump; exit 1; }
+log "ok - 恢复实例健康可达"
+code=$(curl -s -o "$TMP/login2.json" -w '%{http_code}' -X POST "$BASE/admin/login" \
+  -H 'Content-Type: application/json' -d '{"username":"admin","password":"e2e-pass-0123456"}')
+expect "恢复后原密码可登录（首启密码不覆盖已有管理员）" 200 "$code"
+ADMIN_TOKEN=$(json_get token "$TMP/login2.json")
+code=$(curl -s -o "$TMP/nodes.json" -w '%{http_code}' "$BASE/api/nodes" \
+  -H "Authorization: Bearer $ADMIN_TOKEN")
+expect "恢复后节点数据在" 200 "$code"
+grep -q '"name":"e2e-node"' "$TMP/nodes.json" \
+  || { echo "FAIL - 恢复库缺 e2e-node" >&2; dump; exit 1; }
+log "ok - e2e-node 随库恢复"
+
+log "PASS：部署→认证→注册→通信→断线→轮换吊销→备份恢复链路全通"
 
 # ---- compose 配置检查（FERRY-004 第 1 项；无 docker 的环境跳过）----
 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
