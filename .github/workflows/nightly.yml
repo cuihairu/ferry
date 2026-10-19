@@ -101,9 +101,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.27.2
       # 容器内真 systemd（cgroup v2 宿主需 privileged + host cgroupns）回归
       # agent-install.sh：enable/restart 真语义、journal 失败诊断、.prev 回滚
-      # 与首装失败清理；docker 不可用时脚本自身跳过，runner 必有 docker。
+      # 与首装失败清理；链路四构建真 ferry-server 验证注册链路全真契约。
+      # docker 不可用时脚本自身跳过，runner 必有 docker；go 供链路四构建。
       - name: systemd install smoke
         run: bash deploy/systemd-smoke.sh
 

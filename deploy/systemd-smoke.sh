@@ -2,9 +2,11 @@
 # agent-install.sh 在容器内真实 systemd 的等价回归（FERRY-004 真机验收的本地
 # 降级面）：PATH 假件沙箱（install-rollback-test.sh）只能模拟 systemctl/
 # journalctl 的返回值，这里用真实 PID 1 验证 daemon-reload/enable/restart
-# 语义、journal 失败诊断的真实采集与 .prev 回滚后的真实恢复。
+# 语义、journal 失败诊断的真实采集与 .prev 回滚后的真实恢复；链路四再把
+# 「需生产真面板」降级为本地等价——真 ferry-server 二进制签发一次性凭据，
+# 容器内真脚本凭它走真 enroll API 换真节点令牌。
 # 前置：docker + 宿主 cgroup v2（镜像可经 FERRY_SYSTEMD_IMAGE 覆盖）；
-# 无 docker 时跳过（PATH 假件沙箱仍覆盖脚本逻辑）。
+# 无 docker 时跳过（PATH 假件沙箱仍覆盖脚本逻辑）；链路四另需 go 工具链。
 set -u
 cd "$(dirname "$0")/.."
 
@@ -25,9 +27,27 @@ assert_contains() { # $1=描述 $2=应含子串 $3=全文
   case "$3" in *"$2"*) ok "$1" ;; *) bad "$1：缺 [$2]" >&2 ;; esac
 }
 
+# json_get FILE KEY：优先 jq/python3，退回文本截取（与 e2e-smoke 同口径）
+json_get() {
+  local key="$1" file="$2" v=""
+  if command -v jq >/dev/null 2>&1; then
+    v=$(jq -r --arg k "$key" '.[$k] // empty' "$file" 2>/dev/null) || v=""
+  elif command -v python3 >/dev/null 2>&1; then
+    v=$(python3 -c 'import json,sys
+try:
+    print(json.load(open(sys.argv[2]))[sys.argv[1]])
+except Exception:
+    pass' "$key" "$file" 2>/dev/null) || v=""
+  else
+    v=$(grep -o "\"$key\":[[:space:]]*\"[^\"]*\"" "$file" 2>/dev/null | head -1 | cut -d'"' -f4)
+  fi
+  printf '%s' "$v"
+}
+
 SB=$(mktemp -d)
 CTR="ferry-sysd-smoke-$$"
-trap 'docker rm -f "$CTR" >/dev/null 2>&1; rm -rf "$SB"' EXIT
+SRV_PID=""
+trap 'docker rm -f "$CTR" >/dev/null 2>&1; [ -n "$SRV_PID" ] && kill "$SRV_PID" 2>/dev/null; rm -rf "$SB"' EXIT
 mkdir -p "$SB/bin" "$SB/etc"
 
 # good-agent：真被 systemd 拉起的常驻进程（写运行痕迹，is-active 才是 active）
@@ -112,6 +132,104 @@ assert_eq "失败后 unit 已清理" "0" "$(docker exec "$CTR" test -e /etc/syst
 assert_eq "失败后二进制已清理" "0" "$([ -e "$SB/bin/ferry-agent" ] && echo 1 || echo 0)"
 st=$(svc_state); [ "$st" = "active" ] && bad "清理后服务仍 active" || ok "清理后服务不再 active（$st）"
 
+# ---- 4. 真面板注册链路：容器内真脚本对真 ferry-server 走真 enroll API ----
+# 「需生产真面板」的本地等价降级：ferry-server 二进制就是面板本体。脚本→
+# 面板的 enroll 契约此前只有两个半面（沙箱假 curl 供 201、e2e 直调 API），
+# 这里把两半拼成全真：真 server 签发一次性凭据 → 容器内真脚本凭它注册换
+# 真节点令牌 → 令牌落配置、面板节点行可查 → 凭据一次性对真脚本同样成立。
+# 需 go 工具链构建 server；无 go 跳过本链路（前三链路仍覆盖脚本行为）。
+SRV_PORT="${FERRY_SMOKE_PORT:-18101}"
+mkdir -p "$SB/server"
+node_field() { # $1=admin token $2=节点名 $3=字段：从 /api/nodes 取该节点字段
+  local body
+  body=$(curl -s -H "Authorization: Bearer $1" "http://127.0.0.1:$SRV_PORT/api/nodes")
+  if command -v jq >/dev/null 2>&1; then
+    printf '%s' "$body" | jq -r --arg n "$2" --arg k "$3" '.[] | select(.name==$n) | .[$k]' 2>/dev/null
+  elif command -v python3 >/dev/null 2>&1; then
+    printf '%s' "$body" | NODE_NAME="$2" NODE_KEY="$3" python3 -c 'import json,os
+for n in json.load(sys.stdin):
+    if n.get("name") == os.environ["NODE_NAME"]:
+        print(n.get(os.environ["NODE_KEY"], ""))' 2>/dev/null
+  fi
+}
+if ! command -v go >/dev/null 2>&1; then
+  ok "跳过真面板注册链路（无 go 工具链，前三链路仍覆盖脚本行为）"
+else
+  echo "[smoke] 构建 ferry-server（真面板注册链路）..."
+  if ! (cd server && go build -o "$SB/server/ferry-server" ./cmd/ferry) 2>"$SB/server/build.log"; then
+    bad "ferry-server 构建失败"
+    tail -5 "$SB/server/build.log" >&2
+  else
+    FERRY_ADDR="0.0.0.0:$SRV_PORT" \
+    FERRY_DB_DRIVER=sqlite FERRY_DB_DSN="$SB/server/panel.db" \
+    FERRY_ADMIN_USER=admin FERRY_ADMIN_PASSWORD=smoke-pass-0123456 \
+    FERRY_KEYFILE="$SB/server/keys.env" \
+    FERRY_BACKUP_DIR="$SB/server/backup" FERRY_BACKUP_CRON="@every 24h" \
+      "$SB/server/ferry-server" > "$SB/server/server.log" 2>&1 &
+    SRV_PID=$!
+    code=""
+    for i in $(seq 1 40); do
+      code=$(curl -s -o "$SB/server/health.json" -w '%{http_code}' \
+        "http://127.0.0.1:$SRV_PORT/api/health" 2>/dev/null || true)
+      [ "$code" = 200 ] && break
+      sleep 0.5
+    done
+    assert_eq "真面板健康检查可达" 200 "$code"
+    code=$(curl -s -o "$SB/server/login.json" -w '%{http_code}' -X POST \
+      "http://127.0.0.1:$SRV_PORT/admin/login" -H 'Content-Type: application/json' \
+      -d '{"username":"admin","password":"smoke-pass-0123456"}')
+    assert_eq "管理员登录成功" 200 "$code"
+    ADMIN_TOKEN=$(json_get token "$SB/server/login.json")
+    code=$(curl -s -o "$SB/server/cred.json" -w '%{http_code}' -X POST \
+      "http://127.0.0.1:$SRV_PORT/api/enrollment-tokens" \
+      -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
+      -d '{"note":"systemd-smoke"}')
+    assert_eq "签发一次性注册凭据" 201 "$code"
+    CRED=$(json_get token "$SB/server/cred.json")
+    # 容器→宿主走默认网桥网关
+    GW=$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null)
+    GW=${GW:-172.17.0.1}
+    # 镜像不带 curl，脚本的下载/注册都依赖它：装好再走注册链路
+    echo "[smoke] 容器内补装 curl（注册链路依赖，镜像不带）..."
+    docker exec "$CTR" sh -c 'command -v curl >/dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq curl) >/dev/null 2>&1'
+    if ! docker exec "$CTR" sh -c 'command -v curl >/dev/null 2>&1'; then
+      bad "容器内 curl 补装失败，真面板注册链路无法执行"
+    else
+    OUT=$(docker exec "$CTR" bash /work/agent-install.sh \
+      --panel "http://$GW:$SRV_PORT" --register panel-node \
+      --enroll-token "$CRED" --address panel-node.example.com \
+      --binary /sb/good-agent --install /sb/bin/ferry-agent \
+      --config /sb/etc/agent-panel.json 2>&1)
+    RC=$?
+    assert_eq "真面板注册链路安装退出码" 0 "$RC"
+    assert_eq "注册链路服务 active" "active" "$(svc_state)"
+    docker exec "$CTR" cat /sb/etc/agent-panel.json > "$SB/cfg4.json"
+    SRV_TOKEN=$(node_field "$ADMIN_TOKEN" panel-node token)
+    assert_eq "面板节点行已建（凭据消费）" "1" "$([ -n "$SRV_TOKEN" ] && echo 1 || echo 0)"
+    assert_eq "配置令牌=真面板签发的节点令牌" "$SRV_TOKEN" "$(json_get token "$SB/cfg4.json")"
+    assert_eq "配置令牌非注册凭据本身" "1" \
+      "$([ "$(json_get token "$SB/cfg4.json")" != "$CRED" ] && echo 1 || echo 0)"
+    # 凭据一次性对真脚本成立：同凭据再注册必须被面板 401 拒绝，
+    # 且拒绝发生在动文件之前——既有安装原样无恙
+    OUT=$(docker exec "$CTR" bash /work/agent-install.sh \
+      --panel "http://$GW:$SRV_PORT" --register panel-node-replay \
+      --enroll-token "$CRED" --address replay.example.com \
+      --binary /sb/good-agent --install /sb/bin/ferry-agent \
+      --config /sb/etc/agent-panel.json 2>&1)
+    RC=$?
+    assert_eq "凭据重放经真脚本退出码非零" "1" "$([ "$RC" != 0 ] && echo 1 || echo 0)"
+    assert_eq "重放后服务仍 active" "active" "$(svc_state)"
+    docker exec "$CTR" cat /sb/etc/agent-panel.json > "$SB/cfg4b.json"
+    assert_eq "重放后配置原样" "$SRV_TOKEN" "$(json_get token "$SB/cfg4b.json")"
+    assert_eq "重放未在面板建节点" "" "$(node_field "$ADMIN_TOKEN" panel-node-replay id)"
+    fi
+  fi
+fi
+
 echo "-----------------------------"
 echo "pass=$pass fail=$fail"
+if [ "$fail" != 0 ]; then
+  [ -n "${OUT:-}" ] && { echo "--- 安装脚本输出尾部 ---" >&2; printf '%s\n' "$OUT" | tail -n 20 >&2; }
+  [ -f "$SB/server/server.log" ] && { echo "--- server 日志尾部 ---" >&2; tail -n 40 "$SB/server/server.log" >&2; }
+fi
 [ "$fail" = 0 ]
