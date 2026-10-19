@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/cuihairu/ferry/server/internal/agenthub"
@@ -42,6 +43,9 @@ type Handler struct {
 	// enrollLimiter 是节点注册交换口的 IP 限流（FERRY-001：10 次/分钟，
 	// 失败 5 次锁 15 分钟，redeem 同款——挡对凭据的在线爆破）。
 	enrollLimiter *ratelimit.Limiter
+	// dedupe 是报告消息幂等窗口（FERRY-004，按 node_id 分桶，
+	// 语义见 docs/design/agent架构设计.md §8 与 agentws_dedupe.go）。
+	dedupe sync.Map // nodeID -> *reportDeduper
 }
 
 // NewRouter 创建 gin 引擎并挂载全部路由，同时交出配置推送器

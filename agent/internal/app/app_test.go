@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -401,10 +402,22 @@ func TestReportStatusAndAlarm(t *testing.T) {
 	if env.Type != agentproto.MsgProcReport {
 		t.Fatalf("type = %q; want proc.report", env.Type)
 	}
+	// FERRY-004：proc_report 须带非空 ID（服务端幂等窗口的判据键），
+	// 且每次上报生成新 ID（换 ID = 新帧）。语义见 docs/design/agent架构设计.md §8。
+	if env.ID == "" {
+		t.Fatal("proc_report must carry a non-empty envelope id (dedup key)")
+	}
+	if !strings.HasPrefix(env.ID, "proc-") {
+		t.Fatalf("proc_report id = %q; want proc- prefix", env.ID)
+	}
 	var pr agentproto.ProcReport
 	mustDecode(t, env, &pr)
 	if len(pr.Procs) != 1 || pr.Procs[0].Name != "xray" || pr.Procs[0].State != "running" {
 		t.Fatalf("procs = %+v", pr.Procs)
+	}
+	a.reportStatus(agentproto.ProcStatus{Name: "xray", State: "running"})
+	if env2 := rec.last(t); env2.ID == env.ID {
+		t.Fatal("each proc_report must carry a fresh id")
 	}
 
 	a.reportAlarm(agentproto.Alarm{Kind: agentproto.AlarmKindHighLoad, Severity: "warn", Message: "hot"})

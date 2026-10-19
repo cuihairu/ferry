@@ -170,8 +170,10 @@ func (a *App) doUpgrade(up agentproto.Upgrade) {
 }
 
 // reportStatus 把进程状态变化推给面板（离线时静默丢弃）。
+// envelope ID 每次上报新生成：面板按 (节点, 类型, ID) 做报告幂等（FERRY-004），
+// 换 ID 即新帧；旧版发空 ID 时面板不去重，兼容。
 func (a *App) reportStatus(status agentproto.ProcStatus) {
-	env, err := agentproto.NewEnvelope("", agentproto.MsgProcReport, agentproto.ProcReport{
+	env, err := agentproto.NewEnvelope(fmt.Sprintf("proc-%d", time.Now().UnixNano()), agentproto.MsgProcReport, agentproto.ProcReport{
 		Procs: []agentproto.ProcStatus{status},
 	})
 	if err != nil {

@@ -110,6 +110,48 @@ packages/agentproto/ # 契约（组件与核心共用）
 | P1 | 组件失联标注与 dash 展示；组件独立升级（复用 agent 自升级链路） |
 | P2 | 新组件按矩阵接入（如本地缓存组件，见《流量节省设计》） |
 
+## 8. 报告消息幂等语义（FERRY-004）
+
+agent→panel 的**报告类消息**（`agent.traffic`、`agent.probe_report`、`agent.alarm`、
+`agent.calibrate`、`agent.proc_report`）按 `(node_id, 消息类型, envelope ID)` 保证
+**at-most-once 副作用**：同一节点同一 ID 的重复帧只执行一次入库/记账，其余跳过
+副作用；**ack 照常回**（与首帧同 ID 同构），agent 收到 ack 即可安心丢弃重传。
+
+- **为什么**：`traffic` 是周期增量字节（计费口径，双算=多扣费），`probe_report`/
+  `alarm` 逐帧落行；`heartbeat`/`calibrate` 是快照覆盖写（绝对值+时间戳），天然幂等
+  ——心跳不参加去重（快照重复写无害），calibrate 参加但重复帧本无副作用差异
+  （ack 由 payload 与套餐决定，确定性相同）。
+- **为什么现在不会有重复**：agent 报告发送失败即丢弃（at-most-once 发送、无重传，
+  `agent/internal/traffic/traffic.go` 报错只记日志），本语义是**契约面 + 防御层**
+  （中间层重放、未来加重传时的兜底），不是在修现存 bug。
+- **空 ID 口径**：`envelope.id == ""` 不去重、每帧都处理（向前兼容旧 agent 的
+  proc_report，`app.go` reportStatus 历史上发空 ID）。
+- **agent 纪律**：未来任何重传必须**复用原 envelope ID**——换 ID 即新帧，服务端会
+  再记一次。ID 只要求「单节点内 (类型, ID) 生成期唯一」，现状统一 `<前缀>-<UnixNano>`
+  （traffic- / probe- / cal- / alarm- / proc-），proc_report 于本批补齐。
+- **窗口**：每节点有界 FIFO——容量 512 个 ID、TTL 10 分钟，双界先到先失效；挤出/
+  过期后的同 ID 帧按新帧处理。窗口内存态、按 node_id 存活于面板进程（**跨 agent
+  重连保留**，覆盖断线重放场景），面板重启清零（接受：重启瞬间窗口内重放会再记一次，
+  发送方本无重传，概率可忽略）。
+- **proc_report 无 ack**：该消息单向（agent 不等应答），去重只保副作用
+  （`resolveProcCrashAlerts`/`pipelineProbePass` 不重复触发）。
+
+**可执行判据**（服务端 websocket 集成测试 + deduper 单测落地）：
+
+| # | 场景 | 判定 |
+| --- | --- | --- |
+| C1 | 同连接同 ID 的 traffic 帧发两次 | 两次都收到 traffic_ack（同 ID 同 recorded），`node_traffic_logs` 只有一行 |
+| C2 | 断开重连后发同 ID traffic 帧 | 仍去重（窗口跨连接存活） |
+| C3 | 同内容换新 ID 再发 | 正常记账（判据只看 ID 不看内容——钉死边界） |
+| C4 | 空 ID 帧发两次 | 都记账（兼容口径） |
+| C5 | 同 ID 跨消息类型（traffic 与 alarm 同 ID） | 各自处理一次（判据键含类型） |
+| C6 | 重复帧的 ack 与首帧 ack | 字节等价（agent 丢弃重传的依据） |
+| C7 | 窗口挤出（容量）与过期（TTL） | 同 ID 视为新帧（deduper 单测，小容量/短 TTL 构造） |
+
+实现锚点：服务端唯一分发口 `readAgentLoop`（`server/internal/handler/agentws.go`）
+在副作用调用前过 `repeatReport`（`agentws_dedupe.go`），ack 构造不动；agent 侧
+proc_report 补 `proc-<UnixNano>` ID（`app.go` reportStatus）。
+
 ---
 
 > 合规定位：ferry 是代理集群管理工具，部署与运营的合规责任在部署者（见《合规定位声明》）。

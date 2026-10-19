@@ -89,13 +89,18 @@ func (h *Handler) handleCalibrate(nodeID int64, env agentproto.Envelope) (agentp
 		return agentproto.Envelope{}, false
 	}
 	effective, accepted := effectiveDownMbps(n.BwDownMbps, cal.MeasuredDownMbps)
+	// 幂等（FERRY-004）：重复帧跳过覆盖写但 ack 照常回（ack 由 payload 与
+	// 套餐决定，确定性相同）。
+	dup := h.repeatReport(nodeID, env.Type, env.ID)
 	now := time.Now()
 	updates := map[string]any{
 		"speed_measured_mbps": cal.MeasuredDownMbps,
 		"speed_calibrated_at": &now,
 	}
-	if err := h.db.Model(&storage.Node{}).Where("id=?", nodeID).Updates(updates).Error; err != nil {
-		return agentproto.Envelope{}, false
+	if !dup {
+		if err := h.db.Model(&storage.Node{}).Where("id=?", nodeID).Updates(updates).Error; err != nil {
+			return agentproto.Envelope{}, false
+		}
 	}
 	note := "within plan tolerance, plan kept"
 	if accepted {

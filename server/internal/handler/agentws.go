@@ -389,7 +389,11 @@ func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID 
 			if err := env.Decode(&al); err != nil {
 				continue
 			}
-			h.recordAlert(uint(nodeID), al)
+			// 报告幂等（FERRY-004，语义见 docs/design/agent架构设计.md §8）：
+			// 重复帧跳过副作用但照常回 ack，agent 视 ack 即可丢弃重传。
+			if !h.repeatReport(nodeID, env.Type, env.ID) {
+				h.recordAlert(uint(nodeID), al)
+			}
 			reply, _ := agentproto.NewEnvelope(env.ID, agentproto.MsgAlarmAck, nil)
 			if err := hc.Send(reply); err != nil {
 				return
@@ -399,8 +403,10 @@ func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID 
 			if err := env.Decode(&pr); err != nil {
 				continue
 			}
-			if err := h.saveProbeReports(nodeID, pr.Items); err != nil {
-				log.Printf("save probe reports node=%d: %v", nodeID, err)
+			if !h.repeatReport(nodeID, env.Type, env.ID) {
+				if err := h.saveProbeReports(nodeID, pr.Items); err != nil {
+					log.Printf("save probe reports node=%d: %v", nodeID, err)
+				}
 			}
 			reply, _ := agentproto.NewEnvelope(env.ID, agentproto.MsgProbeAck, agentproto.ProbeAck{
 				Recorded: len(pr.Items),
@@ -411,6 +417,10 @@ func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID 
 		case agentproto.MsgProcReport:
 			var pr agentproto.ProcReport
 			if err := env.Decode(&pr); err != nil {
+				continue
+			}
+			// 单向消息无 ack，去重只保副作用不重复触发（FERRY-004）。
+			if h.repeatReport(nodeID, env.Type, env.ID) {
 				continue
 			}
 			// 进程恢复运行 → 自动消解对应的崩溃告警（A-22）；
@@ -426,11 +436,15 @@ func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID 
 			if err := env.Decode(&tr); err != nil {
 				continue
 			}
-			if err := h.saveNodeTraffic(nodeID, tr.Items); err != nil {
-				log.Printf("save node traffic node=%d: %v", nodeID, err)
-			}
-			if err := h.saveUserTraffic(nodeID, tr.Items); err != nil {
-				log.Printf("save user traffic node=%d: %v", nodeID, err)
+			// traffic 是周期增量（计费口径），重复帧双算=多扣费，幂等必须挡在
+			// 记账前；ack 不受影响（FERRY-004）。
+			if !h.repeatReport(nodeID, env.Type, env.ID) {
+				if err := h.saveNodeTraffic(nodeID, tr.Items); err != nil {
+					log.Printf("save node traffic node=%d: %v", nodeID, err)
+				}
+				if err := h.saveUserTraffic(nodeID, tr.Items); err != nil {
+					log.Printf("save user traffic node=%d: %v", nodeID, err)
+				}
 			}
 			reply, _ := agentproto.NewEnvelope(env.ID, agentproto.MsgTrafficAck, agentproto.TrafficAck{
 				Recorded: len(tr.Items),
