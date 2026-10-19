@@ -15,7 +15,7 @@ SERVER_PID="" AGENT_PID=""
 cleanup() {
   [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null || true
   [ -n "$AGENT_PID" ] && kill "$AGENT_PID" 2>/dev/null || true
-  rm -rf "$TMP"
+  [ "${FERRY_E2E_KEEP:-}" = 1 ] || rm -rf "$TMP"
 }
 trap cleanup EXIT
 log() { echo "[e2e] $*"; }
@@ -103,6 +103,7 @@ FERRY_DB_DRIVER=sqlite FERRY_DB_DSN="$TMP/e2e.db" \
 FERRY_ADMIN_USER=admin FERRY_ADMIN_PASSWORD=e2e-pass-0123456 \
 FERRY_KEYFILE="$TMP/keys.env" \
 FERRY_BACKUP_DIR="$TMP/backup" FERRY_BACKUP_CRON="@every 24h" \
+FERRY_HEARTBEAT_SEC=5 \
   "$TMP/ferry-server" > "$TMP/server.log" 2>&1 &
 SERVER_PID=$!
 BASE="http://127.0.0.1:$PORT"
@@ -161,19 +162,80 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/enroll" \
 expect "凭据一次性（重放拒绝）" 401 "$code"
 
 log "启动 agent 拨面板（真实 WebSocket 握手）..."
+# stub 内核：真 OS 进程（起后常驻并写痕迹），给 agent 的 procs 监管一个
+# 可控被管对象。FERRY-004 的「被管内核二进制」外部件指真实隧道流量与
+# 协议行为，进程监管面（配置→拉起→心跳落库→崩溃自拉）可本地等价收口。
+cat > "$TMP/stub-kernel" <<EOF
+#!/bin/sh
+echo "up \$(date +%s)" >> "$TMP/kernel-runs.log"
+sleep 600
+EOF
+chmod +x "$TMP/stub-kernel"
+: > "$TMP/kernel-runs.log"
+: > "$TMP/k1.json"
 cat > "$TMP/agent.json" <<EOF
 {
   "panel_url": "ws://127.0.0.1:$PORT/agent/ws",
   "agent_id": "e2e-agent",
   "token": "$NODE_TOKEN",
   "heartbeat_sec": 5,
-  "meta": { "bw_up_mbps": 10, "bw_down_mbps": 10 }
+  "meta": { "bw_up_mbps": 10, "bw_down_mbps": 10 },
+  "procs": [ {
+    "name": "k1", "kind": "hysteria2", "exec": "$TMP/stub-kernel",
+    "config_path": "$TMP/k1.json", "reload": "restart"
+  } ]
 }
 EOF
 "$TMP/ferry-agent" -config "$TMP/agent.json" > "$TMP/agent.log" 2>&1 &
 AGENT_PID=$!
 
 expect "agent 上线（健康计数=1）" "1" "$(poll_health 1)"
+
+# proc_field FIELD：从 /api/nodes/:id/procs 取被管进程 k1 的字段（jq→python3 两级）
+proc_field() {
+  local f="$1" v=""
+  curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
+    "$BASE/api/nodes/$NODE_ID/procs" -o "$TMP/procs.json"
+  if command -v jq >/dev/null 2>&1; then
+    v=$(jq -r --arg p k1 --arg k "$f" '.[] | select(.proc==$p) | .[$k]' \
+      "$TMP/procs.json" 2>/dev/null) || v=""
+  elif command -v python3 >/dev/null 2>&1; then
+    v=$(PROC_FIELD="$f" python3 -c 'import json,os,sys
+try:
+    for r in json.load(open(sys.argv[1])):
+        if r.get("proc") == "k1":
+            print(r.get(os.environ["PROC_FIELD"], ""))
+except Exception:
+    pass' "$TMP/procs.json" 2>/dev/null) || v=""
+  fi
+  printf '%s' "$v"
+}
+log "被管内核进程监管（stub 真进程全链路）..."
+NODE_ID=$(json_get id "$TMP/enroll.json")
+state=""
+for i in $(seq 1 40); do
+  state=$(proc_field state)
+  [ "$state" = "running" ] && break
+  sleep 0.5
+done
+expect "内核进程心跳落库 state=running" "running" "$state"
+expect "stub 内核真被拉起（启动痕迹）" "1" \
+  "$([ "$(grep -c '^up ' "$TMP/kernel-runs.log" 2>/dev/null)" -ge 1 ] && echo 1 || echo 0)"
+KPID=$(proc_field pid)
+if ! kill "$KPID" 2>"$TMP/kill.err"; then
+  echo "FAIL - 无法终止内核进程 pid=[$KPID]（$(cat "$TMP/kill.err" 2>/dev/null)）" >&2
+  dump; exit 1
+fi
+state=""; rst=0
+for i in $(seq 1 50); do
+  state=$(proc_field state); rst=$(proc_field restarts)
+  [ "$state" = "running" ] && [ "${rst:-0}" -ge 1 ] 2>/dev/null && break
+  sleep 0.5
+done
+expect "内核崩溃自拉 state 回 running" "running" "$state"
+expect "自拉后重启计数≥1" "1" "$([ "${rst:-0}" -ge 1 ] 2>/dev/null && echo 1 || echo 0)"
+expect "stub 内核真被重新拉起（第二段痕迹）" "1" \
+  "$([ "$(grep -c '^up ' "$TMP/kernel-runs.log" 2>/dev/null)" -ge 2 ] && echo 1 || echo 0)"
 log "断线回落 ..."
 kill "$AGENT_PID"; AGENT_PID=""
 expect "agent 断线后计数回落" "0" "$(poll_health 0)"

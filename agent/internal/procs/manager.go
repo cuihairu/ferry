@@ -268,6 +268,10 @@ func (m *Manager) launch(p *proc) error {
 	cmd.Stdout = io.MultiWriter(m.log.Writer(), p.logs)
 	cmd.Stderr = io.MultiWriter(m.log.Writer(), p.logs)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// 子进程退出后若孙进程仍握着 stdio 管道写端（nginx worker、daemonize
+	// 的内核都会这样），Wait 会一直等管道关闭，监管循环随之挂起、崩溃
+	// 检测停摆。限时 1s 强制收口：管道 promptly 关闭的正常退出不受影响。
+	cmd.WaitDelay = time.Second
 	if err := cmd.Start(); err != nil {
 		m.log.Printf("proc %s launch: %v", p.spec.Name, err)
 		p.mu.Lock()

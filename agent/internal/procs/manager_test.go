@@ -6,6 +6,7 @@ import (
 	"context"
 	"log"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -143,6 +144,45 @@ crashed:
 			t.Fatal("must not relaunch after stop")
 		}
 	}
+}
+
+// TestCrashDetectionWithLingeringGrandchild 复现「子进程被外部杀、孙进程
+// 仍握着 stdio 管道」的场景：直接子进程退出后 cmd.Wait 还要等管道关闭，
+// 而管道写端在孙进程手里（nginx worker、daemonize 的内核都会这样），
+// 监管循环随之挂起，崩溃检测与自动拉起全部停摆。Wait 必须限时收口。
+func TestCrashDetectionWithLingeringGrandchild(t *testing.T) {
+	m, _ := testManager(t, []config.ProcSpec{{
+		Name: "forker", Kind: "xray",
+		Exec: "sh", Args: []string{"-c", "echo up; sleep 60"},
+	}})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	m.Start(ctx)
+
+	waitFor(t, m, "forker", agentproto.ProcRunning)
+	pid := 0
+	for _, s := range m.Statuses() {
+		if s.Name == "forker" {
+			pid = s.PID
+		}
+	}
+	if pid == 0 {
+		t.Fatal("forker has no pid")
+	}
+	// 只杀直接子进程：sleep 60 孙进程存活并握着 stdio 管道写端。
+	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+		t.Fatalf("kill: %v", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, s := range m.Statuses() {
+			if s.Name == "forker" && s.Restarts >= 1 {
+				return
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("crash not detected within 5s (grandchild holding stdio pipe stalls Wait)")
 }
 
 func TestReloadRestartStrategy(t *testing.T) {

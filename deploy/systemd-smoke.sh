@@ -146,7 +146,7 @@ node_field() { # $1=admin token $2=节点名 $3=字段：从 /api/nodes 取该�
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$body" | jq -r --arg n "$2" --arg k "$3" '.[] | select(.name==$n) | .[$k]' 2>/dev/null
   elif command -v python3 >/dev/null 2>&1; then
-    printf '%s' "$body" | NODE_NAME="$2" NODE_KEY="$3" python3 -c 'import json,os
+    printf '%s' "$body" | NODE_NAME="$2" NODE_KEY="$3" python3 -c 'import json,os,sys
 for n in json.load(sys.stdin):
     if n.get("name") == os.environ["NODE_NAME"]:
         print(n.get(os.environ["NODE_KEY"], ""))' 2>/dev/null
