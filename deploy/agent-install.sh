@@ -208,7 +208,9 @@ else
   # 校验：优先用发布 accompanying .sha256，其次 --sha256 手动值
   SUM_URL="$BASE/v$VERSION/ferry-agent_${VERSION}_linux_${ARCH}.tar.gz.sha256"
   if curl -fsSL "$SUM_URL" -o "$tmp/agent.sha256" 2>/dev/null; then
-    (cd "$tmp" && sha256sum -c agent.sha256) || die "sha256 校验失败"
+    # .sha256 记录发布件原始长文件名，本地下载名是 agent.tar.gz：改写对照名再校验
+    awk '{print $1"  agent.tar.gz"}' "$tmp/agent.sha256" > "$tmp/agent.checksum"
+    (cd "$tmp" && sha256sum -c agent.checksum) || die "sha256 校验失败"
   elif [ -n "$SHA256" ]; then
     echo "$SHA256  $tmp/agent.tar.gz" | sha256sum -c - || die "sha256 校验失败"
   else
@@ -234,7 +236,8 @@ if [ "$QUIC" = 1 ]; then
     curl -fsSL "$QUIC_URL" -o "$tmp/quic.tar.gz" || die "ferry-quic 下载失败（--quic-binary 可离线装）"
     QUIC_SUM_URL="$BASE/v$VERSION/ferry-quic_${VERSION}_linux_${ARCH}.tar.gz.sha256"
     if curl -fsSL "$QUIC_SUM_URL" -o "$tmp/quic.sha256" 2>/dev/null; then
-      (cd "$tmp" && sha256sum -c quic.sha256) || die "ferry-quic sha256 校验失败"
+      awk '{print $1"  quic.tar.gz"}' "$tmp/quic.sha256" > "$tmp/quic.checksum"
+      (cd "$tmp" && sha256sum -c quic.checksum) || die "ferry-quic sha256 校验失败"
     else
       log "警告：ferry-quic 无伴随 .sha256，跳过校验"
     fi

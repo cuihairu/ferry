@@ -2,7 +2,9 @@
 # agent-install.sh 原子替换/回滚/失败诊断的沙箱回归（FERRY-005）：不碰真
 # systemd 也不需要 root——PATH 前置假件（id/systemctl/journalctl/sleep），
 # 二进制走 --binary、安装/配置/unit 目录全落临时沙箱，跑的是真脚本本体。
-# 五条链路：首装成功 / 升级成功 / 升级失败回滚 / 首装失败清理 / 既有配置保留。
+# 链路：首装成功 / 升级成功 / 升级失败回滚 / 首装失败清理 / 既有配置保留 /
+# QUIC sidecar 成功与升级失败回滚 / 下载链路（FERRY-002：latest 解析、
+# agent 与 quic 伴随 .sha256 校验、尚无稳定版早失败）。
 # CI 接线见 .github/workflows/test.yml deploy-scripts job；本地直接跑本文件。
 set -u
 cd "$(dirname "$0")/.."
@@ -50,8 +52,9 @@ cat > "$SB/fakebin/sleep" <<'EOF'
 #!/bin/sh
 exit 0
 EOF
-# 假 curl：/api/enroll 调用把注册响应写进 -o 文件并报 201（注册链路走通，
-# 其余调用一律失败——下载路径本测试用 --binary 绕开）
+# 假 curl：/api/enroll 把注册响应写进 -o 文件并报 201；GitHub API 出 v0.9.1
+# （latest 解析链路，置 latest-404 标记则报 404 模拟尚无稳定版）；tar.gz 与
+# .sha256 供预置发布件（.sha256 按 Release 惯例记原始长文件名，暴露对照名错位）
 cat > "$SB/fakebin/curl" <<EOF
 #!/bin/sh
 echo "curl \$*" >> "$FAKE_LOG"
@@ -65,6 +68,26 @@ case "\$*" in
     printf '{"token":"enroll-token-1","id":7}' > "\$out"
     echo 201
     ;;
+  *releases/latest*)
+    if [ -f "$FAKE_FAIL/latest-404" ]; then
+      echo 404
+    else
+      printf '{"tag_name":"v0.9.1"}' > "\$out"
+      echo 200
+    fi
+    ;;
+  *ferry-agent_*.tar.gz.sha256*)
+    cp "$SB/dl/agent.sha256" "\$out"
+    ;;
+  *ferry-agent_*linux_*.tar.gz*)
+    cp "$SB/dl/ferry-agent_0.9.1_linux_amd64.tar.gz" "\$out"
+    ;;
+  *ferry-quic_*.tar.gz.sha256*)
+    cp "$SB/dl/quic.sha256" "\$out"
+    ;;
+  *ferry-quic_*linux_*.tar.gz*)
+    cp "$SB/dl/ferry-quic_0.9.1_linux_amd64.tar.gz" "\$out"
+    ;;
   *) exit 22 ;;
 esac
 EOF
@@ -74,11 +97,29 @@ chmod +x "$SB/fakebin"/*
 printf '#!/bin/sh\necho ferry-agent-fake\n' > "$SB/fake-agent"
 chmod +x "$SB/fake-agent"
 
+# 预置发布件（下载链路供件）：包内二进制名 ferry-agent/ferry-quic；.sha256
+# 按 GitHub Release 惯例记录原始长文件名，安装脚本须把对照名改写为本地
+# 下载名（agent.tar.gz/quic.tar.gz）再校验
+mkdir -p "$SB/dl"
+cp "$SB/fake-agent" "$SB/dl/ferry-agent"
+printf '#!/bin/sh\necho ferry-quic-fake\n' > "$SB/dl/ferry-quic"
+tar -czf "$SB/dl/ferry-agent_0.9.1_linux_amd64.tar.gz" -C "$SB/dl" ferry-agent
+tar -czf "$SB/dl/ferry-quic_0.9.1_linux_amd64.tar.gz" -C "$SB/dl" ferry-quic
+( cd "$SB/dl" && sha256sum ferry-agent_0.9.1_linux_amd64.tar.gz > agent.sha256 \
+  && sha256sum ferry-quic_0.9.1_linux_amd64.tar.gz > quic.sha256 )
+
 run_install() { # 其余参数透传给安装脚本；结果在 OUT/RC
   OUT=$(PATH="$SB/fakebin:$PATH" FERRY_SYSTEMD_UNIT_DIR="$SB/systemd" \
     bash deploy/agent-install.sh --panel https://panel.example.com \
     --binary "$SB/fake-agent" --install "$SB/bin/ferry-agent" \
     --config "$SB/etc/agent.json" "$@" 2>&1)
+  RC=$?
+}
+
+run_install_fetch() { # 不带 --binary：走下载链路（假 curl 供件）；其余同 run_install
+  OUT=$(PATH="$SB/fakebin:$PATH" FERRY_SYSTEMD_UNIT_DIR="$SB/systemd" \
+    bash deploy/agent-install.sh --panel https://panel.example.com \
+    --install "$SB/bin/ferry-agent" --config "$SB/etc/agent.json" "$@" 2>&1)
   RC=$?
 }
 
@@ -172,6 +213,38 @@ assert_eq "sidecar unit 还原旧件" "old-quic-unit" "$(cat "$QUIC_UNIT")"
 assert_eq "agent 未被牵连（新件在位）" "$NEW_MARK" "$(tail -1 "$SB/bin/ferry-agent")"
 assert_eq "sidecar 回滚后再次 restart" "2" "$(grep -c 'restart ferry-quic' "$FAKE_LOG")"
 assert_contains "sidecar 失败提示已回滚" "回滚" "$OUT"
+
+# ---- 8. 下载链路（FERRY-002）：latest 解析为实际版本再拼下载址，伴随 .sha256 校验 ----
+: > "$FAKE_LOG"
+rm -f "$SB/bin/ferry-agent" "$UNIT" "$SB/bin/ferry-agent.prev" "$UNIT.prev"
+run_install_fetch --register hk8 --enroll-token dummy --address hk8.example.com
+assert_eq "下载链路成功退出码" 0 "$RC"
+assert_contains "latest 经 GitHub API 解析" "releases/latest" "$(cat "$FAKE_LOG")"
+assert_contains "下载址用解析出的版本而非 vlatest" "/v0.9.1/ferry-agent_0.9.1_linux" "$(cat "$FAKE_LOG")"
+assert_contains "伴随 .sha256 参与校验" "ferry-agent_0.9.1_linux_amd64.tar.gz.sha256" "$(cat "$FAKE_LOG")"
+assert_eq "下载件解包后落位安装" "$NEW_MARK" "$(tail -1 "$SB/bin/ferry-agent")"
+
+# ---- 9. QUIC 下载链路：--quic 不带 --quic-binary 时 sidecar 同走下载+校验 ----
+: > "$FAKE_LOG"
+run_install_fetch --register hk9 --enroll-token dummy --address hk9.example.com \
+  --quic --quic-install "$SB/bin/ferry-quic"
+assert_eq "QUIC 下载链路成功退出码" 0 "$RC"
+assert_contains "sidecar 下载址用解析出的版本" "/v0.9.1/ferry-quic_0.9.1_linux" "$(cat "$FAKE_LOG")"
+assert_contains "sidecar 伴随 .sha256 参与校验" "ferry-quic_0.9.1_linux_amd64.tar.gz.sha256" "$(cat "$FAKE_LOG")"
+assert_eq "sidecar 下载件落位安装" "echo ferry-quic-fake" "$(tail -1 "$SB/bin/ferry-quic")"
+
+# ---- 10. 尚无稳定版：latest 解析 404 立即失败，不拼 vlatest 假址、不落安装件 ----
+: > "$FAKE_LOG"
+rm -rf "$SB/bin10"
+touch "$FAKE_FAIL/latest-404"
+run_install_fetch --register hk10 --enroll-token dummy --address hk10.example.com \
+  --install "$SB/bin10/ferry-agent" --config "$SB/etc/agent10.json"
+rm -f "$FAKE_FAIL/latest-404"
+assert_eq "无稳定版退出码非零" "1" "$([ "$RC" != 0 ] && echo 1 || echo 0)"
+assert_contains "失败信息指向显式指定版本" "尚无正式稳定版发布" "$OUT"
+assert_contains "失败前确曾查询 latest API" "releases/latest" "$(cat "$FAKE_LOG")"
+case "$(cat "$FAKE_LOG")" in *vlatest*) bad "拼出了 vlatest 假地址" ;; *) ok "不拼 vlatest 假地址（失败在解析期）" ;; esac
+assert_absent "失败后不落安装二进制" "$SB/bin10/ferry-agent"
 
 echo "-----------------------------"
 echo "pass=$pass fail=$fail"
