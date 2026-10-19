@@ -169,6 +169,25 @@ func TestProvisionRunAPI(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("missing template status = %d", rec.Code)
 	}
+
+	// 收尾前等全部后台 job 落终态：上面只轮询了首个 apply 的 job，re-apply
+	// 与 plan 的后台 goroutine 可能还在写 TofuWorkdir，测试一返回 t.TempDir
+	// 清理就与之竞态（unlinkat directory not empty 偶发）。job 落终态即
+	// Execute 的写盘全部结束，此后无再写入。
+	deadline = time.Now().Add(10 * time.Second)
+	for {
+		var running int64
+		if err := db.Model(&storage.ProvisionJob{}).Where("status = ?", "running").Count(&running).Error; err != nil {
+			t.Fatal(err)
+		}
+		if running == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("background jobs never finished")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func itoa64(n int) string {
