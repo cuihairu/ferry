@@ -15,6 +15,11 @@ services:
       # 记载的部署项必须在此逐一透传，否则设置即被静默忽略。
       # 空串与未设同效（config 侧只认非空值）。
       FERRY_SECRET_KEY: ${FERRY_SECRET_KEY:-}
+      # FERRY_ENV/FERRY_KEYFILE 同为记载部署项，漏透传即被静默忽略
+      # （compose-smoke 的 postgres 腿踩过）：env 里写 FERRY_ENV=production 的
+      # 密钥门禁、FERRY_KEYFILE 的密钥持久化在容器部署里都不生效。
+      FERRY_ENV: ${FERRY_ENV:-}
+      FERRY_KEYFILE: ${FERRY_KEYFILE:-}
       FERRY_ADMIN_USER: ${FERRY_ADMIN_USER:-}
       FERRY_ADMIN_PASSWORD: ${FERRY_ADMIN_PASSWORD:-}
       FERRY_ADMIN_SECRET: ${FERRY_ADMIN_SECRET:-}
@@ -100,6 +105,12 @@ services:
       - "${FERRY_PANEL_PORT:-8081}:80"
 
   # 切 postgres 存储：docker compose --env-file ferry.env --profile postgres up -d
+  # 注意 --profile 是 compose 全局参数，必须放在子命令前（放 up 后会报 unknown flag）。
+  # down 也要带：不带 --profile 时 postgres 不在服务列表内，容器与 ferry-pg 卷
+  # 会整个留下（--remove-orphans 只清别的项目的容器，不管本项目的漏登服务）。
+  # 且 postgres 存储下 keyinit 无从推断密钥文件位置，须在 env 设
+  # FERRY_KEYFILE=/data/ferry-keys.env（或显式三钥），否则密钥每轮重启换掉、
+  # 已加密的备份重启后解不开。
   ferry-postgres:
     image: postgres:15-alpine
     profiles: [postgres]
@@ -107,6 +118,9 @@ services:
     environment:
       # 启用本 profile 前必须在 env 设置 FERRY_PG_PASSWORD（留空时容器会拒绝启动）
       POSTGRES_PASSWORD: ${FERRY_PG_PASSWORD:-}
+      # 与记载的 DSN 口径对齐：ferry.env.example 的 DSN 用 user=ferry，
+      # 不设本项时 postgres 只会建默认用户 postgres，DSN 连不上。
+      POSTGRES_USER: ${FERRY_PG_USER:-ferry}
       POSTGRES_DB: ferry
     volumes:
       - ferry-pg:/var/lib/postgresql/data

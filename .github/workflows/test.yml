@@ -93,5 +93,7 @@ jobs:
           go-version: 1.27.2
       - name: install script rollback regression
         run: bash deploy/install-rollback-test.sh
+      - name: start script arg assembly
+        run: bash deploy/start-args-test.sh
       - name: e2e deploy smoke
         run: bash deploy/e2e-smoke.sh

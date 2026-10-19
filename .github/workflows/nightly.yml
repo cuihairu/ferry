@@ -82,6 +82,18 @@ jobs:
       - name: build
         run: pnpm --filter ${{ matrix.app }} build
 
+  compose-smoke:
+    needs: [gate]
+    if: needs.gate.outputs.skip != 'true'
+    name: compose deploy smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # 真 docker compose build/up（sqlite + postgres 两条腿），经 Caddy 前端
+      # 验证静态托管、history 回退与顶层前缀反代；build 是真编译，只放 nightly。
+      - name: compose deploy smoke (sqlite + postgres)
+        run: bash deploy/compose-smoke.sh
+
   package:
     needs: [gate, go, frontend]
     if: needs.gate.outputs.skip != 'true'

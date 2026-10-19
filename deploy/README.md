@@ -27,6 +27,33 @@ docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
 
 `payments/` 是编译进 `ferry-server` 的 Go 库（无 `main`），不经此 compose。
 
+## compose 真部署冒烟
+
+```sh
+bash deploy/compose-smoke.sh    # 43 断言，~3 分钟；CI 走 nightly.yml compose-smoke job
+```
+
+随机 compose project 名 + `down -v` 清容器与卷，跑两条腿，绝不碰本机面板数据：
+
+- sqlite 腿：build + up 三服务，经 **Caddy 前端**（不是容器直连）验证
+  `/api/health` 反代、dash/panel 静态产物、SPA history 深链回退 index.html、
+  顶层前缀反代（`POST /admin/login` 返回 401 JSON 而非 405，专门打 Caddyfile
+  漏登记会被 `file_server` 兜底成「能开页面但登不上」的那种故障）、
+  `/feed.xml`、`/distributor/login`、备份导出与 `backup.fresh` 记账、
+  teardown 后端口释放与卷删除；
+- postgres 腿（`--profile postgres`）：compose 记载但此前无自动化覆盖的
+  存储切换路径，验证四服务运行、迁移在 postgres 上完成、登录与 JWT，
+  以及 `FERRY_KEYFILE=/data/ferry-keys.env` 生效后密钥落数据卷 0600、
+  **重启后密钥文件不变**（postgres 存储下不配该变量即密钥每轮重启换掉，
+  旧 JWT 全废、已加密备份解不开）。
+
+`start.sh --profile postgres` 的参数装配（`--profile` 是 compose 全局参数，
+必须排在子命令前）与 postgres 缺 `FERRY_PG_PASSWORD` 的早失败有回归测试：
+
+```sh
+bash deploy/start-args-test.sh    # 8 断言，PATH 假 docker，不起真容器
+```
+
 agent 部署在节点上，不经此 compose（见《agent架构设计》）。
 
 ## dash 登录与管理员引导（安全设计 §1）
