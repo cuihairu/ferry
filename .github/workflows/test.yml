@@ -88,5 +88,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.27.2
       - name: install script rollback regression
         run: bash deploy/install-rollback-test.sh
+      - name: e2e deploy smoke
+        run: bash deploy/e2e-smoke.sh
