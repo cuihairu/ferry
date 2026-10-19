@@ -55,6 +55,10 @@ deploy/agent-install.sh --panel https://panel.example.com \
 装到 `/usr/local/bin/ferry-agent` → 写 `/etc/ferry/agent.json`（已存在则保留）→
 装 `ferry-agent.service` 并启动。日志：`journalctl -u ferry-agent -f`。
 
+失败恢复（FERRY-005）：二进制与 unit 均先备份旧件（`.prev`）再原子替换，
+配置走临时文件+rename 不落半截；新件启动失败自动回滚到变更前状态并把
+journal 最近日志打在终端，成功则清掉备份。`--config`/`--install` 落点随路径建目录。
+
 配置校验口径：`meta.bw_up_mbps`/`meta.bw_down_mbps` 是 agent 配置必填项，
 脚本写 `--bw-up`/`--bw-down`（默认 100/100 Mbps，面板节点页可改）；
 `--node-role entry|landing|both` 写集群角色（不写时 agent 侧默认 landing）。
@@ -95,7 +99,8 @@ deploy/agent-install.sh --panel ... --token ... --role relay \
 
 `--quic-listen`（默认 127.0.0.1:7300，与 agent 内置 quic 插件缺省对齐，
 非默认时自动写 `FERRY_QUIC_SIDECAR` 环境变量）、`--quic-ca`、
-`--quic-insecure`（仅引导调试）、`--quic-binary`（离线装）。
+`--quic-insecure`（仅引导调试）、`--quic-binary`（离线装）、
+`--quic-install`（sidecar 落盘路径，默认 /usr/local/bin/ferry-quic）。
 
 ## 被管内核进程（procs[]）与 hysteria2 内核（hy2 批）
 

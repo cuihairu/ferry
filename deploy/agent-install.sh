@@ -16,6 +16,7 @@
 #   --ca/--cert/--key   mTLS 三件套路径，给了就写进 agent.json 的 tls 段
 #   --bw-up/--bw-down M 节点带宽 Mbps（agent 配置校验必填项，默认 100，面板节点页可改）
 #   --node-role R     节点集群角色 entry/landing/both（不写时 agent 侧默认 landing）
+#   FERRY_SYSTEMD_UNIT_DIR  unit 目录覆盖（默认 /etc/systemd/system，测试/非标环境用）
 #
 # relay 角色（E-5/E-33，--role relay 时本机起 relay 数据面，经传输插件拨落地）：
 #   --role relay        systemd 以 -role relay 启动（probe 角色配置以 probes 文件段为准，不在此装）
@@ -31,6 +32,7 @@
 #
 # QUIC sidecar（E-18b，--quic 额外装 ferry-quic 独立二进制与 ferry-quic.service）：
 #   --quic              同时安装 ferry-quic sidecar（quic 传输需要，不用 QUIC 不装）
+#   --quic-install P    sidecar 落盘路径（默认 /usr/local/bin/ferry-quic）
 #   --quic-listen ADDR  sidecar 桥监听（默认 127.0.0.1:7300，非默认时写进 agent 环境变量）
 #   --quic-ca FILE      sidecar 校验对端 QUIC 证书的 CA（空=系统根）
 #   --quic-insecure     跳过 QUIC 证书校验（仅引导调试）
@@ -52,10 +54,28 @@ BINARY="" SHA256="" CA="" CERT="" KEY="" BW_UP=100 BW_DOWN=100 NODE_ROLE=""
 CONFIG=/etc/ferry/agent.json INSTALL=/usr/local/bin/ferry-agent SERVICE=ferry-agent
 ROLE="" RELAY_LISTEN=127.0.0.1:1080 RELAY_LANDING="" RELAY_TUNNEL="" RELAY_SNI="" RELAY_CA=""
 RELAY_SSH_USER="" RELAY_SSH_KEY="" RELAY_SSH_KNOWN_HOSTS="" RELAY_SSH_FORWARD=""
-QUIC=0 QUIC_LISTEN=127.0.0.1:7300 QUIC_CA="" QUIC_INSECURE="" QUIC_BINARY=""
+QUIC=0 QUIC_LISTEN=127.0.0.1:7300 QUIC_CA="" QUIC_INSECURE="" QUIC_BINARY="" QUIC_INSTALL=""
 
 die() { echo "agent-install: $*" >&2; exit 1; }
 log() { echo "[install] $*"; }
+
+# wait_service_active 重启后等服务真正进入 active（最多 5 秒）：restart 返回
+# 不等于就绪，agent 起动还要加载配置、建连；轮询避免把「还在起」误判成失败。
+wait_service_active() {
+  local svc="$1" i
+  for i in 1 2 3 4 5; do
+    systemctl is-active --quiet "$svc" >/dev/null 2>&1 && return 0
+    sleep 1
+  done
+  systemctl is-active --quiet "$svc" >/dev/null 2>&1
+}
+
+# dump_service_logs 失败诊断（FERRY-005）：回滚动作执行前把 unit 最近日志
+# 打出来，升级失败现场直接可见，不用先猜再看 journalctl。
+dump_service_logs() {
+  echo "--- $1 最近日志（失败诊断） ---" >&2
+  journalctl -u "$1" -n 20 --no-pager >&2 2>/dev/null || true
+}
 
 # json_field 从 JSON 文件取字段值：优先 jq/python3，两者都没有才退文本截取
 #（FERRY-001：注册响应解析不许再依赖易受字段格式影响的简单文本截取）。
@@ -108,11 +128,12 @@ while [ $# -gt 0 ]; do
     --relay-ssh-known-hosts) RELAY_SSH_KNOWN_HOSTS="$2"; shift 2 ;;
     --relay-ssh-forward-addr) RELAY_SSH_FORWARD="$2"; shift 2 ;;
     --quic)     QUIC=1; shift ;;
+    --quic-install) QUIC_INSTALL="$2"; shift 2 ;;
     --quic-listen)  QUIC_LISTEN="$2"; shift 2 ;;
     --quic-ca)      QUIC_CA="$2"; shift 2 ;;
     --quic-insecure) QUIC_INSECURE=1; shift ;;
     --quic-binary)  QUIC_BINARY="$2"; shift 2 ;;
-    -h|--help)  sed -n '2,44p' "$0"; exit 0 ;;
+    -h|--help)  sed -n '2,46p' "$0"; exit 0 ;;
     *) die "unknown arg: $1" ;;
   esac
 done
@@ -140,6 +161,7 @@ fi
 if [ "$QUIC" = 1 ] && [ -n "$QUIC_BINARY" ]; then
   [ -f "$QUIC_BINARY" ] || die "本地 ferry-quic 不存在：$QUIC_BINARY"
 fi
+: "${QUIC_INSTALL:=/usr/local/bin/ferry-quic}" # 提前定值：EXIT trap 也引用它
 
 # ---- panel_url：http→ws、https→wss，统一拼 /agent/ws ----
 case "$PANEL" in
@@ -151,7 +173,8 @@ esac
 PANEL_URL="${WS%/}/agent/ws"
 
 # ---- 取二进制：本地文件或按版本下载 ----
-tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp" "$INSTALL.new" "$CONFIG.new" "$QUIC_INSTALL.new"' EXIT
 
 # 版本解析（FERRY-002）：latest 拼下载址前先经 GitHub API 解析为实际最新
 # 稳定版；解析不到（尚无正式 release）立即失败，绝不拼出 vlatest 假地址；
@@ -197,7 +220,6 @@ fi
 
 # ---- QUIC sidecar（E-18b）：可选发布件，不用 QUIC 传输不装 ----
 # （此处只下载+校验+解包；落盘安装统一放到注册成功之后）
-QUIC_INSTALL=/usr/local/bin/ferry-quic
 if [ "$QUIC" = 1 ]; then
   if [ -n "$QUIC_BINARY" ]; then
     cp "$QUIC_BINARY" "$tmp/ferry-quic"
@@ -235,14 +257,34 @@ if [ -z "$TOKEN" ]; then
   log "节点已创建，令牌已取得（面板节点页可查）"
 fi
 
-# ---- 安装：注册成功后才落盘 ----
-install -m 0755 "$tmp/ferry-agent" "$INSTALL"
+# ---- 安装（FERRY-005）：先备份现役件（.prev）再原子替换（同目录 rename，
+# 不留半截二进制），启动失败自动回滚到变更前状态；成功则清掉备份。----
+unit_dir=${FERRY_SYSTEMD_UNIT_DIR:-/etc/systemd/system}
+unit="$unit_dir/$SERVICE.service"
+bak_install="$INSTALL.prev"; bak_unit="$unit.prev"
+had_prev=0
+if [ -f "$INSTALL" ]; then cp -a "$INSTALL" "$bak_install"; had_prev=1; fi
+if [ -f "$unit" ]; then cp -a "$unit" "$bak_unit"; fi
+install -m 0755 "$tmp/ferry-agent" "$INSTALL.new"
+mv -f "$INSTALL.new" "$INSTALL"
 if [ "$QUIC" = 1 ]; then
-  install -m 0755 "$tmp/ferry-quic" "$QUIC_INSTALL"
+  bak_quic="$QUIC_INSTALL.prev"
+  bak_quic_unit="$unit_dir/ferry-quic.service.prev"
+  had_prev_quic=0
+  if [ -f "$QUIC_INSTALL" ]; then
+    cp -a "$QUIC_INSTALL" "$bak_quic"
+    if [ -f "$unit_dir/ferry-quic.service" ]; then
+      cp -a "$unit_dir/ferry-quic.service" "$bak_quic_unit"
+    fi
+    had_prev_quic=1
+  fi
+  install -m 0755 "$tmp/ferry-quic" "$QUIC_INSTALL.new"
+  mv -f "$QUIC_INSTALL.new" "$QUIC_INSTALL"
 fi
 
-# ---- 配置：/etc/ferry/agent.json（已存在则保留，不覆盖现场配置）----
-mkdir -p /etc/ferry
+# ---- 配置：$CONFIG（已存在则保留，不覆盖现场配置；新写走临时文件+rename，
+# 中断不会留半截配置）----
+mkdir -p "$(dirname "$CONFIG")"
 if [ -f "$CONFIG" ]; then
   log "配置已存在，保留：$CONFIG（如需重写请先删除）"
 else
@@ -281,7 +323,8 @@ else
       echo '  }'
     fi
     echo '}'
-  } > "$CONFIG"
+  } > "$CONFIG.new"
+  mv -f "$CONFIG.new" "$CONFIG"
   chmod 600 "$CONFIG"
   log "已写配置 $CONFIG"
 fi
@@ -294,8 +337,7 @@ QUIC_ENV=""
 if [ "$QUIC" = 1 ] && [ "$QUIC_LISTEN" != "127.0.0.1:7300" ]; then
   QUIC_ENV="Environment=FERRY_QUIC_SIDECAR=$QUIC_LISTEN"
 fi
-unit=/etc/systemd/system/$SERVICE.service
-cat > "$unit" <<EOF
+cat > "$unit.new" <<EOF
 [Unit]
 Description=ferry agent
 After=network-online.target
@@ -310,10 +352,36 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
-systemctl daemon-reload
-systemctl enable "$SERVICE" >/dev/null
-systemctl restart "$SERVICE"
-sleep 1
+mv -f "$unit.new" "$unit"
+
+# 回滚（FERRY-005）：有旧件=还原上一版二进制与 unit 再拉起（节点不因一次
+# 失败升级停在坏状态）；首装=停用并清掉本次产物。.prev 备份保留供手动核对。
+rollback_agent() {
+  log "启动失败，回滚到变更前状态 ..."
+  if [ "$had_prev" = 1 ]; then
+    cp -a "$bak_install" "$INSTALL"
+    if [ -f "$bak_unit" ]; then cp -a "$bak_unit" "$unit"; fi
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl restart "$SERVICE" >/dev/null 2>&1 || true
+    log "已还原上一版本（备份保留在 $bak_install / $bak_unit，供手动核对）"
+  else
+    systemctl stop "$SERVICE" >/dev/null 2>&1 || true
+    systemctl disable "$SERVICE" >/dev/null 2>&1 || true
+    rm -f "$unit" "$INSTALL"
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    log "首装失败，已清理本次安装产物"
+  fi
+}
+if systemctl daemon-reload \
+   && systemctl enable "$SERVICE" >/dev/null \
+   && systemctl restart "$SERVICE" \
+   && wait_service_active "$SERVICE"; then
+  rm -f "$bak_install" "$bak_unit"
+else
+  dump_service_logs "$SERVICE"
+  rollback_agent
+  die "ferry-agent 启动失败，已回滚：按上方诊断排查（journalctl -u $SERVICE）后重试"
+fi
 systemctl --no-pager --lines=5 status "$SERVICE" || true
 log "完成：journalctl -u $SERVICE -f 查看连接日志"
 
@@ -322,8 +390,8 @@ if [ "$QUIC" = 1 ]; then
   QUIC_ARGS="client --listen $QUIC_LISTEN"
   [ -n "$QUIC_CA" ] && QUIC_ARGS="$QUIC_ARGS --ca $QUIC_CA"
   [ "$QUIC_INSECURE" = 1 ] && QUIC_ARGS="$QUIC_ARGS --insecure"
-  quic_unit=/etc/systemd/system/ferry-quic.service
-  cat > "$quic_unit" <<EOF
+  quic_unit="$unit_dir/ferry-quic.service"
+  cat > "$quic_unit.new" <<EOF
 [Unit]
 Description=ferry-quic sidecar (QUIC transport bridge, E-18b)
 After=network-online.target
@@ -337,10 +405,35 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
-  systemctl daemon-reload
-  systemctl enable ferry-quic >/dev/null
-  systemctl restart ferry-quic
-  sleep 1
+  mv -f "$quic_unit.new" "$quic_unit"
+
+  # sidecar 回滚独立于 agent：还原旧 sidecar 或清掉本次产物，agent 不受牵连。
+  rollback_quic() {
+    log "ferry-quic 启动失败，回滚 sidecar ..."
+    if [ "$had_prev_quic" = 1 ]; then
+      cp -a "$bak_quic" "$QUIC_INSTALL"
+      if [ -f "$bak_quic_unit" ]; then cp -a "$bak_quic_unit" "$quic_unit"; fi
+      systemctl daemon-reload >/dev/null 2>&1 || true
+      systemctl restart ferry-quic >/dev/null 2>&1 || true
+      log "sidecar 已还原上一版本（备份保留在 $bak_quic / $bak_quic_unit）"
+    else
+      systemctl stop ferry-quic >/dev/null 2>&1 || true
+      systemctl disable ferry-quic >/dev/null 2>&1 || true
+      rm -f "$quic_unit" "$QUIC_INSTALL"
+      systemctl daemon-reload >/dev/null 2>&1 || true
+      log "sidecar 首装失败，已清理本次产物"
+    fi
+  }
+  if systemctl daemon-reload \
+     && systemctl enable ferry-quic >/dev/null \
+     && systemctl restart ferry-quic \
+     && wait_service_active ferry-quic; then
+    [ "$had_prev_quic" = 1 ] && rm -f "$bak_quic" "$bak_quic_unit"
+  else
+    dump_service_logs ferry-quic
+    rollback_quic
+    die "ferry-quic 启动失败，已回滚 sidecar（agent 不受影响）：按上方诊断排查后重试"
+  fi
   systemctl --no-pager --lines=5 status ferry-quic || true
   log "完成：journalctl -u ferry-quic -f 查看 sidecar 日志"
 fi

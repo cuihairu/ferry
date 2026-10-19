@@ -131,8 +131,8 @@
   - 状态=半完成｜卡点=正式 release 只能用户手动给版本号触发（2026-10-11 发版红线，agent 不代发）｜触发条件：用户明确说「发版」并给版本号
 - [x] FERRY-003 生产密钥安全门禁（外部评审 2026-10-18）：三把服务密钥初始化门禁（生成/持久化/生产拒绝默认密钥与弱钥）
   - 状态=完成｜落地=2026-10-19 FIRE1019：新包 keyinit（显式配置 > 密钥文件 > 生成并持久化 0600，默认库目录 ferry-keys.env；FERRY_ENV=production 拒缺钥无从持久化/开发默认常量/短钥；显式值不落盘；日志不回显）+ main 接线 + 主密钥新生成遇既有加密行告警恢复原钥 + .env.example/ferry.env.example/部署指南/安全设计 §3.1 同步｜证据=keyinit_test.go 8 用例全绿 + 真机冒烟（生成→重启零重生成→字节稳定；生产拒常量/生产无钥起服务两路实测）
-- [ ] FERRY-005 安装与升级失败恢复（外部评审 2026-10-18）：安装脚本原子替换/回滚/失败诊断
-  - 状态=未开工｜依据=评审 P1 第 2 条｜触发条件：FERRY-003 之后
+- [x] FERRY-005 安装与升级失败恢复（外部评审 2026-10-18）：安装脚本原子替换/回滚/失败诊断
+  - 状态=完成｜落地=2026-10-19 FIRE1019（FERRY-003 之后）：agent-install.sh 二进制/unit 先备份 `.prev` 再同目录 rename 原子替换（含 quic unit，sidecar 落盘 `--quic-install` 可指位）、配置临时文件+rename 不落半截、`--config` 落点随路径建目录（修掉硬编码 /etc/ferry 与覆盖值矛盾）；启动失败=journal 最近 20 行诊断先行，再回滚（升级还原上一版重拉起、首装清理本次产物），`.prev` 保留供手动核对、成功才清；ferry-quic sidecar 独立回滚不牵连 agent；unit 目录 FERRY_SYSTEMD_UNIT_DIR 可覆盖（测试/非标环境）｜证据=deploy/install-rollback-test.sh 沙箱回归 43 断言全绿×2（假 id/systemctl/journalctl/curl/sleep 跑真脚本七链路：首装成功/升级成功/升级失败还原字节级一致/首装失败清理/既有配置保留/sidecar 首装/sidecar 失败回滚且 agent 不受牵连），test.yml 新增 deploy-scripts job 接线 CI，deploy/README.md 与部署指南同步
 - [ ] FERRY-004 端到端部署与节点通信集成测试（外部评审 2026-10-18）：CI 内可重复的真部署链路验证
   - 状态=未开工｜依据=评审 P1 第 1 条，验收须用修复后的注册/发布/安全流程｜触发条件：FERRY-003/005 之后
 
@@ -409,6 +409,8 @@
 
 - **FERRY-003 生产密钥安全门禁（完成，同轮第二批）**：新包 `server/internal/keyinit`——三把服务密钥（FERRY_ADMIN_SECRET/FERRY_API_SECRET/FERRY_SECRET_KEY）按「显式配置 > 密钥文件 > 生成并持久化」定值；首启自动生成 256 位随机钥写 `ferry-keys.env`（默认 sqlite 库同目录，0600，重启同钥不重生成；FERRY_KEYFILE 可指位）；生产环境（FERRY_ENV=production）缺钥无从持久化、显式配开发默认常量、短钥（<16 字符）一律拒绝启动，开发环境回退历史缺省+告警；显式配置的值绝不落盘；错误与日志只报 env 名不回显值；主密钥自动生成而库里已有加密机密行时启动告警提示恢复原钥。main.go 接线；.env.example/ferry.env.example/部署指南 env 表/安全设计.md（新增 §3.1，顺带修 §6 P1 行残留「节点令牌轮换未实现」的 FERRY-006 矛盾——C-06 已 2026-10-17 落地）同步。测试先行 keyinit_test.go 8 用例（生成/重启稳定/env 优先不落盘/文件回载/生产拒常量/生产拒短钥/生产拒不可持久化/开发无文件回退/合并保既有行）；真机冒烟三段全过。
 
-门禁：go build 绿、server 全模块 `go test ./... -count=1` 绿、handler/storage/model `-race -count=2` 绿（handler 1044.9s）、keyinit 单包 -race 复核、docs vitepress build 绿 5.67s、bash -n+json_field 三级解析逐路实测、latest 解析对真实 GitHub API 实测 404 报错路径、真机起服务冒烟（key 生成/持久化/重启稳定/生产门禁两路）。本轮两 commit（enroll 批 c5029ba + keyinit 批）。
+- **FERRY-005 安装与升级失败恢复（完成，同轮第三批）**：agent-install.sh 原子替换+回滚+诊断（明细见台账 FERRY-005 行）；测试先行 `deploy/install-rollback-test.sh`（PATH 假件沙箱跑真脚本，43 断言七链路含 sidecar 独立回滚），测试逮出并修复三处脚本实锤：quic unit 路径硬编码 /etc/systemd（与 `--config` 同类的可移植性缺口）、quic unit 备份变量只定义未回填（升级失败还原会拿到新件）、quic unit 原子写漏改 `.new`（mv 空目标）；CI test.yml 增 deploy-scripts job；部署指南/deploy README 同步。脚本真机链路（root+systemd+真面板）仍属 FERRY-004 验收范围。
+
+门禁：go build 绿、server 全模块 `go test ./... -count=1` 绿（38/38 包）、handler/storage/model `-race -count=2` 绿（handler 1044.9s）、keyinit 单包 -race 复核绿、docs vitepress build 绿（首建 5.67s、终建 24.53s）、bash -n+json_field 三级解析逐路实测、latest 解析对真实 GitHub API 实测 404 报错路径、真机起服务冒烟（key 生成/持久化/重启稳定/生产门禁两路）、install 沙箱回归 43/43×2、test.yml YAML 解析绿。本轮三 commit（enroll 批 c5029ba + keyinit 批 661be29 + install-rollback 批）。
 
 依据：14 条旧卡点触发条件全部不成立（证据见上段）；评审四条待核断言全部属实（核验表 file:line）；FERRY-001 评审验收标准逐条对照——无凭据拒绝且不建节点✓、合法凭据换节点令牌✓、过期/已用/无效均拒✓、重复提交不重复建✓、下载校验失败不留注册记录✓（脚本层）、日志不泄令牌✓、新增测试✓、文档与台账更新✓；FERRY-002 发版腿解锁=用户明确说「发版」并给版本号。

@@ -82,3 +82,11 @@ jobs:
         run: pnpm install --frozen-lockfile --config.minimum-release-age=0 --config.dangerouslyAllowAllBuilds=true
       - name: build
         run: pnpm --filter ${{ matrix.app }} build
+
+  deploy-scripts:
+    name: deploy scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install script rollback regression
+        run: bash deploy/install-rollback-test.sh
