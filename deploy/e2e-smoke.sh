@@ -236,6 +236,63 @@ expect "内核崩溃自拉 state 回 running" "running" "$state"
 expect "自拉后重启计数≥1" "1" "$([ "${rst:-0}" -ge 1 ] 2>/dev/null && echo 1 || echo 0)"
 expect "stub 内核真被重新拉起（第二段痕迹）" "1" \
   "$([ "$(grep -c '^up ' "$TMP/kernel-runs.log" 2>/dev/null)" -ge 2 ] && echo 1 || echo 0)"
+
+# 面板→agent 进程控制（A-15 proc_ctl 请求应答通路）：stop 后停机态落库
+# 且不自拉；start 拉起；reload 走 restart 策略重拉但不计崩溃（stopping 退出
+# 与崩溃计数语义分开）；运行态重复 start 被 agent 拒（already running）。
+log "面板进程控制链路（proc_ctl 全真）..."
+code=$(curl -s -o "$TMP/ctl-bad.json" -w '%{http_code}' -X POST \
+  "$BASE/api/nodes/$NODE_ID/proc" -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"action":"restart","proc":"k1"}')
+expect "非法 action 服务端拒绝" 400 "$code"
+M2=$(grep -c '^up ' "$TMP/kernel-runs.log")
+code=$(curl -s -o "$TMP/ctl-stop.json" -w '%{http_code}' -X POST \
+  "$BASE/api/nodes/$NODE_ID/proc" -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"action":"stop","proc":"k1"}')
+expect "面板停内核 200" 200 "$code"
+expect "stop 回执 ok=true" "true" "$(json_get ok "$TMP/ctl-stop.json")"
+state=""
+for i in $(seq 1 40); do
+  state=$(proc_field state)
+  [ "$state" = "stopped" ] && break
+  sleep 0.5
+done
+expect "停机态心跳落库 state=stopped" "stopped" "$state"
+sleep 3
+expect "停机后不自拉（痕迹冻结）" "$M2" "$(grep -c '^up ' "$TMP/kernel-runs.log")"
+code=$(curl -s -o "$TMP/ctl-start.json" -w '%{http_code}' -X POST \
+  "$BASE/api/nodes/$NODE_ID/proc" -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"action":"start","proc":"k1"}')
+expect "面板拉起内核 200" 200 "$code"
+state=""
+for i in $(seq 1 40); do
+  state=$(proc_field state)
+  [ "$state" = "running" ] && break
+  sleep 0.5
+done
+expect "拉起后 state 回 running" "running" "$state"
+expect "拉起留新痕迹" "1" \
+  "$([ "$(grep -c '^up ' "$TMP/kernel-runs.log" 2>/dev/null)" -ge $((M2 + 1)) ] && echo 1 || echo 0)"
+R1=$(proc_field restarts)
+code=$(curl -s -o "$TMP/ctl-reload.json" -w '%{http_code}' -X POST \
+  "$BASE/api/nodes/$NODE_ID/proc" -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"action":"reload","proc":"k1"}')
+expect "面板 reload 内核 200" 200 "$code"
+state=""
+for i in $(seq 1 40); do
+  state=$(proc_field state)
+  [ "$state" = "running" ] && break
+  sleep 0.5
+done
+expect "reload 后 state 回 running" "running" "$state"
+expect "reload 不计崩溃（restarts 不变）" "${R1:-0}" "$(proc_field restarts)"
+expect "reload 留新痕迹" "1" \
+  "$([ "$(grep -c '^up ' "$TMP/kernel-runs.log" 2>/dev/null)" -ge $((M2 + 2)) ] && echo 1 || echo 0)"
+code=$(curl -s -o "$TMP/ctl-dup.json" -w '%{http_code}' -X POST \
+  "$BASE/api/nodes/$NODE_ID/proc" -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"action":"start","proc":"k1"}')
+expect "运行态重复 start 被拒" 400 "$code"
+
 log "断线回落 ..."
 kill "$AGENT_PID"; AGENT_PID=""
 expect "agent 断线后计数回落" "0" "$(poll_health 0)"
