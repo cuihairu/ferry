@@ -428,3 +428,13 @@
 - 其余卡点零新证据：vitepress dist-tags 复查仍 latest=1.6.4/next=2.0.0-alpha.20（#15）；商户资质（#4/#12）、TOUCH-7 probe 面授权（#7）、costref 商家 API 文档（#8）、hy2 二进制/证书/防火墙（#13）、发版指令（FERRY-002 发版腿）均无新增，维持原结论不重开。
 
 门禁：provisionapi sweep 修复前 1/300 红→修复后 0/300 绿（312s）、install-rollback-test.sh 57/57、systemd-smoke 21/21×3、bash -n 三脚本绿、nightly.yml yaml.v3 解析绿（6 jobs）。本轮两 commit（#14 修复一笔；systemd 腿+CI+台账一笔）。
+
+## 功能差距分析（2026-11-02，报告 docs/gap-analysis-2026-11-02.md）
+
+对照对象核实后换选：Portainer/Dokploy/Coolify/Komodo 属容器部署/PaaS 面板，与 ferry（代理集群管理面板）类目不对上，按最近似原则换 3x-ui/Marzban/Hiddify/Remnawave（复用面板横向对比.md 取材底座），换选理由与容器面板组一览见报告 §0/附录 A。总体结论：功能覆盖面在同类中已属第一梯队，剩余差距集中在运营可见性与发版交付。
+
+- [ ] G2 用户在线态与最近接入节点（报告 P1 候选）：agent 心跳已带流量载荷，加 per-user 在线标记与 last-node 字段落库/dash 展示；触发条件=用户认可排入（盗号/共享排查或客服排障出现真实诉求）
+- [ ] G1 订阅格式补 mihomo/xray-json（报告 P2 观察项）：触发条件=出现 clash-meta 拒载或 xray-json 消费方的真实反馈
+- [ ] G7 OIDC/LDAP 登录（报告 P2 观察项）：触发条件=多管理员规模化且 P2-2 配额面被真实使用
+- [ ] G3 用户 LIMITED/EXPIRED 拆态（报告 P2 观察项）：触发条件=客服排障反复需要区分到期与超限来源
+- 观察结论：G4/G5/G9/G10（节点预算/滚动重置/编队三层/mTLS CA）均已成文裁决，维持不重开；G11 直连支付、G13 发版仍卡外部材料/用户指令，解锁条件见既有行
