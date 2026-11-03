@@ -58,7 +58,7 @@ ferry/
 ├── panel/      # 用户面板（Vue 3：自助订阅链接、流量查询、使用说明）
 ├── dash/       # 管理后台（Vue 3：用户/节点/配置/统计看板）
 ├── payments/   # 支付渠道插件（epusdt USDT 已接入；微信/支付宝为占位，等商户资质）
-├── packages/   # 共享契约（agentproto、支付 Provider 接口）
+├── packages/   # 共享契约（agentproto、costref、支付 Provider 接口）
 ├── deploy/     # 部署文件（compose、Caddy、一键启动 start.sh、迁移手册）
 ├── docs/       # 设计文档
 ├── todo.md     # 功能拆解与排期
