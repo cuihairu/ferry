@@ -433,8 +433,15 @@
 
 对照对象核实后换选：Portainer/Dokploy/Coolify/Komodo 属容器部署/PaaS 面板，与 ferry（代理集群管理面板）类目不对上，按最近似原则换 3x-ui/Marzban/Hiddify/Remnawave（复用面板横向对比.md 取材底座），换选理由与容器面板组一览见报告 §0/附录 A。总体结论：功能覆盖面在同类中已属第一梯队，剩余差距集中在运营可见性与发版交付。
 
-- [ ] G2 用户在线态与最近接入节点（报告 P1 候选）：agent 心跳已带流量载荷，加 per-user 在线标记与 last-node 字段落库/dash 展示；触发条件=用户认可排入（盗号/共享排查或客服排障出现真实诉求）
+- [x] G2 用户在线态与最近接入节点（报告 P1 候选）：2026-11-03 落地（G2 项）——per-user 流量上报（MsgTraffic）经 users.username 映射后同步刷新 users.last_node_id/last_seen_at；用户列表/详情/导出视图按 last_seen_at 在 3 分钟窗口推导 online 并附 last_node 节点名；dash 用户表增「在线」「最近接入」两列。证据=make test 全绿（server 全量含 handler 串行 1502s、agent/proto/costref/payment 与 dash/panel 构建）
+- 状态=完成｜落地=2026-11-03｜原因：用户已认可排入（本轮指令按 todo 顺序推进）；agent 心跳已带流量载荷，在线面随流量上报刷新即可
 - [ ] G1 订阅格式补 mihomo/xray-json（报告 P2 观察项）：触发条件=出现 clash-meta 拒载或 xray-json 消费方的真实反馈
 - [ ] G7 OIDC/LDAP 登录（报告 P2 观察项）：触发条件=多管理员规模化且 P2-2 配额面被真实使用
 - [ ] G3 用户 LIMITED/EXPIRED 拆态（报告 P2 观察项）：触发条件=客服排障反复需要区分到期与超限来源
 - 观察结论：G4/G5/G9/G10（节点预算/滚动重置/编队三层/mTLS CA）均已成文裁决，维持不重开；G11 直连支付、G13 发版仍卡外部材料/用户指令，解锁条件见既有行
+
+## 巡检结论（PATROL1103，2026-11-03）
+
+推进单首项 G2（用户在线态与最近接入节点）已落地：per-user 流量上报（MsgTraffic→saveUserTraffic）在 users.username 映射后同步刷新 `users.last_node_id/last_seen_at`；用户列表/详情/导出视图按 `last_seen_at` 在 3 分钟窗口推导 `online` 并附 `last_node` 节点名；dash 用户表增「在线」「最近接入」两列。证据=make test 全绿（server 全量含 handler 串行 1502s、agent/proto/costref/payment 全绿、dash/panel 构建绿）。
+
+未勾项复核：G1/G3/G7 触发条件（clash-meta 拒载反馈、客服需区分到期/超限、多管理员规模化且 P2-2 被使用）均未出现，维持观察不重开；8 条显式 BLOCKED（微信/支付宝直连、TOUCH-7 probe 面授权、costref 真实在线来源、支付 SDK 资质、hy2 真机联调、VitePress 2 stable、FERRY-002 发版指令、FERRY-004 生产内核真机接入）仍缺外部材料/用户指令，解锁条件见既有行。

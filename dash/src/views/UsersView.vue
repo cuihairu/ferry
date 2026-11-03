@@ -233,6 +233,18 @@ async function onImportFile(ev: Event) {
 
     <el-table :data="users" v-loading="loading" :header-cell-style="{ background: 'var(--ferry-bg-panel)' }">
       <el-table-column prop="username" label="用户名" min-width="140" />
+      <el-table-column label="在线" width="90">
+        <template #default="{ row }">
+          <el-tag v-if="row.online" type="success" size="small" effect="plain">在线</el-tag>
+          <el-tag v-else type="info" size="small" effect="plain">离线</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="最近接入" width="160">
+        <template #default="{ row }">
+          <span v-if="row.last_node">{{ row.last_node }}</span>
+          <span v-else>—</span>
+        </template>
+      </el-table-column>
       <el-table-column label="配额" width="110">
         <template #default="{ row }">{{ quotaText(row.quota_bytes) }}</template>
       </el-table-column>

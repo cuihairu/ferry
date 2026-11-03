@@ -340,7 +340,18 @@ func (h *Handler) saveUserTraffic(nodeID int64, items []agentproto.ProcTraffic) 
 	if len(rows) == 0 {
 		return nil
 	}
-	return h.db.Create(&rows).Error
+	if err := h.db.Create(&rows).Error; err != nil {
+		return err
+	}
+	// G2 用户在线态与最近接入节点：本次有流量增量即视为活跃，按已知
+	// 用户集合批量刷新 last_node_id / last_seen_at（节点级由 node_id 落行）。
+	active := make([]uint, 0, len(byName))
+	for _, uid := range byName {
+		active = append(active, uid)
+	}
+	now := time.Now()
+	return h.db.Model(&storage.User{}).Where("id IN ?", active).
+		Updates(map[string]any{"last_node_id": nid, "last_seen_at": now}).Error
 }
 
 // findNodeByAddress 按 host:port 解析节点。

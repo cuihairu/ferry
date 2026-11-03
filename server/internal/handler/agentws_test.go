@@ -654,3 +654,74 @@ func TestAgentWSUserTraffic(t *testing.T) {
 		}
 	}
 }
+
+// TestAgentWSUserOnlineState 验证 G2 per-user 流量上报同时刷新在线态
+// 与最近接入节点；接口视图应按 last_seen_at 推导 online 并返回节点名。
+func TestAgentWSUserOnlineState(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	if rec := doJSON(t, r, "POST", "/api/users", map[string]any{"username": "online-user"}); rec.Code != http.StatusCreated {
+		t.Fatalf("create user: %d %s", rec.Code, rec.Body)
+	}
+	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
+		"name": "hk-entry", "address": "hk.example.com", "port": 443, "protocol": "vless",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create node: %d %s", rec.Code, rec.Body)
+	}
+	var node map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &node)
+	token := node["token"].(string)
+	nodeID := uint(node["id"].(float64))
+
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+	c, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http")+"/agent/ws", nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer c.Close()
+
+	hello, _ := agentproto.NewEnvelope("h1", agentproto.MsgHello, agentproto.Hello{Token: token, AgentID: "hk-entry", Version: "test"})
+	if err := c.WriteJSON(hello); err != nil {
+		t.Fatalf("write hello: %v", err)
+	}
+	if env := readEnv(t, c); env.Type != agentproto.MsgHelloAck {
+		t.Fatalf("expected hello_ack, got %s", env.Type)
+	}
+	rep, _ := agentproto.NewEnvelope("tr-1", agentproto.MsgTraffic, agentproto.TrafficReport{
+		Items: []agentproto.ProcTraffic{
+			{Proc: "xray", Rx: 10, Tx: 5, At: time.Now(), Users: []agentproto.UserTraffic{{Email: "online-user", Rx: 10, Tx: 5}}},
+		},
+	})
+	if err := c.WriteJSON(rep); err != nil {
+		t.Fatalf("write traffic report: %v", err)
+	}
+	if env := readEnv(t, c); env.Type != agentproto.MsgTrafficAck {
+		t.Fatalf("expected traffic_ack, got %s", env.Type)
+	}
+
+	var u storage.User
+	if err := db.Where("username = ?", "online-user").First(&u).Error; err != nil {
+		t.Fatalf("find user: %v", err)
+	}
+	if u.LastNodeID == nil || *u.LastNodeID != nodeID {
+		t.Fatalf("last_node_id = %v, want %d", u.LastNodeID, nodeID)
+	}
+	if u.LastSeenAt == nil || time.Since(*u.LastSeenAt) > time.Minute {
+		t.Fatalf("last_seen_at = %v, want recent", u.LastSeenAt)
+	}
+
+	lrec := doJSON(t, r, "GET", "/api/users", nil)
+	var users []struct {
+		ID       int64  `json:"id"`
+		Online   bool   `json:"online"`
+		LastNode string `json:"last_node"`
+	}
+	if err := json.Unmarshal(lrec.Body.Bytes(), &users); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if len(users) != 1 || users[0].ID != int64(u.ID) || !users[0].Online || users[0].LastNode != "hk-entry" {
+		t.Fatalf("list view = %+v", users)
+	}
+}

@@ -14,13 +14,61 @@ import (
 	"gorm.io/gorm"
 )
 
+// userOnlineWindow 是 G2 在线判定窗口：agent 默认 30s 心跳 / 60s 流量上报，
+// 取 3 分钟阈值可容忍一次上报丢失，又不把「已断连许久」误判为在线。
+const userOnlineWindow = 3 * time.Minute
+
+// userView 是用户列表/详情的输出视图：在存储行上补在线态与最近接入节点名。
+type userView struct {
+	storage.User
+	Online   bool   `json:"online"`
+	LastNode string `json:"last_node,omitempty"`
+}
+
+// userViews 批量把存储行转视图：一次查询补齐最近接入节点名。
+func (h *Handler) userViews(users []storage.User) []userView {
+	out := make([]userView, 0, len(users))
+	// 收集最近接入节点 ID，一次 IN 查询取名称。
+	ids := map[uint]bool{}
+	for _, u := range users {
+		if u.LastNodeID != nil {
+			ids[*u.LastNodeID] = true
+		}
+	}
+	names := map[uint]string{}
+	if len(ids) > 0 {
+		var nodes []storage.Node
+		q := make([]uint, 0, len(ids))
+		for id := range ids {
+			q = append(q, id)
+		}
+		if err := h.db.Select("id, name").Where("id IN ?", q).Find(&nodes).Error; err == nil {
+			for _, n := range nodes {
+				names[n.ID] = n.Name
+			}
+		}
+	}
+	now := time.Now()
+	for _, u := range users {
+		v := userView{User: u}
+		if u.LastSeenAt != nil && now.Sub(*u.LastSeenAt) <= userOnlineWindow {
+			v.Online = true
+		}
+		if u.LastNodeID != nil {
+			v.LastNode = names[*u.LastNodeID]
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
 func (h *Handler) listUsers(c *gin.Context) {
 	out := []storage.User{}
 	if err := h.db.Order("id").Find(&out).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
-	c.JSON(http.StatusOK, out)
+	c.JSON(http.StatusOK, h.userViews(out))
 }
 
 func (h *Handler) getUser(c *gin.Context) {
@@ -29,7 +77,7 @@ func (h *Handler) getUser(c *gin.Context) {
 		replyFind(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, u)
+	c.JSON(http.StatusOK, h.userViews([]storage.User{u})[0])
 }
 
 func (h *Handler) createUser(c *gin.Context) {
@@ -130,7 +178,7 @@ func (h *Handler) createUser(c *gin.Context) {
 		}
 		u.Enabled = false
 	}
-	c.JSON(http.StatusCreated, u)
+	c.JSON(http.StatusCreated, h.userViews([]storage.User{u})[0])
 }
 
 func (h *Handler) updateUser(c *gin.Context) {
@@ -270,7 +318,7 @@ func (h *Handler) resetSubToken(c *gin.Context) {
 		return
 	}
 	u.SubToken = token
-	c.JSON(http.StatusOK, u)
+	c.JSON(http.StatusOK, h.userViews([]storage.User{u})[0])
 }
 
 func (h *Handler) findUser(id string) (storage.User, error) {

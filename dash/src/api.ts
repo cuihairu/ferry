@@ -351,6 +351,10 @@ export interface User {
   bw_down_mbps: number
   device_limit: number
   ip_limit: number
+  online: boolean
+  last_node_id?: number | null
+  last_node?: string
+  last_seen_at?: string | null
 }
 
 /** NodeShare 是单节点分享链接（P1-9）。 */

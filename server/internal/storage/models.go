@@ -38,11 +38,13 @@ type User struct {
 	TOTPSecret  string `gorm:"size:256" json:"-"`
 	TOTPEnabled bool   `gorm:"default:false" json:"-"`
 	// 通知偏好（NT-2）：站内信通道内按类型开关；通道维度待第二通道（邮件/TG）落地再扩。
-	NotifyExpiry       bool      `gorm:"default:true" json:"notify_expiry"`      // 到期提醒
-	NotifyTraffic      bool      `gorm:"default:true" json:"notify_traffic"`     // 流量预警
-	TrafficWarnPercent int       `gorm:"default:80" json:"traffic_warn_percent"` // 流量预警阈值（1-100）
-	CreatedAt          time.Time `json:"created_at"`
-	UpdatedAt          time.Time `json:"updated_at"`
+	NotifyExpiry       bool       `gorm:"default:true" json:"notify_expiry"`      // 到期提醒
+	NotifyTraffic      bool       `gorm:"default:true" json:"notify_traffic"`     // 流量预警
+	TrafficWarnPercent int        `gorm:"default:80" json:"traffic_warn_percent"` // 流量预警阈值（1-100）
+	LastNodeID         *uint      `gorm:"index" json:"last_node_id,omitempty"`
+	LastSeenAt         *time.Time `json:"last_seen_at,omitempty"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
 }
 
 // SubDevice 是订阅端观察到的设备/IP 一条记录（P2-4）。Kind=hwid 的行按

@@ -47,7 +47,8 @@ func (h *Handler) exportUsers(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"users": users, "count": len(users)})
+	views := h.userViews(users)
+	c.JSON(http.StatusOK, gin.H{"users": views, "count": len(views)})
 }
 
 // importUsers 批量导入用户（POST /api/users/import）：先全量校验（任一坏行
