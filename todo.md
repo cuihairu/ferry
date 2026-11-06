@@ -119,7 +119,7 @@
   - 状态=维持不做｜原因：小站自然月账单已满足，滚动重置无实际需求｜触发条件：无（拍板关闭）
 - [ ] [BLOCKED] OSS 三候选（Xray proto/GeoIP 已代决收口）：支付 SDK 腿缺商户资质（appid、merchant_id、证书）
   - 状态=阻塞（余支付 SDK 一腿）｜原因：Xray proto 评审已毕维持自有实现（docs/design/开源选型设计.md §3.2.1 已代决 PATROL1018E：MPL-2.0 核验通过但 E-4 实测省 8.3MB 为硬约束，重评触发两条在档）、GeoIP license 已核（geoip2-golang 实为 ISC 纠偏、dat CC-BY-SA-4.0 归属注意项在档）维持随分流批立项；余支付 SDK 等商户资质外部材料不代决｜触发条件：用户提供商户资质（appid/merchant_id/证书）
-- [ ] [BLOCKED] hy2 二进制真机联调：缺测试二进制、证书及可配置防火墙的真机环境
+- [ ] [BLOCKED] hy2 二进制真机联调：待用户提供 hysteria2 测试二进制、证书及可配置防火墙的服务器环境（服务器侧输入项，非三台 Windows 真机 openclaw/imac/.5 可替代）
   - 状态=阻塞｜原因：二进制/证书/防火墙均为外部提供项，仓内无法联调｜触发条件：用户提供测试二进制+证书+防火墙环境
 - [x] TestProvisionRunAPI 偶发观察：已复现、已定位、已修复（2026-10-20 PATROL1020）
   - 状态=完成｜复现=2026-10-19 晚 sweep `-race -cpu=1,2,4 -count=100`（300 连跑）逮出 1 次：t.TempDir RemoveAll 清理 `unlinkat .../002/tpl-1: directory not empty`｜根因=测试只轮询首个 apply 的 job 终态即返回，re-apply 与 final plan 的后台 job goroutine 仍在写 TofuWorkdir/tpl-<id>，与 TempDir 清理竞态｜修复=测试收尾补等全部 provision_jobs 离开 running（job 落终态即后台 Execute 写盘全部结束）再返回｜验证=修复后同款 sweep 300 连跑全绿 exit 0（312s）
@@ -134,7 +134,7 @@
 - [x] FERRY-005 安装与升级失败恢复（外部评审 2026-10-18）：安装脚本原子替换/回滚/失败诊断
   - 状态=完成｜落地=2026-10-19 FIRE1019（FERRY-003 之后）：agent-install.sh 二进制/unit 先备份 `.prev` 再同目录 rename 原子替换（含 quic unit，sidecar 落盘 `--quic-install` 可指位）、配置临时文件+rename 不落半截、`--config` 落点随路径建目录（修掉硬编码 /etc/ferry 与覆盖值矛盾）；启动失败=journal 最近 20 行诊断先行，再回滚（升级还原上一版重拉起、首装清理本次产物），`.prev` 保留供手动核对、成功才清；ferry-quic sidecar 独立回滚不牵连 agent；unit 目录 FERRY_SYSTEMD_UNIT_DIR 可覆盖（测试/非标环境）｜证据=deploy/install-rollback-test.sh 沙箱回归 57 断言全绿（假 id/systemctl/journalctl/curl/sleep 跑真脚本：原七链路——首装成功/升级成功/升级失败还原字节级一致/首装失败清理/既有配置保留/sidecar 首装/sidecar 失败回滚且 agent 不受牵连；2026-10-19 晚扩入下载链路三条——latest 解析拼实际版本址/agent 与 quic 伴随 .sha256 校验/尚无稳定版 404 早失败，扩写前为 43 断言七链路），test.yml 新增 deploy-scripts job 接线 CI，deploy/README.md 与部署指南同步
 - [ ] [BLOCKED] FERRY-004 端到端部署与节点通信集成测试：仓内全链路已本地等价收口（e2e/compose/systemd/rollback 四腿进 CI 或 nightly），余一件=生产内核二进制（hysteria2 等）真机接入验收
-  - 状态=仓内面完成待真机不敢勾｜最新取证 2026-10-20 本轮（`command -v hysteria` 无、仓内无 hysteria* 文件）｜解锁钥匙=用户侧提供真机+测试内核二进制+证书+可配防火墙环境｜验收口径=真机走与 e2e 同链路（安装→注册→心跳监管→进程控制），须用已就位的 FERRY-001/002/003/005 注册/发布/安全/恢复流程｜已收口腿与证据：e2e-smoke 53 断言（deploy/e2e-smoke.sh 真 server+agent 二进制全链路：注册/令牌轮换吊销/备份恢复/配置下发/被管内核 stub 监管+崩溃自拉/proc_ctl 控制面；0a69009、ac773a7）、compose-smoke 43 断言（nightly，Caddy 前端+postgres 密钥持久化）、systemd-smoke 33 断言（特权容器真 PID 1 跑真安装脚本+真面板注册链路；e5814c6、c68c829）、install-rollback-test 57 断言（PATH 假件沙箱含下载/校验链路；df70e5a）、重复消息幂等已收口（docs/design/agent架构设计.md §8 判据 C1-C7 + 服务端 (node,type,ID) at-most-once）｜台账事实：节点 LastSeen 服务端无写入点，不做「心跳更新 last_seen」断言
+  - 状态=仓内面完成待真机不敢勾｜最新取证 2026-10-20 本轮（`command -v hysteria` 无、仓内无 hysteria* 文件）｜解锁钥匙=用户提供测试内核二进制+证书+可配防火墙的服务器环境（服务器侧输入项；Windows 真机 openclaw/imac/.5 已在位，不构成缺口）｜验收口径=真机走与 e2e 同链路（安装→注册→心跳监管→进程控制），须用已就位的 FERRY-001/002/003/005 注册/发布/安全/恢复流程｜已收口腿与证据：e2e-smoke 53 断言（deploy/e2e-smoke.sh 真 server+agent 二进制全链路：注册/令牌轮换吊销/备份恢复/配置下发/被管内核 stub 监管+崩溃自拉/proc_ctl 控制面；0a69009、ac773a7）、compose-smoke 43 断言（nightly，Caddy 前端+postgres 密钥持久化）、systemd-smoke 33 断言（特权容器真 PID 1 跑真安装脚本+真面板注册链路；e5814c6、c68c829）、install-rollback-test 57 断言（PATH 假件沙箱含下载/校验链路；df70e5a）、重复消息幂等已收口（docs/design/agent架构设计.md §8 判据 C1-C7 + 服务端 (node,type,ID) at-most-once）｜台账事实：节点 LastSeen 服务端无写入点，不做「心跳更新 last_seen」断言
 
 ## 行级证据与解锁条件（R1013B 续）
 
@@ -152,7 +152,7 @@
 | 10 | 流量预算告警 | 横向对比观察项，`docs/面板横向对比.md` | 多机部署且流量预算管理需求出现 |
 | 11 | MONTH_ROLLING | 拍板关闭（小站自然月账单够用） | 拍板关闭，无解锁条件 |
 | 12 | OSS 三候选 | Xray/GeoIP 两腿已代决收口（`docs/design/开源选型设计.md:61-66` 评审记录：Xray 维持自有重评触发两条在档、GeoIP license 已核等分流批立项）；余支付 SDK 一腿卡商户资质 | 支付 SDK 腿解锁=用户提供商户资质（appid/merchant_id/证书） |
-| 13 | hy2 真机联调 | `docs/design/agent架构设计.md:40` hysteria2 进程管理；二进制/证书/防火墙均为外部提供 | 用户提供测试二进制+证书+防火墙环境 |
+| 13 | hy2 真机联调 | `docs/design/agent架构设计.md:40` hysteria2 进程管理；二进制/证书/防火墙均为外部提供（服务器侧输入；三台 Windows 真机 openclaw/imac/.5 在位） | 用户提供测试二进制+证书+防火墙环境 |
 | 14 | TestProvisionRunAPI | 已修复（2026-10-20）：sweep 300 连跑复现 1 次定位 TempDir 竞态，测试收尾等全部 job 终态；修复后 300 连跑全绿 | 已完成，无解锁条件 |
 | 15 | 上游等待 | `docs/package.json:10` vitepress ^1.6.4；`pnpm-workspace.yaml:7-11` override 钉 vite ^5.4.14 | vitepress 2 stable 发布（https://github.com/vuejs/vitepress）且构建验证通过 |
 
@@ -178,11 +178,11 @@
 
 当日覆盖工作（已完成，完成行留痕）：七批 handler 缝隙 74.5%→75.2%（72a6919）、八批 alloc/cert →89.2%/89.0%（ddb919f）、九批 quota/standby/herald →87.4%/77.2%/86.6%（eb65bc9）、十批 storage/configd/monitor →88.0%/75.0%/89.9%（59f1fc8/0b7e0d9/648202a），各包 -race -count=3 全绿。
 
-依据：外部触发条件未满足（上游未发布/无商户资质/无真机环境/拍板关闭项无解锁条件），无 open issues/PRs，零改动零 commit（纯核验轮）。
+依据：外部触发条件未满足（上游未发布/无商户资质/待用户提供 hy2 服务器侧环境/拍板关闭项无解锁条件），无 open issues/PRs，零改动零 commit（纯核验轮）。
 
 ## 巡检结论（PATROL1015）
 
-2026-10-15 巡检轮：15 项未勾逐条复核，触发条件仍全部不成立（上游未发布/无商户资质/无真机环境/拍板关闭），无可推进项，按闸门维持挂起不代拍板；覆盖批连推四批，涉 17 包，全部 -race 复核全绿。
+2026-10-15 巡检轮：15 项未勾逐条复核，触发条件仍全部不成立（上游未发布/无商户资质/待用户提供 hy2 服务器侧环境/拍板关闭），无可推进项，按闸门维持挂起不代拍板；覆盖批连推四批，涉 17 包，全部 -race 复核全绿。
 
 当日覆盖工作（已完成，完成行留痕）：十一批 relaypush/recovery/notifyscan/provision/replenish/config/spool/tunnel（b6f28f8）、十二批 audit/standby/dns/configd（45cc193）、十三批 handler/ratelimit/toucher/backup（14a0187）、十四批 app/handler 分页（720be9b）。十一批为工作区遗留未提交增量（10-14 15:22..15:53 落盘，无活跃会话），本次只读复核+门禁通过后收编提交。
 
@@ -204,7 +204,7 @@
 
 更正一处旧账：PATROL1015 段「不再有低成本批次可推」与当前实测不符——handler 包在 35~38 批收口到 89.3%（4904/5492）后仍有 588 语句未覆盖，且多为既有测试模式的常规目标：landing.go 33 句（65.3%）、userio.go 28 句（78.5%）、routing.go 26 句（73.7%）、costwatch.go 25 句（74.0%）、costref.go 25 句（75.7%）、status.go 22 句（79.4%）、alerts.go 22 句（66.7%）等；下一巡检轮可按既有批次模式继续推进，不属硬卡点。
 
-依据：外部触发条件未满足（上游未发布/无商户资质/无真机环境/拍板关闭项无解锁条件），无可开工功能项；本轮单 commit 纯文档落账，main 与 origin/main 同步。
+依据：外部触发条件未满足（上游未发布/无商户资质/待用户提供 hy2 服务器侧环境/拍板关闭项无解锁条件），无可开工功能项；本轮单 commit 纯文档落账，main 与 origin/main 同步。
 
 ## 巡检结论（R1016D）
 
