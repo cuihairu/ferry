@@ -39,6 +39,15 @@ func TestSendConnectionError(t *testing.T) {
 	}
 }
 
+// TestSendMarshalError 事件含不可序列化字段：组包即报错，不触网。
+func TestSendMarshalError(t *testing.T) {
+	n := &Notifier{url: "http://127.0.0.1:1/hook", client: &http.Client{}}
+	err := n.Send(Event{Event: "cost.high", Fields: map[string]any{"bad": make(chan int)}})
+	if err == nil {
+		t.Fatal("unmarshalable event field must error")
+	}
+}
+
 // TestFromDBBadURL 覆盖 FromDB 读设置出错（空 url 返回禁用）。
 func TestFromDBBadURL(t *testing.T) {
 	db, err := storage.Open(storage.DriverSQLite, ":memory:")

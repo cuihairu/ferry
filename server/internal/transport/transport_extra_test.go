@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/ferry/packages/agentproto"
+	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
 // TestJudgeEmptyLatest 覆盖无任何新鲜结论时返回空行。
@@ -54,5 +55,40 @@ func TestBetterTieBreak(t *testing.T) {
 	// 相等返回 false。
 	if better(a, a) {
 		t.Fatal("equal should be false")
+	}
+}
+
+// TestJudgeSkipsUnusableInputs 无指向的报告、无传输标注的节点跳过；
+// 区域为空的节点归「未知」聚合。
+func TestJudgeSkipsUnusableInputs(t *testing.T) {
+	db := newDB(t)
+	// 区域为空的节点（transport 已标）→ 归「未知」
+	blank := seedNode(t, db, "blank-region", "", "tls")
+	report(t, db, 99, blank.ID, agentproto.ProbeVerdictHealthy, time.Minute)
+	// 无传输标注的节点：即使有报告也不参与（列默认值会填 tls，显式清空）
+	noTx := seedNode(t, db, "no-transport", "us", "tls")
+	if err := db.Model(&storage.Node{}).Where("id = ?", noTx.ID).
+		Update("transport", "").Error; err != nil {
+		t.Fatal(err)
+	}
+	report(t, db, 99, noTx.ID, agentproto.ProbeVerdictHealthy, time.Minute)
+	// 无 TargetNodeID 的杂散报告：跳过
+	if err := db.Create(&storage.ProbeReport{NodeID: 99, TargetKind: agentproto.ProbeTargetPeer,
+		Verdict: agentproto.ProbeVerdictHealthy, ProbedAt: time.Now()}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := Judge(db, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("rows = %+v; want single 未知 row", rows)
+	}
+	if rows[0].Region != "未知" {
+		t.Fatalf("row = %+v; want 未知 region", rows[0])
+	}
+	if len(rows[0].Transports) != 1 || rows[0].Transports[0].Transport != "tls" {
+		t.Fatalf("transports = %+v; want single tls", rows[0].Transports)
 	}
 }
