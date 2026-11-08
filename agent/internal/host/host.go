@@ -3,6 +3,10 @@
 package host
 
 import (
+	"bufio"
+	"io"
+	"os"
+	"strings"
 	"sync"
 
 	gcpu "github.com/shirou/gopsutil/v4/cpu"
@@ -73,18 +77,34 @@ func cpuUtilPercent() float64 {
 }
 
 // establishedCount 统计本机 ESTABLISHED 的 TCP 连接数（v4+v6）。
+// 直接解析 /proc/net/tcp{,6} 而不走 gopsutil Connections：v4.26.10 起
+// 该入口按 inode 反查 /proc/<pid>/fd 遍历全进程表，繁忙节点上单次可达
+// 秒级，把心跳采样拖过周期；本处只需要计数，逐行读两份 proc 文件即可。
 func establishedCount() int {
 	n := 0
-	for _, kind := range []string{"tcp4", "tcp6"} {
-		conns, err := gnet.Connections(kind)
+	for _, path := range []string{"/proc/net/tcp", "/proc/net/tcp6"} {
+		f, err := os.Open(path)
 		if err != nil {
 			continue
 		}
-		for _, c := range conns {
-			if c.Status == "ESTABLISHED" {
-				n++
-			}
+		n += countEstablishedFrom(f)
+		_ = f.Close()
+	}
+	return n
+}
+
+// countEstablishedFrom 统计 /proc/net/tcp 文本流中 state=01（ESTABLISHED）
+// 的行数：state 在第 4 列（跳过表头与残缺行），字段以空白分隔。
+func countEstablishedFrom(r io.Reader) int {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	n := 0
+	for sc.Scan() {
+		fields := strings.Fields(sc.Text())
+		if len(fields) < 4 || fields[3] != "01" {
+			continue
 		}
+		n++
 	}
 	return n
 }
