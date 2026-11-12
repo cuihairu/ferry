@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -122,11 +123,12 @@ func TestReconcile(t *testing.T) {
 	if len(out.Orphans) != 2 {
 		t.Fatalf("orphans = %d, want 2: %+v", len(out.Orphans), out.Orphans)
 	}
-	// 小计：paid 4 笔（o1/o2/o3/o5），金额 1000+2000+3000+0=6000；流水 1000+4000=5000；发放 1 笔
+	// 小计：paid 4 笔（o1/o2/o3/o5），金额 1000+2000+3000+0=6000；流水与发放
+	// 全表口径（P2 修复后含游离记录）：流水 1000+4000+999=5999、发放 2 笔。
 	if out.Summary.PaidOrders != 4 {
 		t.Fatalf("paid_orders = %d", out.Summary.PaidOrders)
 	}
-	if out.Summary.PaidCents != 6000 || out.Summary.TxnCents != 5000 || out.Summary.Grants != 1 {
+	if out.Summary.PaidCents != 6000 || out.Summary.TxnCents != 5999 || out.Summary.Grants != 2 {
 		t.Fatalf("summary = %+v", out.Summary)
 	}
 }
@@ -459,5 +461,73 @@ func TestRefundRevokesGrants(t *testing.T) {
 	db.First(&re, u1.ID)
 	if re.QuotaBytes != 3<<30 {
 		t.Fatalf("quota after double refund = %d, want unchanged %d", re.QuotaBytes, 3<<30)
+	}
+}
+
+// TestReconcileSummaryWholeLedger 覆盖 P2「reconcile 统计口径错」修复：小计
+// 不再随 limit 页截断——订单超过一页时 summary 仍按全表聚合（实收/退款按
+// 状态分桶、流水与发放全表合计），页内行数照常按 limit 返回。
+func TestReconcileSummaryWholeLedger(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	now := time.Now()
+	// 250 单：200 paid @100 分 + 50 refunded @200 分，各带一笔流水与发放。
+	const total = 250
+	orders := make([]storage.PaymentOrder, 0, total)
+	txns := make([]storage.PaymentTransaction, 0, total)
+	grants := make([]storage.Grant, 0, total)
+	for i := 0; i < total; i++ {
+		status, amount := "paid", int64(100)
+		if i >= 200 {
+			status, amount = "refunded", 200
+		}
+		no := fmt.Sprintf("w-o%03d", i)
+		orders = append(orders, storage.PaymentOrder{OrderNo: no, UserID: 1, Provider: "epusdt", AmountCents: amount, Status: status, PaidAt: &now})
+		txns = append(txns, storage.PaymentTransaction{OrderNo: no, Provider: "epusdt", ExternalID: no, AmountCents: amount})
+		grants = append(grants, storage.Grant{OrderNo: no, UserID: 1, GrantType: "add_quota", GrantValue: 1})
+	}
+	if err := db.Create(&orders).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&txns).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&grants).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// limit=100：页内 100 行，summary 覆盖全表 250 单（修复前只统计页内）。
+	rec := doJSON(t, r, "GET", "/api/payments/reconcile?limit=100", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("reconcile: %d %s", rec.Code, rec.Body)
+	}
+	var out struct {
+		Orders  []mapoke `json:"orders"`
+		Summary struct {
+			PaidOrders     int64 `json:"paid_orders"`
+			PaidCents      int64 `json:"paid_cents"`
+			RefundedOrders int64 `json:"refunded_orders"`
+			RefundedCents  int64 `json:"refunded_cents"`
+			TxnCents       int64 `json:"txn_cents"`
+			Grants         int64 `json:"grants"`
+		} `json:"summary"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Orders) != 100 {
+		t.Fatalf("page rows = %d, want 100", len(out.Orders))
+	}
+	s := out.Summary
+	if s.PaidOrders != 200 || s.PaidCents != 200*100 {
+		t.Fatalf("paid summary = %+v", s)
+	}
+	if s.RefundedOrders != 50 || s.RefundedCents != 50*200 {
+		t.Fatalf("refunded summary = %+v", s)
+	}
+	if s.TxnCents != 200*100+50*200 {
+		t.Fatalf("txn cents = %d", s.TxnCents)
+	}
+	if s.Grants != 250 {
+		t.Fatalf("grants = %d", s.Grants)
 	}
 }

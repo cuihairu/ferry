@@ -84,9 +84,7 @@ func (h *Handler) listReconcile(c *gin.Context) {
 		}
 	}
 	// 缺失环节：paid/refunded 无流水、paid 带发放口径无发放、pending 却有流水。
-	// 退款单（OD-2）不计营收小计，单列退款小计；三账完整性检查与 paid 同口径
-	// （退过款的订单更应有流水与发放可查）。
-	var paidOrders, paidCents, refundedOrders, refundedCents, txnCents, grantCount int64
+	// 三账完整性检查与 paid 同口径（退过款的订单更应有流水与发放可查）。
 	rows := make([]reconcileRow, 0, len(orders))
 	for _, o := range orders {
 		row := byNo[o.OrderNo]
@@ -101,21 +99,10 @@ func (h *Handler) listReconcile(c *gin.Context) {
 			if o.GrantType != "" && len(row.Grants) == 0 {
 				row.Missing = append(row.Missing, "缺发放")
 			}
-			if o.Status == "paid" {
-				paidOrders++
-				paidCents += o.AmountCents
-			} else {
-				refundedOrders++
-				refundedCents += o.AmountCents
-			}
 		}
 		if o.Status == "pending" && len(row.Transactions) > 0 {
 			row.Missing = append(row.Missing, "有流水未结算")
 		}
-		for _, t := range row.Transactions {
-			txnCents += t.AmountCents
-		}
-		grantCount += int64(len(row.Grants))
 		rows = append(rows, *row)
 	}
 
@@ -146,15 +133,47 @@ func (h *Handler) listReconcile(c *gin.Context) {
 		})
 	}
 
+	// 小计全库口径（P2：原实现把小计累加在当前页 limit 条上，dash 把它当
+	// 总营收展示——订单超过一页后小计静默缩水）。页内行仍按 limit 返回，
+	// 小计改由全表聚合：实收/退款按状态分桶，流水与发放为全表合计。
+	var sum struct {
+		PaidOrders     int64
+		PaidCents      int64
+		RefundedOrders int64
+		RefundedCents  int64
+	}
+	if err := h.db.Model(&storage.PaymentOrder{}).Select(
+		"COALESCE(SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END), 0) AS paid_orders, "+
+			"COALESCE(SUM(CASE WHEN status = 'paid' THEN amount_cents ELSE 0 END), 0) AS paid_cents, "+
+			"COALESCE(SUM(CASE WHEN status = 'refunded' THEN 1 ELSE 0 END), 0) AS refunded_orders, "+
+			"COALESCE(SUM(CASE WHEN status = 'refunded' THEN amount_cents ELSE 0 END), 0) AS refunded_cents",
+	).Scan(&sum).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	var txnSum struct {
+		TxnCents int64
+	}
+	if err := h.db.Model(&storage.PaymentTransaction{}).
+		Select("COALESCE(SUM(amount_cents), 0) AS txn_cents").Scan(&txnSum).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	var grantCount int64
+	if err := h.db.Model(&storage.Grant{}).Count(&grantCount).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"orders":  rows,
 		"orphans": orphans,
 		"summary": gin.H{
-			"paid_orders":     paidOrders,
-			"paid_cents":      paidCents,
-			"refunded_orders": refundedOrders,
-			"refunded_cents":  refundedCents,
-			"txn_cents":       txnCents,
+			"paid_orders":     sum.PaidOrders,
+			"paid_cents":      sum.PaidCents,
+			"refunded_orders": sum.RefundedOrders,
+			"refunded_cents":  sum.RefundedCents,
+			"txn_cents":       txnSum.TxnCents,
 			"grants":          grantCount,
 		},
 	})
