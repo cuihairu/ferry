@@ -339,7 +339,8 @@ func (h *Handler) distributorAdjust(c *gin.Context) {
 }
 
 // writeLedgerOp 处理 payout/adjust 两类人工账目操作：校验代理存在、金额
-// 语义与余额约束，落一行 ledger 后回新余额。
+// 语义与余额约束，落一行 ledger 后回新余额。payout 的余额约束落在落账
+// 语句自身（条件 INSERT，见下），预检只是快速失败，不承担并发安全。
 func (h *Handler) writeLedgerOp(c *gin.Context, kind string) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -385,7 +386,28 @@ func (h *Handler) writeLedgerOp(c *gin.Context, kind string) {
 		DistributorID: uint(id), Kind: kind, AmountCents: in.AmountCents,
 		Note: strings.TrimSpace(in.Note), CreatedAt: time.Now(),
 	}
-	if err := h.db.Create(&row).Error; err != nil {
+	if kind == "payout" {
+		// 打款落账用一条条件 INSERT 完成校验与落账：并发打款都会通过上面
+		// 的快读预检，但只有合计余额仍足够的一方真正落账，落 0 行即透支
+		// 被拒。余额口径与 distributorTotals 一致（commission+adjust−payout）；
+		// FROM (SELECT 1) 为 MySQL 的 WHERE 前置占位（方言三兼容）。
+		res := h.db.Exec(
+			`INSERT INTO distributor_ledgers
+				(distributor_id, kind, amount_cents, note, created_at)
+			 SELECT ?, 'payout', ?, ?, ? FROM (SELECT 1) AS t
+			 WHERE (SELECT COALESCE(SUM(CASE WHEN kind IN ('commission','adjust') THEN amount_cents
+				 WHEN kind = 'payout' THEN -amount_cents ELSE 0 END), 0)
+				 FROM distributor_ledgers WHERE distributor_id = ?) >= ?`,
+			uint(id), in.AmountCents, row.Note, row.CreatedAt, uint(id), in.AmountCents)
+		if res.Error != nil {
+			fail(c, http.StatusInternalServerError, res.Error)
+			return
+		}
+		if res.RowsAffected == 0 {
+			fail(c, http.StatusBadRequest, errors.New("payout exceeds unsettled balance"))
+			return
+		}
+	} else if err := h.db.Create(&row).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}

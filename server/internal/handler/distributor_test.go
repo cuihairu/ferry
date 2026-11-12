@@ -4,10 +4,15 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/storage"
+	"gorm.io/gorm"
 )
 
 // utoa 是测试内 id 转字符串的简写。
@@ -345,5 +350,80 @@ func TestDistributorPayoutAdjust(t *testing.T) {
 	rec = doJSON(t, r, "POST", "/api/distributors/999/payout", map[string]any{"amount_cents": 100})
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("payout 404: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// TestPayoutAtomicGuard 覆盖打款落账的原子余额护栏（P1-5）：预检读到旧
+// 余额、落账前另一笔打款（独立连接，模拟并发请求）抢先入账时，条件
+// INSERT 因余额不足落 0 行回 400，不产生新流水——校验与落账之间的窗口
+// 不再透支。内建路由以持库文件路径，供第二连接模拟并发写入者。
+func TestPayoutAtomicGuard(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	db, err := storage.Open(storage.DriverSQLite, dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { if s, e := db.DB(); e == nil { _ = s.Close() } })
+	r, _ := NewRouter(db, config.Default())
+
+	rec := doJSON(t, r, "POST", "/api/distributors", map[string]any{"username": "d5", "password": "secret123"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body)
+	}
+	id := uint(mustJSON(t, rec)["distributor"].(map[string]any)["id"].(float64))
+
+	// adjust +500 入账 → 预检将看到余额 500。
+	rec = doJSON(t, r, "POST", "/api/distributors/"+utoa(id)+"/adjust", map[string]any{"amount_cents": 500})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("adjust: %d %s", rec.Code, rec.Body)
+	}
+
+	// 模拟并发：预检汇总读取完成、落账语句执行前，另一笔 payout 400 抢先
+	// 入账。钩子挂在 raw 语句之前（打款条件 INSERT 前），经独立连接写入，
+	// 落账语句读时即见——同连接插入会被驱动快照遮住，故用第二连接。
+	raced := false
+	db.Callback().Raw().Before("gorm:raw").Register("t:payoutrace", func(tx *gorm.DB) {
+		if raced {
+			return
+		}
+		raced = true
+		conn2, err := storage.Open(storage.DriverSQLite, dbPath)
+		if err != nil {
+			t.Errorf("open racer conn: %v", err)
+			return
+		}
+		if s, e := conn2.DB(); e == nil {
+			defer func() { _ = s.Close() }()
+		}
+		if err := conn2.Exec(`INSERT INTO distributor_ledgers
+			(distributor_id, kind, amount_cents, note, created_at)
+			VALUES (?, 'payout', 400, 'concurrent', ?)`, id, time.Now()).Error; err != nil {
+			t.Errorf("racer insert: %v", err)
+		}
+	})
+
+	// 打款 500：预检 500≥500 放行，落账时余额只剩 100 → 条件 INSERT 落 0 行。
+	rec = doJSON(t, r, "POST", "/api/distributors/"+utoa(id)+"/payout", map[string]any{"amount_cents": 500})
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "exceeds unsettled balance") {
+		t.Fatalf("lost race should 400: %d %s", rec.Code, rec.Body)
+	}
+	if !raced {
+		t.Fatal("race hook never fired")
+	}
+
+	// 只有插队那笔落账，余额 100。
+	var cnt int64
+	db.Model(&storage.DistributorLedger{}).Where("distributor_id = ? AND kind = 'payout'", id).Count(&cnt)
+	if cnt != 1 {
+		t.Fatalf("payout rows = %d, want 1 (only the racer)", cnt)
+	}
+	rec = doJSON(t, r, "GET", "/api/distributors/"+utoa(id)+"/ledger", nil)
+	var led struct {
+		BalanceCents float64 `json:"balance_cents"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &led)
+	if led.BalanceCents != 100 {
+		t.Fatalf("balance = %v, want 100", led.BalanceCents)
 	}
 }
