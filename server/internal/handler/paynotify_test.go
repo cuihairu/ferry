@@ -10,6 +10,7 @@ import (
 
 	"github.com/cuihairu/ferry/packages/payment"
 	"github.com/cuihairu/ferry/server/internal/storage"
+	"gorm.io/gorm"
 )
 
 // stubEpusdt 是受控的假 epusdt Provider：Verify 返回预设结论。
@@ -129,5 +130,62 @@ func TestEpusdtNotify(t *testing.T) {
 	db.First(&u2, 1)
 	if u2.QuotaBytes != u.QuotaBytes {
 		t.Fatalf("replay re-granted: %d → %d", u.QuotaBytes, u2.QuotaBytes)
+	}
+}
+
+// TestEpusdtNotifyConcurrentSettle 覆盖并发结算竞态（P1-3）：不同 external_id
+// 的两个回调都可能通过幂等检查（订单首读时还是 pending），条件更新保证只有
+// 一方置 paid 并发放；输家流水保留（钱确已到账，对账口径）但拿幂等结果，
+// 额度不双发。
+func TestEpusdtNotifyConcurrentSettle(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	if err := db.Create(&storage.User{
+		Username: "racer", QuotaBytes: 1 << 30, Enabled: true,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&storage.PaymentOrder{
+		OrderNo: "race-o-1", UserID: 1, Provider: "epusdt", AmountCents: 1000,
+		Status: "pending", GrantType: "add_quota", GrantValue: 2 << 30,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	// 模拟插队：幂等 Count 执行前另一回调已把订单置 paid（订单首读发生在
+	// 此前，看到的仍是 pending）。注错挂在 Count（Dest *int64）上，首读不拦。
+	db.Callback().Query().Before("gorm:query").Register("t:payrace", func(tx *gorm.DB) {
+		if _, ok := tx.Statement.Model.(*storage.PaymentTransaction); ok {
+			if _, ok := tx.Statement.Dest.(*int64); ok {
+				tx.Exec(`UPDATE payment_orders SET status='paid', paid_at=? WHERE order_no = 'race-o-1'`, time.Now())
+			}
+		}
+	})
+	payment.Register(stubEpusdt{cb: payment.Callback{
+		OrderNo: "race-o-1", ExternalID: "tx-race-2", AmountCents: 1000,
+	}})
+	rec := doJSON(t, r, "POST", "/api/pay/epusdt/notify", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("lose race: %d %s", rec.Code, rec.Body)
+	}
+	var out struct {
+		Idempotent bool   `json:"idempotent"`
+		Granted    string `json:"granted"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !out.Idempotent || out.Granted != "" {
+		t.Fatalf("loser response = %+v, want idempotent without grant", out)
+	}
+	// 流水保留，但不发放。
+	var txnCount, grantCount int64
+	db.Model(&storage.PaymentTransaction{}).Count(&txnCount)
+	db.Model(&storage.Grant{}).Count(&grantCount)
+	if txnCount != 1 || grantCount != 0 {
+		t.Fatalf("rows = txns %d grants %d, want 1/0", txnCount, grantCount)
+	}
+	var u storage.User
+	db.First(&u, 1)
+	if u.QuotaBytes != 1<<30 {
+		t.Fatalf("quota = %d, want unchanged", u.QuotaBytes)
 	}
 }

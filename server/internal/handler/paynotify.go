@@ -81,9 +81,19 @@ func (h *Handler) settlePayment(provider string, cb payment.Callback) (gin.H, er
 		if err := tx.Create(&txn).Error; err != nil {
 			return err
 		}
-		if err := tx.Model(&storage.PaymentOrder{}).Where("id = ?", order.ID).
-			Updates(map[string]any{"status": "paid", "paid_at": cb.PaidAt}).Error; err != nil {
-			return err
+		// 订单置 paid 走条件更新（仅 pending 可结算）：并发回调（不同
+		// external_id）可能同时通过上面的幂等检查，只有一方能翻转状态；
+		// 输家 RowsAffected=0，流水保留（钱确已到账，对账口径）但不再发放，
+		// 防止额度双发。过期/取消订单同样在此被拦下。
+		res := tx.Model(&storage.PaymentOrder{}).
+			Where("id = ? AND status = ?", order.ID, "pending").
+			Updates(map[string]any{"status": "paid", "paid_at": cb.PaidAt})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			out = gin.H{"status": "ok", "idempotent": true}
+			return nil
 		}
 		// 到账发放：订单带发放口径才执行（空=不自动发放，走人工/对账）
 		if order.GrantType == "" {
