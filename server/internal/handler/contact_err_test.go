@@ -80,7 +80,7 @@ func TestPanelContactErrors(t *testing.T) {
 // （回执端点不因联动失败报错）。
 func TestTouchResultContactErrors(t *testing.T) {
 	// 用户无联系行 → failed 回执自动建零值行并标 stale。
-	r, db := newTestRouterWithDB(t)
+	r, db := newSecretRouter(t)
 	var uid uint
 	if rec := doJSON(t, r, "POST", "/api/users", map[string]any{"username": "ct-norow"}); rec.Code != http.StatusCreated {
 		t.Fatalf("create user: %d %s", rec.Code, rec.Body)
@@ -98,7 +98,7 @@ func TestTouchResultContactErrors(t *testing.T) {
 		Status: "sent", CreatedAt: time.Now()}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if rec := doJSON(t, r, "POST", "/api/internal/event-results", map[string]any{
+	if rec := doSignedJSON(t, r, "/api/internal/event-results", map[string]any{
 		"event_id": 6001, "channel": "email", "status": "failed", "detail": "x",
 	}); rec.Code != http.StatusOK {
 		t.Fatalf("result: %d %s", rec.Code, rec.Body)
@@ -112,7 +112,7 @@ func TestTouchResultContactErrors(t *testing.T) {
 	}
 
 	// 兜底建档失败 → 静默返回，回执端点仍 200。
-	r2, db2 := newTestRouterWithDB(t)
+	r2, db2 := newSecretRouter(t)
 	var uid2 uint
 	if rec := doJSON(t, r2, "POST", "/api/users", map[string]any{"username": "ct-norow2"}); rec.Code != http.StatusCreated {
 		t.Fatalf("create user2: %d %s", rec.Code, rec.Body)
@@ -135,7 +135,7 @@ func TestTouchResultContactErrors(t *testing.T) {
 			tx.AddError(errors.New("db down"))
 		}
 	})
-	if rec := doJSON(t, r2, "POST", "/api/internal/event-results", map[string]any{
+	if rec := doSignedJSON(t, r2, "/api/internal/event-results", map[string]any{
 		"event_id": 6002, "channel": "email", "status": "failed", "detail": "x",
 	}); rec.Code != http.StatusOK {
 		t.Fatalf("result with fallback fail: %d %s", rec.Code, rec.Body)

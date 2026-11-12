@@ -88,7 +88,7 @@ func TestEventsAPI(t *testing.T) {
 // TestEventResultAPI 覆盖 Herald 通道分发回执（HERALD-2）：回执落
 // EventDelivery 留痕、事件本体状态不动、参数校验与未知事件 404。
 func TestEventResultAPI(t *testing.T) {
-	r, db := newTestRouterWithDB(t)
+	r, db := newSecretRouter(t)
 
 	now := time.Now()
 	ev := storage.Event{Kind: "region_fault", Severity: herald.SeverityCritical, Title: "华东不可达", Target: "admin", Status: herald.StatusSent, Attempts: 1, OccurredAt: now, CreatedAt: now}
@@ -97,7 +97,7 @@ func TestEventResultAPI(t *testing.T) {
 	}
 
 	post := func(body gin.H) *httptest.ResponseRecorder {
-		return doJSON(t, r, "POST", "/api/internal/event-results", body)
+		return doSignedJSON(t, r, "/api/internal/event-results", body)
 	}
 
 	// 正常回执：sent + failed 各一条留痕，事件状态不动

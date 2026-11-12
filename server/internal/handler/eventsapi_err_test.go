@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
@@ -111,32 +110,32 @@ func TestRetryEventErrors(t *testing.T) {
 
 // TestEventResultErrors 回执：读体失败与两种形状的坏 JSON、落库失败。
 func TestEventResultErrors(t *testing.T) {
-	r, _ := newTestRouterWithDB(t)
+	r, _ := newSecretRouter(t)
 	if rec := doRawBody(t, r, http.MethodPost, "/api/internal/event-results", errReader{}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("read body: %d %s", rec.Code, rec.Body)
 	}
-	// 整体坏 JSON：形状探测段即失败。
-	if rec := doRawBody(t, r, http.MethodPost, "/api/internal/event-results",
-		strings.NewReader("{not json")); rec.Code != http.StatusBadRequest {
+	// 整体坏 JSON：形状探测段即失败（签名通过后落到 JSON 解析失败）。
+	if rec := doSignedRawBody(t, r, "/api/internal/event-results",
+		[]byte("{not json")); rec.Code != http.StatusBadRequest {
 		t.Fatalf("probe json: %d %s", rec.Code, rec.Body)
 	}
 	// 旧形状（数字 event_id）字段类型不符：探测段过、二次解包失败。
-	if rec := doRawBody(t, r, http.MethodPost, "/api/internal/event-results",
-		strings.NewReader(`{"event_id":1.5}`)); rec.Code != http.StatusBadRequest {
+	if rec := doSignedRawBody(t, r, "/api/internal/event-results",
+		[]byte(`{"event_id":1.5}`)); rec.Code != http.StatusBadRequest {
 		t.Fatalf("legacy json: %d %s", rec.Code, rec.Body)
 	}
 	// 回调形状（字符串 event_id）字段类型不符：回调解包失败。
-	if rec := doRawBody(t, r, http.MethodPost, "/api/internal/event-results",
-		strings.NewReader(`{"event_id":"x","kind":5}`)); rec.Code != http.StatusBadRequest {
+	if rec := doSignedRawBody(t, r, "/api/internal/event-results",
+		[]byte(`{"event_id":"x","kind":5}`)); rec.Code != http.StatusBadRequest {
 		t.Fatalf("callback json: %d %s", rec.Code, rec.Body)
 	}
 
 	// 回执落库失败（事件存在、回执表注错）。
-	r, db := newTestRouterWithDB(t)
+	r, db := newSecretRouter(t)
 	id := seedEventRow(t, db, "d-k", herald.StatusPending)
 	failCreateOn(t, db, "test:delivery_create", isEventDeliveryModel)
-	if rec := doRawBody(t, r, http.MethodPost, "/api/internal/event-results",
-		strings.NewReader(`{"event_id":`+strconv.FormatUint(uint64(id), 10)+`,"channel":"chan","status":"sent"}`)); rec.Code != http.StatusInternalServerError {
+	if rec := doSignedRawBody(t, r, "/api/internal/event-results",
+		[]byte(`{"event_id":`+strconv.FormatUint(uint64(id), 10)+`,"channel":"chan","status":"sent"}`)); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("create delivery: %d %s", rec.Code, rec.Body)
 	}
 }

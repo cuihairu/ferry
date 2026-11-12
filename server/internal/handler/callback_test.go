@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -22,23 +21,24 @@ import (
 // （{event_id: "cb-…", app, kind, at, delivery: {…}}），验 X-Herald-Signature
 // HMAC；HERALD-2 旧形状（{event_id: int64, …}）双形状判别继续收。
 
+// callbackTestSecret 是测试用 Herald 回调验签密钥（32 字节口径，同
+// callback_test.go 既有取值）。
+const callbackTestSecret = "callback-secret-0123456789abcdef"
+
+// newSecretRouter 建带 Herald 回调验签密钥的路由器：P2 回执端点默认必验
+// 签，凡 POST /api/internal/event-results 的用例都须经此（或
+// newCallbackRouter）建带密钥实例。
+func newSecretRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
+	t.Helper()
+	return newTestRouterCfg(t, func(c *config.Config) {
+		c.HeraldCallbackSecret = callbackTestSecret
+	})
+}
+
 // newCallbackRouter 定制配置路由器：配置回调验签密钥的实例。
 func newCallbackRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	t.Helper()
-	db, err := storage.Open(storage.DriverSQLite, filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	t.Cleanup(func() {
-		if sqlDB, err := db.DB(); err == nil {
-			_ = sqlDB.Close()
-		}
-	})
-	gin.SetMode(gin.TestMode)
-	cfg := config.Default()
-	cfg.HeraldCallbackSecret = "callback-secret-0123456789abcdef" // 32 字节口径
-	r, _ := NewRouter(db, cfg)
-	return r, db
+	return newSecretRouter(t)
 }
 
 // heraldSign 按 herald 侧口径签名：sha256=<hex HMAC-SHA256(secret, body)>。
@@ -56,6 +56,34 @@ func postEventResult(t *testing.T, r *gin.Engine, secret string, body []byte) *h
 	if secret != "" {
 		req.Header.Set("X-Herald-Signature", heraldSign(secret, body))
 	}
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	return rec
+}
+
+// doSignedJSON 发带 X-Herald-Signature 的 JSON POST：回执端点默认必验签
+// （P2），凡走 /api/internal/event-results 成功路径的用例须带测试密钥签名。
+func doSignedJSON(t *testing.T, r *gin.Engine, path string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(body); err != nil {
+		t.Fatalf("encode body: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, path, &buf)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Herald-Signature", heraldSign(callbackTestSecret, buf.Bytes()))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	return rec
+}
+
+// doSignedRawBody 发带签名的原始字节体 POST（坏 JSON 等不能被编码器洗成
+// 合法形态的用例）；体读失败（errReader）走 doRawBody 即可，读体先于验签。
+func doSignedRawBody(t *testing.T, r *gin.Engine, path string, body []byte) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Herald-Signature", heraldSign(callbackTestSecret, body))
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	return rec
@@ -171,21 +199,62 @@ func TestEventResultHeraldCallback(t *testing.T) {
 		t.Fatalf("unsubscribe ack: %d %s", rec.Code, rec.Body)
 	}
 
-	// ⑧ 未配置密钥的实例：§13.5 与旧形状均不验签直接收（既有通道兼容）
+	// ⑧ 未配置密钥的实例（P2 默认必验签）：两种形状均拒绝——无密钥即无
+	// 法确认真伪，伪造回执不被默认接收；且不留任何回执行。
 	r0, db0 := newTestRouterWithDB(t)
 	if err := db0.Create(&storage.Event{ID: 3001, Kind: "notice", Severity: "info", Title: "t", Target: "user:7", Status: "sent", OccurredAt: time.Now()}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if rec := postEventResult(t, r0, "", callbackPayload("3001", "success", "")); rec.Code != http.StatusOK {
+	if rec := postEventResult(t, r0, "", callbackPayload("3001", "success", "")); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("unsigned callback on secretless instance: %d %s", rec.Code, rec.Body)
 	}
-	if rec := postEventResult(t, r0, "", []byte(`{"event_id":3001,"channel":"herald","status":"sent"}`)); rec.Code != http.StatusOK {
+	if rec := postEventResult(t, r0, "", []byte(`{"event_id":3001,"channel":"herald","status":"sent"}`)); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("legacy on secretless instance: %d %s", rec.Code, rec.Body)
+	}
+	var n0 int64
+	if err := db0.Model(&storage.EventDelivery{}).Where("event_id = ?", 3001).Count(&n0).Error; err != nil || n0 != 0 {
+		t.Fatalf("secretless instance recorded delivery: %d err=%v", n0, err)
 	}
 
 	// ⑨ 不存在的事件 404（两种形状同口径）
 	rec = postEventResult(t, r, "callback-secret-0123456789abcdef", callbackPayload("9999", "success", ""))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("missing event: %d", rec.Code)
+	}
+}
+
+// TestEventResultSecretlessRejected 覆盖 P2「event-results 默认不验签」修复：
+// 回执端点是 open 组公开路由，未配置 HeraldCallbackSecret 的实例不能接受任
+// 何回调（默认必验签）——修复前空密钥直接放行，伪造回执（含触达联动副作用）
+// 被默认接收；修复后无密钥实例两种形状统一 401 且不留回执行。
+func TestEventResultSecretlessRejected(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	if err := db.Create(&storage.Event{ID: 4001, Kind: "bill", Severity: "info", Title: "t", Target: "user:9", Status: "sent", OccurredAt: time.Now()}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&storage.UserContact{UserID: 9, Email: "f@x.c", RoutineEmails: true, BoundAt: time.Now()}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&storage.TouchJob{UserID: 9, Channel: "email", Kind: "bill", Payload: "{}", Status: "sent", EventID: 4001, CreatedAt: time.Now()}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// §13.5 回调与旧形状：无密钥实例一律 401，触达联动副作用不触发。
+	for _, body := range [][]byte{
+		callbackPayload("4001", "failed", "smtp: forged"),
+		[]byte(`{"event_id":4001,"channel":"email","status":"failed","detail":"forged"}`),
+	} {
+		if rec := postEventResult(t, r, "", body); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("secretless receipt should 401: %d %s", rec.Code, rec.Body)
+		}
+	}
+	var n int64
+	db.Model(&storage.EventDelivery{}).Where("event_id = ?", 4001).Count(&n)
+	if n != 0 {
+		t.Fatalf("secretless instance recorded delivery: %d", n)
+	}
+	var ct storage.UserContact
+	if err := db.First(&ct, 9).Error; err != nil || ct.Stale {
+		t.Fatalf("forged receipt touched contact: %v %+v", err, ct)
 	}
 }

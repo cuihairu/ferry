@@ -104,8 +104,9 @@ type Config struct {
 	HeraldToken string
 	// HeraldCallbackSecret 是 Herald 回调（§13.5 事件回调，HERALD-5）的
 	// HMAC-SHA256 验签密钥，对应 herald 侧 PUT /api/v1/apps/ferry/callback
-	// 设置的 32 字节 secret（FERRY_HERALD_CALLBACK_SECRET）；空=不验签
-	//（沿用 HERALD-2 的网络边界隔离口径，配置后回执端点强制验签）。
+	// 设置的 32 字节 secret（FERRY_HERALD_CALLBACK_SECRET）；空=回执端点
+	// 拒绝全部回调（P2 默认必验签，防伪造回执被默认接收）——接 Herald 即
+	// 必须配置并与 herald 侧一致，否则回执留痕与触达联动静默失效。
 	HeraldCallbackSecret string
 	// SupportURL/SupportServiceKey 是外部客服服务（servify）的接入面：
 	// 面板客服入口的 base 地址与宿主后端 service API key（X-API-Key）。

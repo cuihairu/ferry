@@ -102,7 +102,7 @@ func TestPanelContact(t *testing.T) {
 // 标任务失败+联系信息 stale+站内提醒（同日一条），三连失败升级 contact 事件
 // 并清零计数；sent 回执清零恢复；非触达事件回执不联动。
 func TestContactStaleLoop(t *testing.T) {
-	r, db := newTestRouterWithDB(t)
+	r, db := newSecretRouter(t)
 	panelToken(t, r, "stale-user")
 	var uid uint
 	if err := db.Model(&storage.User{}).Where("username = ?", "stale-user").Pluck("id", &uid).Error; err != nil || uid == 0 {
@@ -128,7 +128,7 @@ func TestContactStaleLoop(t *testing.T) {
 	}
 
 	fail := func(eventID int64) {
-		rec := doJSON(t, r, "POST", "/api/internal/event-results", map[string]any{
+		rec := doSignedJSON(t, r, "/api/internal/event-results", map[string]any{
 			"event_id": eventID, "channel": "email", "status": "failed", "detail": "smtp bounce",
 		})
 		if rec.Code != http.StatusOK {
@@ -179,7 +179,7 @@ func TestContactStaleLoop(t *testing.T) {
 	}
 
 	// sent 回执恢复：stale 清零
-	rec := doJSON(t, r, "POST", "/api/internal/event-results", map[string]any{
+	rec := doSignedJSON(t, r, "/api/internal/event-results", map[string]any{
 		"event_id": 5001, "channel": "email", "status": "sent", "detail": "",
 	})
 	if rec.Code != http.StatusOK {
@@ -203,7 +203,7 @@ func TestContactStaleLoop(t *testing.T) {
 		Status: "sent", CreatedAt: time.Now()}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if rec := doJSON(t, r, "POST", "/api/internal/event-results", map[string]any{
+	if rec := doSignedJSON(t, r, "/api/internal/event-results", map[string]any{
 		"event_id": 9999, "channel": "email", "status": "failed", "detail": "x",
 	}); rec.Code != http.StatusOK {
 		t.Fatalf("non-touch result: %d", rec.Code)

@@ -108,11 +108,13 @@ type heraldCallback struct {
 
 // verifyHeraldSignature 校验 X-Herald-Signature（herald 侧 `sha256=<hex>`
 // HMAC-SHA256，签名覆盖原始请求体，密钥=配置的 HeraldCallbackSecret）。
-// 未配置密钥=不验签（HERALD-2 的网络边界隔离口径延续，既有回执通道不断）；
-// 配置后强制验签，缺前缀或不匹配统一 401。
+// 未配置密钥=拒绝（P2：默认不验签是缺陷——回执端点是 open 组公开路由，
+// 无密钥即无法确认真伪，伪造回执会被默认接收，改默认必验签）。配置后走
+// HMAC 验签，缺前缀或不匹配统一 401。
 func (h *Handler) verifyHeraldSignature(c *gin.Context, body []byte) bool {
 	if h.cfg.HeraldCallbackSecret == "" {
-		return true
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "callback secret not configured"})
+		return false
 	}
 	sig := c.GetHeader("X-Herald-Signature")
 	const prefix = "sha256="
