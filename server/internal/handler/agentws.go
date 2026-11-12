@@ -5,6 +5,8 @@ import (
 	"errors"
 	"log"
 	"net"
+	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,7 +20,23 @@ import (
 	"gorm.io/gorm"
 )
 
-var wsUpgrader = websocket.Upgrader{}
+// wsUpgrader 是 agent 出站长连接的升级器（P2 显式 CheckOrigin）：认证边界是
+// hello 令牌（agent 出站、升级后才验），Origin 头只防浏览器跨源页面发起的
+// CSWSH——agent 服务端连接不带 Origin 放行，带 Origin 的要求同源。此前未设
+// CheckOrigin，依赖 gorilla 隐式默认，策略不明；显式化后行为与其默认一致。
+var wsUpgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true // agent 出站连接不带 Origin
+		}
+		u, err := url.Parse(origin)
+		if err != nil {
+			return false
+		}
+		return strings.EqualFold(u.Host, r.Host)
+	},
+}
 
 // maxAgentFrameBytes 是单帧 WebSocket 消息上限（P1-6）：gorilla 默认
 // readLimit 为 0（不限制帧长），被攻破/故障的 agent 一发巨帧即可耗尽面板

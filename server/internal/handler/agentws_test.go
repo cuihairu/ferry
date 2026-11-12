@@ -829,3 +829,31 @@ func TestAgentWSFrameLimit(t *testing.T) {
 		t.Fatal("expected read error after oversize frame")
 	}
 }
+
+// TestAgentWSCheckOrigin 覆盖 P2 显式 CheckOrigin：agent 出站连接不带
+// Origin 放行；带 Origin 要求同源（浏览器跨源 CSWSH 拒）；跨源/坏 Origin 拒。
+func TestAgentWSCheckOrigin(t *testing.T) {
+	mk := func(origin string) *http.Request {
+		r := httptest.NewRequest(http.MethodGet, "http://panel.example/agent/ws", nil)
+		r.Host = "panel.example"
+		if origin != "" {
+			r.Header.Set("Origin", origin)
+		}
+		return r
+	}
+	if !wsUpgrader.CheckOrigin(mk("")) {
+		t.Fatal("no-origin agent connection must be allowed")
+	}
+	if !wsUpgrader.CheckOrigin(mk("http://panel.example")) {
+		t.Fatal("same-origin must be allowed")
+	}
+	if !wsUpgrader.CheckOrigin(mk("https://panel.example")) {
+		t.Fatal("same-host different-scheme must be allowed (host-only compare)")
+	}
+	if wsUpgrader.CheckOrigin(mk("http://evil.example")) {
+		t.Fatal("cross-origin must be rejected")
+	}
+	if wsUpgrader.CheckOrigin(mk("://bad")) {
+		t.Fatal("malformed origin must be rejected")
+	}
+}
