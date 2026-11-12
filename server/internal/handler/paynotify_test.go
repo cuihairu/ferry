@@ -83,11 +83,12 @@ func TestEpusdtNotify(t *testing.T) {
 		t.Fatalf("provider mismatch should 400: %d %s", rec.Code, rec.Body)
 	}
 
-	// 成功结算：流水+订单 paid+发放
+	// 成功结算：流水+订单 paid+发放；响应体是字面 ok（网关按体判定，
+	// JSON 会被它当作失败不停重试）。
 	payment.Register(stubEpusdt{cb: okCb})
 	rec := doJSON(t, r, "POST", "/api/pay/epusdt/notify", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("settle: %d %s", rec.Code, rec.Body)
+	if rec.Code != http.StatusOK || rec.Body.String() != "ok" {
+		t.Fatalf("settle: %d %q", rec.Code, rec.Body)
 	}
 	var txnCount, grantCount int64
 	db.Model(&storage.PaymentTransaction{}).Count(&txnCount)
@@ -117,9 +118,9 @@ func TestEpusdtNotify(t *testing.T) {
 		t.Fatalf("snapshot missing trade_id: %v", snap)
 	}
 
-	// 重复回调（同 trade_id）→ 200 幂等，不重复落账
-	if rec := doJSON(t, r, "POST", "/api/pay/epusdt/notify", nil); rec.Code != http.StatusOK {
-		t.Fatalf("replay should 200: %d %s", rec.Code, rec.Body)
+	// 重复回调（同 trade_id）→ 200 幂等回字面 ok（停住网关重试），不重复落账
+	if rec := doJSON(t, r, "POST", "/api/pay/epusdt/notify", nil); rec.Code != http.StatusOK || rec.Body.String() != "ok" {
+		t.Fatalf("replay should 200 ok: %d %q", rec.Code, rec.Body)
 	}
 	db.Model(&storage.PaymentTransaction{}).Count(&txnCount)
 	db.Model(&storage.Grant{}).Count(&grantCount)
@@ -163,18 +164,8 @@ func TestEpusdtNotifyConcurrentSettle(t *testing.T) {
 		OrderNo: "race-o-1", ExternalID: "tx-race-2", AmountCents: 1000,
 	}})
 	rec := doJSON(t, r, "POST", "/api/pay/epusdt/notify", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("lose race: %d %s", rec.Code, rec.Body)
-	}
-	var out struct {
-		Idempotent bool   `json:"idempotent"`
-		Granted    string `json:"granted"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
-		t.Fatal(err)
-	}
-	if !out.Idempotent || out.Granted != "" {
-		t.Fatalf("loser response = %+v, want idempotent without grant", out)
+	if rec.Code != http.StatusOK || rec.Body.String() != "ok" {
+		t.Fatalf("lose race: %d %q", rec.Code, rec.Body)
 	}
 	// 流水保留，但不发放。
 	var txnCount, grantCount int64

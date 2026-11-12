@@ -17,7 +17,9 @@ import (
 // 回调鉴权靠验签（epusdt 回调密钥），不走管理端中间件。
 
 // epusdtNotify 是 epusdt 异步回调入口（POST /api/pay/epusdt/notify）。
-// 验签失败不落任何账；结算一律 200/400，网关按此重试或停发。
+// 验签失败不落任何账；结算失败 400 供网关重试；结算成功（含幂等重放）
+// 回字面 ok 体——网关按响应体而非状态码判定回调结果，非 "ok" 一律视为
+// 失败并不停重试（assimon/epusdt v1 callback_queue.go 口径）。
 func (h *Handler) epusdtNotify(c *gin.Context) {
 	p, err := payment.Get("epusdt")
 	if err != nil {
@@ -34,12 +36,11 @@ func (h *Handler) epusdtNotify(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	res, err := h.settlePayment("epusdt", cb)
-	if err != nil {
+	if _, err := h.settlePayment("epusdt", cb); err != nil {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	c.JSON(http.StatusOK, res)
+	c.String(http.StatusOK, "ok")
 }
 
 // settlePayment 回调结算（单事务）：对单校验（渠道/金额）→ 流水（同
