@@ -70,6 +70,23 @@ func doJSONAuth(t *testing.T, r *gin.Engine, method, path string, body any) *htt
 	return rec
 }
 
+// doJSONAuthID 带指定管理员 ID 的令牌发请求（多管理员用例按 ID 各发一把）。
+func doJSONAuthID(t *testing.T, r *gin.Engine, method, path string, body any, adminID uint) *httptest.ResponseRecorder {
+	t.Helper()
+	var buf bytes.Buffer
+	if body != nil {
+		if err := json.NewEncoder(&buf).Encode(body); err != nil {
+			t.Fatalf("encode body: %v", err)
+		}
+	}
+	req := httptest.NewRequest(method, path, &buf)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminJWTFor(t, adminID))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	return rec
+}
+
 // loginBody 解析登录响应的 token/错误码。
 func loginBody(t *testing.T, rec *httptest.ResponseRecorder) (token, code string) {
 	t.Helper()
@@ -167,7 +184,7 @@ func TestTwoFABindLoginRecovery(t *testing.T) {
 	if !u.TOTPEnabled || !strings.HasPrefix(u.TOTPSecret, "v1:") {
 		t.Fatalf("user twofa: enabled=%v secret=%.20q", u.TOTPEnabled, u.TOTPSecret)
 	}
-	if _, ok, _ := storage.GetSetting(db, twofaPendingKey); ok {
+	if _, ok, _ := storage.GetSetting(db, twofaPendingKey(u.ID)); ok {
 		t.Fatal("pending secret should be cleared after enable")
 	}
 	var codeRows int64
@@ -335,5 +352,66 @@ func TestLoginAlerts(t *testing.T) {
 	}
 	if !strings.Contains(events[1].Title, "连续失败") {
 		t.Fatalf("brute event = %+v", events[1])
+	}
+}
+
+// TestTwoFAPendingKeyPerAdmin 覆盖 P2「2FA 全局单键互覆盖」修复：绑定中暂存
+// 密钥按管理员 ID 分键——一个管理员发起绑定不再冲掉另一个的暂存密钥，各自
+// enable 用各自密钥校验成功。修复前单键 "admin_2fa_pending" 跨管理员共用，
+// B 的 setup 覆盖 A 的暂存密钥，A 的 enable 因密钥不符被拒（绑定中断）。
+func TestTwoFAPendingKeyPerAdmin(t *testing.T) {
+	r, db := newTestRouterCfg(t, func(cfg *config.Config) { cfg.SecretKey = "test-master-key" })
+	seedAdmin(t, db, "admin-a", "pw-a")
+	seedAdmin(t, db, "admin-b", "pw-b")
+	var a, b storage.User
+	if err := db.First(&a, "username = ?", "admin-a").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.First(&b, "username = ?", "admin-b").Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// A 发起绑定 → B 发起绑定（不应冲掉 A 的暂存密钥）。
+	setupSecret := func(adminID uint) string {
+		t.Helper()
+		rec := doJSONAuthID(t, r, "POST", "/admin/2fa/setup", nil, adminID)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("setup admin %d: %d %s", adminID, rec.Code, rec.Body)
+		}
+		var setup struct {
+			Secret string `json:"secret"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &setup); err != nil || setup.Secret == "" {
+			t.Fatalf("setup admin %d decode: %v %s", adminID, err, rec.Body)
+		}
+		return setup.Secret
+	}
+	secretA := setupSecret(a.ID)
+	secretB := setupSecret(b.ID)
+
+	// A 用 A 的码 enable：应成功（修复前被 B 的密钥覆盖而失败）。
+	if rec := doJSONAuthID(t, r, "POST", "/admin/2fa/enable", map[string]any{"code": totpNow(t, secretA)}, a.ID); rec.Code != http.StatusOK {
+		t.Fatalf("A enable: %d %s", rec.Code, rec.Body)
+	}
+	// B 用 B 的码 enable：应成功。
+	if rec := doJSONAuthID(t, r, "POST", "/admin/2fa/enable", map[string]any{"code": totpNow(t, secretB)}, b.ID); rec.Code != http.StatusOK {
+		t.Fatalf("B enable: %d %s", rec.Code, rec.Body)
+	}
+
+	if err := db.First(&a, "username = ?", "admin-a").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.First(&b, "username = ?", "admin-b").Error; err != nil {
+		t.Fatal(err)
+	}
+	if !a.TOTPEnabled || !b.TOTPEnabled {
+		t.Fatalf("both admins should be enabled: A=%v B=%v", a.TOTPEnabled, b.TOTPEnabled)
+	}
+	// 各自暂存键已清，且互不残留。
+	if _, ok, _ := storage.GetSetting(db, twofaPendingKey(a.ID)); ok {
+		t.Fatal("A pending should be cleared after enable")
+	}
+	if _, ok, _ := storage.GetSetting(db, twofaPendingKey(b.ID)); ok {
+		t.Fatal("B pending should be cleared after enable")
 	}
 }

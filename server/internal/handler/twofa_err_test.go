@@ -31,8 +31,9 @@ func isRecoveryCodeModel(v any) bool {
 	return false
 }
 
-// seedPendingTOTP 直落一枚可校验的绑定中密钥（供 enable 走通校验段）。
-func seedPendingTOTP(t *testing.T, db *gorm.DB, master string) string {
+// seedPendingTOTP 直落一枚可校验的绑定中密钥（供 enable 走通校验段）；
+// 按管理员 ID 分键落暂存（P2 分键后 enable 按自身 ID 读）。
+func seedPendingTOTP(t *testing.T, db *gorm.DB, master string, adminID uint) string {
 	t.Helper()
 	gen, err := totp.Generate(totp.GenerateOpts{Issuer: twofaIssuer, AccountName: "pending"})
 	if err != nil {
@@ -42,7 +43,7 @@ func seedPendingTOTP(t *testing.T, db *gorm.DB, master string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&storage.Setting{Key: twofaPendingKey, Value: sealed}).Error; err != nil {
+	if err := db.Create(&storage.Setting{Key: twofaPendingKey(adminID), Value: sealed}).Error; err != nil {
 		t.Fatal(err)
 	}
 	return gen.Secret()
@@ -96,8 +97,8 @@ func TestTwoFAEnableValidation(t *testing.T) {
 
 	// 暂存不可解（不是带版本的密文）→ 500。
 	r, db = newTestRouterCfg(t, func(cfg *config.Config) { cfg.SecretKey = "test-master-key" })
-	seedAdmin(t, db, "root", "pw-root")
-	if err := db.Create(&storage.Setting{Key: twofaPendingKey, Value: "garbage"}).Error; err != nil {
+	root := seedAdmin(t, db, "root", "pw-root")
+	if err := db.Create(&storage.Setting{Key: twofaPendingKey(root.ID), Value: "garbage"}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if rec := doJSONAuth(t, r, http.MethodPost, "/admin/2fa/enable",
@@ -111,8 +112,8 @@ func TestTwoFAEnableDBFails(t *testing.T) {
 	master := "test-master-key"
 	// 用户行保存失败（校验已过）。
 	r, db := newTestRouterCfg(t, func(cfg *config.Config) { cfg.SecretKey = master })
-	seedAdmin(t, db, "root", "pw-root")
-	plain := seedPendingTOTP(t, db, master)
+	root := seedAdmin(t, db, "root", "pw-root")
+	plain := seedPendingTOTP(t, db, master, root.ID)
 	failUpdateOn(t, db, "test:twofa_user_update", isUserModel)
 	if rec := doJSONAuth(t, r, http.MethodPost, "/admin/2fa/enable",
 		map[string]any{"code": totpNow(t, plain)}); rec.Code != http.StatusInternalServerError {
@@ -121,8 +122,8 @@ func TestTwoFAEnableDBFails(t *testing.T) {
 
 	// 恢复码落库失败（用户行已保存）。
 	r, db = newTestRouterCfg(t, func(cfg *config.Config) { cfg.SecretKey = master })
-	seedAdmin(t, db, "root", "pw-root")
-	plain = seedPendingTOTP(t, db, master)
+	root = seedAdmin(t, db, "root", "pw-root")
+	plain = seedPendingTOTP(t, db, master, root.ID)
 	failCreateOn(t, db, "test:recovery_create", isRecoveryCodeModel)
 	if rec := doJSONAuth(t, r, http.MethodPost, "/admin/2fa/enable",
 		map[string]any{"code": totpNow(t, plain)}); rec.Code != http.StatusInternalServerError {
@@ -133,7 +134,7 @@ func TestTwoFAEnableDBFails(t *testing.T) {
 // TestTwoFAEnableMissingAdmin enable 校验通过后令牌账号已不存在 → 401。
 func TestTwoFAEnableMissingAdmin(t *testing.T) {
 	r, db := newTestRouterCfg(t, func(cfg *config.Config) { cfg.SecretKey = "test-master-key" })
-	plain := seedPendingTOTP(t, db, "test-master-key")
+	plain := seedPendingTOTP(t, db, "test-master-key", 1)
 	if rec := doJSONAuth(t, r, http.MethodPost, "/admin/2fa/enable",
 		map[string]any{"code": totpNow(t, plain)}); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("missing admin: %d %s", rec.Code, rec.Body)

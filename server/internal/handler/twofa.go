@@ -10,6 +10,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -22,13 +23,19 @@ import (
 )
 
 const (
-	// twofaPendingKey 是绑定中密钥的 settings 暂存键（值为加密密文；单管理员一把）。
-	twofaPendingKey = "admin_2fa_pending"
 	// twofaIssuer 是 otpauth URL 的 issuer 展示名。
 	twofaIssuer = "ferry"
 	// RecoveryCodeCount 是绑定完成时生成的一次性恢复码数量。
 	RecoveryCodeCount = 8
 )
+
+// twofaPendingKey 返回指定管理员的绑定中密钥暂存键（settings 键，值为加密
+// 密文）。P2 修复：原单键 "admin_2fa_pending" 跨管理员共用，一个管理员发起
+// 绑定会冲掉另一个的暂存密钥，互覆盖导致后者 enable 校验失败；改按管理员
+// ID 分键，各管各的绑定流程。
+func twofaPendingKey(userID uint) string {
+	return fmt.Sprintf("admin_2fa_pending:%d", userID)
+}
 
 // twofaOpts 是 TOTP 校验参数（RFC 6238 标准 30s/6 位/SHA1，±1 周期容差）。
 func twofaOpts() totp.ValidateOpts {
@@ -76,7 +83,7 @@ func (h *Handler) twofaSetup(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
-	if err := storage.SetSetting(h.db, twofaPendingKey, sealed); err != nil {
+	if err := storage.SetSetting(h.db, twofaPendingKey(u.ID), sealed); err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
@@ -93,7 +100,13 @@ func (h *Handler) twofaEnable(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误：code 必填"})
 		return
 	}
-	sealed, ok, err := storage.GetSetting(h.db, twofaPendingKey)
+	// 先取当前管理员（adminAuthMiddleware 已回库复核），按管理员分键读暂存
+	// 密钥——P2 修复后各管理员绑定流程互不覆盖。
+	u, ok := h.adminUser(c)
+	if !ok {
+		return
+	}
+	sealed, ok, err := storage.GetSetting(h.db, twofaPendingKey(u.ID))
 	if err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
@@ -109,10 +122,6 @@ func (h *Handler) twofaEnable(c *gin.Context) {
 	}
 	if valid, verr := totp.ValidateCustom(in.Code, secretPlain, time.Now(), twofaOpts()); verr != nil || !valid {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "验证码错误或已过期"})
-		return
-	}
-	u, ok := h.adminUser(c)
-	if !ok {
 		return
 	}
 	// 旧码全清（重绑定轮换），再落新码。
@@ -137,7 +146,7 @@ func (h *Handler) twofaEnable(c *gin.Context) {
 		}
 		codes = append(codes, code)
 	}
-	h.db.Where("key = ?", twofaPendingKey).Delete(&storage.Setting{})
+	h.db.Where("key = ?", twofaPendingKey(u.ID)).Delete(&storage.Setting{})
 	c.JSON(http.StatusOK, gin.H{"recovery_codes": codes})
 }
 
@@ -165,7 +174,7 @@ func (h *Handler) twofaDisable(c *gin.Context) {
 		return
 	}
 	h.db.Where("user_id = ?", u.ID).Delete(&storage.RecoveryCode{})
-	h.db.Where("key = ?", twofaPendingKey).Delete(&storage.Setting{})
+	h.db.Where("key = ?", twofaPendingKey(u.ID)).Delete(&storage.Setting{})
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 

@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,14 +17,22 @@ import (
 	"gorm.io/gorm"
 )
 
-// adminJWT 签发测试用管理员令牌（adminAuthMiddleware 默认秘钥口径）。
+// adminJWT 签发测试用管理员令牌（adminAuthMiddleware 默认秘钥口径），
+// 绑定到 ID=1 的管理员（多数用例首个 seed 的管理员）。
 func adminJWT(t *testing.T) string {
+	t.Helper()
+	return adminJWTFor(t, 1)
+}
+
+// adminJWTFor 为指定管理员 ID 签发测试用令牌（adminUserID 取 Jti，对齐
+// AdminLogin 真实令牌形状）；多管理员用例（P2 2FA 分键回归）按 ID 各发一把。
+func adminJWTFor(t *testing.T, id uint) string {
 	t.Helper()
 	now := time.Now()
 	claims := adminClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   "1",
-			ID:        "1", // adminUserID 取 Jti，对齐 AdminLogin 真实令牌形状
+			ID:        strconv.FormatUint(uint64(id), 10),
 			ExpiresAt: jwt.NewNumericDate(now.Add(time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(now), // 改密作废判定取签发时间（2026-11-12）
 		},
