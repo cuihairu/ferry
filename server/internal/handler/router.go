@@ -31,6 +31,10 @@ type Handler struct {
 	secrets *secret.Store
 	// redeemLimiter 是兑换接口的 IP 限流（PAY-5：10 次/分钟，失败 5 次锁 15 分钟）。
 	redeemLimiter *ratelimit.Limiter
+	// loginLimiter 是凭据登录面的 IP 限流（P2：管理员/代理登录，10 次/分钟，
+	// 失败 5 次锁 15 分钟，redeem 同款）。与 redeemLimiter 分面：登录爆破与兑换
+	// 不再互相锁定（此前共用 redeemLimiter，刷任一面对另一面造成跨面 DoS）。
+	loginLimiter *ratelimit.Limiter
 	// speedLimiter 是测速字节端点的 IP 限流（30 次/分钟，只 Allow 不记失败）。
 	speedLimiter *ratelimit.Limiter
 	// orderLimiter 是门户在线下单的 IP 限流（10 次/分钟，只 Allow 不记失败）。
@@ -54,6 +58,12 @@ type Handler struct {
 func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) {
 	h := &Handler{db: db, cfg: cfg, hub: agenthub.New()}
 	h.redeemLimiter = ratelimit.New(ratelimit.Options{
+		Window:      time.Minute,
+		MaxAttempts: 10,
+		FailLimit:   5,
+		Lockout:     15 * time.Minute,
+	})
+	h.loginLimiter = ratelimit.New(ratelimit.Options{
 		Window:      time.Minute,
 		MaxAttempts: 10,
 		FailLimit:   5,

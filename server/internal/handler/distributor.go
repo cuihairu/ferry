@@ -27,7 +27,7 @@ type distributorClaims struct {
 // distAuth 中间件与代理自面视图随 DS-3 落地。
 func (h *Handler) DistributorLogin(c *gin.Context) {
 	ip := c.ClientIP()
-	if !h.redeemLimiter.Allow(ip) {
+	if !h.loginLimiter.Allow(ip) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "尝试过于频繁，请稍后再试"})
 		return
 	}
@@ -43,7 +43,7 @@ func (h *Handler) DistributorLogin(c *gin.Context) {
 	err := h.db.Where("username = ?", strings.TrimSpace(in.Username)).First(&d).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		// 不存在与密码错同回 401，防枚举（与管理员登录同口径）。
-		h.redeemLimiter.RecordFailure(ip)
+		h.loginLimiter.RecordFailure(ip)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
 		return
 	}
@@ -52,16 +52,16 @@ func (h *Handler) DistributorLogin(c *gin.Context) {
 		return
 	}
 	if !d.Enabled {
-		h.redeemLimiter.RecordFailure(ip)
+		h.loginLimiter.RecordFailure(ip)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "账户已停用"})
 		return
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(d.PasswordHash), []byte(in.Password)); err != nil {
-		h.redeemLimiter.RecordFailure(ip)
+		h.loginLimiter.RecordFailure(ip)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
 		return
 	}
-	h.redeemLimiter.Reset(ip)
+	h.loginLimiter.Reset(ip)
 	now := time.Now()
 	claims := distributorClaims{
 		RegisteredClaims: jwt.RegisteredClaims{

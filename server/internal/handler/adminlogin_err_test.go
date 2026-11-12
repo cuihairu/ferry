@@ -63,3 +63,38 @@ func TestAdminLoginDBErrors(t *testing.T) {
 		t.Fatalf("db fail: %d %s", rec.Code, rec.Body)
 	}
 }
+
+// TestLoginRedeemLimiterIsolation 覆盖 P2 跨面隔离：凭据登录与兑换各用独立
+// 限流器——登录爆破（5 次失败锁 loginLimiter）不连带锁兑换，兑换爆破亦不
+// 连带锁登录。此前两者共用 redeemLimiter，刷任一面对另一面造成跨面 DoS。
+func TestLoginRedeemLimiterIsolation(t *testing.T) {
+	// 面 1：登录爆破后兑换不受影响。
+	r, _ := newTestRouterWithDB(t)
+	for i := 0; i < 5; i++ {
+		rec := doPanel(t, r, "", "POST", "/admin/login", map[string]any{"username": "ghost", "password": "x"})
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("login fail #%d: %d %s", i+1, rec.Code, rec.Body)
+		}
+	}
+	if rec := doPanel(t, r, "", "POST", "/admin/login", map[string]any{"username": "ghost", "password": "x"}); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("login after brute: %d, want 429", rec.Code)
+	}
+	if rec := doJSON(t, r, "POST", "/api/redeem", map[string]any{"code": "NOPE-0000", "user_id": 1}); rec.Code == http.StatusTooManyRequests {
+		t.Fatalf("redeem cross-locked by login brute: %d", rec.Code)
+	}
+
+	// 面 2：兑换爆破后登录不受影响。
+	r2, _ := newTestRouterWithDB(t)
+	for i := 0; i < 5; i++ {
+		rec := doJSON(t, r2, "POST", "/api/redeem", map[string]any{"code": "NOPE-0000", "user_id": 1})
+		if rec.Code == http.StatusTooManyRequests {
+			t.Fatalf("redeem prematurely locked #%d", i+1)
+		}
+	}
+	if rec := doJSON(t, r2, "POST", "/api/redeem", map[string]any{"code": "NOPE-0000", "user_id": 1}); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("redeem after brute: %d, want 429", rec.Code)
+	}
+	if rec := doPanel(t, r2, "", "POST", "/admin/login", map[string]any{"username": "ghost", "password": "x"}); rec.Code == http.StatusTooManyRequests {
+		t.Fatalf("login cross-locked by redeem brute: %d", rec.Code)
+	}
+}

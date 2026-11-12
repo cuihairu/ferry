@@ -42,7 +42,7 @@ func (h *Handler) AdminLogin(c *gin.Context) {
 	ip := c.ClientIP()
 	ua := c.Request.UserAgent()
 	// 速率限流：每 60 秒最多 5 次尝试，失败 5 次进入 15 分钟锁定
-	if !h.redeemLimiter.Allow(ip) {
+	if !h.loginLimiter.Allow(ip) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "尝试过于频繁，请稍后再试"})
 		return
 	}
@@ -116,7 +116,7 @@ func (h *Handler) AdminLogin(c *gin.Context) {
 // loginFailed 登录失败统一收尾：限速计数、审计落行、连续失败告警检查，
 // 然后回 401（code 可选机器可读标记，如 totp_required/totp_invalid）。
 func (h *Handler) loginFailed(c *gin.Context, username, ip, ua, msg, code string) {
-	h.redeemLimiter.RecordFailure(ip)
+	h.loginLimiter.RecordFailure(ip)
 	h.writeLoginLog(username, ip, ua, false)
 	h.alertLoginBrute(ip)
 	body := gin.H{"error": msg}
