@@ -369,6 +369,26 @@ func (h *Handler) saveUserTraffic(nodeID int64, items []agentproto.ProcTraffic) 
 	for _, u := range users {
 		byName[u.Username] = u.ID
 	}
+	// 未命中当前用户名的邮箱，按改名别名继续归属（P2 流量漏计修复）：
+	// 改名后节点侧配置未重推期间旧 email 仍在上报，旧名已作别名留存——
+	// 别名兜底映射到原用户，不静默丢弃。当前用户名匹配优先（先加不进别名）。
+	aliasEmails := make([]string, 0)
+	for e := range emails {
+		if _, ok := byName[e]; !ok {
+			aliasEmails = append(aliasEmails, e)
+		}
+	}
+	if len(aliasEmails) > 0 {
+		var aliases []storage.UserAlias
+		if err := h.db.Select("user_id, username").Where("username IN ?", aliasEmails).Find(&aliases).Error; err != nil {
+			return err
+		}
+		for _, a := range aliases {
+			if _, ok := byName[a.Username]; !ok {
+				byName[a.Username] = a.UserID
+			}
+		}
+	}
 
 	nid := uint(nodeID)
 	rows := make([]storage.TrafficLog, 0, len(names))

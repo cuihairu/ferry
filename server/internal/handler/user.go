@@ -193,6 +193,9 @@ func (h *Handler) updateUser(c *gin.Context) {
 		return
 	}
 	updates := map[string]any{}
+	// renamedFrom 是改名前的旧名（P2 流量漏计修复）：改名后节点侧配置未
+	// 重推期间旧 email 仍在上报，旧名留作别名供 saveUserTraffic 继续归属。
+	renamedFrom := ""
 	if strings.TrimSpace(in.Username) != "" {
 		// Username 非空即视为改名（PATCH 语义，空串不改）。
 		username := strings.TrimSpace(in.Username)
@@ -208,7 +211,10 @@ func (h *Handler) updateUser(c *gin.Context) {
 			fail(c, http.StatusInternalServerError, err)
 			return
 		}
-		updates["username"] = username
+		if username != u.Username {
+			renamedFrom = u.Username
+			updates["username"] = username
+		}
 	}
 	if in.QuotaBytes != nil {
 		if *in.QuotaBytes < 0 {
@@ -261,7 +267,31 @@ func (h *Handler) updateUser(c *gin.Context) {
 		updates["enabled"] = *in.Enabled
 	}
 	if len(updates) > 0 {
-		if err := h.db.Model(&storage.User{}).Where("id=?", u.ID).Updates(updates).Error; err != nil {
+		err := h.db.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Model(&storage.User{}).Where("id=?", u.ID).Updates(updates).Error; err != nil {
+				return err
+			}
+			// 改名：旧名留别名（P2 流量漏计）。已存在的同名别名不覆盖
+			//（同名换主时保留原归属，当前用户名匹配优先于别名，见
+			// saveUserTraffic）；并发撞唯一约束视为已留，不阻断改名。
+			// 别名与改名同事务，改一半必回滚。
+			if renamedFrom != "" {
+				var cnt int64
+				if err := tx.Model(&storage.UserAlias{}).
+					Where("username = ?", renamedFrom).Count(&cnt).Error; err != nil {
+					return err
+				}
+				if cnt == 0 {
+					if err := tx.Create(&storage.UserAlias{
+						UserID: u.ID, Username: renamedFrom,
+					}).Error; err != nil && !isDup(err) {
+						return err
+					}
+				}
+			}
+			return nil
+		})
+		if err != nil {
 			if isDup(err) {
 				fail(c, http.StatusConflict, errors.New("username already exists"))
 				return

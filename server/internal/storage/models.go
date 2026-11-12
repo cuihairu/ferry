@@ -51,6 +51,17 @@ type User struct {
 	UpdatedAt         time.Time  `json:"updated_at"`
 }
 
+// UserAlias 是用户改名留存（P2 修复）：xray 流量按 email 归属（email==
+// users.username 约定），改名后节点侧配置未重推期间旧 email 仍在上报——
+// 旧名作别名留存，saveUserTraffic 按别名仍映射到原用户，不因改名漏计。
+// 多代改名都留（每代一行）；同名换主（改回原名）时旧别名仍指向本用户。
+type UserAlias struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	UserID    uint      `gorm:"index;not null" json:"user_id"`
+	Username  string    `gorm:"size:64;uniqueIndex;not null" json:"username"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // SubDevice 是订阅端观察到的设备/IP 一条记录（P2-4）。Kind=hwid 的行按
 // 客户端上报的 X-Client-Hwid 记设备（未上报则不落行）；kind=ip 的行按
 // 订阅来源 IP 记（总是可落）。(user_id, kind, key) 唯一，防并发首访双插。
