@@ -1,7 +1,9 @@
 package secret
 
 import (
+	"bytes"
 	"encoding/base64"
+	"io"
 	"strings"
 	"testing"
 )
@@ -166,3 +168,66 @@ func TestDecryptBytesMalformed(t *testing.T) {
 		t.Errorf("disabled store err = %v; want not configured", err)
 	}
 }
+
+// TestEncryptBytesStream 覆盖流式加密（P1-8，备份档不再整份载入内存）：
+// 输出格式与 EncryptBytes 逐字节一致（同密文长度 = 1+nonce+len+16，
+// DecryptBytes 可解），跨越 1MiB 流式缓冲边界与空输入均正确还原；篡改报错。
+// 流式产物能被标准库 GCM 认证通过，即 GHASH/CTR 流式等价实现正确。
+func TestEncryptBytesStream(t *testing.T) {
+	s := NewStore("stream-key")
+	cases := [][]byte{
+		{},                                     // 空输入
+		[]byte("small payload"),                // 单块内
+		bytes.Repeat([]byte{0xAB}, 1<<20),      // 恰好缓冲边界（1MiB）
+		bytes.Repeat([]byte{0x7F}, 1<<20+1234), // 跨缓冲边界 + 非整块尾
+	}
+	for i, data := range cases {
+		var out bytes.Buffer
+		if err := s.EncryptBytesStream(bytes.NewReader(data), &out); err != nil {
+			t.Fatalf("case %d encrypt stream: %v", i, err)
+		}
+		ct := out.Bytes()
+		if len(ct) != 1+12+len(data)+16 {
+			t.Fatalf("case %d cipher len = %d, want %d", i, len(ct), 1+12+len(data)+16)
+		}
+		if ct[0] != Version {
+			t.Fatalf("case %d version byte = %d", i, ct[0])
+		}
+		got, err := s.DecryptBytes(ct)
+		if err != nil {
+			t.Fatalf("case %d decrypt stream output: %v", i, err)
+		}
+		if !bytes.Equal(got, data) {
+			t.Fatalf("case %d roundtrip mismatch (got %d bytes, want %d)", i, len(got), len(data))
+		}
+	}
+	// 与 EncryptBytes 等价：同输入流式产物 DecryptBytes 可解（上文），且
+	// 长度结构与 EncryptBytes 一致。
+	one := bytes.Repeat([]byte{1}, 4096)
+	ctA, _ := s.EncryptBytes(one)
+	var outB bytes.Buffer
+	if err := s.EncryptBytesStream(bytes.NewReader(one), &outB); err != nil {
+		t.Fatal(err)
+	}
+	if len(ctA) != len(outB.Bytes()) {
+		t.Fatalf("encrypt bytes len %d != stream len %d", len(ctA), outB.Len())
+	}
+	// 篡改流式产物必须认证失败。
+	tam := append([]byte(nil), outB.Bytes()...)
+	tam[len(tam)-1] ^= 0xff
+	if _, err := s.DecryptBytes(tam); err == nil {
+		t.Fatal("tampered stream cipher must fail")
+	}
+	// 空钥仓禁用。
+	if err := NewStore("").EncryptBytesStream(strings.NewReader("x"), io.Discard); err == nil {
+		t.Fatal("stream encrypt without master key must fail")
+	}
+	// 读源报错向上传播。
+	if err := s.EncryptBytesStream(errReader{}, io.Discard); err == nil {
+		t.Fatal("reader error must propagate")
+	}
+}
+
+type errReader struct{}
+
+func (errReader) Read([]byte) (int, error) { return 0, io.ErrUnexpectedEOF }

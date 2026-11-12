@@ -103,8 +103,10 @@ func ParseSchedule(expr string, logger *log.Logger) cron.Schedule {
 }
 
 // Snapshot 生成一份当前数据库的一致性快照落档（SQLite VACUUM INTO 在线
-// 备份，WAL 已合并）：配置了主密钥时打包加密为 .enc（secret 派生钥，
-// 主密钥不进备份包），否则落明文 .db。返回档路径与字节数。
+// 备份，WAL 已合并）：配置了主密钥时流式打包加密为 .enc（secret 派生钥，
+// 主密钥不进备份包），否则落明文 .db。P1-8：不再整库读入内存——明文走
+// 同目录原子 rename（零拷贝），加密走流式 EncryptBytesStream，大库（流量
+// 表增长）不 OOM。返回档路径与字节数。
 func Snapshot(db *gorm.DB, dir string, store *secret.Store) (string, int64, error) {
 	if db.Dialector.Name() != "sqlite" {
 		return "", 0, errors.New("backup only supports sqlite (postgres/mysql use their own facilities)")
@@ -126,26 +128,48 @@ func Snapshot(db *gorm.DB, dir string, store *secret.Store) (string, int64, erro
 		os.Remove(tmpPath)
 		return "", 0, fmt.Errorf("vacuum into: %w", err)
 	}
-	raw, err := os.ReadFile(tmpPath)
-	os.Remove(tmpPath)
-	if err != nil {
-		return "", 0, err
-	}
 	name := "ferry-backup-" + time.Now().Format("20060102-150405") + ".db"
-	data := raw
 	if store != nil && store.Enabled() {
-		enc, encErr := store.EncryptBytes(raw)
-		if encErr != nil {
-			return "", 0, fmt.Errorf("encrypt backup: %w", encErr)
-		}
-		data = enc
 		name += ".enc"
 	}
 	path := filepath.Join(dir, name)
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	// 明文：同目录原子 rename，零拷贝不占内存（P1-8）。
+	if store == nil || !store.Enabled() {
+		if err := os.Rename(tmpPath, path); err != nil {
+			os.Remove(tmpPath)
+			return "", 0, err
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return "", 0, err
+		}
+		return path, info.Size(), nil
+	}
+	// 加密：流式加密 VACUUM 产物到最终档（P1-8），失败清残留档。
+	src, err := os.Open(tmpPath)
+	if err != nil {
+		os.Remove(tmpPath)
 		return "", 0, err
 	}
-	return path, int64(len(data)), nil
+	dst, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		src.Close()
+		os.Remove(tmpPath)
+		return "", 0, err
+	}
+	encErr := store.EncryptBytesStream(src, dst)
+	dst.Close()
+	src.Close()
+	os.Remove(tmpPath)
+	if encErr != nil {
+		os.Remove(path)
+		return "", 0, fmt.Errorf("encrypt backup: %w", encErr)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", 0, err
+	}
+	return path, info.Size(), nil
 }
 
 // Loop 周期备份调度：按 TickSec 轮询 cron 下个触发点，到点跑一轮

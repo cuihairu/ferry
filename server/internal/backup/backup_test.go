@@ -279,3 +279,69 @@ func TestOutboundState(t *testing.T) {
 		t.Fatalf("injected = %q", got)
 	}
 }
+
+// TestSnapshotLargeTableStreams 覆盖大库快照的流式路径（P1-8）：表体量超
+// 1MiB（跨流式缓冲边界）时明文与加密档都完整可还原。旧实现整库 ReadFile
+// 进内存、EncryptBytes 再翻一份，库越大内存越高；流式后内存有界，档仍是
+// 一致 SQLite 快照（VACUUM INTO 在线口径）。
+func TestSnapshotLargeTableStreams(t *testing.T) {
+	db := openDB(t)
+	if err := db.Exec(`CREATE TABLE big_tbl (id INTEGER PRIMARY KEY, payload BLOB)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	// 6000 行 × 256B = ~1.5MB（递归 CTE 一次插入）。
+	if err := db.Exec(`INSERT INTO big_tbl (payload)
+		SELECT zeroblob(256) FROM (
+			WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM c WHERE x < 6000)
+			SELECT x FROM c)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+
+	// 明文：体积跨过 1MiB 流式缓冲（证明走了分块路径），档可独立打开且行数完整。
+	path, size, err := Snapshot(db, dir, secret.NewStore(""))
+	if err != nil {
+		t.Fatalf("plain snapshot: %v", err)
+	}
+	if size <= 1<<20 {
+		t.Fatalf("snapshot size = %d, want >1MiB to exercise streaming", size)
+	}
+	assertBigRows := func(path string) {
+		t.Helper()
+		sdb, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
+		if err != nil {
+			t.Fatalf("open snapshot: %v", err)
+		}
+		var n int64
+		if err := sdb.Table("big_tbl").Count(&n).Error; err != nil {
+			t.Fatalf("count snapshot: %v", err)
+		}
+		if n != 6000 {
+			t.Fatalf("big_tbl rows = %d, want 6000", n)
+		}
+	}
+	assertBigRows(path)
+
+	// 加密：DecryptBytes（未改动的还原口径）可解流式产物，还原后行数完整。
+	store := secret.NewStore("stream-master")
+	encPath, _, err := Snapshot(db, dir, store)
+	if err != nil {
+		t.Fatalf("encrypted snapshot: %v", err)
+	}
+	if !strings.HasSuffix(encPath, ".enc") {
+		t.Fatalf("encrypted name = %s, want .enc", encPath)
+	}
+	raw, err := os.ReadFile(encPath)
+	if err != nil {
+		t.Fatalf("read enc: %v", err)
+	}
+	plain, err := store.DecryptBytes(raw)
+	if err != nil {
+		t.Fatalf("decrypt streamed snapshot: %v", err)
+	}
+	restore := filepath.Join(t.TempDir(), "restored.db")
+	if err := os.WriteFile(restore, plain, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	assertBigRows(restore)
+}
