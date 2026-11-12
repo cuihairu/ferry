@@ -19,11 +19,13 @@ import (
 // adminJWT 签发测试用管理员令牌（adminAuthMiddleware 默认秘钥口径）。
 func adminJWT(t *testing.T) string {
 	t.Helper()
+	now := time.Now()
 	claims := adminClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   "1",
 			ID:        "1", // adminUserID 取 Jti，对齐 AdminLogin 真实令牌形状
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(now.Add(time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(now), // 改密作废判定取签发时间（2026-11-12）
 		},
 		IsAdmin: true,
 	}
@@ -40,6 +42,7 @@ func adminJWT(t *testing.T) string {
 func TestBackupDB(t *testing.T) {
 	dir := t.TempDir()
 	r, db := newTestRouterCfg(t, func(cfg *config.Config) { cfg.BackupDir = dir })
+	seedAdminForJWT(t, db)
 	rec := doJSON(t, r, "POST", "/api/users", map[string]any{"username": "bk", "quota_bytes": 42})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("seed user: %d %s", rec.Code, rec.Body)
@@ -69,7 +72,14 @@ func TestBackupDB(t *testing.T) {
 	if err := sdb.Find(&users).Error; err != nil {
 		t.Fatalf("query snapshot: %v", err)
 	}
-	if len(users) != 1 || users[0].Username != "bk" || users[0].QuotaBytes != 42 {
+	// root 是 /admin 组回库复核要求的管理员行（seedAdminForJWT），业务断言只认 bk。
+	var bk *storage.User
+	for i := range users {
+		if users[i].Username == "bk" {
+			bk = &users[i]
+		}
+	}
+	if bk == nil || bk.QuotaBytes != 42 {
 		t.Fatalf("snapshot users mismatch: %+v", users)
 	}
 
@@ -102,6 +112,7 @@ func TestBackupDBEncrypted(t *testing.T) {
 		cfg.BackupDir = dir
 		cfg.SecretKey = "test-master-key"
 	})
+	seedAdminForJWT(t, db)
 	req := httptest.NewRequest("GET", "/admin/backup/db", nil)
 	req.Header.Set("Authorization", "Bearer "+adminJWT(t))
 	w := httptest.NewRecorder()

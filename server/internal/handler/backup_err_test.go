@@ -20,9 +20,10 @@ func TestBackupDBSnapshotFail(t *testing.T) {
 	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	r, _ := newTestRouterCfg(t, func(c *config.Config) {
+	r, db := newTestRouterCfg(t, func(c *config.Config) {
 		c.BackupDir = filepath.Join(blocker, "sub")
 	})
+	seedAdminForJWT(t, db)
 	if rec := doAdmin(t, r, http.MethodGet, "/admin/backup/db", nil); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("snapshot fail: %d %s", rec.Code, rec.Body)
 	}
@@ -33,6 +34,7 @@ func TestBackupDBRecordFail(t *testing.T) {
 	r, db := newTestRouterCfg(t, func(c *config.Config) {
 		c.BackupDir = t.TempDir()
 	})
+	seedAdminForJWT(t, db)
 	db.Callback().Create().Before("gorm:create").Register("t:bak_create", func(tx *gorm.DB) {
 		if _, ok := tx.Statement.Dest.(*storage.Backup); ok {
 			tx.AddError(errors.New("db down"))

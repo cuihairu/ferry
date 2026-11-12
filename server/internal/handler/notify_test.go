@@ -10,7 +10,8 @@ import (
 // TestNotifyChannel 覆盖通知渠道管理（P1-10）：查看默认、保存、校验、
 // 测试外发端到端、未配置时测试 400、无令牌 401。
 func TestNotifyChannel(t *testing.T) {
-	r := newTestRouter(t)
+	r, db := newTestRouterWithDB(t)
+	seedAdminForJWT(t, db)
 
 	// 默认未启用
 	w := doAdmin(t, r, "GET", "/admin/notify", nil)

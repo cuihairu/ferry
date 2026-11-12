@@ -85,6 +85,7 @@ func TestAuditLogsRedactSensitiveBody(t *testing.T) {
 
 func TestAuditLogsCaptureFailedWriteAndFilters(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
+	seedAdminForJWT(t, db)
 	// 业务失败（409 重复用户名）也落行。
 	doJSON(t, r, "POST", "/api/distributors", map[string]any{"username": "au-dup", "password": "pw-123"})
 	doJSON(t, r, "POST", "/api/distributors", map[string]any{"username": "au-dup", "password": "pw-123"})

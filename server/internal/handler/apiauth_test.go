@@ -76,7 +76,9 @@ func TestApiDataPlaneAcceptsApiToken(t *testing.T) {
 func TestApiDataPlaneHonorsAdminSecretEnv(t *testing.T) {
 	// FERRY_ADMIN_SECRET 配置后：该秘钥签的管理员 JWT 放行，缺省秘钥被拒
 	//（2026-10-10 修复：此前中间件硬编码缺省秘钥，env 形同虚设）。
-	r, _ := newTestRouterCfg(t, func(c *config.Config) { c.AdminSecret = "custom-admin-secret" })
+	// root 行为 /admin 组回库复核的既有管理员（seedAdminForJWT），id=1。
+	r, db := newTestRouterCfg(t, func(c *config.Config) { c.AdminSecret = "custom-admin-secret" })
+	seedAdminForJWT(t, db)
 	custom := adminClaims{RegisteredClaims: jwt.RegisteredClaims{
 		ID: "1", ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 	}, IsAdmin: true}

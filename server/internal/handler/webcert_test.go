@@ -29,6 +29,7 @@ func doAdmin(t *testing.T, r *gin.Engine, method, path string, body []byte) *htt
 // 自签 → 状态可用 → 上传配对替换 → 错配拒绝 → 清除回落 HTTP。
 func TestWebCertLifecycle(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
+	seedAdminForJWT(t, db)
 
 	// 初始未配置
 	w := doAdmin(t, r, "GET", "/admin/web-cert", nil)

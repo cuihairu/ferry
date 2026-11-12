@@ -152,6 +152,20 @@ func (h *Handler) adminAuthMiddleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+		// 回库复核（审核修复 2026-11-12）：签名有效只证明签发时点合法，
+		// 停用/摘管理员身份后旧 token 不得存活到自然过期。同时改密作废：
+		// 签发早于最近改密时间的令牌拒绝（password_changed_at，存量行为
+		// NULL 不判定）。
+		adminID, idErr := strconv.ParseUint(claims.ID, 10, 64)
+		var u storage.User
+		if idErr != nil || h.db.First(&u, uint(adminID)).Error != nil ||
+			!u.Enabled || !u.IsAdmin ||
+			(u.PasswordChangedAt != nil && claims.IssuedAt != nil &&
+				claims.IssuedAt.Time.Before(*u.PasswordChangedAt)) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "无效令牌"})
+			c.Abort()
+			return
+		}
 		c.Set("adminUserID", claims.ID)
 		c.Set("adminIsAdmin", claims.IsAdmin)
 		c.Set("adminRole", normalizeAdminRole(claims.Role))

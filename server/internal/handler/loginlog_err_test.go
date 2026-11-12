@@ -88,7 +88,8 @@ func TestLoginAuditErrors(t *testing.T) {
 // TestLoginLogsAPIErrors 覆盖登录审计分页参数夹取与取数失败 500。
 func TestLoginLogsAPIErrors(t *testing.T) {
 	// 页码/页大小越界回落缺省。
-	r, _ := newTestRouterWithDB(t)
+	r, db := newTestRouterWithDB(t)
+	seedAdminForJWT(t, db)
 	for _, q := range []string{"page=0", "page_size=0", "page_size=500"} {
 		rec := doAdmin(t, r, "GET", "/admin/login-logs?"+q, nil)
 		if rec.Code != http.StatusOK {
@@ -106,6 +107,7 @@ func TestLoginLogsAPIErrors(t *testing.T) {
 
 	// 总数计数失败 → 500。
 	r2, db2 := newTestRouterWithDB(t)
+	seedAdminForJWT(t, db2)
 	failNthCount("t:lltotal", db2, 1)
 	if rec := doAdmin(t, r2, "GET", "/admin/login-logs", nil); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("total: %d %s", rec.Code, rec.Body)
@@ -113,6 +115,7 @@ func TestLoginLogsAPIErrors(t *testing.T) {
 
 	// 明细取数失败 → 500（计数先放行）。
 	r3, db3 := newTestRouterWithDB(t)
+	seedAdminForJWT(t, db3)
 	regQueryFail("t:llrows", db3, (*[]storage.LoginLog)(nil))
 	if rec := doAdmin(t, r3, "GET", "/admin/login-logs", nil); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("rows: %d %s", rec.Code, rec.Body)

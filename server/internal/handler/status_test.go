@@ -84,6 +84,7 @@ func TestParseLoadAvgUptimeCPU(t *testing.T) {
 // TestSysStatus 端到端：计数概况正确、进程与 /proc 指标齐备。
 func TestSysStatus(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
+	seedAdminForJWT(t, db)
 
 	for _, name := range []string{"n1", "n2"} {
 		if rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
@@ -117,7 +118,8 @@ func TestSysStatus(t *testing.T) {
 		t.Fatalf("nodes counts mismatch: %v", nodes)
 	}
 	users := out["users"].(map[string]any)
-	if users["total"].(float64) != 3 || users["enabled"].(float64) != 2 {
+	// root 是回库复核要求的管理员行（seedAdminForJWT），计入 total/enabled。
+	if users["total"].(float64) != 4 || users["enabled"].(float64) != 3 {
 		t.Fatalf("users counts mismatch: %v", users)
 	}
 	proc := out["process"].(map[string]any)
@@ -174,6 +176,7 @@ func TestStatusParseEdges(t *testing.T) {
 // 任一失败 → 500（gorm 回调注错，对齐既有错误注入口径）。
 func TestSysStatusDBErrors(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
+	seedAdminForJWT(t, db)
 
 	db.Callback().Query().Before("gorm:query").Register("test:status_node_fail", func(tx *gorm.DB) {
 		if _, ok := tx.Statement.Model.(*storage.Node); ok {
@@ -184,11 +187,14 @@ func TestSysStatusDBErrors(t *testing.T) {
 		t.Fatalf("node count fail: %d %s", w.Code, w.Body)
 	}
 
-	// 用户计数失败：独立库独立回调。
+	// 用户计数失败：独立库独立回调（只注错 Count——回库复核的 First 不拦）。
 	r2, db2 := newTestRouterWithDB(t)
+	seedAdminForJWT(t, db2)
 	db2.Callback().Query().Before("gorm:query").Register("test:status_user_fail", func(tx *gorm.DB) {
-		if _, ok := tx.Statement.Model.(*storage.User); ok {
-			tx.AddError(errors.New("db down"))
+		if _, ok := tx.Statement.Dest.(*int64); ok {
+			if _, ok := tx.Statement.Model.(*storage.User); ok {
+				tx.AddError(errors.New("db down"))
+			}
 		}
 	})
 	if w := doAdmin(t, r2, "GET", "/admin/status", nil); w.Code != http.StatusInternalServerError {
@@ -211,6 +217,7 @@ func TestSysStatusOnlineCountsFail(t *testing.T) {
 		})
 	}
 	r, db := newTestRouterWithDB(t)
+	seedAdminForJWT(t, db)
 	fail2ndCount(db, "test:status_online_fail", func(tx *gorm.DB) bool {
 		_, ok := tx.Statement.Model.(*storage.Node)
 		return ok
@@ -220,6 +227,7 @@ func TestSysStatusOnlineCountsFail(t *testing.T) {
 	}
 
 	r2, db2 := newTestRouterWithDB(t)
+	seedAdminForJWT(t, db2)
 	fail2ndCount(db2, "test:status_enabled_fail", func(tx *gorm.DB) bool {
 		_, ok := tx.Statement.Model.(*storage.User)
 		return ok

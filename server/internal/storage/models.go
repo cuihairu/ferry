@@ -43,8 +43,12 @@ type User struct {
 	TrafficWarnPercent int        `gorm:"default:80" json:"traffic_warn_percent"` // 流量预警阈值（1-100）
 	LastNodeID         *uint      `gorm:"index" json:"last_node_id,omitempty"`
 	LastSeenAt         *time.Time `json:"last_seen_at,omitempty"`
-	CreatedAt          time.Time  `json:"created_at"`
-	UpdatedAt          time.Time  `json:"updated_at"`
+	// PasswordChangedAt 是最近一次管理员改密时间：早于它的管理员 JWT 一律
+	// 作废（审核修复 2026-11-12，改密后旧 token 不再存活到自然过期）。
+	// 存量行为迁移：旧行 NULL/零值 = 不判定，已有会话到期自然收口。
+	PasswordChangedAt *time.Time `json:"password_changed_at,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
 }
 
 // SubDevice 是订阅端观察到的设备/IP 一条记录（P2-4）。Kind=hwid 的行按

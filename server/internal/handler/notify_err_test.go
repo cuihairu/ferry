@@ -43,6 +43,7 @@ func failNthSettingSave(name string, db *gorm.DB, n int) {
 func TestNotifyErrors(t *testing.T) {
 	// url 键读取失败 → 500。
 	r, db := newTestRouterWithDB(t)
+	seedAdminForJWT(t, db)
 	failNthSetting("t:nfyurl", db, 1)
 	if rec := doAdmin(t, r, "GET", "/admin/notify", nil); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("url read: %d %s", rec.Code, rec.Body)
@@ -50,6 +51,7 @@ func TestNotifyErrors(t *testing.T) {
 
 	// secret 键读取失败 → 500（url 读取先放行）。
 	r2, db2 := newTestRouterWithDB(t)
+	seedAdminForJWT(t, db2)
 	failNthSetting("t:nfysecret", db2, 2)
 	if rec := doAdmin(t, r2, "GET", "/admin/notify", nil); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("secret read: %d %s", rec.Code, rec.Body)
@@ -62,6 +64,7 @@ func TestNotifyErrors(t *testing.T) {
 
 	// url 保存失败 → 500。
 	r3, db3 := newTestRouterWithDB(t)
+	seedAdminForJWT(t, db3)
 	failNthSettingSave("t:nfyurls", db3, 1)
 	if rec := doAdmin(t, r3, "PUT", "/admin/notify", []byte(`{"url":"http://x.c"}`)); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("url save: %d %s", rec.Code, rec.Body)
@@ -69,13 +72,15 @@ func TestNotifyErrors(t *testing.T) {
 
 	// secret 保存失败 → 500（url 保存先放行）。
 	r4, db4 := newTestRouterWithDB(t)
+	seedAdminForJWT(t, db4)
 	failNthSettingSave("t:nfysecrets", db4, 2)
 	if rec := doAdmin(t, r4, "PUT", "/admin/notify", []byte(`{"url":"http://x.c","secret":"k"}`)); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("secret save: %d %s", rec.Code, rec.Body)
 	}
 
 	// 测试外发：对端回 5xx → 502。
-	r5 := newTestRouter(t)
+	r5, db5 := newTestRouterWithDB(t)
+	seedAdminForJWT(t, db5)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
@@ -195,6 +196,10 @@ func (h *Handler) updateAdmin(c *gin.Context) {
 			return
 		}
 		updates["password"] = string(hash)
+		// 改密即作废旧管理员 JWT（审核修复 2026-11-12）：中间件回库复核时
+		// 对比令牌签发时间与本次改密时间，早于改密的令牌一律 401。
+		now := time.Now()
+		updates["password_changed_at"] = now
 	}
 	if in.Enabled != nil {
 		updates["enabled"] = *in.Enabled

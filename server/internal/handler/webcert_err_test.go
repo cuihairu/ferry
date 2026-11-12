@@ -96,12 +96,15 @@ func TestLoadWebCertPEMErrors(t *testing.T) {
 // TestGetWebCertError 状态视图：读取失败 500 与配对错误回显（200+Error）。
 func TestGetWebCertError(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
-	closeSQL(t, db)
+	seedAdminForJWT(t, db)
+	// settings 首读注错 → 500（回库复核的 First 只读 users，定向不拦）。
+	failNthSetting("t:wcerr", db, 1)
 	if w := doAdmin(t, r, http.MethodGet, "/admin/web-cert", nil); w.Code != http.StatusInternalServerError {
 		t.Fatalf("db fail: %d %s", w.Code, w.Body)
 	}
 
 	r, db = newTestRouterWithDB(t)
+	seedAdminForJWT(t, db)
 	if err := db.Create(&storage.Setting{Key: settingKeyWebTLSCert, Value: "garbage"}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +128,8 @@ func TestGetWebCertError(t *testing.T) {
 // SetSetting 走 Save（非主键行先 UPDATE 后 INSERT），两次保存按语句次序
 // 定向：第 1 句落在证书键，第 3 句落在私钥键。
 func TestPutWebCertErrors(t *testing.T) {
-	r, _ := newTestRouterWithDB(t)
+	r, db := newTestRouterWithDB(t)
+	seedAdminForJWT(t, db)
 	if w := doAdmin(t, r, http.MethodPut, "/admin/web-cert", []byte("not json")); w.Code != http.StatusBadRequest {
 		t.Fatalf("bind: %d %s", w.Code, w.Body)
 	}
@@ -150,7 +154,8 @@ func TestPutWebCertErrors(t *testing.T) {
 	body := `{"cert_pem":` + mustQuote(t, certPEM) + `,"key_pem":` + mustQuote(t, keyPEM) + `}`
 
 	// 证书键落库失败（第 1 句注错）。
-	r, db := newTestRouterWithDB(t)
+	r, db = newTestRouterWithDB(t)
+	seedAdminForJWT(t, db)
 	failSettingAt(t, db, "test:setting_at_1", 1)
 	if w := doAdmin(t, r, http.MethodPut, "/admin/web-cert", []byte(body)); w.Code != http.StatusInternalServerError {
 		t.Fatalf("cert save: %d %s", w.Code, w.Body)
@@ -158,6 +163,7 @@ func TestPutWebCertErrors(t *testing.T) {
 
 	// 私钥键落库失败（第 3 句注错：证书键 UPDATE+INSERT 两句先过）。
 	r, db = newTestRouterWithDB(t)
+	seedAdminForJWT(t, db)
 	failSettingAt(t, db, "test:setting_at_3", 3)
 	if w := doAdmin(t, r, http.MethodPut, "/admin/web-cert", []byte(body)); w.Code != http.StatusInternalServerError {
 		t.Fatalf("key save: %d %s", w.Code, w.Body)
@@ -167,7 +173,8 @@ func TestPutWebCertErrors(t *testing.T) {
 // TestSelfSignWebCertErrors 自签：坏绑定、缺 host、默认天数、IP host 分支
 // 与两次落库各自失败。
 func TestSelfSignWebCertErrors(t *testing.T) {
-	r, _ := newTestRouterWithDB(t)
+	r, db := newTestRouterWithDB(t)
+	seedAdminForJWT(t, db)
 	if w := doAdmin(t, r, http.MethodPost, "/admin/web-cert/selfsign", []byte("not json")); w.Code != http.StatusBadRequest {
 		t.Fatalf("bind: %d %s", w.Code, w.Body)
 	}
@@ -176,7 +183,8 @@ func TestSelfSignWebCertErrors(t *testing.T) {
 	}
 
 	// 缺省天数 365：days 段不传走默认分支。
-	r, _ = newTestRouterWithDB(t)
+	r, db = newTestRouterWithDB(t)
+	seedAdminForJWT(t, db)
 	w := doAdmin(t, r, http.MethodPost, "/admin/web-cert/selfsign", []byte(`{"host":"def-days.example.com"}`))
 	if w.Code != http.StatusOK {
 		t.Fatalf("default days: %d %s", w.Code, w.Body)
@@ -190,13 +198,15 @@ func TestSelfSignWebCertErrors(t *testing.T) {
 	}
 
 	// IP host：SAN 走 IPAddresses 分支，证书照发。
-	r, _ = newTestRouterWithDB(t)
+	r, db = newTestRouterWithDB(t)
+	seedAdminForJWT(t, db)
 	if w := doAdmin(t, r, http.MethodPost, "/admin/web-cert/selfsign", []byte(`{"host":"1.2.3.4","days":30}`)); w.Code != http.StatusOK {
 		t.Fatalf("ip host: %d %s", w.Code, w.Body)
 	}
 
 	// 证书键落库失败（第 1 句注错）。
-	r, db := newTestRouterWithDB(t)
+	r, db = newTestRouterWithDB(t)
+	seedAdminForJWT(t, db)
 	failSettingAt(t, db, "test:ss_setting_at_1", 1)
 	if w := doAdmin(t, r, http.MethodPost, "/admin/web-cert/selfsign", []byte(`{"host":"a.example.com"}`)); w.Code != http.StatusInternalServerError {
 		t.Fatalf("cert save: %d %s", w.Code, w.Body)
@@ -204,6 +214,7 @@ func TestSelfSignWebCertErrors(t *testing.T) {
 
 	// 私钥键落库失败（第 3 句注错）。
 	r, db = newTestRouterWithDB(t)
+	seedAdminForJWT(t, db)
 	failSettingAt(t, db, "test:ss_setting_at_3", 3)
 	if w := doAdmin(t, r, http.MethodPost, "/admin/web-cert/selfsign", []byte(`{"host":"b.example.com"}`)); w.Code != http.StatusInternalServerError {
 		t.Fatalf("key save: %d %s", w.Code, w.Body)
@@ -213,10 +224,16 @@ func TestSelfSignWebCertErrors(t *testing.T) {
 // TestDeleteWebCertError 清除证书库故障 500（回落未配置需在重启后生效）。
 func TestDeleteWebCertError(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
+	seedAdminForJWT(t, db)
 	if err := db.Create(&storage.Setting{Key: settingKeyWebTLSCert, Value: "x"}).Error; err != nil {
 		t.Fatal(err)
 	}
-	closeSQL(t, db)
+	// settings 删除注错 → 500（回库复核的 First 只读 users，定向不拦）。
+	db.Callback().Delete().Before("gorm:delete").Register("t:wcdel", func(tx *gorm.DB) {
+		if _, ok := tx.Statement.Model.(*storage.Setting); ok {
+			tx.AddError(errors.New("db down"))
+		}
+	})
 	if w := doAdmin(t, r, http.MethodDelete, "/admin/web-cert", nil); w.Code != http.StatusInternalServerError {
 		t.Fatalf("delete: %d %s", w.Code, w.Body)
 	}

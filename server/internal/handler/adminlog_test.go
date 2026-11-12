@@ -10,7 +10,8 @@ import (
 
 // TestAdminLogs 覆盖运行日志查看与清除（P1-11）。
 func TestAdminLogs(t *testing.T) {
-	r := newTestRouter(t)
+	r, db := newTestRouterWithDB(t)
+	seedAdminForJWT(t, db)
 	ring := ringlog.Default()
 	ring.Clear()
 	t.Cleanup(ring.Clear)
