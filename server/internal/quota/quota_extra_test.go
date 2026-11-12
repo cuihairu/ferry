@@ -26,7 +26,8 @@ func TestUsedBytes(t *testing.T) {
 		t.Fatalf("empty: %d %v", got, err)
 	}
 	// 落一行流量（无窗 cycle）。
-	if err := db.Create(&storage.TrafficLog{UserID: u.ID, RxBytes: 30, TxBytes: 20, RecordedAt: now}).Error; err != nil {
+	uid := u.ID
+	if err := db.Create(&storage.TrafficLog{UserID: &uid, RxBytes: 30, TxBytes: 20, RecordedAt: now}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if got, err := UsedBytes(db, u.ID, CycleNone, now); err != nil || got != 50 {

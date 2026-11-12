@@ -285,11 +285,20 @@ func (h *Handler) deleteUser(c *gin.Context) {
 		return
 	}
 	// 设备/IP 记录是安全态（非账目流水），随用户一并清掉不留孤儿行。
-	if err := h.db.Where("user_id = ?", u.ID).Delete(&storage.SubDevice{}).Error; err != nil {
-		fail(c, http.StatusInternalServerError, err)
-		return
-	}
-	if err := h.db.Delete(&u).Error; err != nil {
+	// 计费历史（traffic_logs 记账明细）不删不改（口径 quota.go）：删除用户前
+	// 先把 user_id 置空解除归属，避免 DB 级联（旧库 CASCADE 约束）把账目历史
+	// 一并删掉——删除用户只摘归属，账目留存。事务包裹：摘除与删行原子。
+	err = h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("user_id = ?", u.ID).Delete(&storage.SubDevice{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&storage.TrafficLog{}).Where("user_id = ?", u.ID).
+			Updates(map[string]any{"user_id": nil}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&u).Error
+	})
+	if err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}

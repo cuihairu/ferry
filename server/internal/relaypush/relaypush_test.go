@@ -171,6 +171,7 @@ type ackWriter struct {
 	mu       sync.Mutex
 	got      []agentproto.Envelope
 	hub      *agenthub.Hub
+	nodeID   int64
 	reply    func(id string) (agentproto.Envelope, bool)
 	failWith error
 }
@@ -193,7 +194,7 @@ func (w *ackWriter) WriteMessage(_ int, data []byte) error {
 	if !ok {
 		return nil
 	}
-	w.hub.Deliver(ack)
+	w.hub.Deliver(w.nodeID, ack)
 	return nil
 }
 
@@ -211,7 +212,7 @@ func (w *ackWriter) last(t *testing.T) agentproto.Envelope {
 func onlineHub(t *testing.T, nodeID uint, reply func(id string) (agentproto.Envelope, bool)) (*agenthub.Hub, *ackWriter) {
 	t.Helper()
 	hub := agenthub.New()
-	w := &ackWriter{hub: hub, reply: reply}
+	w := &ackWriter{hub: hub, reply: reply, nodeID: int64(nodeID)}
 	hub.Register(agenthub.NewConn(int64(nodeID), w))
 	t.Cleanup(func() { hub.Unregister(int64(nodeID), nil) })
 	return hub, w

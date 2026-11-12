@@ -62,10 +62,11 @@ func TestUsedBytesWindowFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := at(2026, time.October, 7, 12, 0)
+	uid := u.ID
 	logs := []storage.TrafficLog{
-		{UserID: u.ID, RxBytes: 100, TxBytes: 10, RecordedAt: now.Add(-40 * 24 * time.Hour)}, // 上月
-		{UserID: u.ID, RxBytes: 30, TxBytes: 3, RecordedAt: now.Add(-3 * 24 * time.Hour)},    // 本周一前？10-04 周日
-		{UserID: u.ID, RxBytes: 5, TxBytes: 1, RecordedAt: now.Add(-time.Hour)},              // 今天
+		{UserID: &uid, RxBytes: 100, TxBytes: 10, RecordedAt: now.Add(-40 * 24 * time.Hour)}, // 上月
+		{UserID: &uid, RxBytes: 30, TxBytes: 3, RecordedAt: now.Add(-3 * 24 * time.Hour)},    // 本周一前？10-04 周日
+		{UserID: &uid, RxBytes: 5, TxBytes: 1, RecordedAt: now.Add(-time.Hour)},              // 今天
 	}
 	if err := db.Create(&logs).Error; err != nil {
 		t.Fatal(err)

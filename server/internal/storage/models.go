@@ -117,14 +117,17 @@ type Node struct {
 }
 
 // TrafficLog 是一条流量记账记录（按用户按节点按周期汇总）。
+// 记账明细不删不改（口径 quota.go）：删除用户不级联清历史——User 外键用
+// SET NULL（与 Node 同口径），user_id 可空，用户删除后行保留、归属置空。
+// 此前误用 CASCADE，删除用户连带清掉计费历史（审核修复 2026-11-12）。
 type TrafficLog struct {
 	ID         uint      `gorm:"primaryKey" json:"id"`
-	UserID     uint      `gorm:"index:idx_traffic_logs_user,priority:1;not null" json:"user_id"`
+	UserID     *uint     `gorm:"index:idx_traffic_logs_user,priority:1" json:"user_id"`
 	NodeID     *uint     `json:"node_id"`
 	RxBytes    int64     `gorm:"default:0" json:"rx_bytes"`
 	TxBytes    int64     `gorm:"default:0" json:"tx_bytes"`
 	RecordedAt time.Time `gorm:"index:idx_traffic_logs_user,priority:2" json:"recorded_at"`
-	User       User      `gorm:"foreignKey:UserID;references:ID;constraint:OnDelete:CASCADE" json:"-"`
+	User       *User     `gorm:"foreignKey:UserID;references:ID;constraint:OnDelete:SET NULL" json:"-"`
 	Node       *Node     `gorm:"foreignKey:NodeID;references:ID;constraint:OnDelete:SET NULL" json:"-"`
 }
 

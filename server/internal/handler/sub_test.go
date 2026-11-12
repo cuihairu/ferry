@@ -155,7 +155,8 @@ func TestSubscriptionAvailability(t *testing.T) {
 
 	// 超限（120/100）：空订阅但保留用量头
 	quotaID, quotaTok := mkUser("bob", 100, "")
-	if err := db.Create(&storage.TrafficLog{UserID: quotaID, RxBytes: 60, TxBytes: 60, RecordedAt: time.Now()}).Error; err != nil {
+	qid := quotaID
+	if err := db.Create(&storage.TrafficLog{UserID: &qid, RxBytes: 60, TxBytes: 60, RecordedAt: time.Now()}).Error; err != nil {
 		t.Fatalf("seed traffic: %v", err)
 	}
 	rec := getSub(t, r, "/sub/"+quotaTok, "v2rayNG/1.8")
@@ -182,7 +183,8 @@ func TestSubscriptionAvailability(t *testing.T) {
 
 	// 不限配额（0）有用量：照常出节点
 	freeID, freeTok := mkUser("dave", 0, "")
-	if err := db.Create(&storage.TrafficLog{UserID: freeID, RxBytes: 1, TxBytes: 2, RecordedAt: time.Now()}).Error; err != nil {
+	fid := freeID
+	if err := db.Create(&storage.TrafficLog{UserID: &fid, RxBytes: 1, TxBytes: 2, RecordedAt: time.Now()}).Error; err != nil {
 		t.Fatalf("seed traffic: %v", err)
 	}
 	rec = getSub(t, r, "/sub/"+freeTok, "v2rayNG/1.8")
@@ -226,8 +228,9 @@ func TestSubResetCycleWindow(t *testing.T) {
 	tok := u["sub_token"].(string)
 
 	// 上月 200 超 100：day 窗口外 → 照常出节点，用量头只算窗口内
+	uid := uint(u["id"].(float64))
 	if err := db.Create(&storage.TrafficLog{
-		UserID: uint(u["id"].(float64)), RxBytes: 200,
+		UserID: &uid, RxBytes: 200,
 		RecordedAt: time.Now().AddDate(0, -1, 0),
 	}).Error; err != nil {
 		t.Fatal(err)
@@ -238,8 +241,9 @@ func TestSubResetCycleWindow(t *testing.T) {
 	}
 
 	// 今日再记 60：窗口内 60 < 100 → 仍出节点
+	uid2 := uint(u["id"].(float64))
 	if err := db.Create(&storage.TrafficLog{
-		UserID: uint(u["id"].(float64)), RxBytes: 60, RecordedAt: time.Now(),
+		UserID: &uid2, RxBytes: 60, RecordedAt: time.Now(),
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -253,8 +257,9 @@ func TestSubResetCycleWindow(t *testing.T) {
 	}
 
 	// 今日累计到 100 → 封
+	uid3 := uint(u["id"].(float64))
 	if err := db.Create(&storage.TrafficLog{
-		UserID: uint(u["id"].(float64)), RxBytes: 40, RecordedAt: time.Now(),
+		UserID: &uid3, RxBytes: 40, RecordedAt: time.Now(),
 	}).Error; err != nil {
 		t.Fatal(err)
 	}

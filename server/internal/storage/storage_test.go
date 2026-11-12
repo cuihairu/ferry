@@ -94,8 +94,9 @@ func runCRUD(t *testing.T, db *gorm.DB) {
 	// traffic_logs 聚合（统计口径的最小验收）
 	now := time.Now()
 	nodeID := n.ID
+	uid := u.ID
 	for i := 0; i < 3; i++ {
-		tl := TrafficLog{UserID: u.ID, NodeID: &nodeID, RxBytes: 10, TxBytes: 5, RecordedAt: now}
+		tl := TrafficLog{UserID: &uid, NodeID: &nodeID, RxBytes: 10, TxBytes: 5, RecordedAt: now}
 		if err := db.Create(&tl).Error; err != nil {
 			t.Fatalf("create traffic log: %v", err)
 		}
@@ -124,14 +125,19 @@ func runCRUD(t *testing.T, db *gorm.DB) {
 		t.Fatalf("create order: %v", err)
 	}
 
-	// 删除用户级联（traffic 记录随用户删除）
+	// 删除用户不级联清计费历史（P2 修复）：traffic 行保留，user_id 置空。
 	if err := db.Delete(&User{}, u.ID).Error; err != nil {
 		t.Fatalf("delete user: %v", err)
 	}
 	var rest int64
 	db.Model(&TrafficLog{}).Count(&rest)
-	if rest != 0 {
-		t.Fatalf("traffic logs should cascade, remain %d", rest)
+	if rest != 3 {
+		t.Fatalf("traffic logs should survive user delete, remain %d", rest)
+	}
+	var orphan int64
+	db.Model(&TrafficLog{}).Where("user_id IS NOT NULL").Count(&orphan)
+	if orphan != 0 {
+		t.Fatalf("detached traffic logs should have null user_id, got %d", orphan)
 	}
 }
 

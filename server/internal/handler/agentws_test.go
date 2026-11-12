@@ -632,7 +632,10 @@ func TestAgentWSUserTraffic(t *testing.T) {
 	}
 	byUser := map[uint]storage.TrafficLog{}
 	for _, row := range rows {
-		byUser[row.UserID] = row
+		if row.UserID == nil {
+			t.Fatalf("row has null user_id: %+v", row)
+		}
+		byUser[*row.UserID] = row
 		if row.NodeID == nil || *row.NodeID != uint(node["id"].(float64)) {
 			t.Fatalf("node_id mismatch: %+v", row)
 		}

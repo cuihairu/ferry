@@ -51,8 +51,9 @@ func TestSweepBill(t *testing.T) {
 	now := time.Now()
 	// A 本月用量 2GB + 节省计数（节点 1 全占：直连 1GB、拦截 0.5GB）
 	nid := uint(1)
+	uid := users[0].ID
 	if err := db.Create(&[]storage.TrafficLog{
-		{UserID: users[0].ID, NodeID: &nid, RxBytes: 2_000_000_000, RecordedAt: now},
+		{UserID: &uid, NodeID: &nid, RxBytes: 2_000_000_000, RecordedAt: now},
 	}).Error; err != nil {
 		t.Fatal(err)
 	}

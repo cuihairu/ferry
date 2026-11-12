@@ -150,13 +150,14 @@ func TestUserSavings(t *testing.T) {
 		t.Fatalf("seed save stats: %v", err)
 	}
 	n1, n2 := uint(1), uint(2)
+	u1, u2 := uint(1), uint(2)
 	monthStart := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	priorMonth := time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC)
 	logs := []storage.TrafficLog{
-		{UserID: 1, NodeID: &n1, RxBytes: 300, TxBytes: 100, RecordedAt: monthStart}, // 节点1：本人 400
-		{UserID: 2, NodeID: &n1, RxBytes: 600, TxBytes: 0, RecordedAt: monthStart},   // 节点1：他人 600
-		{UserID: 2, NodeID: &n2, RxBytes: 600, TxBytes: 0, RecordedAt: monthStart},   // 节点2：仅他人记账
-		{UserID: 1, NodeID: &n1, RxBytes: 5000, TxBytes: 0, RecordedAt: priorMonth},  // 月窗前置，不计
+		{UserID: &u1, NodeID: &n1, RxBytes: 300, TxBytes: 100, RecordedAt: monthStart}, // 节点1：本人 400
+		{UserID: &u2, NodeID: &n1, RxBytes: 600, TxBytes: 0, RecordedAt: monthStart},   // 节点1：他人 600
+		{UserID: &u2, NodeID: &n2, RxBytes: 600, TxBytes: 0, RecordedAt: monthStart},   // 节点2：仅他人记账
+		{UserID: &u1, NodeID: &n1, RxBytes: 5000, TxBytes: 0, RecordedAt: priorMonth},  // 月窗前置，不计
 	}
 	if err := db.Create(&logs).Error; err != nil {
 		t.Fatalf("seed traffic logs: %v", err)

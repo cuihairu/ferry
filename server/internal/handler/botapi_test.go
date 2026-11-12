@@ -63,7 +63,7 @@ func TestBotSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := db.Create(&storage.TrafficLog{
-		UserID: uid, RxBytes: 1000, TxBytes: 500, RecordedAt: time.Now(),
+		UserID: &uid, RxBytes: 1000, TxBytes: 500, RecordedAt: time.Now(),
 	}).Error; err != nil {
 		t.Fatal(err)
 	}

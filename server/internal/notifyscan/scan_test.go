@@ -153,7 +153,8 @@ func TestSweepTraffic(t *testing.T) {
 		if err := db.Where("username = ?", name).First(&u).Error; err != nil {
 			t.Fatal(err)
 		}
-		if err := db.Create(&storage.TrafficLog{UserID: u.ID, RxBytes: used, TxBytes: 0, RecordedAt: now}).Error; err != nil {
+		uid := u.ID
+		if err := db.Create(&storage.TrafficLog{UserID: &uid, RxBytes: used, TxBytes: 0, RecordedAt: now}).Error; err != nil {
 			t.Fatal(err)
 		}
 	}

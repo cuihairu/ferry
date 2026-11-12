@@ -55,8 +55,9 @@ func (h *Handler) recordTraffic(c *gin.Context) {
 		if item.RecordedAt != nil {
 			recordedAt = *item.RecordedAt
 		}
+		uid := item.UserID
 		rows = append(rows, storage.TrafficLog{
-			UserID:     item.UserID,
+			UserID:     &uid,
 			NodeID:     item.NodeID,
 			RxBytes:    item.RxBytes,
 			TxBytes:    item.TxBytes,

@@ -239,13 +239,14 @@ func TestPanelSavings(t *testing.T) {
 		t.Fatalf("seed save_stats: %v", err)
 	}
 	n1, n2 := uint(1), uint(2)
+	sv, ot := saverID, otherID
 	seedTraffic := []storage.TrafficLog{
-		{UserID: saverID, NodeID: &n1, RxBytes: 600, RecordedAt: now},
+		{UserID: &sv, NodeID: &n1, RxBytes: 600, RecordedAt: now},
 		// 他人同节点流量摊薄占比：saver 占 n1 一半
-		{UserID: otherID, NodeID: &n1, RxBytes: 600, RecordedAt: now},
-		{UserID: saverID, NodeID: &n2, RxBytes: 100, RecordedAt: now},
+		{UserID: &ot, NodeID: &n1, RxBytes: 600, RecordedAt: now},
+		{UserID: &sv, NodeID: &n2, RxBytes: 100, RecordedAt: now},
 		// 上月流量不进窗口
-		{UserID: saverID, NodeID: &n1, RxBytes: 5000, RecordedAt: now.AddDate(0, 0, -40)},
+		{UserID: &sv, NodeID: &n1, RxBytes: 5000, RecordedAt: now.AddDate(0, 0, -40)},
 	}
 	if err := db.Create(&seedTraffic).Error; err != nil {
 		t.Fatalf("seed traffic: %v", err)

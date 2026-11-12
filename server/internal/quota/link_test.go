@@ -130,7 +130,7 @@ func TestLinkLowCost(t *testing.T) {
 
 func seedTraffic(t *testing.T, db *gorm.DB, userID uint, nodeID *uint, rx, tx int64, at time.Time) {
 	t.Helper()
-	if err := db.Create(&storage.TrafficLog{UserID: userID, NodeID: nodeID, RxBytes: rx, TxBytes: tx, RecordedAt: at}).Error; err != nil {
+	if err := db.Create(&storage.TrafficLog{UserID: &userID, NodeID: nodeID, RxBytes: rx, TxBytes: tx, RecordedAt: at}).Error; err != nil {
 		t.Fatal(err)
 	}
 }

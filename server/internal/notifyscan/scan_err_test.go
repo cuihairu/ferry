@@ -81,8 +81,9 @@ func seedTrafficUser(t *testing.T, db *gorm.DB, warnPercent int, usedPct int64) 
 		Enabled: true, NotifyTraffic: true, TrafficWarnPercent: warnPercent,
 	})
 	now := time.Now()
+	uid := u.ID
 	if err := db.Create(&storage.TrafficLog{
-		UserID: u.ID, RxBytes: gb * usedPct / 100, RecordedAt: now,
+		UserID: &uid, RxBytes: gb * usedPct / 100, RecordedAt: now,
 	}).Error; err != nil {
 		t.Fatalf("traffic seed: %v", err)
 	}

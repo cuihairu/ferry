@@ -380,8 +380,9 @@ func (h *Handler) saveUserTraffic(nodeID int64, items []agentproto.ProcTraffic) 
 				unknown[u.Email] = true
 				continue
 			}
+			// UserID 可空（P2：删除用户 SET NULL 保历史），在册用户必有 ID。
 			rows = append(rows, storage.TrafficLog{
-				UserID: uid, NodeID: &nid,
+				UserID: &uid, NodeID: &nid,
 				RxBytes: int64(u.Rx), TxBytes: int64(u.Tx), RecordedAt: it.At,
 			})
 		}

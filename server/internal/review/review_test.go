@@ -39,10 +39,11 @@ func TestDisableInactive(t *testing.T) {
 		Update("enabled", false).Error; err != nil {
 		t.Fatalf("seed disabled user: %v", err)
 	}
+	u4, u5, u6 := users[4].ID, users[5].ID, users[6].ID
 	traffic := []storage.TrafficLog{
-		{UserID: users[4].ID, RxBytes: 60, TxBytes: 50, RecordedAt: time.Now()}, // over-quota: 110 >= 100
-		{UserID: users[5].ID, RxBytes: 40, TxBytes: 20, RecordedAt: time.Now()}, // under-quota: 60 < 100
-		{UserID: users[6].ID, RxBytes: 999, TxBytes: 999, RecordedAt: time.Now()},
+		{UserID: &u4, RxBytes: 60, TxBytes: 50, RecordedAt: time.Now()}, // over-quota: 110 >= 100
+		{UserID: &u5, RxBytes: 40, TxBytes: 20, RecordedAt: time.Now()}, // under-quota: 60 < 100
+		{UserID: &u6, RxBytes: 999, TxBytes: 999, RecordedAt: time.Now()},
 	}
 	if err := db.Create(&traffic).Error; err != nil {
 		t.Fatalf("seed traffic: %v", err)
@@ -106,11 +107,12 @@ func TestDisableInactiveRespectsResetCycle(t *testing.T) {
 	dayUser, noneUser = users[0], users[1]
 
 	now := time.Now()
+	du, nu := dayUser.ID, noneUser.ID
 	traffic := []storage.TrafficLog{
-		{UserID: dayUser.ID, RxBytes: 100, TxBytes: 100, RecordedAt: now.Add(-30 * 24 * time.Hour)}, // 上月
-		{UserID: dayUser.ID, RxBytes: 60, TxBytes: 0, RecordedAt: now.Add(-time.Hour)},              // 今天
-		{UserID: noneUser.ID, RxBytes: 100, TxBytes: 100, RecordedAt: now.Add(-30 * 24 * time.Hour)},
-		{UserID: noneUser.ID, RxBytes: 60, TxBytes: 0, RecordedAt: now.Add(-time.Hour)},
+		{UserID: &du, RxBytes: 100, TxBytes: 100, RecordedAt: now.Add(-30 * 24 * time.Hour)}, // 上月
+		{UserID: &du, RxBytes: 60, TxBytes: 0, RecordedAt: now.Add(-time.Hour)},              // 今天
+		{UserID: &nu, RxBytes: 100, TxBytes: 100, RecordedAt: now.Add(-30 * 24 * time.Hour)},
+		{UserID: &nu, RxBytes: 60, TxBytes: 0, RecordedAt: now.Add(-time.Hour)},
 	}
 	if err := db.Create(&traffic).Error; err != nil {
 		t.Fatalf("seed traffic: %v", err)

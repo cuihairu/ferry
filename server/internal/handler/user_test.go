@@ -84,7 +84,7 @@ func TestUserCRUD(t *testing.T) {
 		t.Fatal("sub_token must change on reset")
 	}
 
-	// 删除：连带流量记录
+	// 删除：用户 404，计费历史（traffic_logs）保留（P2 修复，见 userdelete_test.go）
 	if rec := doJSON(t, r, "DELETE", "/api/users/1", nil); rec.Code != http.StatusOK {
 		t.Fatalf("delete user: %d", rec.Code)
 	}
