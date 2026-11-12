@@ -2121,3 +2121,28 @@ adminAuth/distAuth 分离、防枚举 404、原子核销卡密、dedupe 幂等�
 验证：`go build ./...` 绿；`go vet internal/secret internal/backup` 绿；
 `go test ./internal/secret/ ./internal/backup/ ./internal/standby/` 全绿；
 `go test ./internal/handler/ -run 'Backup|Snapshot'` 绿。
+
+## 24. 安全审计修复批次（audit-batch5-6repos-2026-11-11.md ferry 段，P2 全部 14 项）
+
+P2 合并简列 14 项全部修复并推送，每项单 commit、英文简短、带回归测试、
+`go test ./... -count=1` 38 包全绿（每项提交前全量跑）。
+
+| 项 | 修复 | Commit | 证据（file:line） | 回归测试 |
+|----|------|--------|------------------|----------|
+| ①登录与兑换共用限速器跨面干扰 | 拆独立 loginLimiter/redeemLimiter 实例（router.go 各建） | `05d59b7` | server/internal/handler/admin.go:45、redeem.go:47 | TestRedeemRateLimited + adminlogin_err_test 套件 |
+| ②waiters 无节点归属校验可注入伪应答 | 等待键加 nodeID（waiterKey{nodeID,requestID}），回包只唤醒源节点 | `89e9d2a` | server/internal/agenthub/hub.go:65-76 | hub_test 跨节点注入用例 |
+| ③wsUpgrader 无 CheckOrigin | 显式 CheckOrigin（策略与 gorilla 隐式默认一致并留档） | `d68a5d7` | server/internal/handler/agentws.go:23-28 | agentws 套件绿 |
+| ④health 未鉴权 | healthGuard：环回放行、外部走 apiAuth | `a1a7701` | server/internal/handler/router.go:110/374 | 既有 health 用例 |
+| ⑤deleteUser 级联删计费历史 | 删用户前置空 traffic_logs.user_id 解除归属（旧库 CASCADE 兜底） | `ab0df05` | server/internal/handler/user.go:318-319 | userdelete_test 套件 |
+| ⑥用户改名流量漏计 | 改名落 renamedFrom 旧名别名，saveUserTraffic 继续归属 | `ee6b8b1` | server/internal/handler/user.go:196-215 | traffic_test 改名归属用例 |
+| ⑦event-results 默认不验签 | HeraldCallbackSecret 空即 401 拒全部回调（默认必验签） | `a41b191` | server/internal/handler/eventsapi.go:109-114 | TestEventResultSecretlessRejected |
+| ⑧2FA 全局单键互覆盖 | 暂存键按管理员分键 admin_2fa_pending:<id> | `2e605cc` | server/internal/handler/twofa.go:32-36 | TestTwoFAPendingKeyPerAdmin |
+| ⑨兑换失败可恶意禁卡 | fail_count 只按卡密自身不可用计（errCardCodeUnusable），无效 user_id 不误伤 | `f4e9033` | server/internal/handler/redeem.go:20-25/59 | TestRedeemBadUserDoesNotDisableCard |
+| ⑩优惠码 pending 占限次 | 每用户限次只计 paid/refunded 订单（pending/failed/expired 不计） | `f3c43a5` | server/internal/handler/coupon.go:278 | TestCouponPendingDoesNotOccupyPerUserLimit |
+| ⑪refund 不回收权益 | 退款同事务回收发放：add_quota 扣回（下限 0）、extend_days 扣天数，用户行缺失跳过，站内信告知 | `924d34b` | server/internal/handler/payrecon.go:192-233 | TestRefundRevokesGrants |
+| ⑫reconcile 统计口径错 | 小计改全表聚合（实收/退款分桶、流水/发放全表），页内行照常 limit 截断 | `837eeba` | server/internal/handler/payrecon.go:145-165 | TestReconcileSummaryWholeLedger（250 单 > 一页仍全量） |
+| ⑬UTF-8 截断 | truncate/truncateErr 回退 UTF-8 字符边界（快照体/回执 detail 可含中文） | `356fd66` | server/internal/handler/audit.go:98、contact.go:173 | TestTruncateUTF8Boundary + TestTruncateErr（中文边界） |
+| ⑭本地时区计费 | 月账单闸门/标题/用量窗口/到期展示改服务器本地日历（quota month 口径），亮点管道（save_stats UTC 日聚合）自洽留档 | `99aeb9e` | server/internal/toucher/toucher.go:76/116/128/253 | TestBillGateFollowsLocalCalendar（FixedZone 东八区注入） |
+
+验证：`go build ./...` 绿；`go test ./... -count=1` 38 包全绿（99aeb9e 提交前
+复跑）；每项提交前 `git pull --rebase origin main` 后推送，无 force push。
