@@ -2097,3 +2097,27 @@ Commit:
     可以独立关闭，阶段只是组织方式，不是任务完成的替代证据。
 10. **先审计后改造。** 不重复实现已有功能，不依据文档或 TODO
     推断源码已经完成。
+
+## 23. 安全审计修复批次（audit-batch5-6repos-2026-11-11.md ferry 段，P0/P1）
+
+巡检单 `docs/audit/audit-batch5-6repos-2026-11-11.md`（ferry 段）P0/P1 全部
+修复并推送，每项单 commit、英文简短、带回归测试、测试绿。审核结论（apiAuth/
+adminAuth/distAuth 分离、防枚举 404、原子核销卡密、dedupe 幂等层）无改动。
+
+| 项 | 修复 | Commit | 证据（file:line） | 回归测试 |
+|----|------|--------|------------------|----------|
+| P0-1 gin 未设 TrustedProxies，ClientIP 全线可伪造 | 白名单信任，非法 CIDR 回退不信任（fail-closed） | `bb7ec0d` | server/internal/handler/router.go:94 | 既有 apiauth 套件绿 |
+| P1-2 admin JWT 签发后不回库复核，停用/改密旧 token 仍 24h 有效 | adminAuth 每请求回库复核（任何 First 错→401）+ PasswordChangedAt 失效 | `3b9ca42` | server/internal/handler/apiauth.go（adminAuthMiddleware） | TestApiDataPlaneHonorsAdminSecretEnv |
+| P1-3 settlePayment 幂等只按 external_id，并发回调双重发放额度翻倍 | 条件 `UPDATE ... WHERE id=? AND status='pending'`，RowsAffected=0 幂等不发 | `c501941` | server/internal/handler/paynotify.go:49 | TestEpusdtNotifyConcurrentSettle |
+| P1-4 epusdt 回调金额口径（网关按响应体判定，非 JSON） | 回 `c.String(200,"ok")` 字面量体 | `a9fa9c2` | server/internal/handler/paynotify.go:43 | TestEpusdtNotifyConcurrentSettle 断 body=="ok" |
+| P1-5 writeLedgerOp 余额校验非事务，并发打款可透支 | 条件 `INSERT...SELECT...WHERE SUM(...)>=?`（便携 `FROM (SELECT 1)`）原子护栏 | `1caa7c7` | server/internal/handler/distributor.go:395 | TestPayoutAtomicGuard（第二连接并发） |
+| P1-6 WS 读无 SetReadLimit、批量 items 无上限，打爆面板内存与 SQLite | 帧限 8MiB + capBatch 1000 + createChunked 防绑定变量溢出 | `e1bd6da` | server/internal/handler/agentws.go:95 | TestAgentWSBatchTrim + TestAgentWSFrameLimit |
+| P1-7 sub_devices 无限增长（IPLimit=0 不清窗） | prune 移出 `IPLimit>0` 守卫，任何新 IP 顺带清窗 | `3564742` | server/internal/handler/subdevice.go:38 | TestSubDevicePruneUnlimited |
+| P1-8 backup.Snapshot 整库读入内存，流量表增长后 OOM | 明文走同目录原子 rename（零拷贝）；加密走流式 EncryptBytesStream（同 GCM 格式） | `7bf0cde` | server/internal/backup/backup.go:138/160 | TestEncryptBytesStream + TestSnapshotLargeTableStreams |
+
+已确认无问题（不改）：apiAuth/adminAuth/distAuth 分离、防枚举 404、原子核销
+卡密、dedupe 幂等层。P2 合并简列（14 项）下一步处理。
+
+验证：`go build ./...` 绿；`go vet internal/secret internal/backup` 绿；
+`go test ./internal/secret/ ./internal/backup/ ./internal/standby/` 全绿；
+`go test ./internal/handler/ -run 'Backup|Snapshot'` 绿。
