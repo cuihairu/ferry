@@ -423,8 +423,9 @@ func (h *Handler) panelOrderStatus(c *gin.Context) {
 // panelSavings 用户侧「已为你省下」汇总（GET /api/panel/savings，SAVE-8）。
 // 节点级节省计数（save_stats）出自 agent 出站计数，无用户身份，按用户在该
 // 节点当月记账流量占比折算（可复核的估算式；节点当月无用户记账则不摊派）。
-// 窗口=自然月至今（UTC），对齐月账单亮点口径；缓存命中列随 SAVE-3 metrics
-// 汇入后自动进返回，现先行预留。
+// 窗口=自然月至今（UTC 月起点，与 save_stats 的 UTC 日聚合键同管道自洽；
+// 计费/流量判定窗口走服务器本地时区，见 quota 与 toucher）。缓存命中列随
+// SAVE-3 metrics 汇入后自动进返回，现先行预留。
 func (h *Handler) panelSavings(c *gin.Context) {
 	u, ok := h.panelUser(c)
 	if !ok {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/ferry/server/internal/herald"
+	"github.com/cuihairu/ferry/server/internal/quota"
 	"github.com/cuihairu/ferry/server/internal/save"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/cuihairu/ferry/server/internal/sub"
@@ -68,8 +69,11 @@ func joinErr(a, b error) error {
 
 // sweepBill 月账单（§5 必收）：每自然月至多一轮（settings 月闸门），给全部
 // 启用用户各落一单任务；内容=用量/配额/状态/到期/续费入口/已省下亮点。
+// 月闸门按服务器本地日历月（P2 本地时区计费修复：原按 UTC 月，非 UTC 部署
+// 下账单月份与本地日历/流量判定窗口错位）。亮点取数仍用 UTC 月起点——
+// save_stats 按 UTC 日聚合，管道自洽。
 func sweepBill(db *gorm.DB, cfg Config, now time.Time) error {
-	month := now.UTC().Format("2006-01")
+	month := now.Format("2006-01")
 	if v, ok, err := storage.GetSetting(db, settingBillMonth); err != nil {
 		return err
 	} else if ok && v == month {
@@ -79,7 +83,7 @@ func sweepBill(db *gorm.DB, cfg Config, now time.Time) error {
 	if err := db.Where("enabled = ?", true).Find(&users).Error; err != nil {
 		return err
 	}
-	monthStart := month + "-01"
+	monthStart := now.UTC().Format("2006-01") + "-01"
 	savings := map[uint][3]int64{}
 	for _, u := range users {
 		d, c, b, err := save.UserSavings(db, u.ID, monthStart)
@@ -101,13 +105,15 @@ func sweepBill(db *gorm.DB, cfg Config, now time.Time) error {
 }
 
 // emitBill 渲染并发一单月账单：任务落 touch_jobs，经 Emit 投出后标 sent。
+// 用量窗口=计费窗口：服务器本地自然月起点（quota month 口径，P2 修复——原
+// 按 UTC 字符串月起点，非 UTC 部署下与月流量判定/订阅展示窗口错位）。
 func emitBill(db *gorm.DB, cfg Config, u storage.User, sv [3]int64, now time.Time) error {
 	var usage struct {
 		Rx, Tx int64
 	}
 	if err := db.Table("traffic_logs").
 		Select("COALESCE(SUM(rx_bytes),0) AS rx, COALESCE(SUM(tx_bytes),0) AS tx").
-		Where("user_id = ? AND recorded_at >= ?", u.ID, now.UTC().Format("2006-01")+"-01").
+		Where("user_id = ? AND recorded_at >= ?", u.ID, quota.WindowStart(quota.CycleMonth, now)).
 		Scan(&usage).Error; err != nil {
 		return err
 	}
@@ -119,7 +125,7 @@ func emitBill(db *gorm.DB, cfg Config, u storage.User, sv [3]int64, now time.Tim
 	body := fmt.Sprintf("用量：%s（自然月至今）\n配额：%s\n状态：%s\n到期：%s\n续费入口：%s/panel\n已为你省下：直连分流 %s + 广告拦截 %s（按节点用量占比折算）",
 		formatBytes(used), quotaText(u.QuotaBytes), state, expireText(u.ExpiresAt), cfg.BaseURL,
 		formatBytes(sv[0]), formatBytes(sv[2]))
-	title := "月账单 · " + now.UTC().Format("2006-01")
+	title := "月账单 · " + now.Format("2006-01")
 	return emitTouch(db, int64(u.ID), herald.KindBill, title, body, now)
 }
 
@@ -244,10 +250,11 @@ func quotaText(quota int64) string {
 	return formatBytes(quota)
 }
 
-// expireText 到期展示：nil=不限期。
+// expireText 到期展示：nil=不限期；按服务器本地日历日期（与计费窗口同时区，
+// 避免非 UTC 部署下到期日显示差一天）。
 func expireText(t *time.Time) string {
 	if t == nil {
 		return "不限期"
 	}
-	return t.UTC().Format("2006-01-02")
+	return t.Format("2006-01-02")
 }
