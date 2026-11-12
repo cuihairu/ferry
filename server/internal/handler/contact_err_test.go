@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cuihairu/ferry/server/internal/herald"
 	"github.com/cuihairu/ferry/server/internal/storage"
@@ -147,7 +148,8 @@ func TestTouchResultContactErrors(t *testing.T) {
 	}
 }
 
-// TestTruncateErr 覆盖回执 detail 超长截断（列宽 255）。
+// TestTruncateErr 覆盖回执 detail 超长截断（列宽 255）；P2 UTF-8 截断修复
+// 后截断按字符边界回退——含中文的 detail 截断产物仍是合法 UTF-8。
 func TestTruncateErr(t *testing.T) {
 	long := strings.Repeat("x", 300)
 	if got := truncateErr(long); len(got) != 255 {
@@ -155,5 +157,10 @@ func TestTruncateErr(t *testing.T) {
 	}
 	if got := truncateErr("short"); got != "short" {
 		t.Fatalf("passthrough = %q", got)
+	}
+	// 上限落在多字节字符中间（x 到 253、流 首字节占 253-255）：回退到边界。
+	longZH := strings.Repeat("x", 253) + strings.Repeat("流", 10)
+	if got := truncateErr(longZH); len(got) != 253 || !utf8.ValidString(got) {
+		t.Fatalf("utf8 truncate = %d bytes, valid=%v", len(got), utf8.ValidString(got))
 	}
 }

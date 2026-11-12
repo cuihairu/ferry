@@ -168,10 +168,8 @@ func (h *Handler) notifyContactStale(ct storage.UserContact) {
 	})
 }
 
-// truncateErr 回执 detail 可能很长，落 error 列前截断（列宽 255）。
+// truncateErr 回执 detail 可能很长，落 error 列前截断（列宽 255）；
+// 截断按 UTF-8 字符边界回退（detail 可含中文，按字节硬切会截半字符）。
 func truncateErr(s string) string {
-	if len(s) > 255 {
-		return s[:255]
-	}
-	return s
+	return truncate(s, 255)
 }

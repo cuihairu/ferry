@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
@@ -243,5 +244,23 @@ func TestAuditActorAndSnapshot(t *testing.T) {
 	}
 	if string(rest) != `{"password":"secret-z","a":1}` {
 		t.Fatalf("body not restored: %q", string(rest))
+	}
+}
+
+// TestTruncateUTF8Boundary 覆盖 P2「UTF-8 截断」修复：按字节截断回退到
+// UTF-8 字符边界——含中文的超长快照截断后仍是合法 UTF-8；边界恰在字符
+// 起始时截至上限整字节；短文本直通。
+func TestTruncateUTF8Boundary(t *testing.T) {
+	// 上限字节落在多字节字符中间（流 首字节在 253）：回退到 253。
+	s := strings.Repeat("x", 253) + strings.Repeat("流", 10)
+	if got := truncate(s, 255); len(got) != 253 || !utf8.ValidString(got) {
+		t.Fatalf("mid-rune truncate = %d bytes, valid=%v", len(got), utf8.ValidString(got))
+	}
+	// 边界恰在字符起始（85×3=255 整）：截至上限整字节。
+	if got := truncate(strings.Repeat("流", 100), 255); len(got) != 255 || !utf8.ValidString(got) {
+		t.Fatalf("aligned truncate = %d bytes, valid=%v", len(got), utf8.ValidString(got))
+	}
+	if got := truncate("short", 255); got != "short" {
+		t.Fatalf("passthrough = %q", got)
 	}
 }

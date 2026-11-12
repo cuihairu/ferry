@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
@@ -97,6 +98,11 @@ func redactJSON(v any) any {
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
+	}
+	// 回退到 UTF-8 字符边界：按字节硬切会把多字节字符截半，落库成非法
+	// UTF-8（P2 UTF-8 截断修复；快照体可含中文）。
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
 	}
 	return s[:n]
 }
