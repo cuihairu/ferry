@@ -3,6 +3,7 @@ package handler
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 	"sync"
@@ -86,6 +87,14 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 	h.pusher = relaypush.New(db, h.hub, nil)
 	h.secrets = secret.NewStore(cfg.SecretKey)
 	r := gin.Default()
+	// ClientIP 只采信显式白名单反代的转发头（审核修复 2026-11-12）：
+	// 默认不信任任何代理（ClientIP=直连地址），登录/订阅/兑换限流与审计
+	// 日志的 IP 口径不可被 X-Forwarded-For 伪造；反代后按实际网段配置
+	// FERRY_TRUSTED_PROXIES。白名单写坏即回落不信任任何代理（安全侧）。
+	if err := r.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+		log.Printf("trusted proxies %q invalid: %v; trusting none", cfg.TrustedProxies, err)
+		_ = r.SetTrustedProxies(nil)
+	}
 
 	r.GET("/api/health", h.health)
 	r.GET("/agent/ws", h.agentWS)

@@ -139,6 +139,13 @@ type Config struct {
 	StandbyMasterURL string
 	StandbyToken     string `json:"-"`
 	StandbySec       int
+
+	// TrustedProxies 是可信任的反向代理网段白名单（CIDR 或单 IP，逗号分隔
+	// 的 FERRY_TRUSTED_PROXIES）：仅这些来源的 X-Forwarded-For/X-Real-IP 参与
+	// ClientIP 判定。空（默认）= 不信任任何代理，ClientIP 恒取直连地址——
+	// 登录爆破锁定/订阅锁定/API 限流/审计日志的 IP 口径不可被请求头伪造。
+	// 部署在 Caddy/Nginx 反代后按反代实际网段显式配置（如 docker 网段）。
+	TrustedProxies []string
 }
 
 // Load 从环境变量读取配置，未设置的项回退到默认值。
@@ -191,6 +198,7 @@ func Load() Config {
 		StandbyMasterURL:      envOr("FERRY_STANDBY_MASTER_URL", ""),
 		StandbyToken:          envOr("FERRY_STANDBY_TOKEN", ""),
 		StandbySec:            envIntOr("FERRY_STANDBY_SEC", 600),
+		TrustedProxies:        csvEnv("FERRY_TRUSTED_PROXIES"),
 		BackupS3Endpoint:      os.Getenv("FERRY_BACKUP_S3_ENDPOINT"),
 		BackupS3Bucket:        os.Getenv("FERRY_BACKUP_S3_BUCKET"),
 		BackupS3AccessKey:     os.Getenv("FERRY_BACKUP_S3_ACCESS_KEY"),
@@ -262,6 +270,21 @@ func envIntOr(key string, fallback int) int {
 		}
 	}
 	return fallback
+}
+
+// csvEnv 读逗号分隔的环境变量，空串为 nil（未配置），空项跳过。
+func csvEnv(key string) []string {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return nil
+	}
+	out := []string{}
+	for _, part := range strings.Split(v, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // envBoolOr 读取布尔环境变量（"1"/"true"/"yes"/"on" 为真，不区分大小写）。
