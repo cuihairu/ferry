@@ -179,7 +179,8 @@ func TestRedeemDisabledByFails(t *testing.T) {
 	userID, codes := redeemCreate(t, r, "erin", map[string]any{
 		"grant_type": "add_quota", "grant_value": 1 << 30,
 	}, 2)
-	// 对 unused 码反复用错误用户尝试：每次核销回滚并计一次失败，5 次后禁用
+	// P2 修复：对 unused 码反复用错误用户尝试（无效 user_id）不再累计失败
+	// 也不禁用——失败根因不是卡密自身，不归罪于卡密（防恶意禁卡）。
 	for i := 0; i < 5; i++ {
 		rec := doJSON(t, r, "POST", "/api/redeem", map[string]any{"code": codes[1], "user_id": 99})
 		if rec.Code != http.StatusBadRequest {
@@ -190,11 +191,12 @@ func TestRedeemDisabledByFails(t *testing.T) {
 	if err := db.Where("code = ?", codes[1]).First(&row).Error; err != nil {
 		t.Fatal(err)
 	}
-	if row.Status != "disabled" || row.FailCount < 5 {
-		t.Fatalf("unused code should be disabled after 5 fails: %+v", row)
+	if row.Status != "unused" || row.FailCount != 0 {
+		t.Fatalf("bad-user failure must not disable/penalize unused card: %+v", row)
 	}
 
-	// 换 IP：正常兑换 codes[0] 后重放。已用码只累计计数不改状态（used 语义保留）。
+	// 换 IP：正常兑换 codes[0] 后重放。已用码（卡密自身不可用）只累计计数
+	// 不改状态（used 语义保留）。
 	if rec := doJSONFrom(t, r, "203.0.113.9", "POST", "/api/redeem", map[string]any{"code": codes[0], "user_id": userID}); rec.Code != http.StatusOK {
 		t.Fatalf("fresh-ip redeem: %d %s", rec.Code, rec.Body)
 	}
@@ -209,6 +211,35 @@ func TestRedeemDisabledByFails(t *testing.T) {
 	}
 	if used.Status != "used" || used.FailCount < 5 {
 		t.Fatalf("used code keeps status, counts fails: %+v", used)
+	}
+}
+
+// TestRedeemBadUserDoesNotDisableCard 覆盖 P2「兑换失败可恶意禁卡」修复：
+// 一枚可用 unused 卡密被无效 user_id 反复提交（每次核销回滚）不再累计
+// fail_count、不自动禁用——修复前 5 次无效 user_id 就把可用卡打成 disabled，
+// 合法持卡人眼睁睁被禁。修复后卡保持 unused、计数为 0，且仍可正常兑换。
+func TestRedeemBadUserDoesNotDisableCard(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	userID, codes := redeemCreate(t, r, "grief", map[string]any{
+		"grant_type": "add_quota", "grant_value": 1 << 30,
+	}, 1)
+	// 5 次无效 user_id（恶意禁卡手法）：统一失败文案，卡不被禁。
+	for i := 0; i < 5; i++ {
+		if rec := doJSON(t, r, "POST", "/api/redeem", map[string]any{"code": codes[0], "user_id": 9999}); rec.Code != http.StatusBadRequest {
+			t.Fatalf("attempt %d: %d %s", i, rec.Code, rec.Body)
+		}
+	}
+	var row storage.CardCode
+	if err := db.Where("code = ?", codes[0]).First(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	if row.Status != "unused" || row.FailCount != 0 {
+		t.Fatalf("card should stay unused, unpenalized: %+v", row)
+	}
+	// 合法用户仍可兑换（未被恶意禁卡）；换 IP 避开本 IP 的失败锁（5 次失败
+	// 已锁 15 分钟，限速口径不变）。
+	if rec := doJSONFrom(t, r, "198.51.100.77", "POST", "/api/redeem", map[string]any{"code": codes[0], "user_id": userID}); rec.Code != http.StatusOK {
+		t.Fatalf("card should still redeem: %d %s", rec.Code, rec.Body)
 	}
 }
 

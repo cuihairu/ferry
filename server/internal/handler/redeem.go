@@ -17,6 +17,13 @@ import (
 // errRedeemFailed 是兑换失败的统一文案：不区分码不存在/已用/禁用/过期，防枚举（《支付设计》§3.3）。
 var errRedeemFailed = errors.New("兑换失败")
 
+// errCardCodeUnusable 表示兑换失败根因是卡密本身不可用（不存在/已用/禁用，
+// redeemTx 步骤 1 原子核销行数为 0）。只对这类失败累计 fail_count（PAY-5
+// 防探测）；用户不存在/批次过期等其他失败原因不归罪于卡密——否则一枚可用
+// 卡密被无效 user_id 反复提交会累计满 5 次自动禁用（P2 兑换失败可恶意禁卡
+// 修复：失败只按卡密自身不可用计数，非卡密故障不误伤可用卡）。
+var errCardCodeUnusable = errors.New("card code unusable")
+
 // redeemInput 是兑换请求载荷。user_id 在 P0 由调用方显式给定，
 // 用户门户就绪后改为从会话取（届时收紧为不可传）。
 type redeemInput struct {
@@ -47,7 +54,11 @@ func (h *Handler) redeem(c *gin.Context) {
 	if err != nil {
 		if errors.Is(err, errRedeemFailed) {
 			h.redeemLimiter.RecordFailure(ip)
-			h.bumpCardFailCount(code)
+			// 只按卡密自身不可用累计失败（P2：用户不存在等非卡密故障不
+			// 归罪于卡密，防可用卡被无效 user_id 反复提交恶意禁卡）。
+			if errors.Is(err, errCardCodeUnusable) {
+				h.bumpCardFailCount(code)
+			}
 			fail(c, http.StatusBadRequest, errRedeemFailed)
 			return
 		}
@@ -70,7 +81,9 @@ func (h *Handler) redeemTx(code string, userID uint, now time.Time) (gin.H, erro
 			return res.Error
 		}
 		if res.RowsAffected == 0 {
-			return errRedeemFailed
+			// 卡密自身不可用（不存在/已用/禁用）：归罪于卡密，调用方据此
+			// 累计 fail_count（P2 防恶意禁卡，其余失败原因不计）。
+			return fmt.Errorf("%w: %w", errRedeemFailed, errCardCodeUnusable)
 		}
 		var codeRow storage.CardCode
 		if err := tx.Where("code = ?", code).First(&codeRow).Error; err != nil {
