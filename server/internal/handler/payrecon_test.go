@@ -369,3 +369,95 @@ func TestRefundRowLoadFail(t *testing.T) {
 		t.Fatalf("refund with load fail: %d %s", rec.Code, rec.Body)
 	}
 }
+
+// TestRefundRevokesGrants 覆盖 P2「refund 不回收权益」修复：退款在同一事务
+// 内扣回订单发放过的权益——add_quota 从当前余额扣回（下限 0 不记负数）、
+// extend_days 从当前到期扣回天数；发放记录留档不变，并按用户落一条站内信。
+// 二次退款 409 后权益不再变动（paid 前置挡住重复回收）。
+func TestRefundRevokesGrants(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	now := time.Now()
+	// 三名用户：u1 配额充足（5GiB 发 2GiB）、u2 有到期（+40 天发 30 天）、
+	// u3 配额不足（1GiB 发 2GiB，扣到 0 不记负）。
+	for i, name := range []string{"rev-quota", "rev-days", "rev-floor"} {
+		u := storage.User{Username: name, SubToken: name + "-sub", QuotaBytes: int64(5-i*2) << 30, Enabled: true}
+		if err := db.Create(&u).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	var u1, u2, u3 storage.User
+	db.Where("username = ?", "rev-quota").First(&u1)
+	db.Where("username = ?", "rev-days").First(&u2)
+	db.Where("username = ?", "rev-floor").First(&u3)
+	if err := db.Model(&storage.User{}).Where("id = ?", u2.ID).
+		Update("expires_at", now.Add(40*24*time.Hour)).Error; err != nil {
+		t.Fatal(err)
+	}
+	seed := []storage.PaymentOrder{
+		{OrderNo: "rv-o1", UserID: u1.ID, Provider: "epusdt", AmountCents: 1000, Product: "p", Status: "paid", PaidAt: &now, GrantType: "add_quota", GrantValue: 2 << 30},
+		{OrderNo: "rv-o2", UserID: u2.ID, Provider: "epusdt", AmountCents: 2000, Product: "p", Status: "paid", PaidAt: &now, GrantType: "extend_days", GrantValue: 30},
+		{OrderNo: "rv-o3", UserID: u3.ID, Provider: "epusdt", AmountCents: 3000, Product: "p", Status: "paid", PaidAt: &now, GrantType: "add_quota", GrantValue: 2 << 30},
+	}
+	for i := range seed {
+		if err := db.Create(&seed[i]).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	grants := []storage.Grant{
+		{OrderNo: "rv-o1", UserID: u1.ID, GrantType: "add_quota", GrantValue: 2 << 30},
+		{OrderNo: "rv-o2", UserID: u2.ID, GrantType: "extend_days", GrantValue: 30},
+		{OrderNo: "rv-o3", UserID: u3.ID, GrantType: "add_quota", GrantValue: 2 << 30},
+	}
+	for i := range grants {
+		if err := db.Create(&grants[i]).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, no := range []string{"rv-o1", "rv-o2", "rv-o3"} {
+		if rec := doJSON(t, r, "POST", "/api/payments/orders/"+no+"/refund", map[string]any{"note": "x"}); rec.Code != http.StatusOK {
+			t.Fatalf("refund %s: %d %s", no, rec.Code, rec.Body)
+		}
+	}
+
+	// 配额扣回：5GiB-2GiB=3GiB、1GiB-2GiB 下限 0；时长扣回：40 天-30 天≈10 天。
+	var after1, after2, after3 storage.User
+	db.First(&after1, u1.ID)
+	db.First(&after2, u2.ID)
+	db.First(&after3, u3.ID)
+	if after1.QuotaBytes != 3<<30 {
+		t.Fatalf("quota revoke = %d, want %d", after1.QuotaBytes, 3<<30)
+	}
+	if after3.QuotaBytes != 0 {
+		t.Fatalf("quota floor = %d, want 0", after3.QuotaBytes)
+	}
+	if after2.ExpiresAt == nil {
+		t.Fatal("expires_at should remain set")
+	}
+	if d := time.Until(*after2.ExpiresAt); d < 9*24*time.Hour || d > 11*24*time.Hour {
+		t.Fatalf("expires_at until = %v, want ~10d", d)
+	}
+
+	// 发放记录留档不变（回收不改三账发放行）。
+	var grantRows int64
+	db.Model(&storage.Grant{}).Where("order_no IN ?", []string{"rv-o1", "rv-o2", "rv-o3"}).Count(&grantRows)
+	if grantRows != 3 {
+		t.Fatalf("grant rows = %d, want 3", grantRows)
+	}
+	// 每用户一条回收站内信。
+	var notes int64
+	db.Model(&storage.Notification{}).Where("title = ?", "订单已退款，对应权益已回收").Count(&notes)
+	if notes != 3 {
+		t.Fatalf("notifications = %d, want 3", notes)
+	}
+
+	// 二次退款 409：权益不再扣（paid 前置挡住重复回收）。
+	if rec := doJSON(t, r, "POST", "/api/payments/orders/rv-o1/refund", map[string]any{"note": "again"}); rec.Code != http.StatusConflict {
+		t.Fatalf("refund again: %d", rec.Code)
+	}
+	var re storage.User
+	db.First(&re, u1.ID)
+	if re.QuotaBytes != 3<<30 {
+		t.Fatalf("quota after double refund = %d, want unchanged %d", re.QuotaBytes, 3<<30)
+	}
+}

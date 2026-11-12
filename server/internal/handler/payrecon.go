@@ -11,6 +11,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/ringlog"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // fmtOrphanAmount 是游离流水的摘要文案。
@@ -169,9 +170,14 @@ func (h *Handler) adminOrderDetail(c *gin.Context) {
 	c.JSON(http.StatusOK, row)
 }
 
+// errRefundNotPaid 是退款前置不满足的哨兵：仅 paid 可退。
+var errRefundNotPaid = errors.New("order not paid")
+
 // refundOrder 退款流转（POST /api/payments/orders/:order_no/refund，OD-2）：
 // 仅 paid → refunded（未付/失败/过期无款可退，已退款不可再退，409）；
 // 面板只做状态流转与留痕，钱款退回经渠道后台操作（note 记退款单号/原因）。
+// 权益随退款回收（P2：refund 不回收权益修复）——订单发放过的配额/时长在
+// 同一事务内扣回，回收失败整体回滚退款（refunded 态蕴含权益已收）。
 func (h *Handler) refundOrder(c *gin.Context) {
 	var body struct {
 		Note string `json:"note"`
@@ -181,17 +187,27 @@ func (h *Handler) refundOrder(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	res := h.db.Model(&storage.PaymentOrder{}).
-		Where("order_no = ? AND status = ?", c.Param("order_no"), "paid").
-		Updates(map[string]any{
-			"status": "refunded", "refund_at": time.Now(), "refund_note": body.Note,
-		})
-	if res.Error != nil {
-		fail(c, http.StatusInternalServerError, res.Error)
-		return
-	}
-	if res.RowsAffected == 0 {
-		fail(c, http.StatusConflict, errors.New("仅已支付订单可退款（或已是退款态）"))
+	now := time.Now()
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Model(&storage.PaymentOrder{}).
+			Where("order_no = ? AND status = ?", c.Param("order_no"), "paid").
+			Updates(map[string]any{
+				"status": "refunded", "refund_at": now, "refund_note": body.Note,
+			})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return errRefundNotPaid
+		}
+		return revokeOrderGrants(tx, c.Param("order_no"), now)
+	})
+	if err != nil {
+		if errors.Is(err, errRefundNotPaid) {
+			fail(c, http.StatusConflict, errors.New("仅已支付订单可退款（或已是退款态）"))
+			return
+		}
+		fail(c, http.StatusInternalServerError, err)
 		return
 	}
 	ringlog.Default().Add(fmt.Sprintf("order refund: %s（%s）", c.Param("order_no"), body.Note))
@@ -201,6 +217,53 @@ func (h *Handler) refundOrder(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, row)
+}
+
+// revokeOrderGrants 回收订单发放过的权益（与退款状态流转同事务）：
+// add_quota 从当前余额扣回（下限 0——流量可能已消耗，不记负数）；extend_days
+// 从当前到期扣回天数（扣后落在过去即过期态；当前无到期无从扣回，不动）。
+// 用户行已删的发放无从回收，跳过（发放记录无外键不随用户删除）。回收落一条
+// 站内信告知用户（每用户至多一条）。
+func revokeOrderGrants(tx *gorm.DB, orderNo string, now time.Time) error {
+	var grants []storage.Grant
+	if err := tx.Where("order_no = ?", orderNo).Find(&grants).Error; err != nil {
+		return err
+	}
+	notified := map[uint]bool{}
+	for _, g := range grants {
+		var u storage.User
+		if err := tx.First(&u, g.UserID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				continue // 用户已删：无从回收
+			}
+			return err
+		}
+		if g.GrantType == "add_quota" {
+			u.QuotaBytes -= g.GrantValue
+			if u.QuotaBytes < 0 {
+				u.QuotaBytes = 0
+			}
+		} else if u.ExpiresAt != nil {
+			revoked := u.ExpiresAt.Add(-time.Duration(g.GrantValue) * 24 * time.Hour)
+			u.ExpiresAt = &revoked
+		} else {
+			continue
+		}
+		if err := tx.Model(&storage.User{}).Where("id = ?", u.ID).
+			Updates(map[string]any{"quota_bytes": u.QuotaBytes, "expires_at": u.ExpiresAt}).Error; err != nil {
+			return err
+		}
+		if !notified[u.ID] {
+			notified[u.ID] = true
+			if err := tx.Create(&storage.Notification{
+				UserID: int64(u.ID), Type: storage.NotifSystem,
+				Title: "订单已退款，对应权益已回收", CreatedAt: now,
+			}).Error; err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // loadReconcileRow 组装一单的三账视图；订单不存在返回 (nil, false)。
