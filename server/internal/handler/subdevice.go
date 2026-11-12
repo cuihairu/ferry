@@ -33,8 +33,10 @@ func (h *Handler) subDeviceCheck(c *gin.Context, u *storage.User, hwid, ip, ua s
 	if exists {
 		h.subDeviceTouch(u.ID, "ip", ip, ua, now) // 老 IP 续期（懒更新，失败不阻断）
 	} else {
+		// 窗口外旧行总是顺带清理（P1-7）：IPLimit=0 无限额用户此前从不清窗，
+		// sub_devices 无限增长；每次新 IP 到访清一次，表体量有界。
+		h.pruneSubDevices(u.ID, now)
 		if u.IPLimit > 0 {
-			h.pruneSubDevices(u.ID, now)
 			var cnt int64
 			if err := h.db.Model(&storage.SubDevice{}).
 				Where("user_id = ? AND kind = ? AND last_seen > ?", u.ID, "ip", now.Add(-subDeviceIPWindow)).

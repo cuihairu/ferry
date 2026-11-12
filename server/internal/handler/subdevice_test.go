@@ -127,6 +127,30 @@ func TestSubscriptionIPLimit(t *testing.T) {
 	}
 }
 
+// TestSubDevicePruneUnlimited 覆盖无 IP 上限用户的窗口清理（P1-7）：
+// IPLimit=0 时旧 IP 行此前从不清理、sub_devices 无限增长；修后新 IP 到访
+// 即顺带清窗，表体量有界。
+func TestSubDevicePruneUnlimited(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	path, id := createLimitedUser(t, r, "unlim", 0, 0) // 设备/IP 双不限
+	old := time.Now().Add(-25 * time.Hour)
+	if err := db.Create(&storage.SubDevice{UserID: uint(id), Kind: "ip", Key: "10.9.9.1",
+		FirstSeen: old, LastSeen: old}).Error; err != nil {
+		t.Fatal(err)
+	}
+	// 新 IP 到访 → 旧行应被清理，只留新行。
+	if rec := getSubAt(t, r, path, "v2rayNG/1.8", "10.1.0.5:1000", ""); rec.Code != http.StatusOK {
+		t.Fatalf("new ip: %d %s", rec.Code, rec.Body)
+	}
+	var cnt int64
+	if err := db.Model(&storage.SubDevice{}).Where("user_id = ? AND kind = 'ip'", uint(id)).Count(&cnt).Error; err != nil {
+		t.Fatal(err)
+	}
+	if cnt != 1 {
+		t.Fatalf("ip rows = %d, want 1 (old pruned, new kept)", cnt)
+	}
+}
+
 func TestSubDeviceResetTokenClears(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	path, id := createLimitedUser(t, r, "reset", 1, 1)
