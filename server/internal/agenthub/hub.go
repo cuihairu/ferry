@@ -62,16 +62,23 @@ func (c *Conn) Send(env agentproto.Envelope) error {
 	return c.ws.WriteMessage(websocket.TextMessage, raw)
 }
 
+// waiterKey 是等待中的请求键（P2 节点归属校验）：同一请求 ID 挂在不同节点
+// 下互不串扰，跨节点注入的伪应答找不到等待者，不会冒充他人应答。
+type waiterKey struct {
+	nodeID int64
+	id     string
+}
+
 // Hub 持有全部在线连接与等待中的请求。
 type Hub struct {
 	mu      sync.RWMutex
 	conns   map[int64]*Conn
-	waiters map[string]chan agentproto.Envelope
+	waiters map[waiterKey]chan agentproto.Envelope
 }
 
 // New 创建 Hub。
 func New() *Hub {
-	return &Hub{conns: map[int64]*Conn{}, waiters: map[string]chan agentproto.Envelope{}}
+	return &Hub{conns: map[int64]*Conn{}, waiters: map[waiterKey]chan agentproto.Envelope{}}
 }
 
 // Register 登记连接；同节点旧连接被顶替并返回（调用方负责关闭）。
@@ -122,12 +129,13 @@ func (h *Hub) Request(nodeID int64, env agentproto.Envelope, timeout time.Durati
 		return agentproto.Envelope{}, errors.New("request envelope requires an id")
 	}
 	ch := make(chan agentproto.Envelope, 1)
+	key := waiterKey{nodeID: nodeID, id: env.ID}
 	h.mu.Lock()
-	h.waiters[env.ID] = ch
+	h.waiters[key] = ch
 	h.mu.Unlock()
 	defer func() {
 		h.mu.Lock()
-		delete(h.waiters, env.ID)
+		delete(h.waiters, key)
 		h.mu.Unlock()
 	}()
 
@@ -142,13 +150,15 @@ func (h *Hub) Request(nodeID int64, env agentproto.Envelope, timeout time.Durati
 	}
 }
 
-// Deliver 把 agent 的应答投递给等待中的请求；返回是否有人认领。
-func (h *Hub) Deliver(env agentproto.Envelope) bool {
+// Deliver 把某节点连接上的应答投递给该节点等待中的请求；返回是否有人认领。
+// 按 (nodeID, ID) 键查找（P2 节点归属校验）：来自其他节点的同 ID 消息找不到
+// 本节点的等待者，不会冒充应答——修复前 waiters 只按 ID 键，跨节点可注入。
+func (h *Hub) Deliver(nodeID int64, env agentproto.Envelope) bool {
 	if env.ID == "" {
 		return false
 	}
 	h.mu.RLock()
-	ch := h.waiters[env.ID]
+	ch := h.waiters[waiterKey{nodeID: nodeID, id: env.ID}]
 	h.mu.RUnlock()
 	if ch == nil {
 		return false

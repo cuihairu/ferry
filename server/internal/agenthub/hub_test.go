@@ -101,7 +101,33 @@ func TestHubRequestDeliver(t *testing.T) {
 	reply := agentproto.Envelope{ID: "r1", Type: agentproto.MsgConfigAck}
 	go func() {
 		time.Sleep(5 * time.Millisecond)
-		h.Deliver(reply)
+		h.Deliver(1, reply)
+	}()
+	got, err := h.Request(1, agentproto.Envelope{ID: "r1"}, time.Second)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if got.ID != "r1" {
+		t.Fatalf("got.ID = %q; want r1", got.ID)
+	}
+}
+
+// TestHubDeliverNodeOwnership 覆盖 P2 节点归属校验：请求挂在节点 1 下，
+// 节点 2 发来的同 ID 消息不得认领（跨节点伪应答被拒），只有本节点的应答
+// 能投递——修复前 waiters 只按 ID 键，任何节点的同 ID 消息都能冒充。
+func TestHubDeliverNodeOwnership(t *testing.T) {
+	h := New()
+	w := &mockWriter{}
+	h.Register(NewConn(1, w))
+	h.Register(NewConn(2, w))
+	// 节点 2 先发同 ID 伪应答：必须没人认领（返回 false）。
+	if h.Deliver(2, agentproto.Envelope{ID: "r1"}) {
+		t.Fatal("cross-node deliver must not claim the waiter")
+	}
+	// 请求挂在节点 1：节点 1 的同 ID 应答正常投递。
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		h.Deliver(1, agentproto.Envelope{ID: "r1", Type: agentproto.MsgConfigAck})
 	}()
 	got, err := h.Request(1, agentproto.Envelope{ID: "r1"}, time.Second)
 	if err != nil {
@@ -114,14 +140,14 @@ func TestHubRequestDeliver(t *testing.T) {
 
 func TestHubDeliverNoWaiter(t *testing.T) {
 	h := New()
-	if h.Deliver(agentproto.Envelope{ID: "r1"}) {
+	if h.Deliver(1, agentproto.Envelope{ID: "r1"}) {
 		t.Fatal("deliver with no waiter should return false")
 	}
 }
 
 func TestHubDeliverNoID(t *testing.T) {
 	h := New()
-	if h.Deliver(agentproto.Envelope{}) {
+	if h.Deliver(1, agentproto.Envelope{}) {
 		t.Fatal("deliver with empty ID should return false")
 	}
 }

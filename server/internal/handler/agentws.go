@@ -527,8 +527,9 @@ func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID 
 				return
 			}
 		default:
-			// 应答类消息交给等待中的请求。
-			if h.hub.Deliver(env) {
+			// 应答类消息交给等待中的请求（P2 节点归属校验：只认本节点挂起的
+			// 等待者，跨节点同 ID 的伪应答找不到等待者被丢弃）。
+			if h.hub.Deliver(nodeID, env) {
 				continue
 			}
 			log.Printf("unhandled message node=%d type=%s", nodeID, env.Type)
