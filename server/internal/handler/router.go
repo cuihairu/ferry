@@ -4,6 +4,7 @@ package handler
 import (
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
 	"sync"
@@ -106,7 +107,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		_ = r.SetTrustedProxies(nil)
 	}
 
-	r.GET("/api/health", h.health)
+	r.GET("/api/health", h.healthGuard(), h.health)
 	r.GET("/agent/ws", h.agentWS)
 	r.GET("/sub/:token", h.subscription)
 	r.GET("/feed.xml", h.feedXML)
@@ -369,6 +370,29 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 // errProbeRollback 是 DB 可写探针的回滚哨兵：事务内 INSERT 成功即证明
 // 可写，随后回滚不留行；探针真实失败（只读盘/连接断）才计不可写。
 var errProbeRollback = errors.New("health probe rollback")
+
+// healthGuard 是 /api/health 的访问门（P2 修复）：环回探活放行——部署脚本
+// start.sh 就绪等待与各 smoke 均以 127.0.0.1 在管理员登录前探活，无凭据可用；
+// 远端调用方必须带管理面凭据（admin JWT 或 API Token），否则 401。此前
+// health 裸挂无鉴权，公网可读 agents_online/备份新鲜度/DB 可写等运行态。
+func (h *Handler) healthGuard() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if ip := net.ParseIP(c.ClientIP()); ip != nil && ip.IsLoopback() {
+			c.Next()
+			return
+		}
+		if h.authorizeAPI(c) {
+			c.Next()
+			return
+		}
+		msg := "令牌缺失"
+		if bearerToken(c) != "" {
+			msg = "无效令牌"
+		}
+		c.JSON(http.StatusUnauthorized, gin.H{"error": msg})
+		c.Abort()
+	}
+}
 
 // health 健康自检（面板可用性 §5，P1）：DB 可写、agent 在线数、备份
 // 新鲜度（距最近落档时长，超 FreshHours 视为不新鲜）。检查项异常不静默：

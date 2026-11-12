@@ -91,45 +91,56 @@ func bearerToken(c *gin.Context) string {
 // 支付回调验签）挂独立 open 组，不经此中间件。
 func (h *Handler) apiAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		tokenStr := bearerToken(c)
-		if tokenStr == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "令牌缺失"})
-			c.Abort()
-			return
-		}
-		adminSecret := h.cfg.AdminSecret
-		if adminSecret == "" {
-			adminSecret = "ferry-admin-secret"
-		}
-		adminClaims := &adminClaims{}
-		// 只认 is_admin=true：代理令牌与管理员同密钥签发（DS-1），签名可验
-		// 但非管理员身份——不查此位=代理令牌直通管理数据面。
-		if tkn, err := jwt.ParseWithClaims(tokenStr, adminClaims, func(t *jwt.Token) (interface{}, error) {
-			return []byte(adminSecret), nil
-		}); err == nil && tkn.Valid && adminClaims.IsAdmin {
-			c.Set("adminUserID", adminClaims.ID)
-			c.Set("adminIsAdmin", adminClaims.IsAdmin)
-			// 管理员层级（P2-2）：requireSuper 门槛与 operator 配额归账取此。
-			c.Set("adminRole", normalizeAdminRole(adminClaims.Role))
-			c.Set("apiUser", adminClaims.Subject)
+		if h.authorizeAPI(c) {
 			c.Next()
 			return
 		}
-		apiSecret := h.cfg.ApiTokenSecret
-		if apiSecret == "" {
-			apiSecret = apiTokenSecretFallback
+		msg := "无效令牌"
+		if bearerToken(c) == "" {
+			msg = "令牌缺失"
 		}
-		apiClaims := &apiTokenClaims{}
-		if tkn, err := jwt.ParseWithClaims(tokenStr, apiClaims, func(t *jwt.Token) (interface{}, error) {
-			return []byte(apiSecret), nil
-		}); err == nil && tkn.Valid {
-			c.Set("apiUser", apiClaims.Subject)
-			c.Next()
-			return
-		}
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "无效令牌"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": msg})
 		c.Abort()
 	}
+}
+
+// authorizeAPI 校验管理面凭据（P2 供 health 等免中间件路径复用）：admin JWT
+// 或 API Token 任一有效即置上下文并返回 true；失败不改上下文返回 false
+//（未写响应，调用方决定收尾口径）。
+func (h *Handler) authorizeAPI(c *gin.Context) bool {
+	tokenStr := bearerToken(c)
+	if tokenStr == "" {
+		return false
+	}
+	adminSecret := h.cfg.AdminSecret
+	if adminSecret == "" {
+		adminSecret = "ferry-admin-secret"
+	}
+	adminClaims := &adminClaims{}
+	// 只认 is_admin=true：代理令牌与管理员同密钥签发（DS-1），签名可验
+	// 但非管理员身份——不查此位=代理令牌直通管理数据面。
+	if tkn, err := jwt.ParseWithClaims(tokenStr, adminClaims, func(t *jwt.Token) (interface{}, error) {
+		return []byte(adminSecret), nil
+	}); err == nil && tkn.Valid && adminClaims.IsAdmin {
+		c.Set("adminUserID", adminClaims.ID)
+		c.Set("adminIsAdmin", adminClaims.IsAdmin)
+		// 管理员层级（P2-2）：requireSuper 门槛与 operator 配额归账取此。
+		c.Set("adminRole", normalizeAdminRole(adminClaims.Role))
+		c.Set("apiUser", adminClaims.Subject)
+		return true
+	}
+	apiSecret := h.cfg.ApiTokenSecret
+	if apiSecret == "" {
+		apiSecret = apiTokenSecretFallback
+	}
+	apiClaims := &apiTokenClaims{}
+	if tkn, err := jwt.ParseWithClaims(tokenStr, apiClaims, func(t *jwt.Token) (interface{}, error) {
+		return []byte(apiSecret), nil
+	}); err == nil && tkn.Valid {
+		c.Set("apiUser", apiClaims.Subject)
+		return true
+	}
+	return false
 }
 
 // GetCurrentUser 当前 API 用户（P1-2）：从上下文获取当前登录的 API 用户名。
