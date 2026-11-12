@@ -20,6 +20,44 @@ import (
 
 var wsUpgrader = websocket.Upgrader{}
 
+// maxAgentFrameBytes 是单帧 WebSocket 消息上限（P1-6）：gorilla 默认
+// readLimit 为 0（不限制帧长），被攻破/故障的 agent 一发巨帧即可耗尽面板
+// 内存。8 MiB 覆盖超大批量帧的合理上限。
+const maxAgentFrameBytes = 8 << 20
+
+// maxBatchItems 是单帧批量上报条数上限（P1-6）：超限截断到上限并告警，
+// 防一次帧把面板内存与 SQLite 写爆。1000 条已是远超正常心跳/周期上报的
+// 量级（正常每帧个位~十位），且 1000 行×14 列的单条 INSERT 仍在方言绑定
+// 变量上限内。
+const maxBatchItems = 1000
+
+// capBatch 按上限截断批量条目；超限返回 true 供调用方记告警。
+func capBatch[T any](items []T, max int) ([]T, bool) {
+	if len(items) <= max {
+		return items, false
+	}
+	return items[:max], true
+}
+
+// createChunkRows 是单条批量 INSERT 的行数上限（P1-6）：过宽的
+// multi-VALUES 语句会触达方言绑定变量上限（sqlite ~32766、mysql/pg
+// 65535），1000 行×13 列远在安全区，且分片后内存随片释放。
+const createChunkRows = 1000
+
+// createChunked 按片批量落库：分片失败即停，错误交调用方。
+func createChunked[T any](db *gorm.DB, rows []T, per int) error {
+	for i := 0; i < len(rows); i += per {
+		end := i + per
+		if end > len(rows) {
+			end = len(rows)
+		}
+		if err := db.Create(rows[i:end]).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // authNode 按令牌查启用的节点，返回节点 ID。
 func (h *Handler) authNode(token string) (int64, error) {
 	var revoked int64
@@ -54,6 +92,7 @@ func (h *Handler) agentWS(c *gin.Context) {
 		return // Upgrade 已写回响应
 	}
 	defer conn.Close()
+	conn.SetReadLimit(maxAgentFrameBytes)
 
 	// 第一条消息必须是 hello，限时完成认证。
 	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
@@ -262,7 +301,7 @@ func (h *Handler) saveProbeReports(nodeID int64, items []agentproto.ProbeReport)
 		}
 		rows = append(rows, row)
 	}
-	return h.db.Create(&rows).Error
+	return createChunked(h.db, rows, createChunkRows)
 }
 
 // saveNodeTraffic 批量落节点级进程流量记账（A-20）。
@@ -283,7 +322,7 @@ func (h *Handler) saveNodeTraffic(nodeID int64, items []agentproto.ProcTraffic) 
 			RecordedAt:   it.At,
 		})
 	}
-	return h.db.Create(&rows).Error
+	return createChunked(h.db, rows, createChunkRows)
 }
 
 // saveUserTraffic 把 per-user 增量落 traffic_logs（P1-3 逐用户映射）：
@@ -340,7 +379,7 @@ func (h *Handler) saveUserTraffic(nodeID int64, items []agentproto.ProcTraffic) 
 	if len(rows) == 0 {
 		return nil
 	}
-	if err := h.db.Create(&rows).Error; err != nil {
+	if err := createChunked(h.db, rows, createChunkRows); err != nil {
 		return err
 	}
 	// G2 用户在线态与最近接入节点：本次有流量增量即视为活跃，按已知
@@ -386,6 +425,10 @@ func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID 
 			h.setNodeStatus(nodeID, "online", true)
 			// 进程快照落库（SAVE-3）：指标（缓存命中统计等）随之更新，
 			// 失败只记日志不阻断心跳应答。
+			if procs, over := capBatch(hb.Procs, maxBatchItems); over {
+				log.Printf("heartbeat proc batch over limit node=%d: %d", nodeID, len(hb.Procs))
+				hb.Procs = procs
+			}
 			if err := h.saveProcStatuses(nodeID, hb.Procs); err != nil {
 				log.Printf("save proc statuses node=%d: %v", nodeID, err)
 			}
@@ -414,6 +457,10 @@ func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID 
 			if err := env.Decode(&pr); err != nil {
 				continue
 			}
+			if items, over := capBatch(pr.Items, maxBatchItems); over {
+				log.Printf("probe batch over limit node=%d: %d", nodeID, len(pr.Items))
+				pr.Items = items
+			}
 			if !h.repeatReport(nodeID, env.Type, env.ID) {
 				if err := h.saveProbeReports(nodeID, pr.Items); err != nil {
 					log.Printf("save probe reports node=%d: %v", nodeID, err)
@@ -429,6 +476,10 @@ func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID 
 			var pr agentproto.ProcReport
 			if err := env.Decode(&pr); err != nil {
 				continue
+			}
+			if procs, over := capBatch(pr.Procs, maxBatchItems); over {
+				log.Printf("proc report batch over limit node=%d: %d", nodeID, len(pr.Procs))
+				pr.Procs = procs
 			}
 			// 单向消息无 ack，去重只保副作用不重复触发（FERRY-004）。
 			if h.repeatReport(nodeID, env.Type, env.ID) {
@@ -446,6 +497,10 @@ func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID 
 			var tr agentproto.TrafficReport
 			if err := env.Decode(&tr); err != nil {
 				continue
+			}
+			if items, over := capBatch(tr.Items, maxBatchItems); over {
+				log.Printf("traffic batch over limit node=%d: %d", nodeID, len(tr.Items))
+				tr.Items = items
 			}
 			// traffic 是周期增量（计费口径），重复帧双算=多扣费，幂等必须挡在
 			// 记账前；ack 不受影响（FERRY-004）。

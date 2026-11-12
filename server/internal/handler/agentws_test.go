@@ -725,3 +725,107 @@ func TestAgentWSUserOnlineState(t *testing.T) {
 		t.Fatalf("list view = %+v", users)
 	}
 }
+
+// TestAgentWSBatchTrim 覆盖批量上报条数上限（P1-6）：单帧条目超上限时
+// 截断到上限落库并如实回执，防一次帧打爆面板内存与 SQLite。
+func TestAgentWSBatchTrim(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
+		"name": "trim-1", "address": "sh.example.com", "port": 443, "protocol": "vless",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create node: %d %s", rec.Code, rec.Body)
+	}
+	var node map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &node)
+	token := node["token"].(string)
+
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/agent/ws"
+	c, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer c.Close()
+
+	hello, _ := agentproto.NewEnvelope("h1", agentproto.MsgHello, agentproto.Hello{
+		Token: token, AgentID: "trim-1", Version: "test",
+	})
+	if err := c.WriteJSON(hello); err != nil {
+		t.Fatalf("write hello: %v", err)
+	}
+	if env := readEnv(t, c); env.Type != agentproto.MsgHelloAck {
+		t.Fatalf("expected hello_ack, got %s", env.Type)
+	}
+
+	items := make([]agentproto.ProbeReport, maxBatchItems+7)
+	for i := range items {
+		items[i] = agentproto.ProbeReport{
+			TargetKind: agentproto.ProbeTargetTunnel, Direction: agentproto.DirectionOut,
+			Reachable: true, Verdict: agentproto.ProbeVerdictHealthy, ProbedAt: time.Now(),
+		}
+	}
+	batch, _ := agentproto.NewEnvelope("pr-trim", agentproto.MsgProbeReport, agentproto.ProbeReportBatch{Items: items})
+	if err := c.WriteJSON(batch); err != nil {
+		t.Fatalf("write probe batch: %v", err)
+	}
+	env := readEnv(t, c)
+	if env.Type != agentproto.MsgProbeAck {
+		t.Fatalf("expected probe_ack, got %s", env.Type)
+	}
+	var ack agentproto.ProbeAck
+	if err := env.Decode(&ack); err != nil {
+		t.Fatalf("decode ack: %v", err)
+	}
+	if ack.Recorded != maxBatchItems {
+		t.Fatalf("recorded = %d, want %d", ack.Recorded, maxBatchItems)
+	}
+	var cnt int64
+	db.Model(&storage.ProbeReport{}).Count(&cnt)
+	if cnt != maxBatchItems {
+		t.Fatalf("saved = %d, want %d", cnt, maxBatchItems)
+	}
+}
+
+// TestAgentWSFrameLimit 覆盖单帧字节上限（P1-6）：超限帧读失败即断连，
+// 防巨帧耗尽面板内存（gorilla 默认不限制帧长）。
+func TestAgentWSFrameLimit(t *testing.T) {
+	r := newTestRouter(t)
+	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
+		"name": "framelim-1", "address": "sh.example.com", "port": 443, "protocol": "vless",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create node: %d %s", rec.Code, rec.Body)
+	}
+	var node map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &node)
+	token := node["token"].(string)
+
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/agent/ws"
+	c, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer c.Close()
+
+	hello, _ := agentproto.NewEnvelope("h1", agentproto.MsgHello, agentproto.Hello{
+		Token: token, AgentID: "framelim-1", Version: "test",
+	})
+	if err := c.WriteJSON(hello); err != nil {
+		t.Fatalf("write hello: %v", err)
+	}
+	if env := readEnv(t, c); env.Type != agentproto.MsgHelloAck {
+		t.Fatalf("expected hello_ack, got %s", env.Type)
+	}
+
+	// 超限巨帧 → 服务端读失败断连，客户端读返回错误。
+	if err := c.WriteMessage(websocket.TextMessage, make([]byte, maxAgentFrameBytes+1)); err != nil {
+		t.Fatalf("write oversize: %v", err)
+	}
+	if _, _, err := c.ReadMessage(); err == nil {
+		t.Fatal("expected read error after oversize frame")
+	}
+}
