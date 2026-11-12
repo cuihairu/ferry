@@ -282,13 +282,16 @@ func TestCouponApplyOnOrder(t *testing.T) {
 		t.Fatalf("scope mismatch: %d", code)
 	}
 
-	// 每用户限次：第二次同码 400
+	// 每用户限次：首单结算为 paid 后第二次同码 400（pending 不占限——本仓
+	// 无订单过期清扫，P2 修复后只计已结算订单，见
+	// TestCouponPendingDoesNotOccupyPerUserLimit）
 	mk("ONCE", mkCouponBody("cut", 100))
-	if code, _ = order("ONCE"); code != http.StatusCreated {
+	if code, out = order("ONCE"); code != http.StatusCreated {
 		t.Fatalf("once first: %d", code)
 	}
+	db.Model(&storage.PaymentOrder{}).Where("order_no = ?", out["order_no"]).Update("status", "paid")
 	if code, _ = order("ONCE"); code != http.StatusBadRequest {
-		t.Fatalf("once second should 400: %d", code)
+		t.Fatalf("once second after paid should 400: %d", code)
 	}
 
 	// 总量限次：total=1 第二单 400

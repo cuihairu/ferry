@@ -268,9 +268,14 @@ func couponCheck(tx *gorm.DB, code string, u *storage.User, batch *storage.CardB
 	if cp.MinAmount > 0 && price < cp.MinAmount {
 		return cp, errors.New("未达优惠码使用门槛")
 	}
+	// 每用户限次只计真正核销过优惠码的订单（P2：pending 占限次修复——
+	// 下单即置 pending，若把 pending 也计入，用户一次未支付的下单就永久
+	// 占掉自己的每用户限次（本仓无订单过期清扫，pending 常驻）；改为只计
+	// 已结算/已退款这类实际消费过优惠码的状态）。failed/expired 与
+	// pending 一样不计。
 	var mine int64
 	if err := tx.Model(&storage.PaymentOrder{}).
-		Where("user_id = ? AND promo_code = ? AND status != ? AND status != ?", u.ID, cp.Code, "failed", "expired").
+		Where("user_id = ? AND promo_code = ? AND status IN ?", u.ID, cp.Code, []string{"paid", "refunded"}).
 		Count(&mine).Error; err != nil {
 		return cp, err
 	}
