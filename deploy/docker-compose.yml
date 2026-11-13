@@ -20,6 +20,10 @@ services:
       # 密钥门禁、FERRY_KEYFILE 的密钥持久化在容器部署里都不生效。
       FERRY_ENV: ${FERRY_ENV:-}
       FERRY_KEYFILE: ${FERRY_KEYFILE:-}
+      # Caddy 反代后 health 环回豁免看 ClientIP：不信任代理时 ClientIP=反代
+      # 容器 IP，compose 部署的探活/限流口径须按内网网段信任代理
+      # （ferry.env.example「可信任反代白名单」节同口径；env 可覆盖）。
+      FERRY_TRUSTED_PROXIES: ${FERRY_TRUSTED_PROXIES:-172.16.0.0/12}
       FERRY_ADMIN_USER: ${FERRY_ADMIN_USER:-}
       FERRY_ADMIN_PASSWORD: ${FERRY_ADMIN_PASSWORD:-}
       FERRY_ADMIN_SECRET: ${FERRY_ADMIN_SECRET:-}

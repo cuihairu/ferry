@@ -89,10 +89,14 @@ dc() { # dc <project> <envfile> <compose args...>
 register() { # 记录 project:envfile 供 EXIT 清理
   PROJECTS="$PROJECTS $1:$2"
 }
-health_poll() { # $1=base url（最多 ~90 秒）
-  local base="$1" i code=""
+health_poll() { # $1=base url $2=bearer token（最多 ~90 秒）
+  local base="$1" token="$2" i code=""
   for i in $(seq 1 18); do
-    code=$(http_get "$base/api/health" "$TMP/hp.json" 2>/dev/null) || code=000
+    if [ -n "$token" ]; then
+      code=$(curl -sS -o "$TMP/hp.json" -w '%{http_code}' -H "Authorization: Bearer $token" "$base/api/health" 2>/dev/null) || code=000
+    else
+      code=$(http_get "$base/api/health" "$TMP/hp.json" 2>/dev/null) || code=000
+    fi
     [ "$code" = 200 ] && break
     sleep 5
   done
@@ -163,8 +167,22 @@ expect "ferry-server 容器健康检查 healthy" "healthy" "$HC"
 
 DASH="http://127.0.0.1:$A_PORT"
 PANEL="http://127.0.0.1:$P_PORT"
-CODE=$(health_poll "$DASH")
-expect "dash Caddy 反代 /api/health 就绪（经前端而非容器直连）" "200" "$CODE"
+# P2 health 鉴权（router.go healthGuard）后 /api/health 环回豁免只认直连
+# ClientIP，反代链路（宿主 curl→Caddy→server）不落环回——探活须带凭据。
+# 就绪口径：坏凭据登录先回 401（后端经 Caddy 已应答），再真登录拿 JWT。
+for i in $(seq 1 18); do
+  CODE=$(http_post "$DASH/admin/login" '{"username":"admin","password":"wrong-pw"}' "$TMP/a-warm.json" 2>/dev/null) || CODE=000
+  [ "$CODE" = "401" ] && break
+  sleep 5
+done
+expect "dash Caddy 反代后端就绪（/admin/login 拒坏凭据 401，未被静态兜底吞成 405）" "401" "$CODE"
+CODE=$(http_post "$DASH/admin/login" \
+  "{\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PW\"}" "$TMP/a-login.json")
+expect "管理员首登（compose 容器内起库）" "200" "$CODE"
+TOKEN=$(json_get token "$TMP/a-login.json")
+[ -n "$TOKEN" ] && ok "登录签发 JWT" || bad "登录未返回 token"
+CODE=$(health_poll "$DASH" "$TOKEN")
+expect "dash Caddy 反代 /api/health 就绪（凭据探活，经前端而非容器直连）" "200" "$CODE"
 expect "sqlite 落卷且可写" "true" "$(db_writable)"
 # 首启库从未备份过 → degraded 属设计口径（compose healthcheck 注释同口径）
 expect "首启从未备份=degraded（与 health 三态口径一致）" "degraded" "$(json_get status "$TMP/hp.json")"
@@ -181,14 +199,7 @@ expect "dash SPA 深链刷新返回 200" "200" "$CODE"
 cmp -s "$TMP/a-home.html" "$TMP/a-deep.html" && ok "深链回退到 index.html（history 路由不 404）" \
   || bad "深链未回退 index.html"
 
-# 后端顶层前缀反代：漏登记的故障形态是 GET 200 index.html / POST 405
-CODE=$(http_post "$DASH/admin/login" '{"username":"admin","password":"wrong-pw"}' "$TMP/a-login-bad.json")
-expect "POST /admin/login 经 Caddy 反代（未被静态兜底吞成 405）" "401" "$CODE"
-CODE=$(http_post "$DASH/admin/login" \
-  "{\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PW\"}" "$TMP/a-login.json")
-expect "管理员首登（compose 容器内起库）" "200" "$CODE"
-TOKEN=$(json_get token "$TMP/a-login.json")
-[ -n "$TOKEN" ] && ok "登录签发 JWT" || bad "登录未返回 token"
+# 后端顶层前缀反代已在就绪探活段覆盖（坏凭据 401 即真后端应答）
 CODE=$(curl -sS -o "$TMP/a-nodes.json" -w '%{http_code}' -H "Authorization: Bearer $TOKEN" "$DASH/api/nodes")
 expect "Bearer 调 /api/nodes（dash 前端真实调用路径）" "200" "$CODE"
 grep -q '^\[\]' "$TMP/a-nodes.json" && ok "节点列表为空数组（新库）" || bad "节点列表非空数组：$(cat "$TMP/a-nodes.json")"
@@ -208,7 +219,7 @@ CODE=$(http_get "$PANEL/subscriptions/e2e-404" "$TMP/p-deep.html")
 expect "panel SPA 深链刷新 200" "200" "$CODE"
 cmp -s "$TMP/p-home.html" "$TMP/p-deep.html" && ok "panel 深链回退 index.html" \
   || bad "panel 深链未回退 index.html"
-CODE=$(health_poll "$PANEL")
+CODE=$(health_poll "$PANEL" "$TOKEN")
 expect "panel 侧 /api/health 反代 200" "200" "$CODE"
 expect "panel 侧反代拿到后端真数据" "true" "$(db_writable)"
 
@@ -228,7 +239,7 @@ BKN=$(grep -i '^content-disposition:' "$BKHDR" | head -1 | tr -d '\r' \
 # 故默认部署的导出件即加密件（.enc）。
 [ "${BKN##*.}" = enc ] && ok "默认部署备份即加密件（keyinit 自动主密钥生效）" \
   || bad "备份未加密（$BKN）"
-CODE=$(http_get "$DASH/api/health" "$TMP/hp.json")
+CODE=$(curl -sS -o "$TMP/hp.json" -w '%{http_code}' -H "Authorization: Bearer $TOKEN" "$DASH/api/health")
 expect "手动备份后健康转 ok" "200" "$CODE"
 expect "备份状态记账生效" "ok" "$(json_get status "$TMP/hp.json")"
 FRESH=$(grep -o '"fresh":[a-z]*' "$TMP/hp.json" | tail -1 | cut -d: -f2)
@@ -271,10 +282,27 @@ dc "$B" "$BENV" --profile postgres up -d > "$LOGS/B-up.log" 2>&1 || {
 RUNNING=$(dc "$B" "$BENV" ps --format '{{.Service}} {{.State}}' 2>/dev/null | awk '{print $1}' | sort -u | tr '\n' ' ')
 expect "postgres profile 四服务全部运行" "ferry-dash ferry-panel ferry-postgres ferry-server " "$RUNNING"
 
-# postgres 先起、服务端再连上并完成迁移：单次探活，最多等 ~120 秒
+# postgres 先起、服务端再连上并完成迁移：单次探活，最多等 ~120 秒。
+# healthGuard 后 /api/health 须经凭据探活：先等 /admin/login 拒坏凭据 401
+# （后端就绪），登录拿 JWT 再轮询 health。
+BTOKEN=""
+for i in $(seq 1 24); do
+  CODE=$(http_post "$DASH/admin/login" '{"username":"admin","password":"wrong-pw"}' "$TMP/b-warm.json" 2>/dev/null) || CODE=000
+  [ "$CODE" = "401" ] && break
+  sleep 5
+done
+if [ "$CODE" = "401" ]; then
+  http_post "$DASH/admin/login" \
+    "{\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PW\"}" "$TMP/b-login.json" >/dev/null 2>&1
+  BTOKEN=$(json_get token "$TMP/b-login.json")
+fi
 PGOK="no"
 for i in $(seq 1 24); do
-  CODE=$(http_get "$DASH/api/health" "$TMP/hp.json" 2>/dev/null) || CODE=000
+  if [ -n "$BTOKEN" ]; then
+    CODE=$(curl -sS -o "$TMP/hp.json" -w '%{http_code}' -H "Authorization: Bearer $BTOKEN" "$DASH/api/health" 2>/dev/null) || CODE=000
+  else
+    CODE=$(http_get "$DASH/api/health" "$TMP/hp.json" 2>/dev/null) || CODE=000
+  fi
   if [ "$CODE" = 200 ] && [ "$(db_writable)" = true ]; then
     PGOK=true
     break
@@ -298,7 +326,11 @@ dc "$B" "$BENV" exec -T ferry-server cat /data/ferry-keys.env > "$TMP/keyfile-1"
 dc "$B" "$BENV" restart ferry-server > /dev/null 2>&1 || bad "leg B restart 失败"
 PGOK="no"
 for i in $(seq 1 24); do
-  CODE=$(http_get "$DASH/api/health" "$TMP/hp.json" 2>/dev/null) || CODE=000
+  if [ -n "$BTOKEN" ]; then
+    CODE=$(curl -sS -o "$TMP/hp.json" -w '%{http_code}' -H "Authorization: Bearer $BTOKEN" "$DASH/api/health" 2>/dev/null) || CODE=000
+  else
+    CODE=$(http_get "$DASH/api/health" "$TMP/hp.json" 2>/dev/null) || CODE=000
+  fi
   [ "$CODE" = 200 ] && { PGOK="$(db_writable)"; [ "$PGOK" = true ] && break; }
   sleep 5
 done
