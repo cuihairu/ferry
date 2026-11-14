@@ -93,4 +93,4 @@ FERRY_HERALD_URL=https://herald.example.com/api/v1/apps/ferry
 FERRY_HERALD_TOKEN=$FERRY_HERALD_TOKEN
 ```
 
-初始化（config token 执行一次）：注册品类（告警/触达各一条，按《告警通道设计》§2.1/§2.2 清单全量注册，当前 13 类告警 + 7 类触达）→ herald `PUT /api/v1/apps/ferry/callback`（指向 ferry 的回执端点 + 32 字节 secret）→ 每用户向 herald `POST /api/v1/audiences/user.N/surfaces` 绑定联系面。暴露面：`/api/internal/event-results` 沿用 ferry 现口径（无鉴权 `/api` 组，部署侧网络边界隔离）；HERALD-5 原生验签落地后已获得应用层防伪。
+初始化（config token 执行一次）：注册品类（告警/触达各一条，按《告警通道设计》§2.1/§2.2 清单全量注册，当前 13 类告警 + 7 类触达）→ herald `PUT /api/v1/apps/ferry/callback`（指向 ferry 的回执端点 + 32 字节 secret）→ 每用户向 herald `POST /api/v1/audiences/user.N/surfaces` 绑定联系面。暴露面：`/api/internal/event-results` 挂 `open` 自证组（不经 `apiAuth`），应用层**强制** HMAC 验签（HERALD-5）——每请求对原始 body 做 HMAC-SHA256，比对 `X-Herald-Signature` 头，`FERRY_HERALD_CALLBACK_SECRET` 未配置即拒绝全部回调（接 Herald 必须配置；2026-11-14 校对，此前写「无鉴权 + 网络边界隔离」已废）。

@@ -2170,3 +2170,9 @@ P2 合并简列 14 项全部修复并推送，每项单 commit、英文简短、
 - [ ] 为审计请求体增加大小上限（`internal/audit/audit.go:57`）—— 避免大请求造成内存放大。
 - [ ] 统一过期日期展示时区（`internal/toucher/toucher.go:255`）—— 保证 UI 日期与计费窗口一致。
 - [ ] 补齐退款异常路径测试（`internal/payrecon/payrecon_test.go:379`）—— 覆盖用户已删、回收失败回滚和数据库终态断言。
+
+## 文档一致性审计 G2（2026-11-14 再审计，ferry 席位）
+
+- [x] 五条漂移全修并追加 `docs/审计-文档一致性.md` G2 段：P1 两项（`/api/health` 访问门未记、herald 回执「无鉴权」口径作废）+ P2 三项（2FA 暂存键分键与登录/兑换限速器分面、退款同事务回收权益未记、部署指南 env 表缺 `FERRY_HERALD_CALLBACK_SECRET`/`FERRY_TRUSTED_PROXIES` 两行）。无 P0、无幽灵功能。
+- [ ] **P2【需拍板】文档站浏览器语言自动识别**：现状=ferry 站无自动切换、仅手动链接（`docs/.vitepress/config.mts` `lang:'zh-CN'` 且无 `locales`，探针 `auto_switch: null`；线上 `/`→200 zh-CN、`/zh/`→**404**、`index.en.html`→200）。三重待决：①形态是「成对文件」叠「locale 路由反向用法」（root=中文而非英文），是否迁到 fleet 契约 root=英文/`/zh/`=中文；②EN 覆盖只 5 篇孪生（index/design-术语表/panel-comparison/herald-integration-log/doc-consistency-audit），设计/部署/指南深页无英文版，补到哪一层；③是否上 `navigator.language` → `/zh/` 自动跳转（增强项，非受规基线）。等用户拍范围，本轮不重构、不擅自实现自动跳转。
+- [ ] 死链/双语违例复核结论：本轮未见死链（EN 孪生五篇与 `index.en.html` 可达）；「双语违例」指 root 语言与 fleet 契约相反，并入上一条待拍板项。
