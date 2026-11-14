@@ -14,17 +14,18 @@
 ## 1. ferry 已实现盘点（按任务维度，附证据）
 
 > 口径：只列有仓内证据的能力；`router.go` 行号指 `server/internal/handler/router.go` 路由注册，todo 行号指 `todo.md` 完成项族。
+> 行号为 2026-11-14 HEAD 快照（G2 重钉；原表行号系引用错误，任何提交都未出现过），此后路由增删会漂移，读表以符号路径为准。
 
 | 维度 | ferry 现状 | 证据 |
 | --- | --- | --- |
-| 部署（节点供给） | OpenTofu 供给模板 apply/plan + 恢复流水线；一次性 enrollment token 注册（原子消费/双花 409/IP 限流）；agent 一键安装脚本（原子替换/失败回滚/journal 诊断）；面板自身 compose 一键启动 + Web 证书上传/自签；ACME 证书任务（dns-01/http、四类 DNS 商） | `/api/provision-templates*`、`/api/enroll`、`/api/cert-tasks*`（router.go:53-73）；todo OS-1..4/BR-1..5 行、FERRY-001/003/005 行；`deploy/agent-install.sh`、`deploy/start.sh` |
-| 编排 | 节点三角色（entry/landing/both）+ 池态机（active/suspend/standby）+ 落地编队 landings/pool + 分配策略 alloc + 智能 DNS/geodns + 区域传输判定 + 入口域名 entry_domains + 规则库 rulelib 下发 | `/api/pool*`、`/api/landings`、`/api/alloc`、`/api/dns-*`、`/api/entry-domains*`、`/api/routing/*`（router.go:28-49,101-113）；todo E-1..E-33 行 |
-| 监控 | agent 探测回报（tunnel/exit/peer）+ 维度/传输状态灯 + 负载快照（容量口径校准）+ 九类告警（outbox+Herald）+ 系统状态 /admin/status + 崩溃自拉监管（e2e stub 实证） | `/api/dimension-status`、`/api/transport-status`、`/api/probe-reports`、`/api/load`、`/api/alerts*`（router.go:31-37,100）；todo HERALD-1..5 行、FERRY-004 e2e 腿 |
-| 日志 | 节点被管进程日志拉取（proclog，5s 超时 504）+ 操作审计表（AU-1..3，保留轮转）+ 登录审计（五连败锁定）+ 管理端日志查询/清理 + 事件 outbox 投递回执看板 | `/api/nodes/:id/logs`、`/api/audit-logs`、`/admin/logs`、`/admin/login-logs`、`/api/events/*`（router.go:99,143,166-167,180-182）；todo AU-1..3 行 |
-| 回滚 | agent 侧：配置下发失败回滚（configd）、自升级回滚（upgrade）、安装脚本 `.prev` 字节级还原；面板侧：周期备份 + 手动备份 + restore.sh 解密恢复 + standby 冷备快照 | `/api/nodes/:id/upgrade`（router.go:102）；todo BK-1..3 行、FERRY-005 行（57 断言沙箱回归）、FERRY-004 备份恢复腿 |
-| 多机 | agent 常驻每节点（只出站连面板）+ 批量进程/配置操作 + standby 主从同步 + 多节点负载均衡调度 + 节点令牌轮换/吊销 CRL | `/api/nodes/batch/*`、`/open/standby/snapshot`、`/api/nodes/:id/token*`（router.go:103-104,143-145）；todo P2-1 行、C-06 行（f61b1d9） |
-| 权限 | 多级管理员（super 管理账号 + 配额 P2-2）+ 2FA/恢复码 + API Token 签发验签 + 分销商独立登录面 + 操作审计 + 登录限速 + 节点注册凭据独立面 | `/api/admins*`（requireSuper）、`/admin/2fa*`、`/api/token`、`/distributor/*`（router.go:114-117,170-191）；todo P1-12/13、P2-2 行 |
-| 生态集成 | 支付（epusdt USDT 真接入 + 卡密三账 + 优惠码/活动 + 对账退款）、TG bot 只读对接面、RSS 公告 feed、Herald 告警分发、servify 客服嵌入、GeoIP 分流/成本参考库、DNS 商（cloudflare 等） | `/api/payments/*`、`/bot/summary`、`/feed.xml`、`/panel/support`（router.go:8,151-156,203）；todo PAY-1..11、TOUCH-1..7、SAVE-1..8、DS/SV 行 |
+| 部署（节点供给） | OpenTofu 供给模板 apply/plan + 恢复流水线；一次性 enrollment token 注册（原子消费/双花 409/IP 限流）；agent 一键安装脚本（原子替换/失败回滚/journal 诊断）；面板自身 compose 一键启动 + Web 证书上传/自签；ACME 证书任务（dns-01/http、四类 DNS 商） | `/api/provision-templates*`、`/api/enroll`、`/api/cert-tasks*`（router.go:124-126,150-152,167-175,327）；todo OS-1..4/BR-1..5 行、FERRY-001/003/005 行；`deploy/agent-install.sh`、`deploy/start.sh` |
+| 编排 | 节点三角色（entry/landing/both）+ 池态机（active/suspend/standby）+ 落地编队 landings/pool + 分配策略 alloc + 智能 DNS/geodns + 区域传输判定 + 入口域名 entry_domains + 规则库 rulelib 下发 | `/api/pool*`、`/api/landings`、`/api/alloc`、`/api/dns-*`、`/api/entry-domains*`、`/api/routing/*`（router.go:137-144,156-165,176-177,208-209,213-216）；todo E-1..E-33 行 |
+| 监控 | agent 探测回报（tunnel/exit/peer）+ 维度/传输状态灯 + 负载快照（容量口径校准）+ 九类告警（outbox+Herald）+ 系统状态 /admin/status + 崩溃自拉监管（e2e stub 实证） | `/api/dimension-status`、`/api/transport-status`、`/api/probe-reports`、`/api/load`、`/api/alerts*`（router.go:132-136,145,354）；todo HERALD-1..5 行、FERRY-004 e2e 腿 |
+| 日志 | 节点被管进程日志拉取（proclog，5s 超时 504）+ 操作审计表（AU-1..3，保留轮转）+ 登录审计（五连败锁定）+ 管理端日志查询/清理 + 事件 outbox 投递回执看板 | `/api/nodes/:id/logs`、`/api/audit-logs`、`/admin/logs`、`/admin/login-logs`、`/api/events/*`（router.go:181-187,221,274,358-359,365）；todo AU-1..3 行 |
+| 回滚 | agent 侧：配置下发失败回滚（configd）、自升级回滚（upgrade）、安装脚本 `.prev` 字节级还原；面板侧：周期备份 + 手动备份 + restore.sh 解密恢复 + standby 冷备快照 | `/api/nodes/:id/upgrade`（router.go:203）；todo BK-1..3 行、FERRY-005 行（57 断言沙箱回归）、FERRY-004 备份恢复腿 |
+| 多机 | agent 常驻每节点（只出站连面板）+ 批量进程/配置操作 + standby 主从同步 + 多节点负载均衡调度 + 节点令牌轮换/吊销 CRL | `/api/nodes/batch/*`、`/open/standby/snapshot`、`/api/nodes/:id/token*`（router.go:130-131,204-205,293）；todo P2-1 行、C-06 行（f61b1d9） |
+| 权限 | 多级管理员（super 管理账号 + 配额 P2-2）+ 2FA/恢复码 + API Token 签发验签 + 分销商独立登录面 + 操作审计 + 登录限速 + 节点注册凭据独立面 | `/api/admins*`（requireSuper）、`/admin/2fa*`、`/api/token`、`/distributor/*`（router.go:227-230,271-272,335-343,361-364）；todo P1-12/13、P2-2 行 |
+| 生态集成 | 支付（epusdt USDT 真接入 + 卡密三账 + 优惠码/活动 + 对账退款）、TG bot 只读对接面、RSS 公告 feed、Herald 告警分发、servify 客服嵌入、GeoIP 分流/成本参考库、DNS 商（cloudflare 等） | `/api/payments/*`、`/bot/summary`、`/feed.xml`、`/panel/support`（router.go:113,260-263,315,321,329）；todo PAY-1..11、TOUCH-1..7、SAVE-1..8、DS/SV 行 |
 
 ## 2. 差距清单（vs 3x-ui / Marzban / Hiddify / Remnawave）
 
@@ -35,7 +36,7 @@
 | # | 差距 | 对照品做法 | 性质与处置 |
 | --- | --- | --- | --- |
 | G1 | 订阅响应格式 3 vs 6：ferry 出 v2ray/clash/singbox 三格式（`server/internal/sub/` 仅 clash.go/singbox.go/links.go）；Remnawave 另有 mihomo/stash/xray-json，且有响应规则（按 UA 路由）与多套模板、独立订阅落地页 | Remnawave `RESPONSE_RULES_RESPONSE_TYPES` 六格式（面板横向对比.md:24-26） | mihomo 与 clash 语法高度同源，实际兼容面损失小。**建议 P2 观察项**：出现用户实际拿 clash-meta 拒载的反馈再补，不预做 |
-| G2 | 用户级在线态与最近接入节点：Remnawave `UserTraffic` 单行实时含 `onlineAt/lastConnectedNodeUuid`；ferry `traffic_logs` 逐条记账无在线态（grep 全仓 `online` 仅命中 standby/pool 语境） | 面板横向对比.md:31 | 管理侧「谁在线」不可见。**建议 P1 候选**：agent 心跳已带流量载荷，加 per-user 在线标记成本低、运营价值高（排查盗号/共享） |
+| G2 | 用户级在线态与最近接入节点：Remnawave `UserTraffic` 单行实时含 `onlineAt/lastConnectedNodeUuid`；ferry `traffic_logs` 逐条记账无在线态（grep 全仓 `online` 仅命中 standby/pool 语境） | 面板横向对比.md:31 | 管理侧「谁在线」不可见。**建议 P1 候选**：agent 心跳已带流量载荷，加 per-user 在线标记成本低、运营价值高（排查盗号/共享）。**2026-11-14 G2 校对：已落地**——d48a7f8（2026-11-03）落 `User.LastNodeID/LastSeenAt`（models.go:44-45），per-user 流量上报经 username 映射回写，dash 用户表按 3 分钟窗口显示「在线」「最近接入」（UsersView.vue:236-238）；本行「无在线态」口径作废 |
 | G3 | 用户状态四态：Remnawave 超限（LIMITED）与到期（EXPIRED）分开表达，ferry 到期/超限统一封订阅 | 面板横向对比.md:34 | 展示语义差距，非功能缺口。**P2 观察项**：客服排障时若反复需要区分来源再拆 |
 
 ### 2.2 节点与配额
@@ -70,7 +71,7 @@
 | 优先级 | 事项 | 理由 | 性质 |
 | --- | --- | --- | --- |
 | P0 | G13 正式发版 | 安装脚本/校验链路/e2e 全部就绪，只差用户一句指令；不发版，所有外部用户的安装体验都停留在 nightly 产物 | 用户动作，非开发项 |
-| P1 | G2 用户在线态与最近接入节点 | agent 链路已通，增量小；直接提升盗号/共享排查与客服排障效率；对照品已验证该面价值 | 新开发，建议排入 |
+| P1 | G2 用户在线态与最近接入节点 | agent 链路已通，增量小；直接提升盗号/共享排查与客服排障效率；对照品已验证该面价值 | **已落地（d48a7f8，2026-11-03；2026-11-14 G2 校对）** |
 | P2（观察） | G1 mihomo/xray-json 订阅格式、G3 LIMITED/EXPIRED 拆态、G7 OIDC、G12 bot 管理命令 | 均为「有了更好、没有不痛」项；仓内小站定位下收益有限，各设触发条件挂观察 | 不预做 |
 | 维持不重开 | G4/G5/G9/G10 及 mTLS/调参等 | 均有成文裁决（决策记录.md / 横向对比反面清单），单机小内存定位自洽 | 已拍板 |
 
