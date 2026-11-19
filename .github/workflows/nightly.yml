@@ -14,7 +14,7 @@ jobs:
     outputs:
       skip: ${{ steps.check.outputs.skip }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 1
       - name: Skip when the repo has been idle for 48 hours
@@ -43,8 +43,8 @@ jobs:
       matrix:
         module: [server, agent, payments, packages/agentproto, packages/costref, packages/payment]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.1.1
         with:
           go-version: 1.27.2
           cache: true
@@ -66,11 +66,11 @@ jobs:
       matrix:
         app: [ferry-dash, ferry-panel, ferry-docs]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - uses: pnpm/action-setup@v4
         with:
           version: 10
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: 22
           cache: pnpm
@@ -88,7 +88,7 @@ jobs:
     name: compose deploy smoke
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       # 真 docker compose build/up（sqlite + postgres 两条腿），经 Caddy 前端
       # 验证静态托管、history 回退与顶层前缀反代；build 是真编译，只放 nightly。
       - name: compose deploy smoke (sqlite + postgres)
@@ -100,8 +100,8 @@ jobs:
     name: systemd install smoke
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.1.1
         with:
           go-version: 1.27.2
       # 容器内真 systemd（cgroup v2 宿主需 privileged + host cgroupns）回归
@@ -117,14 +117,14 @@ jobs:
     name: package nightly artifacts
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.1.1
         with:
           go-version: 1.27.2
       - uses: pnpm/action-setup@v4
         with:
           version: 10
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: 22
           cache: pnpm
@@ -140,7 +140,7 @@ jobs:
       - name: package agent
         run: make package-agent AGENT_VERSION=${{ env.version }}
       - name: upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: ferry-nightly-${{ github.run_number }}
           path: |
