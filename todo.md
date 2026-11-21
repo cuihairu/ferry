@@ -2256,75 +2256,125 @@ External Client
 ## P1 --- 核心模型收敛
 
 -   [ ] `F-9101` 明确 Node、Capability 和现有 Pool 的关系。
+    - 待补（F-9101 | 未满足：Capability 模型 0 命中（F-0222 区），Node/Pool 与 Capability 关系未定义——能力由 role/labels/LineType 隐式承载，无显式 Capability 模型。）
 -   [ ] `F-9102` 明确 Tunnel 与 Path 的边界。
+    - 待补（F-9102 | 未满足：Path 模型 0 命中（F-0243 区），Tunnel 与 Path 边界未定义——Entry→Landing 由 LandingAssignment+sweep 承载，无 Path 实体。）
 -   [ ] `F-9103` 完成 Path 模型或现有模型映射。
+    - 待补（F-9103 | 未满足：无 type Path，仅 LandingAssignment(models.go:181-195)——Path 模型或现有模型映射未实现。）
 -   [ ] `F-9104` 完成 Path Group 模型或现有模型映射。
+    - 待补（F-9104 | 未满足：PathGroup 模型 0 命中（F-0261 区），无 Group 创建/成员/默认 Path/健康聚合。）
 -   [ ] `F-9105` 完成 Policy 模型或现有模型映射。
+    - 待补（F-9105 | 未满足：无 type Policy；仅 alloc.go:57 PolicySetting+ScoreWeights（调度权重，非 Policy 模型）（F-0282 区）。）
 -   [ ] `F-9106` 完成模型 Migration。
+    - 待补（F-9106 | 未满足：新模型（Capability/Path/PathGroup/Policy）未实现，无模型可迁移；storage 仅 AutoMigrate 现有表（storage.go:67），无版本化迁移（schema_version/AddColumn 0 命中）。）
 -   [ ] `F-9107` 完成旧数据兼容。
+    - 待补（F-9107 | 未满足：无版本化迁移/旧数据兼容机制（schema_version/AddColumn/AlterColumn 全仓 0 命中）；依赖 F-9106。）
 -   [ ] `F-9108` 完成核心模型测试。
+    - 待补（F-9108 | 未满足：核心模型 Capability/Path/PathGroup/Policy 缺失（F-0222/0243/0261/0282）；仅 storage_test.go 一个模型测试文件。）
 
 ## P2 --- 云资源管理与成本基础
 
 -   [ ] `F-9201` 完成 Provider Adapter 契约。
+    - 待补（F-9201 | 未满足：无云资源 Provider Adapter（F-0302 区，Adapter/ListResources/Power* 均 0）；provision 仅 tofu CLI(provision.go:89 exec tofu)。）
 -   [ ] `F-9202` 完成 Cloud Account 和凭据管理。
+    - 待补（F-9202 | 未满足：无独立 Cloud Account 实体——provider 加密 access_key 兼作账号（F-1442 部分），无 account 实体/凭据管理。）
 -   [ ] `F-9203` 完成资源同步。
+    - 待补（F-9203 | 未满足：CloudResource 模型 0 命中（F-0341 区），无资源拉取/同步/过滤/绑定。）
 -   [ ] `F-9204` 完成 Cloud Operation 任务状态机。
+    - 待补（F-9204 | 未满足：CloudOperation 模型 0 命中（F-0361 区），无操作状态机/幂等键/超时对账。）
 -   [ ] `F-9205` 完成开机、关机和重启流程。
+    - 待补（F-9205 | 未满足：无云资源电源开/关/重启路径（F-0361 区/F-0327 区）。）
 -   [ ] `F-9206` 完成 Cloud Resource 与 Node 关联。
+    - 待补（F-9206 | 未满足：CloudResource 0 命中，无资源↔Node 关联与实例停止/启动/删除联动（F-0391/F-0341 区）。）
 -   [ ] `F-9207` 完成账单导入模型。
+    - 待补（F-9207 | 未满足：无账单导入（type BillImport 0 命中；costref 仅价格表导入非账单）（F-0521 区）。）
 -   [ ] `F-9208` 完成至少一种 Provider 的实际账单接入或文件导入。
+    - 待补（F-9208 | 未满足：无实际账单接入或文件导入（F-0521 区）。）
 -   [ ] `F-9209` 完成估算成本。
+    - 待补（F-9209 | 部分：包月（FixedCostCents=MonthlyCostCents cost.go:137-138，F-0541 关）与按量流量（TrafficPriceCents×流量 cost.go:130，F-0543 关）已实现；无按时计费/额外IP/磁盘快照/备份存储/折扣预留/自定义项/未知单价哨兵（F-0542 区）。）
 -   [ ] `F-9210` 完成实际账单与估算对比。
+    - 待补（F-9210 | 未满足：无实际账单与 Provider/Account/Path 桶（Build 仅 byRegion/byISP 估算）（F-0581 区）。）
 -   [ ] `F-9211` 完成 Dash 云资源管理页面。
+    - 待补（F-9211 | 未满足：Dash 云资源/云操作页面未实现（无 CloudResource 模型即无页面，审计 §3.11 F-9211/9212 未实现）；仅 Providers 列表存在（F-0411 区）。）
 -   [ ] `F-9212` 完成 Dash 成本管理页面。
+    - 待补（F-9212 | 部分：CostView 节点/区域/运营商维度有（F-1464/1466 关）；无 Provider/账号/资源维度、无账单页/同步任务/明细/分摊规则（F-1462/1463/1465/F-0622 区）。）
 
 ## P3 --- Agent、Relay 和配置闭环
 
--   [ ] `F-9301` 完成 Agent 协议差异修复。
+-   [x] `F-9301` 完成 Agent 协议差异修复。
+    - 备注（Task ID: F-9301 | Status: Done | Evidence: 双方共用单版本协议契约：ProtocolVersion=1(envelope.go:8)+Envelope.V/ID/Type/Payload(envelope.go:36-41)+Valid() 拒未知版本(envelope.go:70)；server 拒不匹配版本 agentws.go:584-591、agent 丢弃 link.go:160-161。 | Verification: TestAgentWSHelloVersion(upgrade_test.go:100)+TestReadLoopDropsBadMessages(link_test.go:225)+envelope_test.go:76 | Commit: 见本批提交）
 -   [ ] `F-9302` 完成能力和状态上报。
--   [ ] `F-9303` 完成配置版本和 ACK。
--   [ ] `F-9304` 完成 Relay 状态管理。
--   [ ] `F-9305` 完成配置失败回滚。
--   [ ] `F-9306` 完成断线恢复集成测试。
+    - 待补（F-9302 | 部分：状态上报已实现（Heartbeat.Procs messages.go:109+app.go:450-462→saveProcStatuses agentws.go:467-473）；能力上报未实现——capab 全仓 0 命中，Hello/Heartbeat/ConfigPush 均无 capab 字段（app.go:221-228）。）
+-   [x] `F-9303` 完成配置版本和 ACK。
+    - 备注（Task ID: F-9303 | Status: Done | Evidence: 配置版本+ACK：ConfigPush.Version(messages.go:184)+ConfigAck.Version(messages.go:192)；relaypush.go:70-119（sha256 digest 作 Version、ackTimeout:24、applied/failed/Finish 写 NodeConfig 状态）+NodeConfig.Version(models.go:233)；agent app.go:359-365 回 ack+configd.go:41-45/124-125。 | Verification: relaypush_test.go:240/268/285/307/326+configd_test.go:63/83/135 | Commit: 见本批提交）
+-   [x] `F-9304` 完成 Relay 状态管理。
+    - 备注（Task ID: F-9304 | Status: Done | Evidence: Relay 状态管理：ProcStatus State=running/stopped/crashed(messages.go:124-139)+procs.Manager.Statuses 喂心跳(app.go:463-465)+ProcReport 状态变化推送(app.go:175-183)；relay 独立启停(roles.go:31 Standalone:true+cmd -role)+配置校验/热更新(relay.go loadOverride)。 | Verification: TestBuildHeartbeatAndStartHeartbeat+TestRelayRunFile+TestRelayValidation+TestRelayHotRepoint | Commit: 见本批提交）
+-   [x] `F-9305` 完成配置失败回滚。
+    - 备注（Task ID: F-9305 | Status: Done | Evidence: 配置失败回滚：configd.go:114-119（reload 失败回滚旧配置）；ack 带失败态 relaypush.go:105-119。 | Verification: TestApplyReloadFailRollsBack(configd_test.go:135)+TestApplyShaMismatch(:83) | Commit: 见本批提交）
+-   [x] `F-9306` 完成断线恢复集成测试。
+    - 备注（Task ID: F-9306 | Status: Done | Evidence: 断线恢复集成测试：e2e-smoke.sh:296-298（kill agent→断线回落 expect 0）→:314-326（兼容窗口旧令牌上线 expect 1）→:327-340（吊销令牌保持 0）+TestAgentWSDedupSurvivesReconnect(agentws_dedupe_test.go:104，重连后 replay 计数=1)+TestRunReconnectsUntilCancel(link_test.go:162)。 | Verification: deploy/e2e-smoke.sh:296-340（53 断言内）+上述单测 | Commit: 见本批提交）
 
 ## P4 --- 探测和健康体系
 
--   [ ] `F-9401` 完成 Probe 指标模型。
--   [ ] `F-9402` 完成 Probe 任务调度。
--   [ ] `F-9403` 完成结果聚合。
+-   [x] `F-9401` 完成 Probe 指标模型。
+    - 备注（Task ID: F-9401 | Status: Done | Evidence: Probe 指标模型：ProbeReport(messages.go:260-273 TargetKind/TargetNode/RttMs/LossPct/Reachable/Blocked/Verdict/Region/ISP/ProbedAt)+批量 ack(:275-283)+目标 kinds(:246-250)/verdicts(:253-256)；持久化 storage.ProbeReport(models.go:197-214, idx_probe_window)。 | Verification: TestProbeHealthy(probe_test.go:55)+TestProbeUnreachable(:88)+TestProbeTunnelReturnPath(:117)+TestVerdictOf(:164) | Commit: 见本批提交）
+-   [x] `F-9402` 完成 Probe 任务调度。
+    - 备注（Task ID: F-9402 | Status: Done | Evidence: Probe 任务调度（去中心化口径）：agent 本地自调度——Runner.Run 每 spec 一循环(probe.go:62-87)+nextInterval 晚高峰 19 时加密(probe.go:156-172)+config.ProbeSpec{TargetKind,Target,Direction,IntervalSec}(config.go:39-45)+Config.Probes(config.go:74)；服务端不下发（ProbeTask 全仓 0 命中，envelope.go:27-28 仅 agent.probe_report/panel.probe_ack），设计明示「面板只收结论做聚合判定，不集中探测」(pool.go:1-5/probe.go:1-5)。 | Verification: agent/internal/probe/probe_test.go（TestProbeHealthy 等 4 例）+agent/internal/config 配置解析 | Commit: 见本批提交）
+-   [x] `F-9403` 完成结果聚合。
+    - 备注（Task ID: F-9403 | Status: Done | Evidence: 结果聚合：pool.Sweep 30 分钟窗口拉最新 K 个 verdict(pool.go:129-173, ProbeFresh:28-29, Keep=max(SickStrikes,WellStreak):131-134, allVerdicts:235-245)+维度聚合 aggregate.Judge(aggregate.go:32-38, DefaultMinSick=2/DefaultSickRate=0.5:18-19, DimensionRegion/ISP:27-28)+monitor sweep→Judge→applyVerdict 落 DimensionStatus(monitor.go:52-108)。 | Verification: TestJudgeRegionAndISP(aggregate_test.go:45)+TestJudgeWindowAndLatest(:90)+TestJudgeEmpty(:120)+TestJudgeRatioFailure(aggregate_extra_test.go:12)+TestSweepPersistsDimensions(monitor_test.go:152) | Commit: 见本批提交）
 -   [ ] `F-9404` 完成 Node、Tunnel、Path、Egress 健康区分。
--   [ ] `F-9405` 完成健康状态计算。
+    - 待补（F-9404 | 未满足：无 Node/Tunnel/Path/Egress 健康四区分——仅 Node(pool)+Dimension(region/isp) 两级健康；无 Path 模型即无 Path/Egress 级；TransportHealth 定义于 dash/src/api.ts:122-132 但无视图消费（F-0904/0905 区）。）
+-   [x] `F-9405` 完成健康状态计算。
+    - 备注（Task ID: F-9405 | Status: Done | Evidence: 健康状态计算：monitor 状态机 StateHealthy/Degraded/Failed(monitor.go:22-26) 由 v.Failed/v.Sick 计算(:66-73)落 DimensionStatus(:80-108, Since/UpdatedAt, models.go:218-226)；节点/池态 pool.go:151-170（连续 sick→suspended setPoolState:248-255、连续 healthy→active）。 | Verification: TestApplyVerdictTransitions(monitor_test.go:59)+TestApplyVerdictDegraded(:123)+TestSweepPersistsDimensions(:152)+TestSweepSuspendAndResume(pool_test.go:71)+TestSweepScope(:162)+TestLoopSweepsAndStopsOnCancel(:241) | Commit: 见本批提交）
 -   [ ] `F-9406` 完成健康管理页面。
+    - 待补（F-9406 | 部分：健康在 NodesView 内渲染——/api/dimension-status 拉取(router.go:132, NodesView.vue:71, dims:56)+状态点(healthy 正常/异常:229-235)+区域/运营商健康聚合(:596)+pool_state 标签(:694-696)+togglePool 摘除/预备(:109-142)；无独立健康管理页面（dash/router.ts 16 路由无 health/dimension/probe）、panel 无健康视图、无 tunnel/path/egress 级健康 UI。）
 
 ## P5 --- Path 编排和调度
 
 -   [ ] `F-9501` 完成 Path 创建和校验。
--   [ ] `F-9502` 完成 Entry → Landing 编排。
+    - 待补（F-9501 | 未满足：无 type Path（F-0243 区），无 Path 创建/校验/CRUD API。）
+-   [x] `F-9502` 完成 Entry → Landing 编排。
+    - 备注（Task ID: F-9502 | Status: Done | Evidence: Entry→Landing 编排：自动调度写 LandingAssignment(alloc.go:530-541 SweepAt→db.Create, 当前 auto 释放:525-528)+手动入口 landing.go:45-109(db.Create:104, 校验 entry/landing role/方向/权重)+路由 /api/landings GET/POST/PUT/DELETE(router.go:137-140)。 | Verification: TestSweepAllocatesAndSwitches(alloc_test.go:223)+TestSweepManualWins(:302)+TestLandingAssignment(landing_test.go:10)+TestAllocAPI(allocapi_test.go:11) | Commit: 见本批提交）
 -   [ ] `F-9503` 完成 Path Group。
+    - 待补（F-9503 | 未满足：PathGroup 模型 0 命中（F-0261 区）。）
 -   [ ] `F-9504` 完成 Policy。
--   [ ] `F-9505` 完成候选过滤。
--   [ ] `F-9506` 完成质量、容量和成本评分。
--   [ ] `F-9507` 完成故障回退。
+    - 待补（F-9504 | 未满足：无 type Policy（F-0282 区）。）
+-   [x] `F-9505` 完成候选过滤。
+    - 备注（Task ID: F-9505 | Status: Done | Evidence: 候选过滤：alloc.go:448-455（entry role∈(entry,both)、landing role∈(landing,both)、enabled+pool_state=active+status!=provisioning）+:486-489（Direction 匹配、Healthy:!sick[l.ID]）+sick 来自 latestSick(ProbeFresh 30min):622-635+Pick 健康门控:218-226。 | Verification: TestPickHealthGate(alloc_test.go:155)+TestSweepScopeGuards(:338)+TestSweepAllSickKeepsCurrent(:367)+TestPickLeastConnCapacityWeight(:67) | Commit: 见本批提交）
+-   [x] `F-9506` 完成质量、容量和成本评分。
+    - 备注（Task ID: F-9506 | Status: Done | Evidence: 质量/容量/成本评分：容量 CapacityMbps(alloc.go:188-198 实测>降档>升档>100 兜底)+loadRatio(:241-243)；成本 CostPerGB(:202-207 仅按流量边际价)+costPer(:246-248)；策略比较 lessFor(:256-318 least_conn/cost_first/perf_first 精品线:355-361/balanced 归一加权:293-301)；成本聚合 cost.Build(cost.go:96-152)。 | Verification: TestPickCostFirst(alloc_test.go:89)+TestPickPerfFirstInOnly(:111)+TestPickBalanced(:133)+TestPickBalancedWeights(:480)+TestCapacityMbpsFallbacks(:547)+TestBuild(cost_test.go:48)+TestCheckAlerts(:131) | Commit: 见本批提交）
+-   [x] `F-9507` 完成故障回退。
+    - 备注（Task ID: F-9507 | Status: Done | Evidence: 故障回退：故障切换 alloc.go:502-521（当前 auto 落地不在健康候选集→强制换绑，健康问题不排队；释放旧:525-528+建新:530-541）；节点恢复 pool.Sweep(pool.go:129-173 连续 SickStrikes→suspended:156、连续 WellStreak→active:163)+手动 Resume/Suspend(:176-234)；恢复状态机 recovery.Sweep(recovery.go:108)+advance(:211)；离线补报 agent spool。 | Verification: TestSweepAllSickKeepsCurrent(alloc_test.go:367)+TestSweepSuspendAndResume(pool_test.go:71)+TestResume(:193)+TestSuspend(:216) | Commit: 见本批提交）
 -   [ ] `F-9508` 完成调度解释和模拟。
+    - 待补（F-9508 | 未满足：无调度决策记录/候选排除原因/结果解释/模拟 API（F-1032/1033/1034/1035 均未关）。）
 
 ## P6 --- 订阅和用户运营
 
 -   [ ] `F-9601` 完成统一 Subscription DTO。
--   [ ] `F-9602` 完成 sing-box Adapter。
--   [ ] `F-9603` 完成 Clash/Mihomo Adapter。
--   [ ] `F-9604` 完成分享链接 Adapter。
+    - 待补（F-9601 | 部分：共享输入 DTO sub.Entry{Node,RttMs}(links.go:169-173) 被三适配器共用（PackV2Ray links.go:201/PackClash clash.go:72/PackSingBox singbox.go:165）；无统一响应 DTO——各格式自出（v2ray base64 links/clashDoc clash.go:66/sing-box outbounds singbox.go:165），handler 按 target 分支(sub.go:124-152)。）
+-   [x] `F-9602` 完成 sing-box Adapter。
+    - 备注（Task ID: F-9602 | Status: Done | Evidence: sing-box Adapter：PackSingBox(singbox.go:165)+tls.server_name/singBoxTransport 映射(singbox.go:103-161)。 | Verification: TestPackSingBox(sub/singbox_test.go) | Commit: 见本批提交）
+-   [x] `F-9603` 完成 Clash/Mihomo Adapter。
+    - 备注（Task ID: F-9603 | Status: Done | Evidence: Clash/Mihomo Adapter：PackClash(clash.go:72)+servername/applyTransport 映射(clash.go:181-201)。 | Verification: TestPackClash(sub/clash_test.go) | Commit: 见本批提交）
+-   [x] `F-9604` 完成分享链接 Adapter。
+    - 备注（Task ID: F-9604 | Status: Done | Evidence: 分享链接 Adapter：PackV2Ray(links.go:201)+v2ray 参数映射(links.go:67-81)。 | Verification: TestPackV2Ray(sub/links_test.go) | Commit: 见本批提交）
 -   [ ] `F-9605` 完成真实客户端解析测试。
+    - 待补（F-9605 | 未满足：真实客户端解析测试未满足——合成 UA 无 fixture（F-1129 区；F-10011 未满足）。）
 -   [ ] `F-9606` 完成订阅权限过滤。
+    - 待补（F-9606 | 部分：用户级可用门 sub.UserActive(availability.go:11-22, sub.go:70)+配额降档 quota.ActiveAction→LowCost(sub.go:88-102, quota/link.go:107-114)+设备/IP 限制(subDeviceCheck sub.go:56-59)；无套餐/权限过滤——sub+handler/sub.go 内 plan/tier/套餐/permission 0 命中，storage.User.Plan(models.go:496) 是节点机型非订阅套餐（F-1143/1144 区）。）
 -   [ ] `F-9607` 完成流量记账可靠性。
+    - 待补（F-9607 | 部分：幂等去重已实现——服务端窗口 agentws_dedupe.go:36-67（repeat 键 msgType\x00id，FIFO cap=512/TTL=10min:13-14, repeatReport:61-67）+记账前拦截 agentws.go:544-556（重复帧双算=多扣费，必须挡在记账前）+TTL 过期即视为新帧(:48)，F-1250 关；补报未实现——断线流量静默丢弃（traffic.go:219-226 send==nil 即 return），spool 仅承载 probe 角色，设计 at-most-once 无重传（F-1251 未满足）。）
 -   [ ] `F-9608` 完成套餐与线路权限关联。
+    - 待补（F-9608 | 未满足：无套餐/Plan 实体，订阅内容无套餐与线路权限关联（F-1143/1144 区；F-9991/F-10013 部分）。）
 
 ## P7 --- 管理和运营闭环
 
 -   [x] `F-9701` 完成 Dash 节点与线路管理。
     - 备注（Task ID: F-9701 | Status: Done | Evidence: dash NodesView/LandingsView+node/landing API 测试+build 绿 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-9702` 完成 Dash 云资源管理。
+    - 待补（F-9702 | 未满足：Dash 云资源管理未实现（无 CloudResource 模型即无页面，仅 Providers 列表存在）（F-0411 区）。）
 -   [ ] `F-9703` 完成 Dash 成本和账单管理。
+    - 待补（F-9703 | 部分：成本管理有（CostView 节点/区域/运营商维度 F-1464/1466 关）；账单管理未实现（无账单导入/同步/明细页，F-0521/F-0622 区）。）
 -   [x] `F-9704` 完成 Dash 配置和任务管理。
     - 备注（Task ID: F-9704 | Status: Done | Evidence: SettingsView+config 下发+ProvisionView/RecoveryView；TestNodeConfigGuards+TestApplyLifecycle | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-9705` 完成 Panel 用户自助能力。
@@ -2335,21 +2385,34 @@ External Client
 ## P8 --- 可靠性和规模化
 
 -   [ ] `F-9801` 完成权限和安全测试。
+    - 待补（F-9801 | 部分：server 侧权限/安全测试齐（adminrole_test.go:39 TestAdminRoleCRUD 越权 403、apiauth_test.go 双面鉴权/分销不可提权、twofa_test.go 2FA、providerapi_test.go:40 凭据不回显、sub_test.go:276 限频、agentws_test.go:339 令牌伪造拒、audit_test.go:70 脱敏）；dash/panel 前端测试 0 命中、agent 无独立安全测试文件；F-1733（高危云操作越权）/F-1735（管理面配置篡改）/F-1737（密钥泄漏断言）未满足。）
 -   [ ] `F-9802` 完成 Metrics 和告警。
--   [ ] `F-9803` 完成备份恢复演练。
+    - 待补（F-9802 | 部分：告警已落地——monitor.go:52-164（sweep→applyVerdict 状态机, 同状态不重复:95-99, herald.Emit region_fault/isp_fault:123-138, webhook notify:141-162）+notify.go 外发+alerts.go:46/75；Metrics 基本缺失——prometheus/pprof//metrics 代码 0 命中（唯一命中是测试抓取 URL manager_extra_test.go:135），无服务端指标层，仅 JSON 状态页(handler/status.go:181-187)+agent 反向抓取被管进程 MetricsURL(procs/metrics.go:24)；F-1801~1814 全未满足、F-1821/1822/1825/1828/1829/1830 告警生产者缺。）
+-   [x] `F-9803` 完成备份恢复演练。
+    - 备注（Task ID: F-9803 | Status: Done | Evidence: 备份恢复演练：deploy/restore.sh 恢复脚本+e2e 备份恢复腿（53 断言内）+restore.sh --key(deploy/restore.sh:16)。 | Verification: deploy/e2e-smoke.sh（备份恢复断言 :385-427）+deploy/restore.sh | Commit: 见本批提交）
 -   [ ] `F-9804` 完成 Agent 和 Probe 规模测试。
+    - 待补（F-9804 | 未满足：无 Agent/Probe 规模/压测记录——P95/P99/benchstat 0 命中，§18.4 F-2061~2076 全未满足（无测试环境/数据规模/并发量/资源占用记录）。）
 -   [ ] `F-9805` 完成 Provider API 故障测试。
+    - 待补（F-9805 | 未满足：无 Provider API 集成可测（仅 tofu CLI provision.go:89，云 Provider Adapter 0 命中），无 Provider API 故障测试。）
 -   [ ] `F-9806` 完成账单导入和成本核算规模测试。
+    - 待补（F-9806 | 未满足：无账单导入（BillImport 0 命中）即无账单导入/成本核算规模测试（F-0521 区）。）
 -   [ ] `F-9807` 完成完整端到端测试。
+    - 待补（F-9807 | 部分：e2e-smoke.sh 444 行/44 expect 真起双二进制全不 mock，覆盖 认证(122-134)→注册/重放拒(146-162)→WS 上线(164-192)→进程监管(213-238)→proc_ctl(243-294)→断线回落(296-298)→轮换吊销(300-340)→配置下发回执(342-383)→备份恢复(385-427)→compose 校验(431-444)；未覆盖 订阅生成/解析、流量记账、Path/探测、Relay 隧道、TCP/UDP 转发、Provider API、账单导入、Dash/Panel 前端（F-2042~2055 多未满足，F-2046/2047 明示解析仅单测）。）
 
 ## P9 --- 后续扩展
 
 -   [ ] `F-9901` 评估多区域控制面需求。
+    - 待补（F-9901 | 未满足：多区域控制面评估 0 命中（docs/design/*.md 多区域/multi-region 0；唯一相关是 audit 文档 :28「控制面，单二进制 ferry」单点陈述；入口与负载均衡设计.md:202 仅谈数据面 ISP 聚合）——无多区域控制面评估。）
 -   [ ] `F-9902` 评估 Server 高可用。
+    - 待补（F-9902 | 部分：评估记录存在（F-1946 已关：结论「单点设计+手动提升，无自动故障转移」，面板可用性设计.md:3/5-18/92-97）+真实 warm-standby 机制（standby.go:114-162 加密快照→主钥解密→sqliteMagic 校验→原子替换→清 -wal/-shm；Loop 替换后 os.Exit(0) 交 systemd 重启；DefaultSec=600 RPO≤10min）；无自动故障检测与提升，面板仍单点（F-1947 只读副本未满足）。）
 -   [ ] `F-9903` 评估数据库只读副本。
+    - 待补（F-9903 | 未满足：只读副本评估 0 命中（只读副本/read replica/读库 全仓 0；F-1947 未满足）——standby.go:114-148 是替换自身库的热备/冷备，从不对外提供只读查询面。）
 -   [ ] `F-9904` 评估高级多跳 Path。
+    - 待补（F-9904 | 未满足：高级多跳 Path 无评估文档——docs/design 多跳/multi-hop 0 命中、type Path 0 命中；仅 todo.md:2480 一条「不做多跳」决策（先完成 Entry→Landing 两段式，不提前引入任意多跳图调度），非评估报告。）
 -   [ ] `F-9905` 评估更多 Cloud Provider Adapter。
+    - 待补（F-9905 | 部分：选型评估存在（计划扩充设计.md:12-27 云 SDK 薄封装 vs OpenTofu 五维对比+结论「底座=OpenTofu，不自研供给引擎不逐家封 SDK」、:43 多 provider 靠 OpenTofu provider 生态横向扩）；代码侧 adapter 接口缺位——F-0302 未勾选、providerapi.go:34-147 仅凭据/模板 CRUD 无云 API 客户端、dns.go:29 仅 cloudflare、支付真实现仅 epusdt。）
 -   [ ] `F-9906` 评估更多订阅格式和客户端能力。
+    - 待补（F-9906 | 部分：三种格式已落地（links.go:201 PackV2Ray/clash.go:72 PackClash/singbox.go:165 PackSingBox，F-1122/1124/1126 关）+条件式延后决策（todo.md:439/2545「补 mihomo/xray-json，触发条件=出现 clash-meta 拒载或 xray-json 消费方真实反馈」）；客户端能力矩阵缺位（F-1127/1129/1130/1132 未满足：无 per-client 特性表、合成 UA 无 fixture、不支持字段降级部分、clash 单一 url-test 形状假设）。）
 
 ------------------------------------------------------------------------
 
