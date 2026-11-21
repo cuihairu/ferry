@@ -2160,16 +2160,16 @@ P2 合并简列 14 项全部修复并推送，每项单 commit、英文简短、
 - [ ] G1 订阅格式补 mihomo/xray-json（报告 P2 观察项）：触发条件=出现 clash-meta 拒载或 xray-json 消费方的真实反馈
 - [ ] G7 OIDC/LDAP 登录（报告 P2 观察项）：触发条件=多管理员规模化且 P2-2 配额面被真实使用
 - [ ] G3 用户 LIMITED/EXPIRED 拆态（报告 P2 观察项）：触发条件=客服排障反复需要区分到期与超限来源
-- [ ] 修复非法 UTF-8 截断退化为空串并补测试（`internal/audit/audit.go:104`）—— 审计快照不应因非合法 UTF-8 输入完全丢失。
-- [ ] 让退款回收显式匹配 `extend_days` 并补未知类型测试（`internal/payrecon/payrecon.go:260`）—— 避免未知权益类型被误当延期扣减。
-- [ ] 为退款用户权益更新引入行锁或原子 SQL 并补并发测试（`internal/payrecon/payrecon.go:253`）—— 消除与 `applyGrant` 的丢更新竞态。
-- [ ] 替换登录 UA 字节截断为安全截断（`internal/loginlog/loginlog.go:31`）—— 防止 UA 写入非法 UTF-8。
-- [ ] 替换恢复错误尾部截断为安全截断（`internal/recovery/recovery.go:288`）—— 防止中文错误文案被截断成非法 UTF-8。
-- [ ] 统一替换 cert/provision/cloudflare 错误截断实现（`internal/cert/loop.go:212`）—— 清理同型 UTF-8 截断残留。
-- [ ] 执行 `make fmt` 并在 CI 增加 gofmt 门禁（`internal/payrecon/payrecon.go:146`）—— 防止格式漂移再次进入主分支。
-- [ ] 为审计请求体增加大小上限（`internal/audit/audit.go:57`）—— 避免大请求造成内存放大。
-- [ ] 统一过期日期展示时区（`internal/toucher/toucher.go:255`）—— 保证 UI 日期与计费窗口一致。
-- [ ] 补齐退款异常路径测试（`internal/payrecon/payrecon_test.go:379`）—— 覆盖用户已删、回收失败回滚和数据库终态断言。
+- [x] 修复非法 UTF-8 截断退化为空串并补测试（`internal/audit/audit.go:104`）—— 审计快照不应因非合法 UTF-8 输入完全丢失（d7e0154）。
+- [x] 让退款回收显式匹配 `extend_days` 并补未知类型测试（`internal/payrecon/payrecon.go:260`）—— 避免未知权益类型被误当延期扣减（a838d47）。
+- [x] 为退款用户权益更新引入行锁或原子 SQL 并补并发测试（`internal/payrecon/payrecon.go:253`）—— 消除与 `applyGrant` 的丢更新竞态（a838d47）。
+- [x] 替换登录 UA 字节截断为安全截断（`internal/loginlog/loginlog.go:31`）—— 防止 UA 写入非法 UTF-8（d7e0154）。
+- [x] 替换恢复错误尾部截断为安全截断（`internal/recovery/recovery.go:288`）—— 防止中文错误文案被截断成非法 UTF-8（d7e0154）。
+- [x] 统一替换 cert/provision/cloudflare 错误截断实现（`internal/cert/loop.go:212`）—— 清理同型 UTF-8 截断残留（d7e0154）。
+- [x] 执行 `make fmt` 并在 CI 增加 gofmt 门禁（`internal/payrecon/payrecon.go:146`）—— 防止格式漂移再次进入主分支（96e23dd）。
+- [x] 为审计请求体增加大小上限（`internal/audit/audit.go:57`）—— 避免大请求造成内存放大（e098fb4）。
+- [x] 统一过期日期展示时区（`internal/toucher/toucher.go:255`）—— 保证 UI 日期与计费窗口一致（0659fb5）。
+- [x] 补齐退款异常路径测试（`internal/payrecon/payrecon_test.go:379`）—— 覆盖用户已删、回收失败回滚和数据库终态断言（a838d47）。
 
 ## 文档一致性审计 G2（2026-11-14 再审计，ferry 席位）
 
