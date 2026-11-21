@@ -788,6 +788,7 @@ External Client
 -   [x] `F-0301` 审计现有云厂商 API、Provision 和 OpenTofu 集成。
     - 备注（Task ID: F-0301 | Status: Done | Evidence: 云厂商 API/Provision/OpenTofu 审计 §3.9 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0302` 定义统一 Cloud Provider Adapter 接口。
+    - 待补（F-0302 | 区级未满足原因：区级未满足原因：无云资源 Provider Adapter——type .*Provider.*interface 仅 dns.go:15(DNS 写通道)与 payment/provider.go:14(支付契约)，非云资源；Adapter/ListResources/PowerOn/PowerOff/Reboot/DescribeResource 均 0；provision 仅 tofu CLI(provision.go:89 exec tofu)——本区 F-0302~F-0318 未满足。）
 -   [ ] `F-0303` 定义 Provider 能力声明接口。
 -   [ ] `F-0304` 定义资源列表查询接口。
 -   [ ] `F-0305` 定义资源详情查询接口。
@@ -809,28 +810,39 @@ External Client
 
 -   [x] `F-0321` 定义 Cloud Account 数据模型。
     - 备注（Task ID: F-0321 | Status: Done | Evidence: Provider models.go:462（Name/Type/密钥/Enabled=云账号）；TestProviderAPI | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0322` 支持添加云服务商账号。
+-   [x] `F-0322` 支持添加云服务商账号。
+    - 备注（Task ID: F-0322 | Status: Done | Evidence: POST /api/providers→createProvider(router.go:147+providerapi.go:50-85) | Verification: TestProviderAPI(POST create) | Commit: 见本批提交）
 -   [ ] `F-0323` 支持配置账号名称和备注。
+    - 待补（F-0323 | 未满足原因：未满足：Provider.Name(models.go:482) 可配，但无 Note/Remark 字段（model/input/view 均无备注）。）
 -   [ ] `F-0324` 支持配置账号所属区域或租户范围。
+    - 待补（F-0324 | 未满足原因：未满足：Provider 无 Region/Tenant/Scope 字段（Region 仅属 ProvisionTemplate:497）。）
 -   [x] `F-0325` 将 Access Key/Secret 等凭据加密存储。
     - 备注（Task ID: F-0325 | Status: Done | Evidence: providerapi sealSecret→secret.Store AES-GCM；TestProviderAPI+TestStoreRoundtrip | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0326` 凭据读取仅允许 Provider Adapter 内部使用。
+-   [x] `F-0326` 凭据读取仅允许 Provider Adapter 内部使用。
+    - 备注（Task ID: F-0326 | Status: Done | Evidence: AccessKey AES-256-GCM 密文(providerapi.go:60,149-154)；唯一读取者 provision.DecryptKey(provision.go:214-218) 仅 runProvision/PrepareLaunch；API 层只回 has_access_key(providerapi.go:19-25) | Verification: TestProviderAPI+secret_test | Commit: 见本批提交）
 -   [x] `F-0327` Dash 不回显完整 Secret。
     - 备注（Task ID: F-0327 | Status: Done | Evidence: HasAccessKey 不回显；TestProviderAPI+TestListEnrollmentTokensMasksSecret | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0328` 支持测试账号连接。
+    - 待补（F-0328 | 未满足原因：未满足：无 test-connection 端点；router 仅 GET/POST/PUT/DELETE /api/providers，无 handler 调服务商验证凭据。）
 -   [x] `F-0329` 支持凭据更新。
     - 备注（Task ID: F-0329 | Status: Done | Evidence: updateProvider access_key 非空换密；TestProviderAPI | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0330` 支持凭据轮换。
--   [ ] `F-0331` 支持账号禁用。
--   [ ] `F-0332` 支持账号删除前依赖检查。
+    - 待补（F-0330 | 未满足原因：未满足：PUT /api/providers/:id 非空 access_key 为单键替换(providerapi.go:113-120)，无轮换语义（无双键/版本/宽限）。）
+-   [x] `F-0331` 支持账号禁用。
+    - 备注（Task ID: F-0331 | Status: Done | Evidence: Provider.Enabled(models.go:485,default:true) 可配(providerapi.go:65-82,110-112)；runProvision 拒绝 disabled("provider disabled" provisionapi.go:44-47) | Verification: TestProviderAPI | Commit: 见本批提交）
+-   [x] `F-0332` 支持账号删除前依赖检查。
+    - 备注（Task ID: F-0332 | Status: Done | Evidence: deleteProvider 按 provider_id 数 ProvisionTemplate 引用 409(providerapi.go:136-140)；job/node 经模板门禁传递守卫 | Verification: TestProviderAPI(有模板引用时拒绝删除) | Commit: 见本批提交）
 -   [x] `F-0333` 记录账号凭据变更审计。
     - 备注（Task ID: F-0333 | Status: Done | Evidence: auditMiddleware 覆盖 PUT /api/providers；TestAuditLogsCaptureWriteOps | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0334` 支持按账号授权可操作的资源范围。
+    - 待补（F-0334 | 未满足原因：未满足：无按账号资源范围授权；scope/tenant/授权 在 provider+provision 0 命中。）
 -   [ ] `F-0335` 为云账号操作增加最小权限说明。
+    - 待补（F-0335 | 未满足原因：未满足：最小权限说明 0 命中（docs/ 与 Go 注释均无）。）
 
 ## 3.3 Provider 资源同步
 
 -   [ ] `F-0341` 定义 Cloud Resource 数据模型。
+    - 待补（F-0341 | 区级未满足原因：区级未满足原因：CloudResource 模型 0 命中（type CloudResource 全仓 0）；无资源拉取/同步/过滤/绑定——本区 F-0341~F-0356 未满足。）
 -   [ ] `F-0342` 记录 Provider、Account、Region 和 Provider Resource
     ID。
 -   [ ] `F-0343` 支持从 Provider 拉取资源列表。
@@ -851,6 +863,7 @@ External Client
 ## 3.4 云资源操作任务
 
 -   [ ] `F-0361` 定义 Cloud Operation 数据模型。
+    - 待补（F-0361 | 区级未满足原因：区级未满足原因：CloudOperation 模型 0 命中；无操作状态机/任务接入/幂等键——本区 F-0361~ 未满足。）
 -   [ ] `F-0362`
     定义操作状态机：Pending、Running、Succeeded、Failed、Cancelled、Unknown。
 -   [ ] `F-0363` 将开机操作接入统一任务系统。
@@ -891,6 +904,7 @@ External Client
 -   [ ] `F-0398` 云操作后触发受控的状态刷新。
 -   [ ] `F-0399` 云操作与 Path 调度状态联动。
 -   [ ] `F-0400` 对有用户流量的节点执行关机前检查和风险提示。
+    - 待补（F-0400 | 区级未满足原因：区级未满足原因：依赖 CloudResource/CloudOperation（均未实现）；无节点联动审计/关机检查/维护窗口——本区 F-0400~F-0404 未满足。）
 -   [ ] `F-0401` 支持维护窗口和节点摘流流程。
 -   [ ] `F-0402` 支持开机后自动执行节点健康检查。
 -   [ ] `F-0403` 支持启动失败后的告警。
@@ -899,6 +913,7 @@ External Client
 ## 3.6 Dash 云资源管理页面
 
 -   [ ] `F-0411` 增加 Cloud Providers 页面。
+    - 待补（F-0411 | 区级未满足原因：区级未满足原因：Dash 云资源/云操作页面未实现（无 CloudResource 模型即无页面，审计 §3.11 F-9211/9212 未实现）；仅 Providers 列表存在——本区 F-0411~F-0432 未满足。）
 -   [ ] `F-0412` 增加 Cloud Accounts 列表。
 -   [ ] `F-0413` 增加 Cloud Account 创建页面。
 -   [ ] `F-0414` 增加 Cloud Account 连接测试入口。
