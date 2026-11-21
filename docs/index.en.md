@@ -39,3 +39,5 @@ features:
 
 
 > Note: the deployment guide, usage guide, and design docs reachable from the buttons above are currently Chinese-only (exception: the design glossary has an English twin, [Glossary](/design/术语表.en)); English versions exist in five places so far — the four top-level documents (this home page, the herald integration log, the panel landscape comparison, the doc consistency audit) plus the glossary. This site is single-language (`lang: zh-CN`, no `/zh/` route): Chinese is served at the root and English pages live alongside as paired files.
+>
+> The site auto-switches between these five Chinese↔English twin pairs based on your browser language (`navigator.language`); once you click the "English / 中文" buttons above, your choice is remembered and auto-switching stops.

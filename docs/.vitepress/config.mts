@@ -1,11 +1,57 @@
 import { defineConfig } from 'vitepress'
+import { LANG_TWINS, LANG_PREF_KEY } from './theme/lang-switch'
+
+const BASE = '/ferry/'
+
+/**
+ * 预渲染前的同步自动跳转脚本（防「先中文后英文」闪页）。
+ * 逻辑与 theme/lang-switch.ts 保持一致：无显式偏好时按浏览器语言跳孪生，
+ * 有偏好（点过真实切换链接）则不跳；只动既有孪生对，无孪生页面一律不动。
+ * 两处需同步修改（此处为内联字符串，无法 import 模块）。
+ */
+const autoJumpHead = [
+  '(function () {',
+  '  var BASE = ' + JSON.stringify(BASE) + ';',
+  '  var TWINS = ' + JSON.stringify(LANG_TWINS) + ';',
+  '  var KEY = ' + JSON.stringify(LANG_PREF_KEY) + ';',
+  '  var pref = null;',
+  '  try { pref = localStorage.getItem(KEY); } catch (e) { return; }',
+  '  if (pref === "zh" || pref === "en") return;',
+  '  var raw = ((navigator.languages && navigator.languages[0]) || navigator.language || "");',
+  '  raw = String(raw).toLowerCase();',
+  '  var want = raw.indexOf("zh") === 0 ? "zh" : raw.indexOf("en") === 0 ? "en" : "";',
+  '  if (!want) return;',
+  '  function norm(p) {',
+  '    p = p.split("#")[0].split("?")[0];',
+  '    try { p = decodeURIComponent(p); } catch (e) {}',
+  '    if (BASE && BASE !== "/" && p.indexOf(BASE) === 0) p = p.slice(BASE.length - 1);',
+  '    p = p.replace(/\\/+$/, "");',
+  '    p = p.replace(/\\.html$/, "");',
+  '    p = p.replace(/(^|\\/)index$/, "");',
+  '    return p || "/";',
+  '  }',
+  '  function twin(p) {',
+  '    if (Object.prototype.hasOwnProperty.call(TWINS, p)) return { current: "zh", target: TWINS[p] };',
+  '    for (var k in TWINS) if (Object.prototype.hasOwnProperty.call(TWINS, k) && TWINS[k] === p) return { current: "en", target: k };',
+  '    return null;',
+  '  }',
+  '  var t = twin(norm(location.pathname));',
+  '  if (!t || t.current === want) return;',
+  '  var b = BASE.replace(/\\/$/, "");',
+  '  var url = t.target === "/" ? BASE : b + t.target + ".html";',
+  '  if (location.pathname !== url) location.replace(url);',
+  '})();',
+].join('\n')
 
 export default defineConfig({
   lang: 'zh-CN',
   title: 'ferry',
   description: '轻量代理集群管理面板：用户、节点、订阅、计费与触达一体化',
-  base: '/ferry/',
-  head: [['link', { rel: 'icon', type: 'image/svg+xml', href: '/ferry/favicon.svg' }]],
+  base: BASE,
+  head: [
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/ferry/favicon.svg' }],
+    ['script', {}, autoJumpHead],
+  ],
   themeConfig: {
     logo: '/logo.svg',
     siteTitle: 'ferry',
