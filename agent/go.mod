@@ -12,7 +12,7 @@ require (
 	github.com/quic-go/quic-go v0.65.0
 	github.com/shirou/gopsutil/v4 v4.26.10
 	golang.org/x/crypto v0.59.0
-	golang.org/x/net v0.62.0
+	golang.org/x/net v0.63.0
 )
 
 require (
