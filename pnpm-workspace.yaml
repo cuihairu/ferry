@@ -6,7 +6,8 @@ packages:
 
 # 安全升级（2026-10-09 dependabot 批；2026-11-22 再批）：vitepress 1.x 钉 vite ^5.4.14
 #（≤6.4.2 有 1 high + 2 medium，2026-10-09 提到 6.4.3；dependabot 2026-11 对
-# ≤6.4.3 再开 1 high + 3 medium + 1 low，均修于 6.4.4），scoped override 提到 6.4.4；
-# 只命中 vite 5 声明，dash/panel 的 vite ^7 不受影响。vitepress 2（vite ^8）仍是 alpha 不升。
+# ≤6.4.3 再开 1 high + 3 medium + 1 low 修于 6.4.4，对 =6.4.4 再开 1 medium
+# 修于 6.4.5），scoped override 提到最新 patch 6.4.6；只命中 vite 5 声明，
+# dash/panel 的 vite ^7 不受影响。vitepress 2（vite ^8）仍是 alpha 不升。
 overrides:
-  "vite@^5.4.14": 6.4.4
+  "vite@^5.4.14": 6.4.6
