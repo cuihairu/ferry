@@ -1223,7 +1223,9 @@ External Client
 -   [x] `F-0901` 审计当前 Probe 任务模型和结果模型。
     - 备注（Task ID: F-0901 | Status: Done | Evidence: Probe 任务/结果模型审计 §3.4 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0902` 区分 Node Health。
--   [ ] `F-0903` 区分 Tunnel Health。
+    - 待补（F-0902 | 区级未满足原因：区级现状：探针 TargetKind 仅 tunnel/exit/peer(messages.go:247-249)，无 node/path kind；Node 健康由 pool.Sweep 从 tunnel+peer 计算(pool.go:129-173)——F-0902/0904/0905 部分或未满足。jitter(F-0907)/UDP(F-0910)/应用层(F-0911)/公网出口(F-0912)/异常样本(F-0916) 均未满足（probe.go:131 仅 TCP、无 jitter/outlier 字段）。）
+-   [x] `F-0903` 区分 Tunnel Health。
+    - 备注（Task ID: F-0903 | Status: Done | Evidence: ProbeTargetTunnel="tunnel"(agentproto/messages.go:247)+tunnel 探针(TestProbeTunnelReturnPath)+aggregate tunnel/peer(aggregate.go:69-70) | Verification: TestProbeTunnelReturnPath | Commit: 见本批提交）
 -   [ ] `F-0904` 区分 Path Health。
 -   [ ] `F-0905` 区分 Egress Health。
 -   [x] `F-0906` 支持 RTT 探测。
@@ -1246,8 +1248,10 @@ External Client
 ## 7.2 探测调度和健康计算
 
 -   [ ] `F-0921` 将可在边缘执行的探测任务下发给 Agent。
+    - 待补（F-0921 | 区级未满足原因：区级现状：服务端不下发探测任务（agent 本地 config.go:74 Probes），无 probe-task 消息类型；无并发限制(F-0922)/无故障提速(F-0925)/无防风暴(F-0926)。F-0923/0929/0930 已关。F-0924/0931/0932-0934 部分（按 spec IntervalSec/池滞回/手动摘除无操作者无过期）。）
 -   [ ] `F-0922` 为探测任务设置并发限制。
--   [ ] `F-0923` 为探测任务设置超时。
+-   [x] `F-0923` 为探测任务设置超时。
+    - 备注（Task ID: F-0923 | Status: Done | Evidence: dialTimeout=3s(probe.go:22)+net.DialTimeout(probe.go:131) | Verification: TestProbeUnreachable | Commit: 见本批提交）
 -   [ ] `F-0924` 支持按 Path 重要性配置探测频率。
 -   [ ] `F-0925` 故障时支持临时提高探测频率。
 -   [ ] `F-0926` 防止大规模节点互探造成探测风暴。
@@ -1255,8 +1259,10 @@ External Client
     - 备注（Task ID: F-0927 | Status: Done | Evidence: aggregate.go:65 Judge+monitor.go:66 applyVerdict；TestJudgeRegionAndISP+TestApplyVerdictTransitions | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0928` 定义健康统计时间窗口。
     - 备注（Task ID: F-0928 | Status: Done | Evidence: ProbeFresh 30min 窗口；TestJudgeWindowAndLatest | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0929` 定义连续失败阈值。
--   [ ] `F-0930` 定义恢复阈值。
+-   [x] `F-0929` 定义连续失败阈值。
+    - 备注（Task ID: F-0929 | Status: Done | Evidence: DefaultSickStrikes=3(pool.go:25)+pool.go:152 | Verification: TestSweepSuspendAndResume | Commit: 见本批提交）
+-   [x] `F-0930` 定义恢复阈值。
+    - 备注（Task ID: F-0930 | Status: Done | Evidence: DefaultWellStreak=2(pool.go:27)+pool.go:161 | Verification: TestSweepSuspendAndResume | Commit: 见本批提交）
 -   [ ] `F-0931` 实现健康状态滞回，避免频繁抖动。
 -   [ ] `F-0932` 支持健康状态人工覆盖。
 -   [ ] `F-0933` 人工覆盖必须记录原因、操作者和过期时间。
@@ -1265,6 +1271,7 @@ External Client
 ## 7.3 业务质量指标
 
 -   [ ] `F-0941` 定义游戏质量指标集合。
+    - 待补（F-0941 | 区级未满足原因：区级现状：无按业务(game/web/video)质量指标集与评分规则（business/scoring/质量分 0 命中）；仅通用 DimensionStatus(models.go:218-226)+晚间时段报告(eveningapi.go)——F-0941~F-0949 均未满足。）
 -   [ ] `F-0942` 定义网页质量指标集合。
 -   [ ] `F-0943` 定义视频质量指标集合。
 -   [ ] `F-0944` 定义普通代理质量指标集合。
@@ -1281,6 +1288,7 @@ External Client
 ## 8.1 Path 编排
 
 -   [ ] `F-1001` 实现 Path 创建和编辑。
+    - 待补（F-1001 | 区级未满足原因：区级现状：无 Path 模型（type Path 0 命中），仅 LandingAssignment(models.go:181-195)；无 Path CRUD/启停/拓扑校验/候选预览/失败清理。capability/region/ISP-ASN/line-type 过滤部分（仅 landing 层 role/pool/direction 过滤）。人工/自动创建部分（landing.go:81+alloc.go:530-538 写 LandingAssignment 非 Path）。连通性验证部分（probe 健康门）。）
 -   [ ] `F-1002` 实现 Path 启停。
 -   [ ] `F-1003` 实现 Path 拓扑校验。
 -   [x] `F-1004` 根据 Role 选择 Entry。
@@ -1312,14 +1320,20 @@ External Client
 -   [x] `F-1021` 审计现有调度和分配逻辑。
     - 备注（Task ID: F-1021 | Status: Done | Evidence: 调度分配逻辑审计 §3.5 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1022` 统一调度输入模型。
+    - 待补（F-1022 | 区级未满足原因：本区 F-1024/1025/1026/1027/1030 已关；其余：输入/输出模型部分(Candidate/SwitchEvent 无统一请求响应)、质量评分部分(无 RTT/loss 评分)、优先级规则未满足(仅 4 策略)、故障回退部分(无 Path 重绑执行器)、决策记录部分(无独立快照表)、候选排除原因/结果解释/模拟 API 均未满足。）
 -   [ ] `F-1023` 统一调度输出模型。
--   [ ] `F-1024` 实现候选 Path 过滤器。
--   [ ] `F-1025` 实现健康约束。
--   [ ] `F-1026` 实现容量约束。
--   [ ] `F-1027` 实现成本约束。
+-   [x] `F-1024` 实现候选 Path 过滤器。
+    - 备注（Task ID: F-1024 | Status: Done | Evidence: 候选过滤器 alloc.go:448-489(enabled/role/pool_state/status/direction/healthy gate) | Verification: TestPick* | Commit: 见本批提交）
+-   [x] `F-1025` 实现健康约束。
+    - 备注（Task ID: F-1025 | Status: Done | Evidence: Healthy 门 alloc.go:220-223 | Verification: TestPickHealthGate | Commit: 见本批提交）
+-   [x] `F-1026` 实现容量约束。
+    - 备注（Task ID: F-1026 | Status: Done | Evidence: CapacityMbps alloc.go:188-198 | Verification: TestPickLeastConnCapacityWeight | Commit: 见本批提交）
+-   [x] `F-1027` 实现成本约束。
+    - 备注（Task ID: F-1027 | Status: Done | Evidence: CostPerGB alloc.go:202-207 | Verification: TestPickCostFirst | Commit: 见本批提交）
 -   [ ] `F-1028` 实现 Path 质量评分。
 -   [ ] `F-1029` 实现优先级规则。
--   [ ] `F-1030` 实现候选排序。
+-   [x] `F-1030` 实现候选排序。
+    - 备注（Task ID: F-1030 | Status: Done | Evidence: lessFor alloc.go:255-318+Pick 217-238+平局确定性 260 | Verification: TestPickTieBreaks | Commit: 见本批提交）
 -   [ ] `F-1031` 实现故障回退。
 -   [ ] `F-1032` 实现调度决策记录。
 -   [ ] `F-1033` 实现候选排除原因。
@@ -1333,6 +1347,7 @@ External Client
 -   [x] `F-1041` 定义 manual 调度模式。
     - 备注（Task ID: F-1041 | Status: Done | Evidence: alloc.go:473 hasManualAssignment 优先+LandingAssignment manual；TestSweepManualWins+TestLandingAssignment | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1042` 定义 priority 调度模式。
+    - 待补（F-1042 | 区级未满足原因：本区 F-1049 已关；其余：priority/quality 模式未满足(ValidPolicy 仅 4 种 alloc.go:46-52)、按套餐/业务类型配置未满足(PolicySetting 仅 per-direction)、覆盖到期自动恢复未满足(无 TTL、sweep 跳过 manual)、国内直连优先/中继更优/回退/比较依据 部分(perf_first 优质线路偏好近似，无直连vs中继比较依据记录)。）
 -   [x] `F-1043` 定义 balanced 调度模式。
     - 备注（Task ID: F-1043 | Status: Done | Evidence: PolicyBalanced；TestPickBalanced | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1044` 定义 quality 调度模式。
@@ -1342,7 +1357,8 @@ External Client
     - 备注（Task ID: F-1046 | Status: Done | Evidence: alloc.go:214-216 规则+lessFor 纯函数；TestPick* 断言具体胜者 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1047` 支持按套餐配置调度模式。
 -   [ ] `F-1048` 支持按业务类型配置调度模式。
--   [ ] `F-1049` 支持人工覆盖调度结果。
+-   [x] `F-1049` 支持人工覆盖调度结果。
+    - 备注（Task ID: F-1049 | Status: Done | Evidence: createLanding Strategy:"manual"(landing.go:81)+hasManualAssignment 跳过自动(alloc.go:568-577) | Verification: TestSweepManualWins | Commit: 见本批提交）
 -   [ ] `F-1050` 支持人工覆盖到期自动恢复。
 -   [ ] `F-1051` 国内访问国内默认优先直连。
 -   [ ] `F-1052` 只有测量证明中继更优时才允许国内线路走中继。
@@ -1351,10 +1367,14 @@ External Client
 
 ## 8.4 容量管理
 
--   [ ] `F-1061` 统一上行带宽定义。
--   [ ] `F-1062` 统一下行带宽定义。
--   [ ] `F-1063` 区分标称带宽和实测带宽。
+-   [x] `F-1061` 统一上行带宽定义。
+    - 备注（Task ID: F-1061 | Status: Done | Evidence: BwUpMbps(models.go:109)+CapacityMbps 回退链(alloc.go:188-198) | Verification: TestCapacityMbpsFallbacks | Commit: 见本批提交）
+-   [x] `F-1062` 统一下行带宽定义。
+    - 备注（Task ID: F-1062 | Status: Done | Evidence: BwDownMbps(models.go:110)+CapacityMbps 回退链(alloc.go:188-198) | Verification: TestCapacityMbpsFallbacks | Commit: 见本批提交）
+-   [x] `F-1063` 区分标称带宽和实测带宽。
+    - 备注（Task ID: F-1063 | Status: Done | Evidence: SpeedMeasuredMbps/SpeedCalibratedAt(models.go:114-115)+measured>down>up>100(alloc.go:189-197) | Verification: TestCapacityMbpsFallbacks | Commit: 见本批提交）
 -   [ ] `F-1064` 统一带宽利用率计算。
+    - 待补（F-1064 | 区级未满足原因：本区 F-1061/1062/1063 已关；其余：带宽利用率计算未满足(loadRatio 是连接数/容量非带宽)、连接数/并发流限制未满足(无 MaxConns/流限制字段)、超载预警部分(仅 high_load agent 告警)、Path 容量估算未满足(无 Path)、容量不足降权部分(按容量加权非降权)、管理员覆盖未满足(无覆盖字段)。）
 -   [ ] `F-1065` 支持连接数限制。
 -   [ ] `F-1066` 支持并发流限制。
 -   [ ] `F-1067` 支持节点超载预警。
