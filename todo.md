@@ -2027,11 +2027,11 @@ External Client
 -   [x] `F-1921` 审计当前 Compose 和部署脚本。
     - 备注（Task ID: F-1921 | Status: Done | Evidence: Compose/部署脚本审计 §3.16 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1922` 明确 Server、Dash、Panel 的部署依赖。
-    - 备注（Task ID: F-1922 | Status: Done | Evidence: deploy/docker-compose.yml:92,106 ferry-dash/ferry-panel depends_on: ferry-server；docs/deploy/部署指南.md:7-16 记录三容器+反代路由集+postgres/FERRY_KEYFILE 依赖 | Verification: deploy/compose-smoke.sh+deploy/e2e-smoke.sh（53 断言） | Commit: 见本批提交）
+    - 备注（Task ID: F-1922 | Status: Done | Evidence: deploy/docker-compose.yml:92,106 ferry-dash/ferry-panel depends_on: ferry-server；docs/deploy/部署指南.md:7-16 记录三容器+反代路由集+postgres/FERRY_KEYFILE 依赖 | Verification: deploy/compose-smoke.sh+deploy/e2e-smoke.sh（53 断言） | Commit: 57e899f）
 -   [x] `F-1923` 明确 Agent 安装和升级流程。
     - 备注（Task ID: F-1923 | Status: Done | Evidence: agent-install.sh 原子回滚+upgrade 看门狗；install-rollback-test+TestWatchdogRollback | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1924` 明确密钥和配置持久化位置。
-    - 备注（Task ID: F-1924 | Status: Done | Evidence: keyinit.go:21-22 defaultKeyFileName+ :143-159 FERRY_KEYFILE 覆盖；部署指南.md:33-34 记录 FERRY_SECRET_KEY/FERRY_ENV/FERRY_KEYFILE+迁移须携带主钥文件；MIGRATION-RUNBOOK.md:11 主钥不入备份包 | Verification: TestGeneratePersistsAndStable+TestProductionRequiresPersistence+TestKeyfileRoundTrip（keyinit_test.go:25/156/98） | Commit: 见本批提交）
+    - 备注（Task ID: F-1924 | Status: Done | Evidence: keyinit.go:21-22 defaultKeyFileName+ :143-159 FERRY_KEYFILE 覆盖；部署指南.md:33-34 记录 FERRY_SECRET_KEY/FERRY_ENV/FERRY_KEYFILE+迁移须携带主钥文件；MIGRATION-RUNBOOK.md:11 主钥不入备份包 | Verification: TestGeneratePersistsAndStable+TestProductionRequiresPersistence+TestKeyfileRoundTrip（keyinit_test.go:25/156/98） | Commit: 57e899f）
 -   [x] `F-1925` 建立数据库自动备份。
     - 备注（Task ID: F-1925 | Status: Done | Evidence: backup.go:153 Loop 周期备份；TestLoopRunsOnceAndPrunes+TestSnapshotEncrypted | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1926` 建立配置和密钥备份策略。
@@ -2054,21 +2054,21 @@ External Client
 -   [ ] `F-1941` 为 Node 和 Path 建立区域维度管理。
     - 待补（F-1941 | 部分：Node 侧区域齐（model.go:41 Region+Node.Region/Datacenter/ISP/City+ProbeReport.Region/.ISP models.go:209-210+DimensionStatus :216-227）；无 Path 模型/实体（type Path 0 命中，仅 Backup.Path 文件字段 models.go:704）——Node 和 Path 仅覆盖一半。）
 -   [x] `F-1942` 支持跨区域探测。
-    - 备注（Task ID: F-1942 | Status: Done | Evidence: probe.go:91-95 Target/TargetKind/TargetHost 探测任意目标+ProbeReport.Region/.ISP（models.go:209-210）记录目标区域/运营商快照；entry→landing 探测天然跨区域 | Verification: probe_test.go+TestAgentWSProbeReport（agentws_test.go） | Commit: 见本批提交）
+    - 备注（Task ID: F-1942 | Status: Done | Evidence: probe.go:91-95 Target/TargetKind/TargetHost 探测任意目标+ProbeReport.Region/.ISP（models.go:209-210）记录目标区域/运营商快照；entry→landing 探测天然跨区域 | Verification: probe_test.go+TestAgentWSProbeReport（agentws_test.go） | Commit: 57e899f）
 -   [ ] `F-1943` 支持跨区域调度。
     - 待补（F-1943 | 部分：调度不按区域限定（候选跨全部 landing alloc.go:466-475）；区域为手动指派维度（hasManualAssignment alloc.go:568-572 entry_node_id IS NULL AND region=?+TestSweepManualWins alloc_test.go:302,327,334）；无自动区域感知权重（评分仅 load/cost/premium alloc.go:63,186-242）。）
 -   [ ] `F-1944` 支持区域容量和成本统计。
     - 待补（F-1944 | 部分：区域成本统计有（cost.Build 按 region 分组 cost.go:124-149+GroupCost+Report.Regions+TestBuild cost_test.go:87-93 断言 hk）；无区域容量统计（GroupCost 无容量字段，容量仅每节点 alloc.Candidate.CapacityMbps:188）。）
 -   [x] `F-1945` 支持区域故障隔离。
-    - 备注（Task ID: F-1945 | Status: Done | Evidence: monitor.go:121-124 区域作用域发 herald.KindRegionFault+DimensionStatus 聚合（monitor.go:21-26,51-59）合并单告警；设计依据 调度核心设计.md:47,84 | Verification: TestApplyVerdictTransitions（monitor_test.go:59,81-101 region_fault 断言） | Commit: 见本批提交）
+    - 备注（Task ID: F-1945 | Status: Done | Evidence: monitor.go:121-124 区域作用域发 herald.KindRegionFault+DimensionStatus 聚合（monitor.go:21-26,51-59）合并单告警；设计依据 调度核心设计.md:47,84 | Verification: TestApplyVerdictTransitions（monitor_test.go:59,81-101 region_fault 断言） | Commit: 57e899f）
 -   [x] `F-1946` 评估 Server 高可用。
-    - 备注（Task ID: F-1946 | Status: Done | Evidence: 面板可用性设计.md:3 单点+§1 故障语义+小时级 RTO；warm-standby 选项 P2-1 standby.go:1-162+deploy/README.md:235-257 拉取加密主快照；结论单点设计+手动提升，无自动故障转移 | Verification: docs/design/面板可用性设计.md+deploy/README.md | Commit: 见本批提交）
+    - 备注（Task ID: F-1946 | Status: Done | Evidence: 面板可用性设计.md:3 单点+§1 故障语义+小时级 RTO；warm-standby 选项 P2-1 standby.go:1-162+deploy/README.md:235-257 拉取加密主快照；结论单点设计+手动提升，无自动故障转移 | Verification: docs/design/面板可用性设计.md+deploy/README.md | Commit: 57e899f）
 -   [ ] `F-1947` 评估数据库只读副本。
     - 待补（F-1947 | 未满足：无只读副本评估——只读副本|read replica|ReadReplica|副本|读库 全仓 0 命中；standby 是全量加密快照替换自身库并重启（standby.go:115-162）为热备非只读副本，无文档评估。）
 -   [x] `F-1948` 在没有明确需求前不实现数据库双主双写。
-    - 备注（Task ID: F-1948 | Status: Done | Evidence: 全仓无 dual|双写|双主|leader|election|lease|advisory|FOR UPDATE（非测试）；Snapshot 显式拒绝非 sqlite（backup.go:111-113）；standby 严格拉取只读从不写主库 | Verification: 全仓 grep 0 命中+standby.go:115-162 | Commit: 见本批提交）
+    - 备注（Task ID: F-1948 | Status: Done | Evidence: 全仓无 dual|双写|双主|leader|election|lease|advisory|FOR UPDATE（非测试）；Snapshot 显式拒绝非 sqlite（backup.go:111-113）；standby 严格拉取只读从不写主库 | Verification: 全仓 grep 0 命中+standby.go:115-162 | Commit: 57e899f）
 -   [x] `F-1949` 在没有明确需求前不实现多 Server 并发修改同一资源。
-    - 备注（Task ID: F-1949 | Status: Done | Evidence: 无乐观锁/版本列/leader 选举/咨询锁/SELECT FOR UPDATE；standby 仅从主快照重写本地库（standby.go:115-162），两服务从不并发改同一资源 | Verification: 全仓 grep 0 命中 | Commit: 见本批提交）
+    - 备注（Task ID: F-1949 | Status: Done | Evidence: 无乐观锁/版本列/leader 选举/咨询锁/SELECT FOR UPDATE；standby 仅从主快照重写本地库（standby.go:115-162），两服务从不并发改同一资源 | Verification: 全仓 grep 0 命中 | Commit: 57e899f）
 
 ------------------------------------------------------------------------
 
