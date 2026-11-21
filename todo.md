@@ -1608,35 +1608,59 @@ External Client
 ## 12.1 总览
 
 -   [ ] `F-1401` 展示节点总数和在线数。
+    - 待补（F-1401 | 部分：仅区域/ISP 维度在线/总数卡（NodesView.vue:207-226）；无全局节点总数/在线数。）
 -   [ ] `F-1402` 展示健康与不健康节点数。
+    - 待补（F-1402 | 部分：仅区域/ISP 维度 healthy/degraded/failed（NodesView.vue:228-239）；无不健康计数汇总。）
 -   [ ] `F-1403` 展示 Entry、Landing 数量。
+    - 待补（F-1403 | 未满足：无 Entry/Landing 数量展示。）
 -   [ ] `F-1404` 展示 Relay 在线状态。
+    - 待补（F-1404 | 未满足：relay 仅作受管进程选项（NodesView.vue:829）；无 relay 在线状态。）
 -   [ ] `F-1405` 展示 Path 总数和可用率。
+    - 待补（F-1405 | 部分：晚间报告有可用率/RTT/丢包（CostView.vue:590-637）；无 Path 计数。）
 -   [ ] `F-1406` 展示当前总流量和连接数。
+    - 待补（F-1406 | 部分：仅节点级 conns/Mbps 负载单元格（NodesView.vue:95-107）；无聚合总览。）
 -   [ ] `F-1407` 展示区域资源分布。
--   [ ] `F-1408` 展示告警摘要。
--   [ ] `F-1409` 展示本月云资源成本摘要。
+    - 待补（F-1407 | 部分：区域维度卡（NodesView.vue:731-745）；无专门分布视图。）
+-   [x] `F-1408` 展示告警摘要。
+    - 备注（Task ID: F-1408 | Status: Done | Evidence: NodesView.vue:151-196 活跃告警徽标+对话框（:608-610/:875-901，api getAlerts:400） | Verification: API 侧 TestAlertGuards（alerts_test.go:276）；dash 无前端单测 | Commit: 见本批提交）
+-   [x] `F-1409` 展示本月云资源成本摘要。
+    - 备注（Task ID: F-1409 | Status: Done | Evidence: CostView.vue:278-295 摘要卡（月至今流量/月固定/月度预估/节点数） | Verification: API 侧 TestCostAPI（costapi_test.go）；dash 无前端单测 | Commit: 见本批提交）
 -   [ ] `F-1410` 展示估算成本与实际账单差异。
+    - 待补（F-1410 | 未满足：有月度预估（CostView.vue:287-290）；无实际账单对比。）
 
 ## 12.2 节点与线路
 
--   [ ] `F-1421` 提供节点列表和筛选。
+-   [x] `F-1421` 提供节点列表和筛选。
+    - 备注（Task ID: F-1421 | Status: Done | Evidence: NodesView.vue:598-727 列表+role 筛选+节点/区域/ISP 三视图 | Verification: docs/audit-platform-impl-2026-11-03.md §3.11（17 dash 视图确认）；dash 无前端单测 | Commit: 见本批提交）
 -   [ ] `F-1422` 提供节点详情。
+    - 待补（F-1422 | 部分：仅编辑对话框，无专门详情页（NodesView.vue:747-810）。）
 -   [ ] `F-1423` 展示 Node 关联的 Cloud Resource。
+    - 待补（F-1423 | 未满足：无 CloudResource 模型/关联。）
 -   [ ] `F-1424` 展示 Agent、Relay 和 Probe 状态。
+    - 待补（F-1424 | 部分：agent 版本+进程快照（NodesView.vue:668-672/:312-331）；relay/probe 状态未呈现（/api/probe-reports 后端有、dash 未用）。）
 -   [ ] `F-1425` 展示节点配置版本。
--   [ ] `F-1426` 提供节点维护和启停管理。
+    - 待补（F-1425 | 未满足：/api/nodes/:id/configs（router.go:206）有路由无 UI。）
+-   [x] `F-1426` 提供节点维护和启停管理。
+    - 备注（Task ID: F-1426 | Status: Done | Evidence: NodesView.vue:109-148 proc start/stop/reload+pool suspend/resume/standby（:358-372 batch proc/:714-723） | Verification: 后端 TestNodeProcOp/TestBatchNodeProc（procop_test.go）；dash 无前端单测 | Commit: 见本批提交）
 -   [ ] `F-1427` 提供 Path 列表。
+    - 待补（F-1427 | 部分：仅 landing assignment 列表（LandingsView.vue:189-230）；无 Path 实体。）
 -   [ ] `F-1428` 提供 Path 详情。
+    - 待补（F-1428 | 未满足：无 Path 详情。）
 -   [ ] `F-1429` 提供 Path Group 管理。
--   [ ] `F-1430` 提供 Policy 管理。
+    - 待补（F-1429 | 部分：区域级指派+传输状态（LandingsView.vue:266-283）；无 PathGroup 模型。）
+-   [x] `F-1430` 提供 Policy 管理。
+    - 备注（Task ID: F-1430 | Status: Done | Evidence: LandingsView.vue:232-264 alloc policy out/in/rebalance/权重（api putAllocPolicy:160） | Verification: API 侧 TestAllocPolicy（allocapi_test.go）；dash 无前端单测 | Commit: 见本批提交）
 -   [ ] `F-1431` 展示调度候选和排除原因。
+    - 待补（F-1431 | 部分：手动 entry/landing 选择（LandingsView.vue:285-325）；无排除列表。）
 -   [ ] `F-1432` 展示探测历史和质量趋势。
+    - 待补（F-1432 | 部分：24h 质量趋势（CostView.vue:590-637）；无按节点探测历史。）
 
 ## 12.3 云服务商与资源
 
--   [ ] `F-1441` 提供 Provider 管理入口。
+-   [x] `F-1441` 提供 Provider 管理入口。
+    - 备注（Task ID: F-1441 | Status: Done | Evidence: ProvisionView.vue:173-199/:263-282 provider CRUD（api :592-604） | Verification: API 侧 TestProviderAPI（providerapi_test.go:40）；dash 无前端单测 | Commit: 见本批提交）
 -   [ ] `F-1442` 提供 Cloud Account 管理入口。
+    - 待补（F-1442 | 区级未满足原因：云资源与云操作页面未实现——无 CloudResource 模型即无资源列表/详情/关联/电源/重装/批量/同步/错误页；本区 F-1443~F-1454、F-1456~F-1457 未满足；F-1442 部分（provider 含加密 access_key 兼作账号，无独立 account 实体）；F-1455 部分（仅 provision job 状态/日志，非资源操作进度）。）
 -   [ ] `F-1443` 提供账号连接测试。
 -   [ ] `F-1444` 提供资源同步入口。
 -   [ ] `F-1445` 提供云资源列表。
@@ -1655,54 +1679,94 @@ External Client
 
 ## 12.4 成本与账单
 
--   [ ] `F-1461` 提供成本总览。
+-   [x] `F-1461` 提供成本总览。
+    - 备注（Task ID: F-1461 | Status: Done | Evidence: CostView.vue:278-295 成本总览摘要卡 | Verification: API 侧 TestCostAPI（costapi_test.go）；dash 无前端单测 | Commit: 见本批提交）
 -   [ ] `F-1462` 提供 Provider 成本统计。
+    - 待补（F-1462 | 部分：仅节点/区域/ISP 维度（CostView.vue:306-360）；无 Provider 维度成本。）
 -   [ ] `F-1463` 提供账号成本统计。
--   [ ] `F-1464` 提供区域成本统计。
+    - 待补（F-1463 | 未满足：无账号维度成本。）
+-   [x] `F-1464` 提供区域成本统计。
+    - 备注（Task ID: F-1464 | Status: Done | Evidence: CostView.vue:333-349 区域汇总表（节点/流量花费/固定成本/月度预估） | Verification: API 侧 TestCostAPI（costapi_test.go）；dash 无前端单测 | Commit: 见本批提交）
 -   [ ] `F-1465` 提供资源成本统计。
--   [ ] `F-1466` 提供 Node 成本统计。
+    - 待补（F-1465 | 未满足：无资源维度成本。）
+-   [x] `F-1466` 提供 Node 成本统计。
+    - 备注（Task ID: F-1466 | Status: Done | Evidence: CostView.vue:306-329 节点行（月流量/流量花费/固定成本/月度预估） | Verification: API 侧 TestCostAPI（costapi_test.go）；dash 无前端单测 | Commit: 见本批提交）
 -   [ ] `F-1467` 提供 Path 成本估算。
+    - 待补（F-1467 | 未满足：无 Path 成本。）
 -   [ ] `F-1468` 提供账单导入和同步任务管理。
+    - 待补（F-1468 | 未满足：仅价格表导入（CostView.vue:465-474）；无账单导入/同步任务。）
 -   [ ] `F-1469` 提供账单明细查询。
+    - 待补（F-1469 | 未满足：无账单明细查询。）
 -   [ ] `F-1470` 提供估算与实际账单对比。
+    - 待补（F-1470 | 部分：月至今实际+月度预估并列（CostView.vue:278-290）；无显式对比视图。）
 -   [ ] `F-1471` 提供成本分摊规则管理。
+    - 待补（F-1471 | 未满足：成本阈值（CostView.vue:297-303）+价格监控有；无分摊规则（分摊）配置。）
 -   [ ] `F-1472` 提供账单差异对账入口。
+    - 待补（F-1472 | 未满足：无账单差异对账。）
 -   [ ] `F-1473` 提供成本异常告警。
+    - 待补（F-1473 | 部分：高成本阈值（CostView.vue:297-303）+价格 watch（:560-587）；非增长率异常。）
 -   [ ] `F-1474` 支持成本明细导出。
+    - 待补（F-1474 | 未满足：无导出。）
 -   [ ] `F-1475` 在页面明确区分实际、估算和分摊金额。
+    - 待补（F-1475 | 部分：实际（流量/固定）与预估列区分（CostView.vue:310-326）；无分摊金额。）
 
 ## 12.5 配置、任务与审计
 
 -   [ ] `F-1481` 提供配置版本列表。
+    - 待补（F-1481 | 未满足：/api/nodes/:id/configs（router.go:206）有路由无 UI。）
 -   [ ] `F-1482` 提供配置差异查看。
+    - 待补（F-1482 | 未满足：无配置差异查看。）
 -   [ ] `F-1483` 提供配置下发状态。
+    - 待补（F-1483 | 部分：批量配置逐节点 applied/failed（NodesView.vue:406-443）；无任务列表。）
 -   [ ] `F-1484` 提供配置失败和回滚记录。
+    - 待补（F-1484 | 未满足：仅提示文案「失败自动回滚」（NodesView.vue:844）；无失败/回滚记录。）
 -   [ ] `F-1485` 提供批量运维任务列表。
+    - 待补（F-1485 | 部分：批量 proc/config 即时逐节点结果（NodesView.vue:614-622/:358-443）；无任务队列视图。）
 -   [ ] `F-1486` 提供 Agent 升级任务列表。
--   [ ] `F-1487` 提供自动恢复任务列表。
--   [ ] `F-1488` 提供操作审计查询。
--   [ ] `F-1489` 提供告警确认和关闭入口。
+    - 待补（F-1486 | 部分：逐节点升级对话框（NodesView.vue:445-483）；无任务列表。）
+-   [x] `F-1487` 提供自动恢复任务列表。
+    - 备注（Task ID: F-1487 | Status: Done | Evidence: RecoveryView.vue:74-121 recoveries 列表+action 回放（api :795-799） | Verification: API 侧 TestTraceRowsReplay（recovery_test.go）；dash 无前端单测 | Commit: 见本批提交）
+-   [x] `F-1488` 提供操作审计查询。
+    - 备注（Task ID: F-1488 | Status: Done | Evidence: AuditView.vue:49-66 查询（api getAuditLogs:1034） | Verification: API 侧 TestAuditLogsQuery（audit_test.go）；dash 无前端单测 | Commit: 见本批提交）
+-   [x] `F-1489` 提供告警确认和关闭入口。
+    - 备注（Task ID: F-1489 | Status: Done | Evidence: NodesView.vue:184-196 resolveOne（api resolveAlert:420） | Verification: API 侧 TestAlertGuards（alerts_test.go）；dash 无前端单测 | Commit: 见本批提交）
 
 ------------------------------------------------------------------------
 
 # 13. Panel 用户面板
 
--   [ ] `F-1501` 展示用户账户信息。
+-   [x] `F-1501` 展示用户账户信息。
+    - 备注（Task ID: F-1501 | Status: Done | Evidence: panel HomeView.vue:199-215 账户卡（/api/panel/me api.ts Me:41-55） | Verification: API 侧 TestPanelMe（panel_test.go）；panel 无前端单测 | Commit: 见本批提交）
 -   [ ] `F-1502` 展示当前套餐。
--   [ ] `F-1503` 展示套餐到期时间。
--   [ ] `F-1504` 展示流量使用情况。
+    - 待补（F-1502 | 部分：配额/状态卡（HomeView.vue:208-213）；无套餐实体展示。）
+-   [x] `F-1503` 展示套餐到期时间。
+    - 备注（Task ID: F-1503 | Status: Done | Evidence: HomeView.vue:210 到期字段 formatDate(me.expires_at) | Verification: API 侧 TestPanelMe（panel_test.go）；panel 无前端单测 | Commit: 见本批提交）
+-   [x] `F-1504` 展示流量使用情况。
+    - 备注（Task ID: F-1504 | Status: Done | Evidence: HomeView.vue:201-207 用量表+meter（used/quota+剩余） | Verification: API 侧 TestPanelMe（panel_test.go）；panel 无前端单测 | Commit: 见本批提交）
 -   [ ] `F-1505` 展示设备列表。
+    - 待补（F-1505 | 未满足：仅设备计数（HomeView.vue:212）；无列表。）
 -   [ ] `F-1506` 提供设备解绑。
--   [ ] `F-1507` 展示订阅地址。
+    - 待补（F-1506 | 未满足：面板无设备解绑。）
+-   [x] `F-1507` 展示订阅地址。
+    - 备注（Task ID: F-1507 | Status: Done | Evidence: HomeView.vue:227-248 订阅链接（v2ray/clash target） | Verification: API 侧 TestSubscription（sub_test.go）；panel 无前端单测 | Commit: 见本批提交）
 -   [ ] `F-1508` 支持订阅令牌重置。
--   [ ] `F-1509` 支持选择订阅格式。
+    - 待补（F-1508 | 未满足：sub_token 在 Me 返回（api.ts:44）但面板无重置 UI（管理端 UsersView.vue:148 有）。）
+-   [x] `F-1509` 支持选择订阅格式。
+    - 备注（Task ID: F-1509 | Status: Done | Evidence: HomeView.vue:108-111/:230-247 通用（v2ray/base64）与 clash/mihomo（YAML）两种格式链接 | Verification: API 侧 TestSubscriptionFormats（sub_test.go）；panel 无前端单测 | Commit: 见本批提交）
 -   [ ] `F-1510` 提供 sing-box 导入说明。
+    - 待补（F-1510 | 未满足：无 sing-box 导入说明。）
 -   [ ] `F-1511` 提供 Clash/Mihomo 导入说明。
--   [ ] `F-1512` 展示公告。
--   [ ] `F-1513` 展示订单和支付记录。
+    - 待补（F-1511 | 未满足：仅 YAML 链接，无导入指引。）
+-   [x] `F-1512` 展示公告。
+    - 备注（Task ID: F-1512 | Status: Done | Evidence: NotificationsView.vue:54-59/:75-89 announcement 类型通知 | Verification: API 侧 TestPanelNotifications（panel_test.go）；panel 无前端单测 | Commit: 见本批提交）
+-   [x] `F-1513` 展示订单和支付记录。
+    - 备注（Task ID: F-1513 | Status: Done | Evidence: OrdersView.vue:46-78 订单卡（渠道/金额/权益/支付/退款） | Verification: API 侧 TestPanelOrders（panel_test.go）；panel 无前端单测 | Commit: 见本批提交）
 -   [ ] `F-1514` 展示账单和套餐历史。
+    - 待补（F-1514 | 部分：订单权益展示发放内容（OrdersView.vue:70-72）；无账单历史。）
 -   [ ] `F-1515` 提供账号安全设置。
+    - 待补（F-1515 | 未满足：面板无密码/2FA 设置；仅联系方式绑定（HomeView.vue:178-197）。）
 -   [ ] `F-1516` 展示登录记录。
+    - 待补（F-1516 | 未满足：面板无登录记录（loginlog 仅管理端 SettingsView.vue:368）。）
 
 ------------------------------------------------------------------------
 
