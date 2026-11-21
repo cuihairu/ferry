@@ -2091,7 +2091,7 @@ External Client
 -   [x] `F-2007` 为 Health 计算建立单元测试。
     - 备注（Task ID: F-2007 | Status: Done | Evidence: aggregate_test+monitor_test 健康计算单测 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-2008` 为 Config Compiler 建立单元测试。
-    - 备注（Task ID: F-2008 | Status: Done | Evidence: routing_test.go:17 TestRoutingConfigRender 渲染节点路由配置（模板+规则），断言 rules/direct 出站+sha256 匹配+bad-template 400+missing-node 404；agent 侧应用/回滚 configd_test TestApplyReloadFailRollsBack | Verification: server/internal/handler/routing_test.go TestRoutingConfigRender+configd_test.go | Commit: 见本批提交）
+    - 备注（Task ID: F-2008 | Status: Done | Evidence: routing_test.go:17 TestRoutingConfigRender 渲染节点路由配置（模板+规则），断言 rules/direct 出站+sha256 匹配+bad-template 400+missing-node 404；agent 侧应用/回滚 configd_test TestApplyReloadFailRollsBack | Verification: server/internal/handler/routing_test.go TestRoutingConfigRender+configd_test.go | Commit: 9a8663a）
 -   [x] `F-2009` 为 Subscription Adapter 建立单元测试。
     - 备注（Task ID: F-2009 | Status: Done | Evidence: sub/{clash,singbox,links}_test Adapter 单测 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-2010` 为 Traffic Dedup 建立单元测试。
@@ -2105,7 +2105,7 @@ External Client
 -   [ ] `F-2014` 为 Cost Allocation 建立单元测试。
     - 待补（F-2014 | 未满足：type CostAllocation 0 命中；alloc 包是调度非成本分摊；无分摊/重算引擎。）
 -   [x] `F-2015` 为后台任务重试和取消建立单元测试。
-    - 备注（Task ID: F-2015 | Status: Done | Evidence: 后台任务重试+取消按管线实测——herald 重试指数退避+尝试上限+死信 TestDeliverRetryBackoffAndDeadLetter（herald_test.go:101）+退避上限 TestBackoffCap（:162）+循环取消 TestLoopDelivers（:192）；cert 任务重试 TestSweepFailedBackoff（cert_test.go:228）+TestLoopSweepsAndStopsOnCancel（:263）；relaypush 超时重推 TestPushTimeout（relaypush_test.go:307） | Verification: herald_test.go+cert_test.go+relaypush_test.go | Commit: 见本批提交）
+    - 备注（Task ID: F-2015 | Status: Done | Evidence: 后台任务重试+取消按管线实测——herald 重试指数退避+尝试上限+死信 TestDeliverRetryBackoffAndDeadLetter（herald_test.go:101）+退避上限 TestBackoffCap（:162）+循环取消 TestLoopDelivers（:192）；cert 任务重试 TestSweepFailedBackoff（cert_test.go:228）+TestLoopSweepsAndStopsOnCancel（:263）；relaypush 超时重推 TestPushTimeout（relaypush_test.go:307） | Verification: herald_test.go+cert_test.go+relaypush_test.go | Commit: 9a8663a）
 
 ## 18.2 集成测试
 
@@ -2126,9 +2126,9 @@ External Client
 -   [ ] `F-2028` 测试 Path 故障回退。
     - 待补（F-2028 | 未满足：Path 故障回退缺失；最接近 entry→landing 经 alloc sweep（TestSweepAllocatesAndSwitches alloc_test.go:223），无 Path。）
 -   [x] `F-2029` 测试订阅生成和权限过滤。
-    - 备注（Task ID: F-2029 | Status: Done | Evidence: TestSubscription（sub_test.go:30）+TestSubscriptionAvailability（:128 超配额→无节点订阅/过期→无节点/不限→节点+Subscription-Userinfo）+TestSubscriptionHysteria2/TestSubscriptionSingBoxMixed；权限过滤 sub.UserActive（sub/availability.go:11+TestUserActive）+entry-only/pool-active/status 过滤（sub.go:74）；格式渲染 TestPackClash/TestPackSingBox/TestShareLink | Verification: sub_test.go+sub/availability_test.go | Commit: 见本批提交）
+    - 备注（Task ID: F-2029 | Status: Done | Evidence: TestSubscription（sub_test.go:30）+TestSubscriptionAvailability（:128 超配额→无节点订阅/过期→无节点/不限→节点+Subscription-Userinfo）+TestSubscriptionHysteria2/TestSubscriptionSingBoxMixed；权限过滤 sub.UserActive（sub/availability.go:11+TestUserActive）+entry-only/pool-active/status 过滤（sub.go:74）；格式渲染 TestPackClash/TestPackSingBox/TestShareLink | Verification: sub_test.go+sub/availability_test.go | Commit: 9a8663a）
 -   [x] `F-2030` 测试流量上报、去重和补报。
-    - 备注（Task ID: F-2030 | Status: Done | Evidence: 上报 TestAgentWSTrafficReport（agentws_test.go:477）+TestReporterCollectsAndReports（traffic_test.go:31）；去重 7 例（TestAgentWSDuplicateTrafficFrame:57+TestAgentWSDedupSurvivesReconnect:104+TestReportDeduperWindow:243+TestReportDeduperTTL:267）；补报 spool 离线缓冲+重试 TestSendFailureRetries（spool_test.go:99）+TestWatchForwardsUntilCancel（:147） | Verification: agentws_dedupe_test.go+traffic_test.go+spool_test.go | Commit: 见本批提交）
+    - 备注（Task ID: F-2030 | Status: Done | Evidence: 上报 TestAgentWSTrafficReport（agentws_test.go:477）+TestReporterCollectsAndReports（traffic_test.go:31）；去重 7 例（TestAgentWSDuplicateTrafficFrame:57+TestAgentWSDedupSurvivesReconnect:104+TestReportDeduperWindow:243+TestReportDeduperTTL:267）；补报 spool 离线缓冲+重试 TestSendFailureRetries（spool_test.go:99）+TestWatchForwardsUntilCancel（:147） | Verification: agentws_dedupe_test.go+traffic_test.go+spool_test.go | Commit: 9a8663a）
 -   [ ] `F-2031` 测试 Provider 账号连接和资源同步。
     - 待补（F-2031 | 未满足：Provider 凭据库有且测（TestProviderAPI）；无「账号连接」与资源同步（provision 仅 tofu CLI，无 provider API 调用）；无资源同步测试。）
 -   [ ] `F-2032` 测试云资源开机操作。
@@ -2149,7 +2149,7 @@ External Client
 ## 18.3 端到端测试
 
 -   [x] `F-2041` 自动部署测试 Server。
-    - 备注（Task ID: F-2041 | Status: Done | Evidence: 真实 server 二进制启动+健康可达+DB 初始化+degraded→ok 恢复+管理端认证+备份/恢复（deploy/e2e-smoke.sh:116-145,388-427）；CI test.yml:98-99 deploy-scripts job 接入 | Verification: deploy/e2e-smoke.sh（53 断言）+.github/workflows/test.yml | Commit: 见本批提交）
+    - 备注（Task ID: F-2041 | Status: Done | Evidence: 真实 server 二进制启动+健康可达+DB 初始化+degraded→ok 恢复+管理端认证+备份/恢复（deploy/e2e-smoke.sh:116-145,388-427）；CI test.yml:98-99 deploy-scripts job 接入 | Verification: deploy/e2e-smoke.sh（53 断言）+.github/workflows/test.yml | Commit: 9a8663a）
 -   [ ] `F-2042` 自动部署 Entry Node。
     - 待补（F-2042 | 未满足：通用 agent 注册上线（e2e-smoke.sh:156,192）；无 entry 角色部署/entry 数据面/Path entry。）
 -   [ ] `F-2043` 自动部署 Landing Node。
