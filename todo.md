@@ -2145,21 +2145,37 @@ External Client
 ## 18.4 性能与故障测试
 
 -   [ ] `F-2061` 测试大量 Agent 长连接。
+    - 待补（F-2061 | 未满足：长连接组件在（agentws.go+agenthub/hub.go），但测试仅 1-2 连接（hub_test.go:21 TestHubRegisterUnregister+agentws_test.go:53）；无多连接压测。）
 -   [ ] `F-2062` 测试大量心跳并发。
+    - 待补（F-2062 | 未满足：心跳组件在（app.go BuildHeartbeat），无并发心跳负载测试（无 t.Parallel/errgroup 心跳压测）。）
 -   [ ] `F-2063` 测试大量 ProbeResult 写入。
+    - 待补（F-2063 | 未满足：ProbeReport/ProbeReportBatch 单发测试（agentws_test.go:194 TestAgentWSProbeReport+:254）；无写入量/吞吐测试。）
 -   [ ] `F-2064` 测试大量订阅请求。
+    - 待补（F-2064 | 未满足：订阅单请求测试（sub_test.go:30 TestSubscription+:276）；无多请求负载测试。）
 -   [ ] `F-2065` 测试大量流量报告。
+    - 待补（F-2065 | 未满足：流量上报单帧测试（agentws_test.go:477 TestAgentWSTrafficReport）；无量级/并发上报测试。）
 -   [ ] `F-2066` 测试大量候选 Path 调度。
+    - 待补（F-2066 | 未满足：候选调度功能测试在（alloc_test.go 多场景），但均为小候选功能用例；无规模/性能测量。）
 -   [ ] `F-2067` 测试大量配置批量下发。
+    - 待补（F-2067 | 未满足：配置下发单发测试（agentws_test.go:363 TestAgentWSConfigPush+relaypush_test.go:240）；无批量量级推送测试。）
 -   [ ] `F-2068` 测试大量云资源同步。
+    - 待补（F-2068 | 未满足：无云资源同步组件——providerapi 仅凭据 DB CRUD，唯一外部客户端是 DNS（dns/cloudflare.go）；云资源同步全仓 0 命中。）
 -   [ ] `F-2069` 测试 Provider API 限流和超时。
+    - 待补（F-2069 | 未满足：ratelimit 单测覆盖 IP/API-auth/sub 节流（limiter_test.go:9/34/62）非 Provider API；无云服务商 API 客户端（provisioning 走 tofu exec provision.go:89），无 Provider API 限流/超时测试。）
 -   [ ] `F-2070` 测试账单大批量导入。
+    - 待补（F-2070 | 未满足：无账单导入端点（账单批量导入 0 命中，仅 storage.BillingType models.go:104 字段）——无负载对象。）
 -   [ ] `F-2071` 测试 Server 与 Provider 网络中断。
+    - 待补（F-2071 | 未满足：无 Server↔Provider 网络路径（Provider=DB 记录，provisioning 走 tofu CLI 非服务商 REST API）；最近的是 dns_test.go:200 TestCloudflareDoErrors DNS 不可达注入，非云资源开通路径。）
 -   [ ] `F-2072` 测试 Relay 故障。
+    - 待补（F-2072 | 部分：relay 组件在，故障路径单测在（relay_extra_test.go:39 TestRunListenError+:164 TestRunAcceptErrorLogged+relaypush_test.go:307 TestPushTimeout+:326 TestPushSendError）；无真实 relay 数据面故障注入（无杀进程/网络分区）。）
 -   [ ] `F-2073` 测试 Agent 故障。
+    - 待补（F-2073 | 部分：agent 故障路径单测在（agentws_test.go:99-101 掉线→offline+pool_test.go:132 TestSweepOnceEmitsNodeDown+hub_test.go:56 TestHubUnregisterStale+agentws_dedupe_test.go:104）；仅单 agent，无多 agent 故障测试。）
 -   [ ] `F-2074` 测试数据库短暂不可用。
+    - 待补（F-2074 | 部分：真实 DB 故障注入在（recovery_test.go:558 TestSweepAndLoopOnClosedDB+:662 TestTraceHelpersOnClosedDB+cost_extra_test.go:42 TestBuildOnBrokenDB，DB 关闭后循环存活持续记日志）；但 DB 保持关闭非短暂抖动，且仅覆盖 recovery/cost 包。）
 -   [ ] `F-2075` 测试成本数据过期和缺失时的降级行为。
+    - 待补（F-2075 | 未满足：cost 无新鲜度/缺失降级处理（非测试代码 grep stale/fresh/过期/degrad 0 命中）；仅 DB 错误路径测试（TestBuildOnBrokenDB）。）
 -   [ ] `F-2076` 记录测试环境、数据规模、并发量、P95/P99 和资源占用。
+    - 待补（F-2076 | 未满足：无测试环境/数据规模/并发量/P95/P99/资源占用记录（P95/P99/benchstat 0 命中）；status.go:182-187 的 runtime.MemStats 是运行指标非压测结果。）
 
 ------------------------------------------------------------------------
 
