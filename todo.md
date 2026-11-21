@@ -790,7 +790,7 @@ External Client
 -   [x] `F-0301` 审计现有云厂商 API、Provision 和 OpenTofu 集成。
     - 备注（Task ID: F-0301 | Status: Done | Evidence: 云厂商 API/Provision/OpenTofu 审计 §3.9 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0302` 定义统一 Cloud Provider Adapter 接口。
-    - 待补（F-0302 | 区级未满足原因：区级未满足原因：无云资源 Provider Adapter——type .*Provider.*interface 仅 dns.go:15(DNS 写通道)与 payment/provider.go:14(支付契约)，非云资源；Adapter/ListResources/PowerOn/PowerOff/Reboot/DescribeResource 均 0；provision 仅 tofu CLI(provision.go:89 exec tofu)——本区 F-0302~F-0318 未满足。）
+    - 待补（F-0302 | 区级未满足原因：无云资源 Provider Adapter——type .*Provider.*interface 仅 dns.go:15(DNS 写通道)与 payment/provider.go:14(支付契约)，非云资源；Adapter/ListResources/PowerOn/PowerOff/Reboot/DescribeResource 均 0；provision 仅 tofu CLI(provision.go:89 exec tofu)——本区 F-0302~F-0318 未满足。）
 -   [ ] `F-0303` 定义 Provider 能力声明接口。
 -   [ ] `F-0304` 定义资源列表查询接口。
 -   [ ] `F-0305` 定义资源详情查询接口。
@@ -844,7 +844,7 @@ External Client
 ## 3.3 Provider 资源同步
 
 -   [ ] `F-0341` 定义 Cloud Resource 数据模型。
-    - 待补（F-0341 | 区级未满足原因：区级未满足原因：CloudResource 模型 0 命中（type CloudResource 全仓 0）；无资源拉取/同步/过滤/绑定——本区 F-0341~F-0356 未满足。）
+    - 待补（F-0341 | 区级未满足原因：CloudResource 模型 0 命中（type CloudResource 全仓 0）；无资源拉取/同步/过滤/绑定——本区 F-0341~F-0356 未满足。）
 -   [ ] `F-0342` 记录 Provider、Account、Region 和 Provider Resource
     ID。
 -   [ ] `F-0343` 支持从 Provider 拉取资源列表。
@@ -865,7 +865,7 @@ External Client
 ## 3.4 云资源操作任务
 
 -   [ ] `F-0361` 定义 Cloud Operation 数据模型。
-    - 待补（F-0361 | 区级未满足原因：区级未满足原因：CloudOperation 模型 0 命中；无操作状态机/任务接入/幂等键——本区 F-0361~ 未满足。）
+    - 待补（F-0361 | 区级未满足原因：CloudOperation 模型 0 命中；无操作状态机/任务接入/幂等键——本区 F-0361~ 未满足。）
 -   [ ] `F-0362`
     定义操作状态机：Pending、Running、Succeeded、Failed、Cancelled、Unknown。
 -   [ ] `F-0363` 将开机操作接入统一任务系统。
@@ -896,6 +896,7 @@ External Client
 ## 3.5 云资源与 Ferry Node 联动
 
 -   [ ] `F-0391` 定义云资源状态与 Node 管理状态的映射规则。
+    - 待补（F-0391 | 区级未满足原因：依赖 CloudResource/CloudOperation（均未实现，type CloudResource/CloudOperation 全仓 0 命中）；无云资源状态↔Node 管理状态映射、无实例停止/启动/重启/重装/删除后联动、无操作后受控状态刷新——本区 F-0391~F-0399 未满足（F-0400~F-0404 另见其备注）。）
 -   [ ] `F-0392` 云实例停止时将关联 Node 标记为不可分配或待确认。
 -   [ ] `F-0393` 云实例启动后检查 Agent 心跳再恢复 Node 可用性。
 -   [ ] `F-0394` 云实例重启后重新核对 Agent、Relay 和配置状态。
@@ -906,7 +907,7 @@ External Client
 -   [ ] `F-0398` 云操作后触发受控的状态刷新。
 -   [ ] `F-0399` 云操作与 Path 调度状态联动。
 -   [ ] `F-0400` 对有用户流量的节点执行关机前检查和风险提示。
-    - 待补（F-0400 | 区级未满足原因：区级未满足原因：依赖 CloudResource/CloudOperation（均未实现）；无节点联动审计/关机检查/维护窗口——本区 F-0400~F-0404 未满足。）
+    - 待补（F-0400 | 区级未满足原因：依赖 CloudResource/CloudOperation（均未实现）；无节点联动审计/关机检查/维护窗口——本区 F-0400~F-0404 未满足。）
 -   [ ] `F-0401` 支持维护窗口和节点摘流流程。
 -   [ ] `F-0402` 支持开机后自动执行节点健康检查。
 -   [ ] `F-0403` 支持启动失败后的告警。
@@ -915,7 +916,7 @@ External Client
 ## 3.6 Dash 云资源管理页面
 
 -   [ ] `F-0411` 增加 Cloud Providers 页面。
-    - 待补（F-0411 | 区级未满足原因：区级未满足原因：Dash 云资源/云操作页面未实现（无 CloudResource 模型即无页面，审计 §3.11 F-9211/9212 未实现）；仅 Providers 列表存在——本区 F-0411~F-0432 未满足。）
+    - 待补（F-0411 | 区级未满足原因：Dash 云资源/云操作页面未实现（无 CloudResource 模型即无页面，审计 §3.11 F-9211/9212 未实现）；仅 Providers 列表存在——本区 F-0411~F-0432 未满足。）
 -   [ ] `F-0412` 增加 Cloud Accounts 列表。
 -   [ ] `F-0413` 增加 Cloud Account 创建页面。
 -   [ ] `F-0414` 增加 Cloud Account 连接测试入口。
