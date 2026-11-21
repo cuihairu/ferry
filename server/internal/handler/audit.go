@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
+	"github.com/cuihairu/ferry/server/internal/safestr"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
 )
@@ -48,20 +48,29 @@ func (h *Handler) auditActor(c *gin.Context) (string, string) {
 	return "unknown", "unknown"
 }
 
+// auditBodyReadMax 是请求体快照的读取上限（codex 深审 P2：整读请求体会
+// 把大请求全部吸进内存造成放大；审计只需 2048 字节快照，读取封顶 64KB。
+// 超限请求快照置标记不入库——截断前缀走的是未脱敏原文，不能入库）。
+const auditBodyReadMax = 64 << 10
+
 // auditBodySnapshot 读请求体并还原（AU-1）：JSON 体递归脱敏敏感键，
-// 非 JSON 体按原文截断；读后必须还原 Body 供后续 ShouldBindJSON 使用。
+// 非 JSON 体按原文截断；读后必须还原 Body 供后续 ShouldBindJSON 使用
+// （读取封顶后已读前缀与残余流拼接还原，下游仍拿到完整请求体）。
 func (h *Handler) auditBodySnapshot(c *gin.Context) string {
 	if c.Request.Body == nil || c.Request.Body == http.NoBody {
 		return ""
 	}
-	raw, err := c.GetRawData()
-	if err != nil || len(raw) == 0 {
-		return ""
-	}
+	raw, err := io.ReadAll(io.LimitReader(c.Request.Body, auditBodyReadMax+1))
 	if c.Request.GetBody != nil {
 		c.Request.Body, _ = c.Request.GetBody()
 	} else {
-		c.Request.Body = io.NopCloser(bytes.NewReader(raw))
+		c.Request.Body = io.NopCloser(io.MultiReader(bytes.NewReader(raw), c.Request.Body))
+	}
+	if err != nil || len(raw) == 0 {
+		return ""
+	}
+	if len(raw) > auditBodyReadMax {
+		return "(请求体超过审计快照读取上限，未入库)"
 	}
 	var v any
 	if err := json.Unmarshal(raw, &v); err != nil {
@@ -95,16 +104,11 @@ func redactJSON(v any) any {
 	}
 }
 
+// truncate 按 UTF-8 字符边界取前缀（快照体/回执 detail 可含中文，按字节
+// 硬切会把多字节字符截半；实现统一收口 safestr.Head——非法 UTF-8 输入
+// 至多回退 3 字节止损，不会把快照清成空串）。
 func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	// 回退到 UTF-8 字符边界：按字节硬切会把多字节字符截半，落库成非法
-	// UTF-8（P2 UTF-8 截断修复；快照体可含中文）。
-	for n > 0 && !utf8.RuneStart(s[n]) {
-		n--
-	}
-	return s[:n]
+	return safestr.Head(s, n)
 }
 
 // auditMiddleware 捕获管理员写操作（AU-1）：POST/PUT/PATCH/DELETE 过
