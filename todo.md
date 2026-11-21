@@ -2627,3 +2627,11 @@ P2 合并简列 14 项全部修复并推送，每项单 commit、英文简短、
 
 - [ ] SHOP-1 · P1 · 套餐购买页（用户 2026-11-21 需求）：后端 `GET /panel/products`（可售 CardBatch+库存）与 `POST /panel/orders`（渠道+优惠码下单）已就绪但**前端零调用**——新增 panel「购买」view：套餐卡片（名称/价格/加量或延时/剩余）、渠道选择（epusdt/wechat/alipay 按注册态渲染）、优惠码输入、下单后轮询订单状态跳支付；验收=面板真实走查一单全链（下单→支付回调→订单 paid→权益到账）。
 - [ ] SHOP-2 · P2 · 订阅客户端感知补全：UA 判分支现在只有 clash/其他两态（`sub.go:103-110`），`sub/singbox.go` PackSingbox 已实现但 UA 未接——补 sing-box/Stash 分支出 singbox 格式；HomeView 订阅区按客户端类型给 v2ray/clash/singbox 三键复制（含 `?target=` 显式参数）；验收=三种 UA curl 实测各得对应格式，默认 UA 仍回落 v2ray。
+
+## 订阅过滤 + 配置定制（ferry-sub-filters，2026-11-21 期次，用户拍板 P0）
+
+- [x] server：`subscriptions` 表 + 面板 CRUD API（`/api/subscriptions`，每用户上限 10、严格 JSON 未知字段 400、越权 404、重置令牌）+ 过滤下发端点，最终路径 `GET /sub/x/:token`（gin 静态段 `x` 优先于 `:token`，两者共存已验证，未走 `/subx/:token` 备选）—— 三维度（region/labels/protocol）白名单内存过滤 + per-sub 配置（remark_template/sort/max_nodes/include_rtt），沿用主订阅全部护栏（限流/设备校验/用量头/三格式 UA 协商）；主订阅 `/sub/:token` 行为不变（回归锚）（a5645e5）。
+- [x] panel：「订阅」页（列表/新建/编辑/删除/重置令牌/复制与打开链接），三维度表单 + 配置表单，走 `/api/subscriptions`，无 i18n 结构沿用仓内中文约定、无新依赖（a5645e5）。
+- [x] 测试与门禁：`sub/filter_test.go` + `handler/subx_test.go`（CRUD 护栏/越权/下发黄金断言/截断/用户态/限流/主订阅回归锚）；`make test` 全绿 + `pnpm -C panel build` 绿（a5645e5）。
+- [x] 验收口径：curl 实测 `/sub/x/:token`（UA=clash）只含过滤后节点且 ≤3、主订阅 `/sub/主token` 输出不变、未知令牌 404、非法 filter JSON 400；面板走查截图留路径 `docs/public/screenshots/subscriptions-2026-11-21.png`、`subscriptions-create-2026-11-21.png`（a5645e5）。
+- [ ] admin 面订阅管理（看用户订阅列表）：spec 明确不做（用户自助面优先），留后续项。
