@@ -677,7 +677,7 @@ External Client
 -   [x] `F-0203` 保留并明确 `direction=out|in|both` 的语义。
     - 备注（Task ID: F-0203 | Status: Done | Evidence: models.go:81 Direction out/in/both；TestNodeMetaInput | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0204` 明确 Role 表示拓扑职责，Direction 表示业务流量方向。
-    - 备注（Task ID: F-0204 | Status: Done | Evidence: Node.Role entry/landing/both(models.go:95)+Node.Direction out/in/both(models.go:96)+validateNodeInput 校验(node.go:366-377) | Verification: TestNodeMetaInput(默认值/回读/非法枚举 400) | Commit: 见本批提交）
+    - 备注（Task ID: F-0204 | Status: Done | Evidence: Node.Role entry/landing/both(models.go:95)+Node.Direction out/in/both(models.go:96)+validateNodeInput 校验(node.go:366-377) | Verification: TestNodeMetaInput(默认值/回读/非法枚举 400) | Commit: 8335a58）
 -   [x] `F-0205` 明确管理状态与运行健康状态分离。
     - 备注（Task ID: F-0205 | Status: Done | Evidence: Enabled :71/Status :77/PoolState :104 分离；TestNodeCRUD+TestSweepSuspendAndResume | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0206` 明确 `disabled`、`maintenance`、`offline`、`unhealthy`
@@ -721,11 +721,11 @@ External Client
 -   [x] `F-0241` 审计现有 Pool、Allocation、Tunnel 和线路关系模型。
     - 备注（Task ID: F-0241 | Status: Done | Evidence: Pool/Allocation/Tunnel/线路关系审计 §3.1 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0242` 明确 Tunnel 表示两个端点之间的实际连接。
-    - 备注（Task ID: F-0242 | Status: Done | Evidence: agent/internal/tunnel/tunnel.go:16 Tunnel 接口(Dial→net.Conn+ServeHeartbeat)+ssh/quicsidecar/wstls/tlscamo 具体两端点实现（entry agent→landing 实际连接） | Verification: agent/internal/tunnel 包+transport 测试 | Commit: 见本批提交）
+    - 备注（Task ID: F-0242 | Status: Done | Evidence: agent/internal/tunnel/tunnel.go:16 Tunnel 接口(Dial→net.Conn+ServeHeartbeat)+ssh/quicsidecar/wstls/tlscamo 具体两端点实现（entry agent→landing 实际连接） | Verification: agent/internal/tunnel 包+transport 测试 | Commit: 8335a58）
 -   [ ] `F-0243` 明确 Path 表示完整业务访问路径。
     - 待补（F-0243 | 区级未满足原因：Path 模型未实现：无 type Path*；Entry→Landing 由 LandingAssignment+sweep 承载（已关 F-0244），无 Path 实体（关联/状态/版本/历史/删除检查/查询 API 均无）——本区 F-0243,F-0245~F-0255 未满足。）
 -   [x] `F-0244` 第一阶段 Path 只要求支持 Entry → Landing。
-    - 备注（Task ID: F-0244 | Status: Done | Evidence: LandingAssignment{EntryNodeID,LandingNodeID,Region,Direction,Strategy}(models.go:181-199)+alloc sweep 真实分配(alloc.go:442-557) | Verification: TestLandingAssignment/TestLandingAssignmentAndProbeReport | Commit: 见本批提交）
+    - 备注（Task ID: F-0244 | Status: Done | Evidence: LandingAssignment{EntryNodeID,LandingNodeID,Region,Direction,Strategy}(models.go:181-199)+alloc sweep 真实分配(alloc.go:442-557) | Verification: TestLandingAssignment/TestLandingAssignmentAndProbeReport | Commit: 8335a58）
 -   [ ] `F-0245` 定义 Path 与 Entry Node 的关联。
 -   [ ] `F-0246` 定义 Path 与 Landing Node 的关联。
 -   [ ] `F-0247` 定义 Path 与 Tunnel/Relay 的关联。
