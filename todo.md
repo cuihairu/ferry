@@ -1119,7 +1119,7 @@ External Client
 -   [ ] `F-0722` 为现有消息补充协议文档。
     - 待补（F-0722 | 未满足原因：部分：契约经 Go 注释+docs/design/agent架构设计.md §8 记录；无独立协议参考文档枚举全部消息类型。）
 -   [x] `F-0723` 为消息定义版本兼容规则。
-    - 备注（Task ID: F-0723 | Status: Done | Evidence: Envelope.V+ProtocolVersion(envelope.go:7-8,36-41)+Valid() 拒绝未知版本(envelope.go:70)+link readLoop 丢弃(link.go:160-163) | Verification: TestEnvelopeVersionGuard+TestReadLoopDropsBadMessages | Commit: 见本批提交）
+    - 备注（Task ID: F-0723 | Status: Done | Evidence: Envelope.V+ProtocolVersion(envelope.go:7-8,36-41)+Valid() 拒绝未知版本(envelope.go:70)+link readLoop 丢弃(link.go:160-163) | Verification: TestEnvelopeVersionGuard+TestReadLoopDropsBadMessages | Commit: 172dad4）
 -   [x] `F-0724` 为有副作用消息定义幂等键。
     - 备注（Task ID: F-0724 | Status: Done | Evidence: agentws_dedupe envelope ID 去重；dedupe_test 7 例 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0725` 为需要确认的消息定义 ACK。
@@ -1158,7 +1158,7 @@ External Client
 -   [ ] `F-0750` 支持节点详情展示 Agent、Relay、Probe 状态。
     - 待补（F-0750 | 未满足原因：部分：节点详情返回 agent 状态(node.go:26-33)、/procs 进程状态(procstatus.go:69)、probe 仅全局 GET /api/probe-reports 无 per-node 过滤(router.go:450)；无单端点聚合三态。）
 -   [x] `F-0751` 支持节点操作历史。
-    - 备注（Task ID: F-0751 | Status: Done | Evidence: auditMiddleware 覆盖 /api,/admin 写(audit.go:119-140)+GET /api/audit-logs?target=:id 按节点过滤(audit.go:169-171,router.go:274) | Verification: TestAuditLogsCaptureWriteOps+TestAuditLogsCaptureFailedWriteAndFilters | Commit: 见本批提交）
+    - 备注（Task ID: F-0751 | Status: Done | Evidence: auditMiddleware 覆盖 /api,/admin 写(audit.go:119-140)+GET /api/audit-logs?target=:id 按节点过滤(audit.go:169-171,router.go:274) | Verification: TestAuditLogsCaptureWriteOps+TestAuditLogsCaptureFailedWriteAndFilters | Commit: 172dad4）
 -   [x] `F-0752` 支持节点配置版本查看。
     - 备注（Task ID: F-0752 | Status: Done | Evidence: GET /api/nodes/:id/configs；config_err_test limit/404+agentws_test:442 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 
