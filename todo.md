@@ -983,11 +983,11 @@ External Client
 ## 4.3 估算成本
 
 -   [x] `F-0541` 定义实例包月成本估算。
-    - 备注（Task ID: F-0541 | Status: Done | Evidence: cost.go:137-138 FixedCostCents=MonthlyCostCents 包月口径+ProjectedCents 计入 | Verification: TestBuild(fixed 3000/oversea ~2100) | Commit: 见本批提交）
+    - 备注（Task ID: F-0541 | Status: Done | Evidence: cost.go:137-138 FixedCostCents=MonthlyCostCents 包月口径+ProjectedCents 计入 | Verification: TestBuild(fixed 3000/oversea ~2100) | Commit: 506d045）
 -   [ ] `F-0542` 定义按小时计费资源的成本估算。
     - 待补（F-0542 | 区级未满足原因：本区 F-0541(包月)/F-0543(流量) 已关；其余未满足：BillingType 仅 按流量/包月/固定带宽(models.go:104)，无按时计费/额外IP/磁盘快照/备份存储/折扣预留/自定义项/未知单价哨兵/估账分离。）
 -   [x] `F-0543` 定义按量流量成本估算。
-    - 备注（Task ID: F-0543 | Status: Done | Evidence: cost.go:130 TrafficPriceCents×(rx+tx)/BytesPerGB 按量流量 | Verification: TestBuild(metered 1000分) | Commit: 见本批提交）
+    - 备注（Task ID: F-0543 | Status: Done | Evidence: cost.go:130 TrafficPriceCents×(rx+tx)/BytesPerGB 按量流量 | Verification: TestBuild(metered 1000分) | Commit: 506d045）
 -   [ ] `F-0544` 定义固定带宽成本估算。
 -   [ ] `F-0545` 定义额外公网 IP 成本估算。
 -   [ ] `F-0546` 定义磁盘和快照成本估算。
@@ -1060,12 +1060,12 @@ External Client
 -   [ ] `F-0622` 展示本月实际账单。
     - 待补（F-0622 | 区级未满足原因：本区 F-0623(月度预估)/F-0627(区域排序) 已关；其余未满足：无实际账单页/Provider-账号维度/Path 成本/成本趋势/账单同步与明细页/分摊规则页/筛选导出。）
 -   [x] `F-0623` 展示本月估算成本。
-    - 备注（Task ID: F-0623 | Status: Done | Evidence: CostView.vue:288 月度预估+区域/运营商汇总；后端 ProjectedCents | Verification: TestBuild+TestCostAPI | Commit: 见本批提交）
+    - 备注（Task ID: F-0623 | Status: Done | Evidence: CostView.vue:288 月度预估+区域/运营商汇总；后端 ProjectedCents | Verification: TestBuild+TestCostAPI | Commit: 506d045）
 -   [ ] `F-0624` 展示估算与实际差异。
 -   [ ] `F-0625` 展示 Provider 成本排名。
 -   [ ] `F-0626` 展示账号成本排名。
 -   [x] `F-0627` 展示区域成本排名。
-    - 备注（Task ID: F-0627 | Status: Done | Evidence: 区域汇总按 projected 降序(cost.go:176 sortedGroups) | Verification: TestBuild(regions ordering) | Commit: 见本批提交）
+    - 备注（Task ID: F-0627 | Status: Done | Evidence: 区域汇总按 projected 降序(cost.go:176 sortedGroups) | Verification: TestBuild(regions ordering) | Commit: 506d045）
 -   [ ] `F-0628` 展示 Node 成本排名。
 -   [ ] `F-0629` 展示 Path 成本估算。
 -   [ ] `F-0630` 展示流量成本趋势。
