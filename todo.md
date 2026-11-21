@@ -1170,9 +1170,12 @@ External Client
 
 -   [x] `F-0801` 审计当前 Relay 实现和进程边界。
     - 备注（Task ID: F-0801 | Status: Done | Evidence: Relay 实现与进程边界审计 §3.3（roles Standalone:true） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0802` 统一 Relay 配置模型。
--   [ ] `F-0803` 统一 Relay 状态模型。
+-   [x] `F-0802` 统一 Relay 配置模型。
+    - 备注（Task ID: F-0802 | Status: Done | Evidence: config.RelaySpec(config.go:47-61) 统一模型(Listen/LandingAddr/Tunnel/ServerName/CAFile+ssh 参数)+relay.Run 消费+mergeSpec(relay.go:195-210) | Verification: relay_test | Commit: 见本批提交）
+-   [x] `F-0803` 统一 Relay 状态模型。
+    - 备注（Task ID: F-0803 | Status: Done | Evidence: agentproto.ProcStatus State=running/stopped/crashed(messages.go:124-139)+procs.Manager.Statuses 喂心跳(app.go:463-465)+ProcReport 状态变化推送(app.go:175-183) | Verification: TestBuildHeartbeatAndStartHeartbeat | Commit: 见本批提交）
 -   [ ] `F-0804` 统一 Relay 能力声明。
+    - 待补（F-0804 | 区级未满足原因：区级现状：F-0802/0803 已关；其余——能力声明未满足(relay 无 UDP/feature 字段)、连接数限制部分(maxConns=128 relay.go:35 但无 drop 路径测试)、并发流/带宽限制未满足(无流限/限速)、UDP 未满足(serveConn 仅 TCP io.Copy relay.go:162-190)、隧道断线重连部分(仅插件级一次重试，无 relay 侧重连器)、空闲清理未满足(无 SetDeadline)、指标采集未满足(relay 无 metrics 端点/计数器)、版本管理未满足(共享 build version)。）
 -   [x] `F-0805` 支持 Relay 独立启停。
     - 备注（Task ID: F-0805 | Status: Done | Evidence: roles.go:31 relay Standalone:true+cmd -role；TestRegistry+TestRelayRunFile | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0806` 支持 Relay 配置校验。
@@ -1195,6 +1198,7 @@ External Client
 -   [x] `F-0821` 为现有每种 Relay 传输方式建立独立测试。
     - 备注（Task ID: F-0821 | Status: Done | Evidence: tunnel{ws-tls,ssh,quic}+quictunnel 分测；wstls_test/ssh_test/quicsidecar_test/quictunnel_test | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0822` 统一传输插件能力声明。
+    - 待补（F-0822 | 区级未满足原因：区级现状：F-0828 已关；其余——传输插件能力声明未满足(Tunnel 接口仅 Name/Dial/ServeHeartbeat/Close tunnel.go:16-26)、错误分类部分(仅 ErrHeartbeatLost+ErrRejected 两哨兵)、超时/重连部分(Options.Timeout 统一 tunnel.go:93-102 但重连未统一)、QUIC 参数部分(默认值固定无校验/无资源限制 quictunnel.go:89-95)、性能对比测试未满足(无 Benchmark)。）
 -   [ ] `F-0823` 统一传输插件错误分类。
 -   [ ] `F-0824` 统一连接超时和重连行为。
 -   [x] `F-0825` 验证 TLS 证书校验。
@@ -1202,16 +1206,20 @@ External Client
 -   [x] `F-0826` 验证 SSH Host Key 校验。
     - 备注（Task ID: F-0826 | Status: Done | Evidence: tunnel/ssh Host Key 校验；TestSSHTunnelHostKeyVerify | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0827` 验证 QUIC 参数和资源限制。
--   [ ] `F-0828` 验证 WS-TLS 连接行为。
+-   [x] `F-0828` 验证 WS-TLS 连接行为。
+    - 备注（Task ID: F-0828 | Status: Done | Evidence: TestWSTLSPlugin(注册/TLS/WS 握手/小帧/100KB 流回显)+TestWSTLSCancel+TestWSTLSServerNameFallback+TestWSTLSCAFileErrors+TestWSConnReadSkipsNonBinary+TestWSConnWriteAfterClose | Verification: wstls_test+wstls_extra_test | Commit: 见本批提交）
 -   [ ] `F-0829` 建立不同传输插件的性能对比测试。
 
 ## 6.3 故障隔离
 
 -   [ ] `F-0831` 验证 Relay 进程故障不影响 Agent 心跳。
+    - 待补（F-0831 | 区级未满足原因：区级现状：F-0833/0835 已关；其余——进程故障隔离部分(独立进程+crash 自动重启 manager.go:226-243 但无「杀 relay 断言心跳持续」测试)、故障不影响 Server 未满足(无测试)、Path 状态更新未满足(无 Path 模型)、仅凭进程存活判可用 部分(池/聚合不读 ProcStatus pool.go:143-150 但无显式守卫测试)。）
 -   [ ] `F-0832` 验证 Relay 故障不影响 Server 管理节点。
--   [ ] `F-0833` 验证 Relay 重启后恢复最后有效配置。
+-   [x] `F-0833` 验证 Relay 重启后恢复最后有效配置。
+    - 备注（Task ID: F-0833 | Status: Done | Evidence: loadOverride 启动重读(relay.go:63-68,213-226)+configd 原子回滚(configd.go:107-126,205-238) | Verification: TestRelayRunFile/TestRelayHotRepoint(损坏 override 保当前)/TestLoadOverrideMissingAndError/TestApplyReloadFailRollsBack | Commit: 见本批提交）
 -   [ ] `F-0834` Relay 失联时更新关联 Path 状态。
--   [ ] `F-0835` Relay 恢复后执行健康探测再恢复调度资格。
+-   [x] `F-0835` Relay 恢复后执行健康探测再恢复调度资格。
+    - 备注（Task ID: F-0835 | Status: Done | Evidence: pool.Sweep 仅 WellStreak 连续健康后恢复 StateActive(pool.go:161-169；suspend :152-160) | Verification: TestSweepSuspendAndResume(1 次健康不复、2 次复) | Commit: 见本批提交）
 -   [ ] `F-0836` 禁止仅凭 Relay 进程存活判定 Path 可用。
 
 ------------------------------------------------------------------------
@@ -1390,11 +1398,16 @@ External Client
 
 -   [x] `F-1101` 审计现有订阅生成代码。
     - 备注（Task ID: F-1101 | Status: Done | Evidence: 订阅生成代码审计 §3.6 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1102` 定义统一内部 Subscription DTO。
--   [ ] `F-1103` 让订阅 Adapter 只依赖 DTO，不直接查询数据库。
--   [ ] `F-1104` 统一节点协议参数表达。
--   [ ] `F-1105` 统一 TLS、SNI、Transport 和相关参数表达。
+-   [x] `F-1102` 定义统一内部 Subscription DTO。
+    - 备注（Task ID: F-1102 | Status: Done | Evidence: sub.Entry{Node,RttMs}(links.go:169-172) 单 DTO 被三适配器共用 | Verification: TestPackV2Ray/TestPackClash/TestPackSingBox | Commit: 见本批提交）
+-   [x] `F-1103` 让订阅 Adapter 只依赖 DTO，不直接查询数据库。
+    - 备注（Task ID: F-1103 | Status: Done | Evidence: PackV2Ray/PackClash/PackSingBox 均收 DTO(links.go:201/clash.go:72/singbox.go:165)，sub 包无 gorm import | Verification: 上述测试 | Commit: 见本批提交）
+-   [x] `F-1104` 统一节点协议参数表达。
+    - 备注（Task ID: F-1104 | Status: Done | Evidence: nodeConfig{UUID,Password,Method,TLS,SNI,Host,Path,Net,...}(links.go:21-38)+parseConfig(links.go:40-50) 三适配器共用 | Verification: 上述测试 | Commit: 见本批提交）
+-   [x] `F-1105` 统一 TLS、SNI、Transport 和相关参数表达。
+    - 备注（Task ID: F-1105 | Status: Done | Evidence: nodeConfig TLS/SNI/Host/Path/Net 各适配器映射自身 schema(v2ray 参数 links.go:67-81/clash servername+applyTransport clash.go:181-201/sing-box tls.server_name+singBoxTransport singbox.go:103-161) | Verification: 上述测试 | Commit: 见本批提交）
 -   [ ] `F-1106` 统一 UDP 支持声明。
+    - 待补（F-1106 | 区级未满足原因：区级现状：F-1102/1103/1104/1105 已关；其余——UDP 声明未满足(nodeConfig 与 storage.Node 均无 udp 字段)、标签/地区/排序部分(entryRegion/entryRemark/orderByProbe 统一但 Node.Labels 从未读取)、订阅版本/更新时间未满足(头仅 Subscription-Userinfo/Profile-Update-Interval/Profile-Title)。）
 -   [ ] `F-1107` 统一节点标签、地区和排序信息。
 -   [ ] `F-1108` 统一订阅版本和更新时间。
 
@@ -1413,11 +1426,13 @@ External Client
 -   [x] `F-1126` 完成 sing-box JSON Adapter。
     - 备注（Task ID: F-1126 | Status: Done | Evidence: sub/singbox.go:165 PackSingBox；TestPackSingBox | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1127` 为每个 Adapter 建立客户端能力矩阵。
+    - 待补（F-1127 | 区级未满足原因：区级现状：F-1131 已关；其余——客户端能力矩阵未满足(仅 UA 嗅探+target 无 per-client 特性表)、真实客户端解析测试未满足(合成 UA 无 fixture)、不支持字段降级部分(硬失败整包/clash 静默裸 network)、策略组能力假设部分(clash 单一 url-test 形状假定所有客户端支持)。）
 -   [x] `F-1128` 为每个 Adapter 建立配置语法测试。
     - 备注（Task ID: F-1128 | Status: Done | Evidence: 测试内 yaml/json 严格解析断言；clash_test+singbox_test | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1129` 使用真实客户端版本执行解析测试。
 -   [ ] `F-1130` 对不支持的字段提供明确错误或安全降级。
--   [ ] `F-1131` 不向客户端输出其不支持的配置字段。
+-   [x] `F-1131` 不向客户端输出其不支持的配置字段。
+    - 备注（Task ID: F-1131 | Status: Done | Evidence: 各适配器仅输出自身 schema 键(clash omitempty clash.go:17-44/sing-box 仅写 set 键 singbox.go:33-86) | Verification: TestPackSingBox(无 sni/insecure/obfs)、TestSingBoxOutboundVless(无 tls/transport/flow)、TestPackClashHysteria2 | Commit: 见本批提交）
 -   [ ] `F-1132` 不假设不同客户端具有相同策略组能力。
 
 ## 9.3 订阅权限与安全
@@ -1425,6 +1440,7 @@ External Client
 -   [x] `F-1141` 根据用户状态过滤订阅。
     - 备注（Task ID: F-1141 | Status: Done | Evidence: sub/availability.go:11 UserActive+enabled 过滤；TestSubscriptionAvailability | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1142` 根据套餐权限过滤订阅。
+    - 待补（F-1142 | 区级未满足原因：区级现状：全部未满足或部分——套餐权限过滤部分(无 Plan 模型，按 enabled/role/pool_state+SAVE-6 cost-tier 过滤非套餐权限)、Path Group 过滤未满足(无 PathGroup 模型)、Policy 过滤未满足(无 Policy)、ETag/Last-Modified 未满足(无条件请求，每次全量渲染)、缓存失效部分(无缓存、新鲜度靠每次重查)、访问审计部分(仅 device/IP 观察 upsert 非 per-request 审计行)。）
 -   [ ] `F-1143` 根据 Path Group 过滤订阅。
 -   [ ] `F-1144` 根据 Policy 过滤订阅。
 -   [x] `F-1145` 过滤禁用节点和不符合策略的线路。
