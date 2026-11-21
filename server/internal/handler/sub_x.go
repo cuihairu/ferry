@@ -9,7 +9,6 @@ import (
 	"errors"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/cuihairu/ferry/server/internal/pool"
@@ -120,11 +119,7 @@ func (h *Handler) subscriptionFiltered(c *gin.Context) {
 func (h *Handler) subXDeliver(c *gin.Context, u storage.User, usage trafficUsage, entries []sub.Entry) {
 	target := c.Query("target")
 	if target == "" {
-		if strings.Contains(strings.ToLower(c.Request.UserAgent()), "clash") {
-			target = "clash"
-		} else {
-			target = "v2ray"
-		}
+		target = subTargetByUA(c.Request.UserAgent())
 	}
 	c.Header("Subscription-Userinfo", userinfoHeader(u, usage))
 	c.Header("Profile-Update-Interval", "24")

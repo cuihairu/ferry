@@ -312,6 +312,13 @@ func TestSubXDeliveryFilterAndConfig(t *testing.T) {
 	if b := getSub(t, r, path+"?target=singbox", "curl/8.0").Body.String(); !strings.Contains(b, "hk-hy") || strings.Contains(b, "us-vmess") {
 		t.Fatalf("singbox filter:\n%s", b)
 	}
+
+	// sing-box/Stash UA：JSON 只含 hk-hy outbound（SHOP-2，UA 协商接 singbox）。
+	for _, ua := range []string{"sing-box/1.8.0", "Stash/2.0"} {
+		if b := getSub(t, r, path, ua).Body.String(); !strings.Contains(b, "hk-hy") || strings.Contains(b, "us-vmess") {
+			t.Fatalf("singbox UA %s filter:\n%s", ua, b)
+		}
+	}
 	if rec := getSub(t, r, path+"?target=bad", "curl/8.0"); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad target: %d", rec.Code)
 	}

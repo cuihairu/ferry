@@ -103,6 +103,21 @@ func TestSubscription(t *testing.T) {
 		t.Fatalf("ws-opts missing:\n%s", body)
 	}
 
+	// sing-box/Stash UA：outbounds JSON；默认 UA 回落 v2ray base64（SHOP-2）。
+	for _, ua := range []string{"sing-box/1.8.0", "Stash/2.0"} {
+		rec := getSub(t, r, subPath, ua)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("sub %s: %d", ua, rec.Code)
+		}
+		body := rec.Body.String()
+		if !strings.Contains(body, `"type": "vless"`) || strings.Contains(body, "proxies:") {
+			t.Fatalf("singbox body for %s:\n%s", ua, body)
+		}
+	}
+	if _, err := base64.StdEncoding.DecodeString(getSub(t, r, subPath, "curl/8.0").Body.String()); err != nil {
+		t.Fatalf("default UA should v2ray base64: %v", err)
+	}
+
 	// target 显式覆盖 UA
 	if rec := getSub(t, r, subPath+"?target=clash", "curl/8.0"); !strings.Contains(rec.Body.String(), "proxies:") {
 		t.Fatalf("target=clash ignored:\n%s", rec.Body)

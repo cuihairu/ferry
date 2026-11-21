@@ -22,12 +22,27 @@ type trafficUsage struct {
 	Tx int64
 }
 
+// subTargetByUA 按客户端 UA 协商订阅格式（?target= 未显式给定时）：
+// clash 系（clash/clash-verge/mihomo）走 YAML；sing-box 原生与 Stash 走
+// outbounds JSON；其余回落 v2ray base64（SHOP-2）。主订阅与自建订阅共用。
+func subTargetByUA(ua string) string {
+	ua = strings.ToLower(ua)
+	switch {
+	case strings.Contains(ua, "clash"):
+		return "clash"
+	case strings.Contains(ua, "sing-box"), strings.Contains(ua, "stash"):
+		return "singbox"
+	default:
+		return "v2ray"
+	}
+}
+
 // subscription 处理 GET /sub/:token（P0-6/P0-7/P0-8/E-19）：
 // 按 token 限频（安全设计 §4，防枚举；命中 429 记日志，token 脱敏只留前缀）；
 // 未启用用户按 404 处理（令牌视同吊销，防枚举）；到期/超限返回空订阅+用量头；
 // 入口列表按区域分组、备注带聚合测速延迟。target=v2ray|clash|singbox 显式指定
-// （singbox=sing-box outbounds 数组，hy2 批），缺省按 UA 识别（含 clash 走
-// clash，其余 v2ray）。
+// （singbox=sing-box outbounds 数组，hy2 批），缺省按 UA 识别（clash 系走
+// clash、sing-box/Stash 走 singbox，其余 v2ray，SHOP-2）。
 func (h *Handler) subscription(c *gin.Context) {
 	token, ip := c.Param("token"), c.ClientIP()
 	if !h.subMissLimiter.Allow(ip) || !h.subLimiter.Allow(token) {
@@ -104,11 +119,7 @@ func (h *Handler) subscription(c *gin.Context) {
 
 	target := c.Query("target")
 	if target == "" {
-		if strings.Contains(strings.ToLower(c.Request.UserAgent()), "clash") {
-			target = "clash"
-		} else {
-			target = "v2ray"
-		}
+		target = subTargetByUA(c.Request.UserAgent())
 	}
 
 	// P0-7 头：用量与到期（节点收到的 rx 记用户上传，tx 记下载）。

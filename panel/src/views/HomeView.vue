@@ -105,7 +105,7 @@ const remaining = computed(() => {
       return formatBytes(Math.max(0, m.quota_bytes - m.used_bytes))
     })
 
-function subLink(target: 'v2ray' | 'clash'): string {
+function subLink(target: 'v2ray' | 'clash' | 'singbox'): string {
   const base = `${window.location.origin}/sub/${auth.token}`
   return `${base}?target=${target}`
 }
@@ -242,6 +242,15 @@ async function savePrefs() {
             <code class="link-text">{{ subLink('clash') }}</code>
             <button class="btn btn-ghost" @click="copy(subLink('clash'), 'clash')">
               {{ copied === 'clash' ? '已复制' : '复制' }}
+            </button>
+          </div>
+        </div>
+        <div class="link-block">
+          <div class="link-label">sing-box / Stash（JSON）</div>
+          <div class="link-row">
+            <code class="link-text">{{ subLink('singbox') }}</code>
+            <button class="btn btn-ghost" @click="copy(subLink('singbox'), 'singbox')">
+              {{ copied === 'singbox' ? '已复制' : '复制' }}
             </button>
           </div>
         </div>
