@@ -2302,30 +2302,30 @@ External Client
 ## P3 --- Agent、Relay 和配置闭环
 
 -   [x] `F-9301` 完成 Agent 协议差异修复。
-    - 备注（Task ID: F-9301 | Status: Done | Evidence: 双方共用单版本协议契约：ProtocolVersion=1(envelope.go:8)+Envelope.V/ID/Type/Payload(envelope.go:36-41)+Valid() 拒未知版本(envelope.go:70)；server 拒不匹配版本 agentws.go:584-591、agent 丢弃 link.go:160-161。 | Verification: TestAgentWSHelloVersion(upgrade_test.go:100)+TestReadLoopDropsBadMessages(link_test.go:225)+envelope_test.go:76 | Commit: 见本批提交）
+    - 备注（Task ID: F-9301 | Status: Done | Evidence: 双方共用单版本协议契约：ProtocolVersion=1(envelope.go:8)+Envelope.V/ID/Type/Payload(envelope.go:36-41)+Valid() 拒未知版本(envelope.go:70)；server 拒不匹配版本 agentws.go:584-591、agent 丢弃 link.go:160-161。 | Verification: TestAgentWSHelloVersion(upgrade_test.go:100)+TestReadLoopDropsBadMessages(link_test.go:225)+envelope_test.go:76 | Commit: 970e9e2）
 -   [ ] `F-9302` 完成能力和状态上报。
     - 待补（F-9302 | 部分：状态上报已实现（Heartbeat.Procs messages.go:109+app.go:450-462→saveProcStatuses agentws.go:467-473）；能力上报未实现——capab 全仓 0 命中，Hello/Heartbeat/ConfigPush 均无 capab 字段（app.go:221-228）。）
 -   [x] `F-9303` 完成配置版本和 ACK。
-    - 备注（Task ID: F-9303 | Status: Done | Evidence: 配置版本+ACK：ConfigPush.Version(messages.go:184)+ConfigAck.Version(messages.go:192)；relaypush.go:70-119（sha256 digest 作 Version、ackTimeout:24、applied/failed/Finish 写 NodeConfig 状态）+NodeConfig.Version(models.go:233)；agent app.go:359-365 回 ack+configd.go:41-45/124-125。 | Verification: relaypush_test.go:240/268/285/307/326+configd_test.go:63/83/135 | Commit: 见本批提交）
+    - 备注（Task ID: F-9303 | Status: Done | Evidence: 配置版本+ACK：ConfigPush.Version(messages.go:184)+ConfigAck.Version(messages.go:192)；relaypush.go:70-119（sha256 digest 作 Version、ackTimeout:24、applied/failed/Finish 写 NodeConfig 状态）+NodeConfig.Version(models.go:233)；agent app.go:359-365 回 ack+configd.go:41-45/124-125。 | Verification: relaypush_test.go:240/268/285/307/326+configd_test.go:63/83/135 | Commit: 970e9e2）
 -   [x] `F-9304` 完成 Relay 状态管理。
-    - 备注（Task ID: F-9304 | Status: Done | Evidence: Relay 状态管理：ProcStatus State=running/stopped/crashed(messages.go:124-139)+procs.Manager.Statuses 喂心跳(app.go:463-465)+ProcReport 状态变化推送(app.go:175-183)；relay 独立启停(roles.go:31 Standalone:true+cmd -role)+配置校验/热更新(relay.go loadOverride)。 | Verification: TestBuildHeartbeatAndStartHeartbeat+TestRelayRunFile+TestRelayValidation+TestRelayHotRepoint | Commit: 见本批提交）
+    - 备注（Task ID: F-9304 | Status: Done | Evidence: Relay 状态管理：ProcStatus State=running/stopped/crashed(messages.go:124-139)+procs.Manager.Statuses 喂心跳(app.go:463-465)+ProcReport 状态变化推送(app.go:175-183)；relay 独立启停(roles.go:31 Standalone:true+cmd -role)+配置校验/热更新(relay.go loadOverride)。 | Verification: TestBuildHeartbeatAndStartHeartbeat+TestRelayRunFile+TestRelayValidation+TestRelayHotRepoint | Commit: 970e9e2）
 -   [x] `F-9305` 完成配置失败回滚。
-    - 备注（Task ID: F-9305 | Status: Done | Evidence: 配置失败回滚：configd.go:114-119（reload 失败回滚旧配置）；ack 带失败态 relaypush.go:105-119。 | Verification: TestApplyReloadFailRollsBack(configd_test.go:135)+TestApplyShaMismatch(:83) | Commit: 见本批提交）
+    - 备注（Task ID: F-9305 | Status: Done | Evidence: 配置失败回滚：configd.go:114-119（reload 失败回滚旧配置）；ack 带失败态 relaypush.go:105-119。 | Verification: TestApplyReloadFailRollsBack(configd_test.go:135)+TestApplyShaMismatch(:83) | Commit: 970e9e2）
 -   [x] `F-9306` 完成断线恢复集成测试。
-    - 备注（Task ID: F-9306 | Status: Done | Evidence: 断线恢复集成测试：e2e-smoke.sh:296-298（kill agent→断线回落 expect 0）→:314-326（兼容窗口旧令牌上线 expect 1）→:327-340（吊销令牌保持 0）+TestAgentWSDedupSurvivesReconnect(agentws_dedupe_test.go:104，重连后 replay 计数=1)+TestRunReconnectsUntilCancel(link_test.go:162)。 | Verification: deploy/e2e-smoke.sh:296-340（53 断言内）+上述单测 | Commit: 见本批提交）
+    - 备注（Task ID: F-9306 | Status: Done | Evidence: 断线恢复集成测试：e2e-smoke.sh:296-298（kill agent→断线回落 expect 0）→:314-326（兼容窗口旧令牌上线 expect 1）→:327-340（吊销令牌保持 0）+TestAgentWSDedupSurvivesReconnect(agentws_dedupe_test.go:104，重连后 replay 计数=1)+TestRunReconnectsUntilCancel(link_test.go:162)。 | Verification: deploy/e2e-smoke.sh:296-340（53 断言内）+上述单测 | Commit: 970e9e2）
 
 ## P4 --- 探测和健康体系
 
 -   [x] `F-9401` 完成 Probe 指标模型。
-    - 备注（Task ID: F-9401 | Status: Done | Evidence: Probe 指标模型：ProbeReport(messages.go:260-273 TargetKind/TargetNode/RttMs/LossPct/Reachable/Blocked/Verdict/Region/ISP/ProbedAt)+批量 ack(:275-283)+目标 kinds(:246-250)/verdicts(:253-256)；持久化 storage.ProbeReport(models.go:197-214, idx_probe_window)。 | Verification: TestProbeHealthy(probe_test.go:55)+TestProbeUnreachable(:88)+TestProbeTunnelReturnPath(:117)+TestVerdictOf(:164) | Commit: 见本批提交）
+    - 备注（Task ID: F-9401 | Status: Done | Evidence: Probe 指标模型：ProbeReport(messages.go:260-273 TargetKind/TargetNode/RttMs/LossPct/Reachable/Blocked/Verdict/Region/ISP/ProbedAt)+批量 ack(:275-283)+目标 kinds(:246-250)/verdicts(:253-256)；持久化 storage.ProbeReport(models.go:197-214, idx_probe_window)。 | Verification: TestProbeHealthy(probe_test.go:55)+TestProbeUnreachable(:88)+TestProbeTunnelReturnPath(:117)+TestVerdictOf(:164) | Commit: 970e9e2）
 -   [x] `F-9402` 完成 Probe 任务调度。
-    - 备注（Task ID: F-9402 | Status: Done | Evidence: Probe 任务调度（去中心化口径）：agent 本地自调度——Runner.Run 每 spec 一循环(probe.go:62-87)+nextInterval 晚高峰 19 时加密(probe.go:156-172)+config.ProbeSpec{TargetKind,Target,Direction,IntervalSec}(config.go:39-45)+Config.Probes(config.go:74)；服务端不下发（ProbeTask 全仓 0 命中，envelope.go:27-28 仅 agent.probe_report/panel.probe_ack），设计明示「面板只收结论做聚合判定，不集中探测」(pool.go:1-5/probe.go:1-5)。 | Verification: agent/internal/probe/probe_test.go（TestProbeHealthy 等 4 例）+agent/internal/config 配置解析 | Commit: 见本批提交）
+    - 备注（Task ID: F-9402 | Status: Done | Evidence: Probe 任务调度（去中心化口径）：agent 本地自调度——Runner.Run 每 spec 一循环(probe.go:62-87)+nextInterval 晚高峰 19 时加密(probe.go:156-172)+config.ProbeSpec{TargetKind,Target,Direction,IntervalSec}(config.go:39-45)+Config.Probes(config.go:74)；服务端不下发（ProbeTask 全仓 0 命中，envelope.go:27-28 仅 agent.probe_report/panel.probe_ack），设计明示「面板只收结论做聚合判定，不集中探测」(pool.go:1-5/probe.go:1-5)。 | Verification: agent/internal/probe/probe_test.go（TestProbeHealthy 等 4 例）+agent/internal/config 配置解析 | Commit: 970e9e2）
 -   [x] `F-9403` 完成结果聚合。
-    - 备注（Task ID: F-9403 | Status: Done | Evidence: 结果聚合：pool.Sweep 30 分钟窗口拉最新 K 个 verdict(pool.go:129-173, ProbeFresh:28-29, Keep=max(SickStrikes,WellStreak):131-134, allVerdicts:235-245)+维度聚合 aggregate.Judge(aggregate.go:32-38, DefaultMinSick=2/DefaultSickRate=0.5:18-19, DimensionRegion/ISP:27-28)+monitor sweep→Judge→applyVerdict 落 DimensionStatus(monitor.go:52-108)。 | Verification: TestJudgeRegionAndISP(aggregate_test.go:45)+TestJudgeWindowAndLatest(:90)+TestJudgeEmpty(:120)+TestJudgeRatioFailure(aggregate_extra_test.go:12)+TestSweepPersistsDimensions(monitor_test.go:152) | Commit: 见本批提交）
+    - 备注（Task ID: F-9403 | Status: Done | Evidence: 结果聚合：pool.Sweep 30 分钟窗口拉最新 K 个 verdict(pool.go:129-173, ProbeFresh:28-29, Keep=max(SickStrikes,WellStreak):131-134, allVerdicts:235-245)+维度聚合 aggregate.Judge(aggregate.go:32-38, DefaultMinSick=2/DefaultSickRate=0.5:18-19, DimensionRegion/ISP:27-28)+monitor sweep→Judge→applyVerdict 落 DimensionStatus(monitor.go:52-108)。 | Verification: TestJudgeRegionAndISP(aggregate_test.go:45)+TestJudgeWindowAndLatest(:90)+TestJudgeEmpty(:120)+TestJudgeRatioFailure(aggregate_extra_test.go:12)+TestSweepPersistsDimensions(monitor_test.go:152) | Commit: 970e9e2）
 -   [ ] `F-9404` 完成 Node、Tunnel、Path、Egress 健康区分。
     - 待补（F-9404 | 未满足：无 Node/Tunnel/Path/Egress 健康四区分——仅 Node(pool)+Dimension(region/isp) 两级健康；无 Path 模型即无 Path/Egress 级；TransportHealth 定义于 dash/src/api.ts:122-132 但无视图消费（F-0904/0905 区）。）
 -   [x] `F-9405` 完成健康状态计算。
-    - 备注（Task ID: F-9405 | Status: Done | Evidence: 健康状态计算：monitor 状态机 StateHealthy/Degraded/Failed(monitor.go:22-26) 由 v.Failed/v.Sick 计算(:66-73)落 DimensionStatus(:80-108, Since/UpdatedAt, models.go:218-226)；节点/池态 pool.go:151-170（连续 sick→suspended setPoolState:248-255、连续 healthy→active）。 | Verification: TestApplyVerdictTransitions(monitor_test.go:59)+TestApplyVerdictDegraded(:123)+TestSweepPersistsDimensions(:152)+TestSweepSuspendAndResume(pool_test.go:71)+TestSweepScope(:162)+TestLoopSweepsAndStopsOnCancel(:241) | Commit: 见本批提交）
+    - 备注（Task ID: F-9405 | Status: Done | Evidence: 健康状态计算：monitor 状态机 StateHealthy/Degraded/Failed(monitor.go:22-26) 由 v.Failed/v.Sick 计算(:66-73)落 DimensionStatus(:80-108, Since/UpdatedAt, models.go:218-226)；节点/池态 pool.go:151-170（连续 sick→suspended setPoolState:248-255、连续 healthy→active）。 | Verification: TestApplyVerdictTransitions(monitor_test.go:59)+TestApplyVerdictDegraded(:123)+TestSweepPersistsDimensions(:152)+TestSweepSuspendAndResume(pool_test.go:71)+TestSweepScope(:162)+TestLoopSweepsAndStopsOnCancel(:241) | Commit: 970e9e2）
 -   [ ] `F-9406` 完成健康管理页面。
     - 待补（F-9406 | 部分：健康在 NodesView 内渲染——/api/dimension-status 拉取(router.go:132, NodesView.vue:71, dims:56)+状态点(healthy 正常/异常:229-235)+区域/运营商健康聚合(:596)+pool_state 标签(:694-696)+togglePool 摘除/预备(:109-142)；无独立健康管理页面（dash/router.ts 16 路由无 health/dimension/probe）、panel 无健康视图、无 tunnel/path/egress 级健康 UI。）
 
@@ -2334,17 +2334,17 @@ External Client
 -   [ ] `F-9501` 完成 Path 创建和校验。
     - 待补（F-9501 | 未满足：无 type Path（F-0243 区），无 Path 创建/校验/CRUD API。）
 -   [x] `F-9502` 完成 Entry → Landing 编排。
-    - 备注（Task ID: F-9502 | Status: Done | Evidence: Entry→Landing 编排：自动调度写 LandingAssignment(alloc.go:530-541 SweepAt→db.Create, 当前 auto 释放:525-528)+手动入口 landing.go:45-109(db.Create:104, 校验 entry/landing role/方向/权重)+路由 /api/landings GET/POST/PUT/DELETE(router.go:137-140)。 | Verification: TestSweepAllocatesAndSwitches(alloc_test.go:223)+TestSweepManualWins(:302)+TestLandingAssignment(landing_test.go:10)+TestAllocAPI(allocapi_test.go:11) | Commit: 见本批提交）
+    - 备注（Task ID: F-9502 | Status: Done | Evidence: Entry→Landing 编排：自动调度写 LandingAssignment(alloc.go:530-541 SweepAt→db.Create, 当前 auto 释放:525-528)+手动入口 landing.go:45-109(db.Create:104, 校验 entry/landing role/方向/权重)+路由 /api/landings GET/POST/PUT/DELETE(router.go:137-140)。 | Verification: TestSweepAllocatesAndSwitches(alloc_test.go:223)+TestSweepManualWins(:302)+TestLandingAssignment(landing_test.go:10)+TestAllocAPI(allocapi_test.go:11) | Commit: 970e9e2）
 -   [ ] `F-9503` 完成 Path Group。
     - 待补（F-9503 | 未满足：PathGroup 模型 0 命中（F-0261 区）。）
 -   [ ] `F-9504` 完成 Policy。
     - 待补（F-9504 | 未满足：无 type Policy（F-0282 区）。）
 -   [x] `F-9505` 完成候选过滤。
-    - 备注（Task ID: F-9505 | Status: Done | Evidence: 候选过滤：alloc.go:448-455（entry role∈(entry,both)、landing role∈(landing,both)、enabled+pool_state=active+status!=provisioning）+:486-489（Direction 匹配、Healthy:!sick[l.ID]）+sick 来自 latestSick(ProbeFresh 30min):622-635+Pick 健康门控:218-226。 | Verification: TestPickHealthGate(alloc_test.go:155)+TestSweepScopeGuards(:338)+TestSweepAllSickKeepsCurrent(:367)+TestPickLeastConnCapacityWeight(:67) | Commit: 见本批提交）
+    - 备注（Task ID: F-9505 | Status: Done | Evidence: 候选过滤：alloc.go:448-455（entry role∈(entry,both)、landing role∈(landing,both)、enabled+pool_state=active+status!=provisioning）+:486-489（Direction 匹配、Healthy:!sick[l.ID]）+sick 来自 latestSick(ProbeFresh 30min):622-635+Pick 健康门控:218-226。 | Verification: TestPickHealthGate(alloc_test.go:155)+TestSweepScopeGuards(:338)+TestSweepAllSickKeepsCurrent(:367)+TestPickLeastConnCapacityWeight(:67) | Commit: 970e9e2）
 -   [x] `F-9506` 完成质量、容量和成本评分。
-    - 备注（Task ID: F-9506 | Status: Done | Evidence: 质量/容量/成本评分：容量 CapacityMbps(alloc.go:188-198 实测>降档>升档>100 兜底)+loadRatio(:241-243)；成本 CostPerGB(:202-207 仅按流量边际价)+costPer(:246-248)；策略比较 lessFor(:256-318 least_conn/cost_first/perf_first 精品线:355-361/balanced 归一加权:293-301)；成本聚合 cost.Build(cost.go:96-152)。 | Verification: TestPickCostFirst(alloc_test.go:89)+TestPickPerfFirstInOnly(:111)+TestPickBalanced(:133)+TestPickBalancedWeights(:480)+TestCapacityMbpsFallbacks(:547)+TestBuild(cost_test.go:48)+TestCheckAlerts(:131) | Commit: 见本批提交）
+    - 备注（Task ID: F-9506 | Status: Done | Evidence: 质量/容量/成本评分：容量 CapacityMbps(alloc.go:188-198 实测>降档>升档>100 兜底)+loadRatio(:241-243)；成本 CostPerGB(:202-207 仅按流量边际价)+costPer(:246-248)；策略比较 lessFor(:256-318 least_conn/cost_first/perf_first 精品线:355-361/balanced 归一加权:293-301)；成本聚合 cost.Build(cost.go:96-152)。 | Verification: TestPickCostFirst(alloc_test.go:89)+TestPickPerfFirstInOnly(:111)+TestPickBalanced(:133)+TestPickBalancedWeights(:480)+TestCapacityMbpsFallbacks(:547)+TestBuild(cost_test.go:48)+TestCheckAlerts(:131) | Commit: 970e9e2）
 -   [x] `F-9507` 完成故障回退。
-    - 备注（Task ID: F-9507 | Status: Done | Evidence: 故障回退：故障切换 alloc.go:502-521（当前 auto 落地不在健康候选集→强制换绑，健康问题不排队；释放旧:525-528+建新:530-541）；节点恢复 pool.Sweep(pool.go:129-173 连续 SickStrikes→suspended:156、连续 WellStreak→active:163)+手动 Resume/Suspend(:176-234)；恢复状态机 recovery.Sweep(recovery.go:108)+advance(:211)；离线补报 agent spool。 | Verification: TestSweepAllSickKeepsCurrent(alloc_test.go:367)+TestSweepSuspendAndResume(pool_test.go:71)+TestResume(:193)+TestSuspend(:216) | Commit: 见本批提交）
+    - 备注（Task ID: F-9507 | Status: Done | Evidence: 故障回退：故障切换 alloc.go:502-521（当前 auto 落地不在健康候选集→强制换绑，健康问题不排队；释放旧:525-528+建新:530-541）；节点恢复 pool.Sweep(pool.go:129-173 连续 SickStrikes→suspended:156、连续 WellStreak→active:163)+手动 Resume/Suspend(:176-234)；恢复状态机 recovery.Sweep(recovery.go:108)+advance(:211)；离线补报 agent spool。 | Verification: TestSweepAllSickKeepsCurrent(alloc_test.go:367)+TestSweepSuspendAndResume(pool_test.go:71)+TestResume(:193)+TestSuspend(:216) | Commit: 970e9e2）
 -   [ ] `F-9508` 完成调度解释和模拟。
     - 待补（F-9508 | 未满足：无调度决策记录/候选排除原因/结果解释/模拟 API（F-1032/1033/1034/1035 均未关）。）
 
@@ -2353,11 +2353,11 @@ External Client
 -   [ ] `F-9601` 完成统一 Subscription DTO。
     - 待补（F-9601 | 部分：共享输入 DTO sub.Entry{Node,RttMs}(links.go:169-173) 被三适配器共用（PackV2Ray links.go:201/PackClash clash.go:72/PackSingBox singbox.go:165）；无统一响应 DTO——各格式自出（v2ray base64 links/clashDoc clash.go:66/sing-box outbounds singbox.go:165），handler 按 target 分支(sub.go:124-152)。）
 -   [x] `F-9602` 完成 sing-box Adapter。
-    - 备注（Task ID: F-9602 | Status: Done | Evidence: sing-box Adapter：PackSingBox(singbox.go:165)+tls.server_name/singBoxTransport 映射(singbox.go:103-161)。 | Verification: TestPackSingBox(sub/singbox_test.go) | Commit: 见本批提交）
+    - 备注（Task ID: F-9602 | Status: Done | Evidence: sing-box Adapter：PackSingBox(singbox.go:165)+tls.server_name/singBoxTransport 映射(singbox.go:103-161)。 | Verification: TestPackSingBox(sub/singbox_test.go) | Commit: 970e9e2）
 -   [x] `F-9603` 完成 Clash/Mihomo Adapter。
-    - 备注（Task ID: F-9603 | Status: Done | Evidence: Clash/Mihomo Adapter：PackClash(clash.go:72)+servername/applyTransport 映射(clash.go:181-201)。 | Verification: TestPackClash(sub/clash_test.go) | Commit: 见本批提交）
+    - 备注（Task ID: F-9603 | Status: Done | Evidence: Clash/Mihomo Adapter：PackClash(clash.go:72)+servername/applyTransport 映射(clash.go:181-201)。 | Verification: TestPackClash(sub/clash_test.go) | Commit: 970e9e2）
 -   [x] `F-9604` 完成分享链接 Adapter。
-    - 备注（Task ID: F-9604 | Status: Done | Evidence: 分享链接 Adapter：PackV2Ray(links.go:201)+v2ray 参数映射(links.go:67-81)。 | Verification: TestPackV2Ray(sub/links_test.go) | Commit: 见本批提交）
+    - 备注（Task ID: F-9604 | Status: Done | Evidence: 分享链接 Adapter：PackV2Ray(links.go:201)+v2ray 参数映射(links.go:67-81)。 | Verification: TestPackV2Ray(sub/links_test.go) | Commit: 970e9e2）
 -   [ ] `F-9605` 完成真实客户端解析测试。
     - 待补（F-9605 | 未满足：真实客户端解析测试未满足——合成 UA 无 fixture（F-1129 区；F-10011 未满足）。）
 -   [ ] `F-9606` 完成订阅权限过滤。
@@ -2389,7 +2389,7 @@ External Client
 -   [ ] `F-9802` 完成 Metrics 和告警。
     - 待补（F-9802 | 部分：告警已落地——monitor.go:52-164（sweep→applyVerdict 状态机, 同状态不重复:95-99, herald.Emit region_fault/isp_fault:123-138, webhook notify:141-162）+notify.go 外发+alerts.go:46/75；Metrics 基本缺失——prometheus/pprof//metrics 代码 0 命中（唯一命中是测试抓取 URL manager_extra_test.go:135），无服务端指标层，仅 JSON 状态页(handler/status.go:181-187)+agent 反向抓取被管进程 MetricsURL(procs/metrics.go:24)；F-1801~1814 全未满足、F-1821/1822/1825/1828/1829/1830 告警生产者缺。）
 -   [x] `F-9803` 完成备份恢复演练。
-    - 备注（Task ID: F-9803 | Status: Done | Evidence: 备份恢复演练：deploy/restore.sh 恢复脚本+e2e 备份恢复腿（53 断言内）+restore.sh --key(deploy/restore.sh:16)。 | Verification: deploy/e2e-smoke.sh（备份恢复断言 :385-427）+deploy/restore.sh | Commit: 见本批提交）
+    - 备注（Task ID: F-9803 | Status: Done | Evidence: 备份恢复演练：deploy/restore.sh 恢复脚本+e2e 备份恢复腿（53 断言内）+restore.sh --key(deploy/restore.sh:16)。 | Verification: deploy/e2e-smoke.sh（备份恢复断言 :385-427）+deploy/restore.sh | Commit: 970e9e2）
 -   [ ] `F-9804` 完成 Agent 和 Probe 规模测试。
     - 待补（F-9804 | 未满足：无 Agent/Probe 规模/压测记录——P95/P99/benchstat 0 命中，§18.4 F-2061~2076 全未满足（无测试环境/数据规模/并发量/资源占用记录）。）
 -   [ ] `F-9805` 完成 Provider API 故障测试。
