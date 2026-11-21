@@ -6,6 +6,11 @@
 # 见 todo.md dependabot 收口批拍板），按兜底条件改 open-pull-requests-limit: 0。
 # security alerts 独立于版本更新不受影响；vitepress 2 stable 撤 override 后
 # 可重开 npm 更新。
+# 补充（2026-11-22 复核，run 44959739326）：npm 的 security-update job 同样会红——
+# 它按 directory: / 找 /package.json，根无该文件（pnpm workspace 根只有
+# pnpm-workspace.yaml），updater 报「/package.json not found」中止。此失败不影响
+# alerts：告警由 scanner 依 lockfile 是否含脆弱版本自动开/关，修复靠手动改 override
+#（vite 6.4.6 批已 0 开放告警收口），该红 run 属已知限制表象、无需处理。
 #
 # gomod 六个 module 维持账号默认行为：weekly + go_modules 全量分组。
 version: 2

@@ -2640,3 +2640,4 @@ P2 合并简列 14 项全部修复并推送，每项单 commit、英文简短、
 ## 依赖安全（dependabot 2026-11 批，2026-11-22 处理）
 
 - [x] vite override 6.4.3 → 6.4.6（`pnpm-workspace.yaml`）：dependabot 对 vite ≤6.4.3 开 5 条（1 high + 3 medium + 1 low，修于 6.4.4）、对 =6.4.4 再开 1 medium（修于 6.4.5），scoped override `vite@^5.4.14` 提到最新 patch 6.4.6；只命中 vite 5 声明（vitepress 1.x），dash/panel 的 vite ^7 不受影响；vitepress 2（vite ^8）仍 alpha 不升。验收：`pnpm install` 更新 lockfile 后三前端构建全绿（dash 21.51s / panel 2.47s / docs 8.86s→21.51s），docs 自动跳转脚本仍带（`ferry-doc-lang` 命中）；lockfile 仅存 `vite@6.4.6`（vitepress 面）与 `vite@7.3.7`（dash/panel 面），无 ≤6.4.5 残留（c78db4e / 36403b6）。
+  - 收口复核（2026-11-22）：6.4.6 push 后 GitHub 重扫，**开放告警 0**（≤6.4.3 五条 + =6.4.4 一条全关）。`.github/dependabot.yml` npm 项 `directory: /` 下无 `/package.json`（pnpm workspace 根只有 `pnpm-workspace.yaml`），故 security-update job 每次开告警都会红（`/package.json not found`，run 44959739326）——属已知限制表象：告警由 scanner 依 lockfile 自动开/关、修复靠手动 override，不影响收口；已在该 yml 注释补记说明。
