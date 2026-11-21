@@ -676,13 +676,17 @@ External Client
     - 备注（Task ID: F-0202 | Status: Done | Evidence: models.go:80 Role entry/landing/both+node.go:347 校验；TestNodeMetaInput | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0203` 保留并明确 `direction=out|in|both` 的语义。
     - 备注（Task ID: F-0203 | Status: Done | Evidence: models.go:81 Direction out/in/both；TestNodeMetaInput | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0204` 明确 Role 表示拓扑职责，Direction 表示业务流量方向。
+-   [x] `F-0204` 明确 Role 表示拓扑职责，Direction 表示业务流量方向。
+    - 备注（Task ID: F-0204 | Status: Done | Evidence: Node.Role entry/landing/both(models.go:95)+Node.Direction out/in/both(models.go:96)+validateNodeInput 校验(node.go:366-377) | Verification: TestNodeMetaInput(默认值/回读/非法枚举 400) | Commit: 见本批提交）
 -   [x] `F-0205` 明确管理状态与运行健康状态分离。
     - 备注（Task ID: F-0205 | Status: Done | Evidence: Enabled :71/Status :77/PoolState :104 分离；TestNodeCRUD+TestSweepSuspendAndResume | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0206` 明确 `disabled`、`maintenance`、`offline`、`unhealthy`
+    - 待补（F-0206 | 未满足原因：仅 disabled(Enabled:86)+offline(Status:92) 两态；maintenance 全仓 0 命中；unhealthy 仅为 ProbeReport.Verdict 折叠入 PoolState(suspended)，非 Node 独立状态。）
     的区别。
 -   [ ] `F-0207` 为 Node 关联 Region、ISP、ASN 和 Provider 信息。
+    - 待补（F-0207 | 未满足原因：Region(98)+ISP(101) 有；ASN 全仓 0 命中；Node 无 ProviderID/FK（ProviderID:495 属 ProvisionTemplate 非 Node）。）
 -   [ ] `F-0208` 为 Node 关联可选的云资源 ID。
+    - 待补（F-0208 | 未满足原因：CloudResource/CloudResourceID 全仓 0 命中，Node 无可选云资源 ID 字段。）
 -   [x] `F-0209` 记录 Agent 版本和协议版本。
     - 备注（Task ID: F-0209 | Status: Done | Evidence: models.go:100 AgentVersion+Envelope.V；TestAgentWSHelloVersion | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0210` 记录期望配置版本和实际应用版本。
@@ -694,12 +698,14 @@ External Client
 -   [x] `F-0213` 为 Node 查询建立实际需要的索引。
     - 备注（Task ID: F-0213 | Status: Done | Evidence: models.go 索引标签（token uniqueIndex :72 等 36+）+storage 测试建表 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0214` 定义节点删除时的关联检查和数据保留规则。
+    - 待补（F-0214 | 未满足原因：deleteNode(node.go:155-179) 无前置关联检查（无 count/dependency）；NodeConfig/TrafficLog/ProbeReport/Alert/Recovery 均无 FK（仅 TrafficLog.Node SET NULL models.go:142 一条保留规则）。）
 
 ## 2.2 Capability
 
 -   [x] `F-0221` 审计现有节点能力声明方式。
     - 备注（Task ID: F-0221 | Status: Done | Evidence: 能力声明方式审计（结论：Capability 未实现）§3.1 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0222` 定义静态声明能力与动态运行能力。
+    - 待补（F-0222 | 区级未满足原因：Capability 模型未实现：type Capability 全仓 0 命中，能力由 role/labels/LineType 隐式承载；Agent 无运行时能力上报（Hello/Heartbeat/ConfigPush 均无 capab 字段）；调度器仅按 role/direction/health 过滤（alloc.go:444-476）——本区 F-0222~F-0231 均未满足。）
 -   [ ] `F-0223` 定义 `proxy_ingress` 能力。
 -   [ ] `F-0224` 定义 `relay_entry` 能力。
 -   [ ] `F-0225` 定义 `relay_landing` 能力。
@@ -714,9 +720,12 @@ External Client
 
 -   [x] `F-0241` 审计现有 Pool、Allocation、Tunnel 和线路关系模型。
     - 备注（Task ID: F-0241 | Status: Done | Evidence: Pool/Allocation/Tunnel/线路关系审计 §3.1 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0242` 明确 Tunnel 表示两个端点之间的实际连接。
+-   [x] `F-0242` 明确 Tunnel 表示两个端点之间的实际连接。
+    - 备注（Task ID: F-0242 | Status: Done | Evidence: agent/internal/tunnel/tunnel.go:16 Tunnel 接口(Dial→net.Conn+ServeHeartbeat)+ssh/quicsidecar/wstls/tlscamo 具体两端点实现（entry agent→landing 实际连接） | Verification: agent/internal/tunnel 包+transport 测试 | Commit: 见本批提交）
 -   [ ] `F-0243` 明确 Path 表示完整业务访问路径。
--   [ ] `F-0244` 第一阶段 Path 只要求支持 Entry → Landing。
+    - 待补（F-0243 | 区级未满足原因：Path 模型未实现：无 type Path*；Entry→Landing 由 LandingAssignment+sweep 承载（已关 F-0244），无 Path 实体（关联/状态/版本/历史/删除检查/查询 API 均无）——本区 F-0243,F-0245~F-0255 未满足。）
+-   [x] `F-0244` 第一阶段 Path 只要求支持 Entry → Landing。
+    - 备注（Task ID: F-0244 | Status: Done | Evidence: LandingAssignment{EntryNodeID,LandingNodeID,Region,Direction,Strategy}(models.go:181-199)+alloc sweep 真实分配(alloc.go:442-557) | Verification: TestLandingAssignment/TestLandingAssignmentAndProbeReport | Commit: 见本批提交）
 -   [ ] `F-0245` 定义 Path 与 Entry Node 的关联。
 -   [ ] `F-0246` 定义 Path 与 Landing Node 的关联。
 -   [ ] `F-0247` 定义 Path 与 Tunnel/Relay 的关联。
@@ -732,6 +741,7 @@ External Client
 ## 2.4 Path Group
 
 -   [ ] `F-0261` 定义 Path Group 数据结构或确认现有等价模型。
+    - 待补（F-0261 | 区级未满足原因：PathGroup 模型未实现：无 type PathGroup（全仓 0 命中），无 Group 创建/编辑/成员/默认 Path/顺序/健康聚合/订阅关联——本区 F-0261~F-0270 未满足。）
 -   [ ] `F-0262` 支持创建和编辑 Path Group。
 -   [ ] `F-0263` 支持 Path 加入和移出 Group。
 -   [ ] `F-0264` 支持 Group 默认 Path。
@@ -747,6 +757,7 @@ External Client
 -   [x] `F-0281` 审计现有策略和分配规则。
     - 备注（Task ID: F-0281 | Status: Done | Evidence: 策略与分配规则审计 §3.1+§3.5 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0282` 定义全局安全约束。
+    - 待补（F-0282 | 区级未满足原因：Policy 模型未实现：无 type Policy；仅 alloc.go:57 PolicySetting+ScoreWeights（调度权重，非 Policy 模型）；区域/运营商/线路/健康/容量/成本/故障回退约束与版本审计/模拟接口均无——本区 F-0282~F-0296 未满足。）
 -   [ ] `F-0283` 定义系统级 Policy。
 -   [ ] `F-0284` 定义套餐级 Policy。
 -   [ ] `F-0285` 定义用户级 Policy。
