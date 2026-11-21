@@ -2077,24 +2077,35 @@ External Client
 ## 18.1 单元测试
 
 -   [ ] `F-2001` 为 Node 状态机建立单元测试。
+    - 待补（F-2001 | 部分：Node 状态转换经 TestAgentWSHeartbeat（agentws_test.go:53 online→offline :97,101）+维度状态机 TestApplyVerdictTransitions（monitor_test.go:59）+pool 态（standby_test+recovery）；无独立状态机抽象单测。）
 -   [ ] `F-2002` 为 Capability 过滤建立单元测试。
+    - 待补（F-2002 | 未满足：type Capability 全仓 0 命中，能力仅由 role/labels/LineType 隐式承载（models.go:95-102），alloc 按 role/direction/health 过滤——无能力模型即无过滤测试。）
 -   [ ] `F-2003` 为 Path 状态机建立单元测试。
+    - 待补（F-2003 | 未满足：type Path 0 命中；仅 LandingAssignment（models.go:165）+alloc sweep（alloc.go:497）等价物；无 Path 状态机。）
 -   [ ] `F-2004` 为 Path Group 建立单元测试。
+    - 待补（F-2004 | 未满足：type PathGroup 0 命中；无 Group CRUD/成员/顺序。）
 -   [ ] `F-2005` 为 Policy 冲突规则建立单元测试。
+    - 待补（F-2005 | 未满足：Policy 冲突规则缺失——仅 alloc 调度策略（least_conn/cost_first/perf_first/balanced/manual alloc.go:23-46）被 alloc_test 覆盖，无路由 Policy/冲突规则模型。）
 -   [x] `F-2006` 为 Scheduler 过滤和评分建立单元测试。
     - 备注（Task ID: F-2006 | Status: Done | Evidence: alloc_test 9 例调度单测 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-2007` 为 Health 计算建立单元测试。
     - 备注（Task ID: F-2007 | Status: Done | Evidence: aggregate_test+monitor_test 健康计算单测 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-2008` 为 Config Compiler 建立单元测试。
+-   [x] `F-2008` 为 Config Compiler 建立单元测试。
+    - 备注（Task ID: F-2008 | Status: Done | Evidence: routing_test.go:17 TestRoutingConfigRender 渲染节点路由配置（模板+规则），断言 rules/direct 出站+sha256 匹配+bad-template 400+missing-node 404；agent 侧应用/回滚 configd_test TestApplyReloadFailRollsBack | Verification: server/internal/handler/routing_test.go TestRoutingConfigRender+configd_test.go | Commit: 见本批提交）
 -   [x] `F-2009` 为 Subscription Adapter 建立单元测试。
     - 备注（Task ID: F-2009 | Status: Done | Evidence: sub/{clash,singbox,links}_test Adapter 单测 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-2010` 为 Traffic Dedup 建立单元测试。
     - 备注（Task ID: F-2010 | Status: Done | Evidence: agentws_dedupe_test 7 例去重单测 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-2011` 为 Cloud Provider Adapter 建立契约测试。
+    - 待补（F-2011 | 未满足：无 Cloud Provider Adapter——providerapi 仅凭据/模板 CRUD（providerapi.go:34-147），无访问云 API 的 adapter 接口；TestProviderAPI 测密钥封装非契约。）
 -   [ ] `F-2012` 为 Cloud Operation 状态机建立单元测试。
+    - 待补（F-2012 | 未满足：type CloudOperation 0 命中；无操作状态机/幂等键/任务接入。）
 -   [ ] `F-2013` 为 Cost Import 去重建立单元测试。
+    - 待补（F-2013 | 未满足：无账单/导入管线（cost 仅逐节点 Build+价格 CheckNode+watch/alert）；无 CostImport 去重单测。）
 -   [ ] `F-2014` 为 Cost Allocation 建立单元测试。
--   [ ] `F-2015` 为后台任务重试和取消建立单元测试。
+    - 待补（F-2014 | 未满足：type CostAllocation 0 命中；alloc 包是调度非成本分摊；无分摊/重算引擎。）
+-   [x] `F-2015` 为后台任务重试和取消建立单元测试。
+    - 备注（Task ID: F-2015 | Status: Done | Evidence: 后台任务重试+取消按管线实测——herald 重试指数退避+尝试上限+死信 TestDeliverRetryBackoffAndDeadLetter（herald_test.go:101）+退避上限 TestBackoffCap（:162）+循环取消 TestLoopDelivers（:192）；cert 任务重试 TestSweepFailedBackoff（cert_test.go:228）+TestLoopSweepsAndStopsOnCancel（:263）；relaypush 超时重推 TestPushTimeout（relaypush_test.go:307） | Verification: herald_test.go+cert_test.go+relaypush_test.go | Commit: 见本批提交）
 
 ## 18.2 集成测试
 
@@ -2107,40 +2118,67 @@ External Client
 -   [x] `F-2024` 测试配置失败回滚。
     - 备注（Task ID: F-2024 | Status: Done | Evidence: configd_test TestApplyReloadFailRollsBack+TestApplyNoOldConfigRollbackRemoves | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-2025` 测试 Relay 建立和断线重连。
+    - 待补（F-2025 | 部分：relay 建立+转发有 TestRelayForwards（relay_test.go:41 mock 隧道）+TestRelayHotRepoint（:129）；重连仅间接（SSH dial 重试 tunnel_extra_test.go:165 TestSSHDialRetryOnChannelReject+agent-link TestRunReconnectsUntilCancel）；无「断已建 relay 隧道→重连→继续转发」测试。）
 -   [x] `F-2026` 测试 Probe 任务执行和结果回传。
     - 备注（Task ID: F-2026 | Status: Done | Evidence: probe_test+TestAgentWSProbeReport/TestAgentWSProbeReportResolve | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-2027` 测试 Path 健康变化。
+    - 待补（F-2027 | 未满足：Path 缺失；sub.go:74 按 status!=offline+pool_state 过滤，但无 Path 健康变化测试（monitor 维度迁移不建模 Path）。）
 -   [ ] `F-2028` 测试 Path 故障回退。
--   [ ] `F-2029` 测试订阅生成和权限过滤。
--   [ ] `F-2030` 测试流量上报、去重和补报。
+    - 待补（F-2028 | 未满足：Path 故障回退缺失；最接近 entry→landing 经 alloc sweep（TestSweepAllocatesAndSwitches alloc_test.go:223），无 Path。）
+-   [x] `F-2029` 测试订阅生成和权限过滤。
+    - 备注（Task ID: F-2029 | Status: Done | Evidence: TestSubscription（sub_test.go:30）+TestSubscriptionAvailability（:128 超配额→无节点订阅/过期→无节点/不限→节点+Subscription-Userinfo）+TestSubscriptionHysteria2/TestSubscriptionSingBoxMixed；权限过滤 sub.UserActive（sub/availability.go:11+TestUserActive）+entry-only/pool-active/status 过滤（sub.go:74）；格式渲染 TestPackClash/TestPackSingBox/TestShareLink | Verification: sub_test.go+sub/availability_test.go | Commit: 见本批提交）
+-   [x] `F-2030` 测试流量上报、去重和补报。
+    - 备注（Task ID: F-2030 | Status: Done | Evidence: 上报 TestAgentWSTrafficReport（agentws_test.go:477）+TestReporterCollectsAndReports（traffic_test.go:31）；去重 7 例（TestAgentWSDuplicateTrafficFrame:57+TestAgentWSDedupSurvivesReconnect:104+TestReportDeduperWindow:243+TestReportDeduperTTL:267）；补报 spool 离线缓冲+重试 TestSendFailureRetries（spool_test.go:99）+TestWatchForwardsUntilCancel（:147） | Verification: agentws_dedupe_test.go+traffic_test.go+spool_test.go | Commit: 见本批提交）
 -   [ ] `F-2031` 测试 Provider 账号连接和资源同步。
+    - 待补（F-2031 | 未满足：Provider 凭据库有且测（TestProviderAPI）；无「账号连接」与资源同步（provision 仅 tofu CLI，无 provider API 调用）；无资源同步测试。）
 -   [ ] `F-2032` 测试云资源开机操作。
+    - 待补（F-2032 | 区级未满足原因：无 CloudOperation/CloudResource 模型、无电源开/关/重启路径（provision 仅 tofu launch/replenish）——F-2032/F-2033/F-2034 未满足。）
 -   [ ] `F-2033` 测试云资源关机操作。
 -   [ ] `F-2034` 测试云资源重启操作。
 -   [ ] `F-2035` 测试 Provider 请求超时后的状态对账。
+    - 待补（F-2035 | 未满足：无 provider adapter→无请求超时对账；仅 agent 请求超时（relaypush TestPushTimeout）非 provider 状态对账。）
 -   [ ] `F-2036` 测试账单导入和重复数据去重。
+    - 待补（F-2036 | 未满足：无账单导入；storage 无账单表/模型。）
 -   [ ] `F-2037` 测试估算与实际账单差异计算。
+    - 待补（F-2037 | 未满足：无实际账单导入→无估算 vs 实际差异；仅估算 vs 参考价偏差（cost.CheckNode/TestCheckNode cost_test.go:224）非账单差异。）
 -   [ ] `F-2038` 测试成本分摊和重算。
+    - 待补（F-2038 | 未满足：无 CostAllocation 引擎；cost.Build（cost.go:96）是节点/区域成本汇总非分摊/重算。）
 -   [ ] `F-2039` 测试云资源操作与 Node 状态联动。
+    - 待补（F-2039 | 未满足：无 CloudOperation→无云操作↔Node 状态联动；仅手动 proc-control↔node 状态（procop+TestAgentWSProcOp）。）
 
 ## 18.3 端到端测试
 
--   [ ] `F-2041` 自动部署测试 Server。
+-   [x] `F-2041` 自动部署测试 Server。
+    - 备注（Task ID: F-2041 | Status: Done | Evidence: 真实 server 二进制启动+健康可达+DB 初始化+degraded→ok 恢复+管理端认证+备份/恢复（deploy/e2e-smoke.sh:116-145,388-427）；CI test.yml:98-99 deploy-scripts job 接入 | Verification: deploy/e2e-smoke.sh（53 断言）+.github/workflows/test.yml | Commit: 见本批提交）
 -   [ ] `F-2042` 自动部署 Entry Node。
+    - 待补（F-2042 | 未满足：通用 agent 注册上线（e2e-smoke.sh:156,192）；无 entry 角色部署/entry 数据面/Path entry。）
 -   [ ] `F-2043` 自动部署 Landing Node。
+    - 待补（F-2043 | 未满足：无 landing 角色部署。）
 -   [ ] `F-2044` 建立真实 Relay Tunnel。
+    - 待补（F-2044 | 未满足：e2e 仅 agent WS 链路；无真实 relay 隧道（relay 角色仅单测 relay_test.go）。）
 -   [ ] `F-2045` 创建 Path 并执行探测。
+    - 待补（F-2045 | 未满足：无 Path；e2e 无探测（probe 仅单测）。）
 -   [ ] `F-2046` 生成 sing-box 订阅并执行解析测试。
+    - 待补（F-2046 | 未满足：sing-box 解析仅单测（sub/singbox_test.go）；e2e-smoke 推 stub 内核配置，无 sing-box 订阅解析。）
 -   [ ] `F-2047` 生成 Clash/Mihomo 配置并执行解析测试。
+    - 待补（F-2047 | 未满足：Clash 解析仅单测（sub/clash_test.go）；无 e2e 解析。）
 -   [ ] `F-2048` 验证真实 TCP 转发。
+    - 待补（F-2048 | 未满足：无真实 TCP 转发 e2e（relay 转发仅单测/mock TestRelayForwards）。）
 -   [ ] `F-2049` 验证真实 UDP 转发。
+    - 待补（F-2049 | 未满足：无 UDP 转发 e2e 或单测。）
 -   [ ] `F-2050` 验证节点故障后的线路处理。
+    - 待补（F-2050 | 未满足：e2e 覆盖进程故障（stub 内核崩溃→自重启 e2e-smoke.sh:235-237,262）；无节点线路/网络故障处理。）
 -   [ ] `F-2051` 验证节点恢复后重新加入调度。
+    - 待补（F-2051 | 部分：agent 掉线→重连覆盖（健康 1→0→1+token 轮换窗再上线 e2e-smoke.sh:298-340+单测 TestRunReconnectsUntilCancel）；无故障触发恢复/重入调度 e2e。）
 -   [ ] `F-2052` 验证流量记账准确性。
+    - 待补（F-2052 | 未满足：流量记账准确仅单测（TestSaveStatsAPI+traffic tests）；e2e 不测流量量级。）
 -   [ ] `F-2053` 验证 Server 重启后的状态恢复。
+    - 待补（F-2053 | 部分：server 恢复态恢复覆盖（e2e-smoke.sh:417-427 恢复实例健康+节点数据在）；server 杀/重启→agent 重连未覆盖（F-1931 注：e2e 先杀 agent 再重启 server，重启腿不断言重连）。）
 -   [ ] `F-2054` 在测试 Provider 账号或 Mock Provider
+    - 待补（F-2054 | 未满足：无云资源操作、无 test/mock provider（provision 仅 tofu CLI）。）
     上验证完整云资源操作流程。
 -   [ ] `F-2055` 验证云资源账单导入、成本汇总和 Dash 展示。
+    - 待补（F-2055 | 未满足：无账单导入；成本汇总仅单测（costapi_test）；无 Dash 展示 e2e。）
 
 ## 18.4 性能与故障测试
 
