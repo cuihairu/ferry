@@ -2636,3 +2636,7 @@ P2 合并简列 14 项全部修复并推送，每项单 commit、英文简短、
 - [x] 测试与门禁：`sub/filter_test.go` + `handler/subx_test.go`（CRUD 护栏/越权/下发黄金断言/截断/用户态/限流/主订阅回归锚）；`make test` 全绿 + `pnpm -C panel build` 绿（a5645e5）。
 - [x] 验收口径：curl 实测 `/sub/x/:token`（UA=clash）只含过滤后节点且 ≤3、主订阅 `/sub/主token` 输出不变、未知令牌 404、非法 filter JSON 400；面板走查截图留路径 `docs/public/screenshots/subscriptions-2026-11-21.png`、`subscriptions-create-2026-11-21.png`（a5645e5）。
 - [ ] admin 面订阅管理（看用户订阅列表）：spec 明确不做（用户自助面优先），留后续项。
+
+## 依赖安全（dependabot 2026-11 批，2026-11-22 处理）
+
+- [x] vite override 6.4.3 → 6.4.4（`pnpm-workspace.yaml`）：dependabot 对 vite ≤6.4.3 开 5 条（1 high + 3 medium + 1 low，均修于 6.4.4），scoped override `vite@^5.4.14` 提到 6.4.4；只命中 vite 5 声明（vitepress 1.x），dash/panel 的 vite ^7 不受影响；vitepress 2（vite ^8）仍 alpha 不升。验收：`pnpm install` 更新 lockfile 后三前端构建全绿（dash 21.51s / panel 2.47s / docs 8.86s），docs 自动跳转脚本仍带（`ferry-doc-lang` 命中）；lockfile 无 `vite@6.4.3` 残留（c78db4e）。
