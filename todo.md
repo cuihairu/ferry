@@ -545,27 +545,27 @@
 ### 0.3 统一工程约束
 
 -   [x] `F-0040` 所有数据库结构变化提供 Migration。
-    - 备注（Task ID: F-0040 | Status: Done | Evidence: storage.Open→AutoMigrate（storage.go:60,67-116，43 模型）；无版本化路径，演进由模型定义驱动 | Verification: storage.go+cmd/ferry/main.go:90 | Commit: 见本批提交）
+    - 备注（Task ID: F-0040 | Status: Done | Evidence: storage.Open→AutoMigrate（storage.go:60,67-116，43 模型）；无版本化路径，演进由模型定义驱动 | Verification: storage.go+cmd/ferry/main.go:90 | Commit: c79d570）
 -   [x] `F-0041` 为破坏性 Migration 提供备份、迁移和回滚方案。
-    - 备注（Task ID: F-0041 | Status: Done | Evidence: deploy/MIGRATION-RUNBOOK.md 备份/迁移/回滚；restore.sh:115-126 预备份+原子 mv；install-rollback-test.sh | Verification: deploy/ 脚本+测试 | Commit: 见本批提交）
+    - 备注（Task ID: F-0041 | Status: Done | Evidence: deploy/MIGRATION-RUNBOOK.md 备份/迁移/回滚；restore.sh:115-126 预备份+原子 mv；install-rollback-test.sh | Verification: deploy/ 脚本+测试 | Commit: c79d570）
 -   [ ] `F-0042` 所有新增后台任务具备超时、重试上限和取消机制。
     - 待补（F-0042 | 未满足原因：背景任务超时/重试上限不一致：cert 无最大重试(无限重试)且无单次超时(cert.go:33,61)；provision 用 context.Background() 无超时无重试上限(replenish.go:87)；recovery 的 runAction goroutine 在层级超时后仍运行(recovery.go:283)。取消机制普遍具备，超时/重试上限未全覆盖——留待补齐。）
 -   [x] `F-0043` 所有有副作用的 API 和消息定义幂等语义。
-    - 备注（Task ID: F-0043 | Status: Done | Evidence: 幂等——PaymentOrder.OrderNo uniqueIndex(models.go:347)、PaymentTransaction(provider,external_id) unique(models.go:431)、paynotify 条件态翻转(paynotify.go:66-96)、refund paid→refunded(payrecon.go:210)、redeem 条件消耗(redeem.go:75)、applyGrant 乐观守卫 | Verification: TestEpusdtNotifyConcurrentSettle/TestOrderRefundAndDetail/TestRefundRevokesGrants/TestRedeemFailureModes/TestApplyGrantLostUpdateGuard | Commit: 见本批提交）
+    - 备注（Task ID: F-0043 | Status: Done | Evidence: 幂等——PaymentOrder.OrderNo uniqueIndex(models.go:347)、PaymentTransaction(provider,external_id) unique(models.go:431)、paynotify 条件态翻转(paynotify.go:66-96)、refund paid→refunded(payrecon.go:210)、redeem 条件消耗(redeem.go:75)、applyGrant 乐观守卫 | Verification: TestEpusdtNotifyConcurrentSettle/TestOrderRefundAndDetail/TestRefundRevokesGrants/TestRedeemFailureModes/TestApplyGrantLostUpdateGuard | Commit: c79d570）
 -   [x] `F-0044` 所有批量操作支持部分失败结果，不得只返回笼统成功。
-    - 备注（Task ID: F-0044 | Status: Done | Evidence: 逐项部分失败——batchNodeProc/batchNodeConfig 返回 {node_id,ok,error} 行(procop.go:99-189)、importUsers 返回 {created,skipped,users,skipped_rows} 逐行 reason(userio.go:57-132) | Verification: TestBatchNodeProc/TestBatchNodeConfig/TestUserExportImport/TestUserImportValidation | Commit: 见本批提交）
+    - 备注（Task ID: F-0044 | Status: Done | Evidence: 逐项部分失败——batchNodeProc/batchNodeConfig 返回 {node_id,ok,error} 行(procop.go:99-189)、importUsers 返回 {created,skipped,users,skipped_rows} 逐行 reason(userio.go:57-132) | Verification: TestBatchNodeProc/TestBatchNodeConfig/TestUserExportImport/TestUserImportValidation | Commit: c79d570）
 -   [ ] `F-0045` 所有敏感操作写入审计日志。
     - 待补（F-0045 | 未满足原因：审计核心机制完备（auditMiddleware router.go:119,347+loginlog.go），但两处敏感操作未入审计组：distributor 登录(router.go:335)、面板侧 redeem(router.go:300 开放组)——「所有敏感操作」未全满足，留待补。）
 -   [x] `F-0046` 所有配置下发具备版本、校验、确认和失败处理。
-    - 备注（Task ID: F-0046 | Status: Done | Evidence: 版本/校验/确认/失败——relaypush.go:69-88（sha256 版本+ack 阻塞 60s）、configd.go:60-117（sha256 校验+validate+原子替换+回滚）、agenthub 错误映射 502/504 | Verification: TestPushAckApplied/TestPushTimeout/TestAgentWSConfigPush/TestApplyValidateFailsKeepsOld/TestApplyReloadFailRollsBack | Commit: 见本批提交）
+    - 备注（Task ID: F-0046 | Status: Done | Evidence: 版本/校验/确认/失败——relaypush.go:69-88（sha256 版本+ack 阻塞 60s）、configd.go:60-117（sha256 校验+validate+原子替换+回滚）、agenthub 错误映射 502/504 | Verification: TestPushAckApplied/TestPushTimeout/TestAgentWSConfigPush/TestApplyValidateFailsKeepsOld/TestApplyReloadFailRollsBack | Commit: c79d570）
 -   [ ] `F-0047` 所有外部 API 调用具备超时、限流和错误分类。
     - 待补（F-0047 | 未满足原因：外部 API 超时与错误分类具备（cloudflare 10s/epusdt 10s/servify 5s 等+typed 错误），但出站限流缺失：ratelimit/limiter.go 仅用于入站节流，出站无 x/time/rate、无熔断器——留待补。）
 -   [x] `F-0048` 所有外部依赖故障不得阻塞 Server 核心 API。
-    - 备注（Task ID: F-0048 | Status: Done | Evidence: 外部依赖故障不阻塞核心 API——health 仅本地 DB+hub 数(router.go:400)、外部循环均后台 goroutine(main.go:142-280)、servify 不可达降级 enabled=false(support.go:44,77) | Verification: TestHealth/TestEventResultHeraldCallback | Commit: 见本批提交）
+    - 备注（Task ID: F-0048 | Status: Done | Evidence: 外部依赖故障不阻塞核心 API——health 仅本地 DB+hub 数(router.go:400)、外部循环均后台 goroutine(main.go:142-280)、servify 不可达降级 enabled=false(support.go:44,77) | Verification: TestHealth/TestEventResultHeraldCallback | Commit: c79d570）
 -   [x] `F-0049` 所有新增指标必须有真实采集来源。
-    - 备注（Task ID: F-0049 | Status: Done | Evidence: 指标均有真实来源——流量来自 xray gRPC 统计(traffic.go+xraystats)、proc 指标轮询真实 MetricsURL(procs/manager.go:444)、成本来自 NodeTrafficLog 聚合(cost.go:96)、节点状态来自心跳(agentws.go:184)；SAVE-5 缓存命中率无源如实注记未纳入 | Verification: TestAgentWSProcStatus/TestBuild | Commit: 见本批提交）
+    - 备注（Task ID: F-0049 | Status: Done | Evidence: 指标均有真实来源——流量来自 xray gRPC 统计(traffic.go+xraystats)、proc 指标轮询真实 MetricsURL(procs/manager.go:444)、成本来自 NodeTrafficLog 聚合(cost.go:96)、节点状态来自心跳(agentws.go:184)；SAVE-5 缓存命中率无源如实注记未纳入 | Verification: TestAgentWSProcStatus/TestBuild | Commit: c79d570）
 -   [x] `F-0050` 所有功能完成后更新对应任务状态和文档。
-    - 备注（Task ID: F-0050 | Status: Done | Evidence: 任务状态经 todo.md 证据行（备注 Task ID|Status|Evidence|Verification|Commit）；文档经 docs/audit-platform-impl-2026-11-03.md+审计-文档一致性.md 同步 | Verification: 既有 228 条已勾项备注+git 历史 | Commit: 见本批提交）
+    - 备注（Task ID: F-0050 | Status: Done | Evidence: 任务状态经 todo.md 证据行（备注 Task ID|Status|Evidence|Verification|Commit）；文档经 docs/audit-platform-impl-2026-11-03.md+审计-文档一致性.md 同步 | Verification: 既有 228 条已勾项备注+git 历史 | Commit: c79d570）
 
 ------------------------------------------------------------------------
 
@@ -586,7 +586,7 @@
 -   [x] `F-0106` 管理线路探测、健康状态和质量历史。
     - 备注（Task ID: F-0106 | Status: Done | Evidence: ProbeReport models.go:181+dimension/transport 状态；TestAgentWSProbeReport/TestSweepPersistsDimensions | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0107` 管理全局 Policy 和线路调度。
-    - 备注（Task ID: F-0107 | Status: Done | Evidence: 全局 Policy——alloc.go:23-27 常量+LoadPolicy:94+Pick:217+Loop:395+Sweep:437+LandingAssignment(models.go:183)；handler allocapi.go:13,25；路由 router.go:176-177 | Verification: TestPickCostFirst/TestPolicyPersistence/TestSweepAllocatesAndSwitches/TestAllocAPI | Commit: 见本批提交）
+    - 备注（Task ID: F-0107 | Status: Done | Evidence: 全局 Policy——alloc.go:23-27 常量+LoadPolicy:94+Pick:217+Loop:395+Sweep:437+LandingAssignment(models.go:183)；handler allocapi.go:13,25；路由 router.go:176-177 | Verification: TestPickCostFirst/TestPolicyPersistence/TestSweepAllocatesAndSwitches/TestAllocAPI | Commit: c79d570）
 -   [x] `F-0108` 编译并下发 Agent 和数据面配置。
     - 备注（Task ID: F-0108 | Status: Done | Evidence: relaypush+configd；TestPushAckApplied/TestApplyReloadFailRollsBack | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0109` 生成 sing-box、Clash/Mihomo 等客户端订阅。
@@ -594,7 +594,7 @@
 -   [x] `F-0110` 管理流量计量、配额、订单和支付。
     - 备注（Task ID: F-0110 | Status: Done | Evidence: TrafficLog/QuotaAction/PaymentOrder models.go:116/636/327；TestAgentWSTrafficReport/TestEpusdtNotify | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0111` 管理云服务商账号、资源生命周期和成本。
-    - 备注（Task ID: F-0111 | Status: Done | Evidence: Provider 账号(models.go:480+providerapi.go:34-129)、资源生命周期(ProvisionTemplate models.go:492+ProvisionJob:514+provision.go:113-180+provisionapi.go:105)、成本(models.go:105-108+costapi.go+costref.go) | Verification: TestProviderAPI/TestProvisionRunAPI/TestCostAPI/TestCostRefTableAndProbe | Commit: 见本批提交）
+    - 备注（Task ID: F-0111 | Status: Done | Evidence: Provider 账号(models.go:480+providerapi.go:34-129)、资源生命周期(ProvisionTemplate models.go:492+ProvisionJob:514+provision.go:113-180+provisionapi.go:105)、成本(models.go:105-108+costapi.go+costref.go) | Verification: TestProviderAPI/TestProvisionRunAPI/TestCostAPI/TestCostRefTableAndProbe | Commit: c79d570）
 -   [x] `F-0112` 提供管理员 Dash 和用户 Panel。
     - 备注（Task ID: F-0112 | Status: Done | Evidence: dash 17 视图+panel 5 视图+router.ts:36 守卫；pnpm build 双绿 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0113` 提供监控、告警、审计、备份和恢复。
@@ -603,20 +603,20 @@
 ## 1.2 明确不做的能力
 
 -   [x] `F-0121` 不开发 Ferry Desktop。
-    - 备注（Task ID: F-0121 | Status: Done | Evidence: 无 Desktop 目录/electron/tauri/tray 命中（find+grep 零命中，排除 node_modules） | Verification: 仓顶层 dirs=agent/dash/deploy/docs/packages/panel/payments/server | Commit: 见本批提交）
+    - 备注（Task ID: F-0121 | Status: Done | Evidence: 无 Desktop 目录/electron/tauri/tray 命中（find+grep 零命中，排除 node_modules） | Verification: 仓顶层 dirs=agent/dash/deploy/docs/packages/panel/payments/server | Commit: c79d570）
 -   [x] `F-0122` 不开发 Ferry 自有代理客户端。
-    - 备注（Task ID: F-0122 | Status: Done | Evidence: 无 TUN 客户端；agent 仅出站(link.go:10)，唯一监听为 relay 数据面转发(relay.go:126-221) | Verification: grep tun/tun2socks/wintun 零命中 | Commit: 见本批提交）
+    - 备注（Task ID: F-0122 | Status: Done | Evidence: 无 TUN 客户端；agent 仅出站(link.go:10)，唯一监听为 relay 数据面转发(relay.go:126-221) | Verification: grep tun/tun2socks/wintun 零命中 | Commit: c79d570）
 -   [x] `F-0123` 不实现自有 TUN 或系统代理接管。
-    - 备注（Task ID: F-0123 | Status: Done | Evidence: 无 TUN 开设备/系统代理写入（grep tun/sysproxy/transparent 零命中） | Verification: grep 非测试零命中 | Commit: 见本批提交）
+    - 备注（Task ID: F-0123 | Status: Done | Evidence: 无 TUN 开设备/系统代理写入（grep tun/sysproxy/transparent 零命中） | Verification: grep 非测试零命中 | Commit: c79d570）
 -   [x] `F-0124` 不实现客户端本地 DNS 和规则执行引擎。
-    - 备注（Task ID: F-0124 | Status: Done | Evidence: 无本地 DNS/规则引擎——routing.go:3-14 仅渲染规则引用进模板；dns.go 为 DNS 商 API 插件；geodns.go 不自建权威 DNS | Verification: routing.go+dns.go+geodns.go | Commit: 见本批提交）
+    - 备注（Task ID: F-0124 | Status: Done | Evidence: 无本地 DNS/规则引擎——routing.go:3-14 仅渲染规则引用进模板；dns.go 为 DNS 商 API 插件；geodns.go 不自建权威 DNS | Verification: routing.go+dns.go+geodns.go | Commit: c79d570）
 -   [x] `F-0125` 不重复实现 sing-box、Clash/Mihomo 等代理协议栈。
-    - 备注（Task ID: F-0125 | Status: Done | Evidence: 不重复实现协议栈——sub/ 仅生成订阅(links.go URIs/clash.go:72/singbox.go:165)，go.mod 无 sing-box/clash/xray-core 依赖，无 vendor/协议帧；内核为外部进程(procs/manager.go) | Verification: TestPackV2Ray/TestPackClash/TestPackSingBoxMixedFleet | Commit: 见本批提交）
+    - 备注（Task ID: F-0125 | Status: Done | Evidence: 不重复实现协议栈——sub/ 仅生成订阅(links.go URIs/clash.go:72/singbox.go:165)，go.mod 无 sing-box/clash/xray-core 依赖，无 vendor/协议帧；内核为外部进程(procs/manager.go) | Verification: TestPackV2Ray/TestPackClash/TestPackSingBoxMixedFleet | Commit: c79d570）
 -   [x] `F-0126` 不把第三方客户端的本地运行状态当作 Ferry
-    - 备注（Task ID: F-0126 | Status: Done | Evidence: 订阅生成纯静态自 DB——RttMs 来自服务端 ProbeReport 非客户端态(links.go:147)；rotate.go:8-10 明确不消费客户端状态 | Verification: server/internal/sub 非测试零 client-state 命中 | Commit: 见本批提交）
+    - 备注（Task ID: F-0126 | Status: Done | Evidence: 订阅生成纯静态自 DB——RttMs 来自服务端 ProbeReport 非客户端态(links.go:147)；rotate.go:8-10 明确不消费客户端状态 | Verification: server/internal/sub 非测试零 client-state 命中 | Commit: c79d570）
     可直接控制的状态。
 -   [x] `F-0127` 不把云服务商 API 调用逻辑散落在 Node、Path 或 Dash
-    - 备注（Task ID: F-0127 | Status: Done | Evidence: 云 API 集中于 provision（OpenTofu，provision.go:1-5），零云 SDK import，node.go 零 provision 调用，dash 仅调 Ferry API | Verification: provision.go+go.mod+node.go | Commit: 见本批提交）
+    - 备注（Task ID: F-0127 | Status: Done | Evidence: 云 API 集中于 provision（OpenTofu，provision.go:1-5），零云 SDK import，node.go 零 provision 调用，dash 仅调 Ferry API | Verification: provision.go+go.mod+node.go | Commit: c79d570）
     页面中。
 
 ## 1.3 逻辑架构
@@ -648,19 +648,19 @@ External Client
 ```
 
 -   [x] `F-0131` 明确 Server 是业务控制面的权威来源。
-    - 备注（Task ID: F-0131 | Status: Done | Evidence: 业务状态全在服务端(models.go 47 类型+quota.go:54)；agent 无 DB（grep gorm/sqlite 零命中）；面板为元数据权威(agentws.go:101,152) | Verification: TestUserCRUD+agent 无 db dep | Commit: 见本批提交）
+    - 备注（Task ID: F-0131 | Status: Done | Evidence: 业务状态全在服务端(models.go 47 类型+quota.go:54)；agent 无 DB（grep gorm/sqlite 零命中）；面板为元数据权威(agentws.go:101,152) | Verification: TestUserCRUD+agent 无 db dep | Commit: c79d570）
 -   [x] `F-0132` 明确 Agent 只保存本机运行所需的期望配置和实际状态。
-    - 备注（Task ID: F-0132 | Status: Done | Evidence: Agent 仅存期望配置+实际状态——config.go:78-88 无用户/订单/配额数据；实际态为内存运行时(procs/manager.go:137) | Verification: config.go+零持久化 | Commit: 见本批提交）
+    - 备注（Task ID: F-0132 | Status: Done | Evidence: Agent 仅存期望配置+实际状态——config.go:78-88 无用户/订单/配额数据；实际态为内存运行时(procs/manager.go:137) | Verification: config.go+零持久化 | Commit: c79d570）
 -   [x] `F-0133` 明确 Probe 负责测量，不拥有全局调度权。
-    - 备注（Task ID: F-0133 | Status: Done | Evidence: Probe 本地测量上报(probe.go:3-6)，全局调度在服务端(alloc.go:1-8+aggregate.go+monitor.go) | Verification: TestProbeHealthy/TestProbeUnreachable | Commit: 见本批提交）
+    - 备注（Task ID: F-0133 | Status: Done | Evidence: Probe 本地测量上报(probe.go:3-6)，全局调度在服务端(alloc.go:1-8+aggregate.go+monitor.go) | Verification: TestProbeHealthy/TestProbeUnreachable | Commit: c79d570）
 -   [x] `F-0134` 明确 Relay 负责数据转发，不拥有用户和套餐业务状态。
-    - 备注（Task ID: F-0134 | Status: Done | Evidence: Relay 仅转发——relay.go:1-6 双向 io.Copy(relay.go:200-221)，RelaySpec 无用户/套餐/配额字段 | Verification: TestRelayForwards/TestRelayHotRepoint/TestRelayValidation | Commit: 见本批提交）
+    - 备注（Task ID: F-0134 | Status: Done | Evidence: Relay 仅转发——relay.go:1-6 双向 io.Copy(relay.go:200-221)，RelaySpec 无用户/套餐/配额字段 | Verification: TestRelayForwards/TestRelayHotRepoint/TestRelayValidation | Commit: c79d570）
 -   [x] `F-0135` 确保用户实际数据流量不经过 Ferry Server。
-    - 备注（Task ID: F-0135 | Status: Done | Evidence: 数据面不经 Server——server 无 net.Listen/net.Dial/io.Copy（非测试仅 HTTP 体 drain）；用户→entry relay→landing 全 agent 侧 | Verification: grep server 数据面零命中+relay.go:107 | Commit: 见本批提交）
+    - 备注（Task ID: F-0135 | Status: Done | Evidence: 数据面不经 Server——server 无 net.Listen/net.Dial/io.Copy（非测试仅 HTTP 体 drain）；用户→entry relay→landing 全 agent 侧 | Verification: grep server 数据面零命中+relay.go:107 | Commit: c79d570）
 -   [x] `F-0136` 确保 Server 短时不可用不导致已建立的数据面立即停止。
-    - 备注（Task ID: F-0136 | Status: Done | Evidence: Server 不可用不停数据面——relay 独立进程不直连面板(main.go:53-66)；OnDisconnected 仅停心跳(link.go:58-79)；spool 缓冲角色上报 | Verification: TestRunReconnectsUntilCancel/TestRoleForwardsToSpool | Commit: 见本批提交）
+    - 备注（Task ID: F-0136 | Status: Done | Evidence: Server 不可用不停数据面——relay 独立进程不直连面板(main.go:53-66)；OnDisconnected 仅停心跳(link.go:58-79)；spool 缓冲角色上报 | Verification: TestRunReconnectsUntilCancel/TestRoleForwardsToSpool | Commit: c79d570）
 -   [x] `F-0137` 确保 Server 恢复后可以与 Agent 对账并恢复管理状态。
-    - 备注（Task ID: F-0137 | Status: Done | Evidence: 重连对账——agent 重 hello→面板权威 meta(agentws.go:104-112)+重推配置(agentws.go:138)+configd 原子对账(configd.go:60-117)+心跳 proc 快照去重(agentws_dedupe.go) | Verification: TestAgentWSHelloMeta/TestAgentWSHeartbeat/TestAgentWSConfigPush | Commit: 见本批提交）
+    - 备注（Task ID: F-0137 | Status: Done | Evidence: 重连对账——agent 重 hello→面板权威 meta(agentws.go:104-112)+重推配置(agentws.go:138)+configd 原子对账(configd.go:60-117)+心跳 proc 快照去重(agentws_dedupe.go) | Verification: TestAgentWSHelloMeta/TestAgentWSHeartbeat/TestAgentWSConfigPush | Commit: c79d570）
 
 ------------------------------------------------------------------------
 
