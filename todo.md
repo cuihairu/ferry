@@ -1466,7 +1466,7 @@ External Client
 -   [x] `F-1201` 审计 User、Plan、Subscription 和 Device 模型。
     - 备注（Task ID: F-1201 | Status: Done | Evidence: User/Plan/Subscription/Device 模型审计 §3.1+§3.7（结论：Plan/Subscription 表未建） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1202` 明确用户状态机。
-    - 备注（Task ID: F-1202 | Status: Done | Evidence: sub/availability.go:11-22 UserActive 四态（启用/到期/超配额/不限）+sub.go:48-52 禁用 404+review.go DisableInactive 周期停用 | Verification: TestUserActive（sub/availability_test.go:11）+TestSubscriptionAvailability（sub_test.go:128）+TestDisableInactiveRespectsResetCycle（review_test.go:88） | Commit: 见本批提交）
+    - 备注（Task ID: F-1202 | Status: Done | Evidence: sub/availability.go:11-22 UserActive 四态（启用/到期/超配额/不限）+sub.go:48-52 禁用 404+review.go DisableInactive 周期停用 | Verification: TestUserActive（sub/availability_test.go:11）+TestSubscriptionAvailability（sub_test.go:128）+TestDisableInactiveRespectsResetCycle（review_test.go:88） | Commit: ad8f965）
 -   [ ] `F-1203` 明确套餐生效和过期规则。
     - 待补（F-1203 | 部分：到期规则明确（User.ExpiresAt models.go:12+UserActive 到期分支+模板默认 usertemplate.go:128-130）；无套餐实体/生效窗口——套餐=单套 user_template KV+每用户 ExpiresAt，无结构化生效窗口。）
 -   [x] `F-1204` 明确套餐流量周期。
@@ -1491,7 +1491,7 @@ External Client
 -   [x] `F-1221` 审计现有 HWID 和设备数限制。
     - 备注（Task ID: F-1221 | Status: Done | Evidence: HWID 与设备数限制审计 §3.7（SubDevice idx_subdev_key+TestSubscriptionDeviceLimit） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1222` 统一设备绑定规则。
-    - 备注（Task ID: F-1222 | Status: Done | Evidence: subdevice.go:18-82 subDeviceCheck 统一 hwid/ip 双 kind 绑定+复合唯一索引 models.go:68-76+24h IP 窗懒清理 | Verification: TestSubscriptionDeviceLimit+TestSubscriptionIPLimit+TestSubDeviceLimitValidation+TestSubDevicePruneUnlimited（subdevice_test.go:43/80/182/133） | Commit: 见本批提交）
+    - 备注（Task ID: F-1222 | Status: Done | Evidence: subdevice.go:18-82 subDeviceCheck 统一 hwid/ip 双 kind 绑定+复合唯一索引 models.go:68-76+24h IP 窗懒清理 | Verification: TestSubscriptionDeviceLimit+TestSubscriptionIPLimit+TestSubDeviceLimitValidation+TestSubDevicePruneUnlimited（subdevice_test.go:43/80/182/133） | Commit: ad8f965）
 -   [x] `F-1223` 支持设备列表。
     - 备注（Task ID: F-1223 | Status: Done | Evidence: GET devices；TestUserDevicesErrors+TestPanelMeDeviceUsage | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1224` 支持设备解绑。
@@ -1501,7 +1501,7 @@ External Client
 -   [ ] `F-1226` 支持异常设备告警。
     - 待补（F-1226 | 部分：仅设备/IP 超限告警（subdevice.go:136-156 herald.KindDeviceLimit 按用户按日去重）；无异常设备检测（异常 UA/IP/偏离）。）
 -   [x] `F-1227` 避免仅凭 IP 变化认定设备变化。
-    - 备注（Task ID: F-1227 | Status: Done | Evidence: subdevice.go:56-80 设备身份=hwid 行；IP 变化仅新增 ip-kind 行不重认/重计设备；无 hwid 请求不落设备行 | Verification: TestSubscriptionDeviceLimit+TestSubscriptionIPLimit（subdevice_test.go:43/80） | Commit: 见本批提交）
+    - 备注（Task ID: F-1227 | Status: Done | Evidence: subdevice.go:56-80 设备身份=hwid 行；IP 变化仅新增 ip-kind 行不重认/重计设备；无 hwid 请求不落设备行 | Verification: TestSubscriptionDeviceLimit+TestSubscriptionIPLimit（subdevice_test.go:43/80） | Commit: ad8f965）
 
 ## 10.3 流量记账
 
@@ -1512,7 +1512,7 @@ External Client
 -   [ ] `F-1243` 防止入口和落地重复计费。
     - 待补（F-1243 | 部分：at-most-once 去重（agentws_dedupe）+离线即丢（traffic.go:219-226）防帧重传重复计；无入口/落地双端防重守卫或测试。）
 -   [x] `F-1244` 统一流量单位。
-    - 备注（Task ID: F-1244 | Status: Done | Evidence: 全链路统一字节 int64：rx_bytes/tx_bytes（models.go:138-139/266-267）+proto Rx/Tx uint64（messages.go:202-203）+agentws.go:335-340 直拷；GB 仅计价/展示 | Verification: traffic_test.go:55-58 原值透传+TestAgentWSTrafficReport（agentws_test.go:477） | Commit: 见本批提交）
+    - 备注（Task ID: F-1244 | Status: Done | Evidence: 全链路统一字节 int64：rx_bytes/tx_bytes（models.go:138-139/266-267）+proto Rx/Tx uint64（messages.go:202-203）+agentws.go:335-340 直拷；GB 仅计价/展示 | Verification: traffic_test.go:55-58 原值透传+TestAgentWSTrafficReport（agentws_test.go:477） | Commit: ad8f965）
 -   [ ] `F-1245` 统一上行和下行定义。
     - 待补（F-1245 | 部分：agent 口径 downlink=Rx=用户收/uplink=Tx=用户发（xraystats.go:33-34）；客户端 Subscription-Userinfo 映射 upload=Rx/download=Tx（sub.go:114,180）——与 agent 口径上下行相反。）
 -   [x] `F-1246` 支持用户维度统计。
@@ -1622,16 +1622,16 @@ External Client
 -   [ ] `F-1407` 展示区域资源分布。
     - 待补（F-1407 | 部分：区域维度卡（NodesView.vue:731-745）；无专门分布视图。）
 -   [x] `F-1408` 展示告警摘要。
-    - 备注（Task ID: F-1408 | Status: Done | Evidence: NodesView.vue:151-196 活跃告警徽标+对话框（:608-610/:875-901，api getAlerts:400） | Verification: API 侧 TestAlertGuards（alerts_test.go:276）；dash 无前端单测 | Commit: 见本批提交）
+    - 备注（Task ID: F-1408 | Status: Done | Evidence: NodesView.vue:151-196 活跃告警徽标+对话框（:608-610/:875-901，api getAlerts:400） | Verification: API 侧 TestAlertGuards（alerts_test.go:276）；dash 无前端单测 | Commit: ce8b33e）
 -   [x] `F-1409` 展示本月云资源成本摘要。
-    - 备注（Task ID: F-1409 | Status: Done | Evidence: CostView.vue:278-295 摘要卡（月至今流量/月固定/月度预估/节点数） | Verification: API 侧 TestCostAPI（costapi_test.go）；dash 无前端单测 | Commit: 见本批提交）
+    - 备注（Task ID: F-1409 | Status: Done | Evidence: CostView.vue:278-295 摘要卡（月至今流量/月固定/月度预估/节点数） | Verification: API 侧 TestCostAPI（costapi_test.go）；dash 无前端单测 | Commit: ce8b33e）
 -   [ ] `F-1410` 展示估算成本与实际账单差异。
     - 待补（F-1410 | 未满足：有月度预估（CostView.vue:287-290）；无实际账单对比。）
 
 ## 12.2 节点与线路
 
 -   [x] `F-1421` 提供节点列表和筛选。
-    - 备注（Task ID: F-1421 | Status: Done | Evidence: NodesView.vue:598-727 列表+role 筛选+节点/区域/ISP 三视图 | Verification: docs/audit-platform-impl-2026-11-03.md §3.11（17 dash 视图确认）；dash 无前端单测 | Commit: 见本批提交）
+    - 备注（Task ID: F-1421 | Status: Done | Evidence: NodesView.vue:598-727 列表+role 筛选+节点/区域/ISP 三视图 | Verification: docs/audit-platform-impl-2026-11-03.md §3.11（17 dash 视图确认）；dash 无前端单测 | Commit: ce8b33e）
 -   [ ] `F-1422` 提供节点详情。
     - 待补（F-1422 | 部分：仅编辑对话框，无专门详情页（NodesView.vue:747-810）。）
 -   [ ] `F-1423` 展示 Node 关联的 Cloud Resource。
@@ -1641,7 +1641,7 @@ External Client
 -   [ ] `F-1425` 展示节点配置版本。
     - 待补（F-1425 | 未满足：/api/nodes/:id/configs（router.go:206）有路由无 UI。）
 -   [x] `F-1426` 提供节点维护和启停管理。
-    - 备注（Task ID: F-1426 | Status: Done | Evidence: NodesView.vue:109-148 proc start/stop/reload+pool suspend/resume/standby（:358-372 batch proc/:714-723） | Verification: 后端 TestNodeProcOp/TestBatchNodeProc（procop_test.go）；dash 无前端单测 | Commit: 见本批提交）
+    - 备注（Task ID: F-1426 | Status: Done | Evidence: NodesView.vue:109-148 proc start/stop/reload+pool suspend/resume/standby（:358-372 batch proc/:714-723） | Verification: 后端 TestNodeProcOp/TestBatchNodeProc（procop_test.go）；dash 无前端单测 | Commit: ce8b33e）
 -   [ ] `F-1427` 提供 Path 列表。
     - 待补（F-1427 | 部分：仅 landing assignment 列表（LandingsView.vue:189-230）；无 Path 实体。）
 -   [ ] `F-1428` 提供 Path 详情。
@@ -1649,7 +1649,7 @@ External Client
 -   [ ] `F-1429` 提供 Path Group 管理。
     - 待补（F-1429 | 部分：区域级指派+传输状态（LandingsView.vue:266-283）；无 PathGroup 模型。）
 -   [x] `F-1430` 提供 Policy 管理。
-    - 备注（Task ID: F-1430 | Status: Done | Evidence: LandingsView.vue:232-264 alloc policy out/in/rebalance/权重（api putAllocPolicy:160） | Verification: API 侧 TestAllocPolicy（allocapi_test.go）；dash 无前端单测 | Commit: 见本批提交）
+    - 备注（Task ID: F-1430 | Status: Done | Evidence: LandingsView.vue:232-264 alloc policy out/in/rebalance/权重（api putAllocPolicy:160） | Verification: API 侧 TestAllocPolicy（allocapi_test.go）；dash 无前端单测 | Commit: ce8b33e）
 -   [ ] `F-1431` 展示调度候选和排除原因。
     - 待补（F-1431 | 部分：手动 entry/landing 选择（LandingsView.vue:285-325）；无排除列表。）
 -   [ ] `F-1432` 展示探测历史和质量趋势。
@@ -1658,7 +1658,7 @@ External Client
 ## 12.3 云服务商与资源
 
 -   [x] `F-1441` 提供 Provider 管理入口。
-    - 备注（Task ID: F-1441 | Status: Done | Evidence: ProvisionView.vue:173-199/:263-282 provider CRUD（api :592-604） | Verification: API 侧 TestProviderAPI（providerapi_test.go:40）；dash 无前端单测 | Commit: 见本批提交）
+    - 备注（Task ID: F-1441 | Status: Done | Evidence: ProvisionView.vue:173-199/:263-282 provider CRUD（api :592-604） | Verification: API 侧 TestProviderAPI（providerapi_test.go:40）；dash 无前端单测 | Commit: ce8b33e）
 -   [ ] `F-1442` 提供 Cloud Account 管理入口。
     - 待补（F-1442 | 区级未满足原因：云资源与云操作页面未实现——无 CloudResource 模型即无资源列表/详情/关联/电源/重装/批量/同步/错误页；本区 F-1443~F-1454、F-1456~F-1457 未满足；F-1442 部分（provider 含加密 access_key 兼作账号，无独立 account 实体）；F-1455 部分（仅 provision job 状态/日志，非资源操作进度）。）
 -   [ ] `F-1443` 提供账号连接测试。
@@ -1680,17 +1680,17 @@ External Client
 ## 12.4 成本与账单
 
 -   [x] `F-1461` 提供成本总览。
-    - 备注（Task ID: F-1461 | Status: Done | Evidence: CostView.vue:278-295 成本总览摘要卡 | Verification: API 侧 TestCostAPI（costapi_test.go）；dash 无前端单测 | Commit: 见本批提交）
+    - 备注（Task ID: F-1461 | Status: Done | Evidence: CostView.vue:278-295 成本总览摘要卡 | Verification: API 侧 TestCostAPI（costapi_test.go）；dash 无前端单测 | Commit: ce8b33e）
 -   [ ] `F-1462` 提供 Provider 成本统计。
     - 待补（F-1462 | 部分：仅节点/区域/ISP 维度（CostView.vue:306-360）；无 Provider 维度成本。）
 -   [ ] `F-1463` 提供账号成本统计。
     - 待补（F-1463 | 未满足：无账号维度成本。）
 -   [x] `F-1464` 提供区域成本统计。
-    - 备注（Task ID: F-1464 | Status: Done | Evidence: CostView.vue:333-349 区域汇总表（节点/流量花费/固定成本/月度预估） | Verification: API 侧 TestCostAPI（costapi_test.go）；dash 无前端单测 | Commit: 见本批提交）
+    - 备注（Task ID: F-1464 | Status: Done | Evidence: CostView.vue:333-349 区域汇总表（节点/流量花费/固定成本/月度预估） | Verification: API 侧 TestCostAPI（costapi_test.go）；dash 无前端单测 | Commit: ce8b33e）
 -   [ ] `F-1465` 提供资源成本统计。
     - 待补（F-1465 | 未满足：无资源维度成本。）
 -   [x] `F-1466` 提供 Node 成本统计。
-    - 备注（Task ID: F-1466 | Status: Done | Evidence: CostView.vue:306-329 节点行（月流量/流量花费/固定成本/月度预估） | Verification: API 侧 TestCostAPI（costapi_test.go）；dash 无前端单测 | Commit: 见本批提交）
+    - 备注（Task ID: F-1466 | Status: Done | Evidence: CostView.vue:306-329 节点行（月流量/流量花费/固定成本/月度预估） | Verification: API 侧 TestCostAPI（costapi_test.go）；dash 无前端单测 | Commit: ce8b33e）
 -   [ ] `F-1467` 提供 Path 成本估算。
     - 待补（F-1467 | 未满足：无 Path 成本。）
 -   [ ] `F-1468` 提供账单导入和同步任务管理。
@@ -1725,42 +1725,42 @@ External Client
 -   [ ] `F-1486` 提供 Agent 升级任务列表。
     - 待补（F-1486 | 部分：逐节点升级对话框（NodesView.vue:445-483）；无任务列表。）
 -   [x] `F-1487` 提供自动恢复任务列表。
-    - 备注（Task ID: F-1487 | Status: Done | Evidence: RecoveryView.vue:74-121 recoveries 列表+action 回放（api :795-799） | Verification: API 侧 TestTraceRowsReplay（recovery_test.go）；dash 无前端单测 | Commit: 见本批提交）
+    - 备注（Task ID: F-1487 | Status: Done | Evidence: RecoveryView.vue:74-121 recoveries 列表+action 回放（api :795-799） | Verification: API 侧 TestTraceRowsReplay（recovery_test.go）；dash 无前端单测 | Commit: ce8b33e）
 -   [x] `F-1488` 提供操作审计查询。
-    - 备注（Task ID: F-1488 | Status: Done | Evidence: AuditView.vue:49-66 查询（api getAuditLogs:1034） | Verification: API 侧 TestAuditLogsQuery（audit_test.go）；dash 无前端单测 | Commit: 见本批提交）
+    - 备注（Task ID: F-1488 | Status: Done | Evidence: AuditView.vue:49-66 查询（api getAuditLogs:1034） | Verification: API 侧 TestAuditLogsQuery（audit_test.go）；dash 无前端单测 | Commit: ce8b33e）
 -   [x] `F-1489` 提供告警确认和关闭入口。
-    - 备注（Task ID: F-1489 | Status: Done | Evidence: NodesView.vue:184-196 resolveOne（api resolveAlert:420） | Verification: API 侧 TestAlertGuards（alerts_test.go）；dash 无前端单测 | Commit: 见本批提交）
+    - 备注（Task ID: F-1489 | Status: Done | Evidence: NodesView.vue:184-196 resolveOne（api resolveAlert:420） | Verification: API 侧 TestAlertGuards（alerts_test.go）；dash 无前端单测 | Commit: ce8b33e）
 
 ------------------------------------------------------------------------
 
 # 13. Panel 用户面板
 
 -   [x] `F-1501` 展示用户账户信息。
-    - 备注（Task ID: F-1501 | Status: Done | Evidence: panel HomeView.vue:199-215 账户卡（/api/panel/me api.ts Me:41-55） | Verification: API 侧 TestPanelMe（panel_test.go）；panel 无前端单测 | Commit: 见本批提交）
+    - 备注（Task ID: F-1501 | Status: Done | Evidence: panel HomeView.vue:199-215 账户卡（/api/panel/me api.ts Me:41-55） | Verification: API 侧 TestPanelMe（panel_test.go）；panel 无前端单测 | Commit: ce8b33e）
 -   [ ] `F-1502` 展示当前套餐。
     - 待补（F-1502 | 部分：配额/状态卡（HomeView.vue:208-213）；无套餐实体展示。）
 -   [x] `F-1503` 展示套餐到期时间。
-    - 备注（Task ID: F-1503 | Status: Done | Evidence: HomeView.vue:210 到期字段 formatDate(me.expires_at) | Verification: API 侧 TestPanelMe（panel_test.go）；panel 无前端单测 | Commit: 见本批提交）
+    - 备注（Task ID: F-1503 | Status: Done | Evidence: HomeView.vue:210 到期字段 formatDate(me.expires_at) | Verification: API 侧 TestPanelMe（panel_test.go）；panel 无前端单测 | Commit: ce8b33e）
 -   [x] `F-1504` 展示流量使用情况。
-    - 备注（Task ID: F-1504 | Status: Done | Evidence: HomeView.vue:201-207 用量表+meter（used/quota+剩余） | Verification: API 侧 TestPanelMe（panel_test.go）；panel 无前端单测 | Commit: 见本批提交）
+    - 备注（Task ID: F-1504 | Status: Done | Evidence: HomeView.vue:201-207 用量表+meter（used/quota+剩余） | Verification: API 侧 TestPanelMe（panel_test.go）；panel 无前端单测 | Commit: ce8b33e）
 -   [ ] `F-1505` 展示设备列表。
     - 待补（F-1505 | 未满足：仅设备计数（HomeView.vue:212）；无列表。）
 -   [ ] `F-1506` 提供设备解绑。
     - 待补（F-1506 | 未满足：面板无设备解绑。）
 -   [x] `F-1507` 展示订阅地址。
-    - 备注（Task ID: F-1507 | Status: Done | Evidence: HomeView.vue:227-248 订阅链接（v2ray/clash target） | Verification: API 侧 TestSubscription（sub_test.go）；panel 无前端单测 | Commit: 见本批提交）
+    - 备注（Task ID: F-1507 | Status: Done | Evidence: HomeView.vue:227-248 订阅链接（v2ray/clash target） | Verification: API 侧 TestSubscription（sub_test.go）；panel 无前端单测 | Commit: ce8b33e）
 -   [ ] `F-1508` 支持订阅令牌重置。
     - 待补（F-1508 | 未满足：sub_token 在 Me 返回（api.ts:44）但面板无重置 UI（管理端 UsersView.vue:148 有）。）
 -   [x] `F-1509` 支持选择订阅格式。
-    - 备注（Task ID: F-1509 | Status: Done | Evidence: HomeView.vue:108-111/:230-247 通用（v2ray/base64）与 clash/mihomo（YAML）两种格式链接 | Verification: API 侧 TestSubscriptionFormats（sub_test.go）；panel 无前端单测 | Commit: 见本批提交）
+    - 备注（Task ID: F-1509 | Status: Done | Evidence: HomeView.vue:108-111/:230-247 通用（v2ray/base64）与 clash/mihomo（YAML）两种格式链接 | Verification: API 侧 TestSubscriptionFormats（sub_test.go）；panel 无前端单测 | Commit: ce8b33e）
 -   [ ] `F-1510` 提供 sing-box 导入说明。
     - 待补（F-1510 | 未满足：无 sing-box 导入说明。）
 -   [ ] `F-1511` 提供 Clash/Mihomo 导入说明。
     - 待补（F-1511 | 未满足：仅 YAML 链接，无导入指引。）
 -   [x] `F-1512` 展示公告。
-    - 备注（Task ID: F-1512 | Status: Done | Evidence: NotificationsView.vue:54-59/:75-89 announcement 类型通知 | Verification: API 侧 TestPanelNotifications（panel_test.go）；panel 无前端单测 | Commit: 见本批提交）
+    - 备注（Task ID: F-1512 | Status: Done | Evidence: NotificationsView.vue:54-59/:75-89 announcement 类型通知 | Verification: API 侧 TestPanelNotifications（panel_test.go）；panel 无前端单测 | Commit: ce8b33e）
 -   [x] `F-1513` 展示订单和支付记录。
-    - 备注（Task ID: F-1513 | Status: Done | Evidence: OrdersView.vue:46-78 订单卡（渠道/金额/权益/支付/退款） | Verification: API 侧 TestPanelOrders（panel_test.go）；panel 无前端单测 | Commit: 见本批提交）
+    - 备注（Task ID: F-1513 | Status: Done | Evidence: OrdersView.vue:46-78 订单卡（渠道/金额/权益/支付/退款） | Verification: API 侧 TestPanelOrders（panel_test.go）；panel 无前端单测 | Commit: ce8b33e）
 -   [ ] `F-1514` 展示账单和套餐历史。
     - 待补（F-1514 | 部分：订单权益展示发放内容（OrdersView.vue:70-72）；无账单历史。）
 -   [ ] `F-1515` 提供账号安全设置。
@@ -1913,7 +1913,7 @@ External Client
 -   [x] `F-1731` 测试管理员越权访问。
     - 备注（Task ID: F-1731 | Status: Done | Evidence: operator 越权 403；TestAdminRoleCRUD | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1732` 测试云账号凭据泄漏。
-    - 备注（Task ID: F-1732 | Status: Done | Evidence: TestProviderAPI（providerapi_test.go:40）断言创建响应不回显密钥（:59-61）、库中存密文非明文（:68-73）、列表掩码（:81-83） | Verification: providerapi_test.go TestProviderAPI | Commit: 见本批提交）
+    - 备注（Task ID: F-1732 | Status: Done | Evidence: TestProviderAPI（providerapi_test.go:40）断言创建响应不回显密钥（:59-61）、库中存密文非明文（:68-73）、列表掩码（:81-83） | Verification: providerapi_test.go TestProviderAPI | Commit: 9fcb5ad）
 -   [ ] `F-1733` 测试高危云操作权限绕过。
     - 待补（F-1733 | 未满足：无高危云操作越权测试——TestAdminRoleCRUD（adminrole_test.go:39）仅 /api/admins 403；procop_test.go/upgrade_test.go 仅成功路径，无 403 断言。）
 -   [x] `F-1734` 测试 Agent 消息伪造和重放。
@@ -1993,7 +1993,7 @@ External Client
 -   [x] `F-1834` 告警支持确认、关闭和处理记录。
     - 备注（Task ID: F-1834 | Status: Done | Evidence: resolveAlert+Alert.ResolvedAt；TestAlertGuards | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1835` 通知通道故障不阻塞主业务。
-    - 备注（Task ID: F-1835 | Status: Done | Evidence: Herald outbox+Emit 仅插行（herald.go:89）+后台 Loop 投递（deliver.go:40），失败仅记日志；notify.Send 5s 超时（notify.go:24），通道故障不阻塞主业务 | Verification: TestEventDeliveriesBoard（heraldboard_test.go:17） | Commit: 见本批提交）
+    - 备注（Task ID: F-1835 | Status: Done | Evidence: Herald outbox+Emit 仅插行（herald.go:89）+后台 Loop 投递（deliver.go:40），失败仅记日志；notify.Send 5s 超时（notify.go:24），通道故障不阻塞主业务 | Verification: TestEventDeliveriesBoard（heraldboard_test.go:17） | Commit: 9fcb5ad）
 
 ------------------------------------------------------------------------
 
