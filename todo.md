@@ -1465,56 +1465,76 @@ External Client
 
 -   [x] `F-1201` 审计 User、Plan、Subscription 和 Device 模型。
     - 备注（Task ID: F-1201 | Status: Done | Evidence: User/Plan/Subscription/Device 模型审计 §3.1+§3.7（结论：Plan/Subscription 表未建） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1202` 明确用户状态机。
+-   [x] `F-1202` 明确用户状态机。
+    - 备注（Task ID: F-1202 | Status: Done | Evidence: sub/availability.go:11-22 UserActive 四态（启用/到期/超配额/不限）+sub.go:48-52 禁用 404+review.go DisableInactive 周期停用 | Verification: TestUserActive（sub/availability_test.go:11）+TestSubscriptionAvailability（sub_test.go:128）+TestDisableInactiveRespectsResetCycle（review_test.go:88） | Commit: 见本批提交）
 -   [ ] `F-1203` 明确套餐生效和过期规则。
+    - 待补（F-1203 | 部分：到期规则明确（User.ExpiresAt models.go:12+UserActive 到期分支+模板默认 usertemplate.go:128-130）；无套餐实体/生效窗口——套餐=单套 user_template KV+每用户 ExpiresAt，无结构化生效窗口。）
 -   [x] `F-1204` 明确套餐流量周期。
     - 备注（Task ID: F-1204 | Status: Done | Evidence: models.go:11 ResetCycle+review 尊重周期；TestDisableInactiveRespectsResetCycle | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1205` 明确套餐限速规则。
+    - 待补（F-1205 | 部分：限速字段与校验齐（BwUp/BwDown models.go:26-27+校验 usertemplate.go:58-63+PATCH user.go:226-238）；执行点在节点侧/仓外，服务端仅存储下发。）
 -   [ ] `F-1206` 明确套餐线路权限。
+    - 待补（F-1206 | 部分：无套餐线路权限字段；仅配额联动降档（超阈值只出低成本档入口 sub.go:88-102+quota/link.go:119-129），非套餐线路权限。）
 -   [ ] `F-1207` 明确套餐区域权限。
+    - 待补（F-1207 | 未满足：Region 仅节点元数据/故障聚合维度（models.go:98），订阅无条件下发全部 entry/both 节点（sub.go:73-84），无按用户/套餐的区域权限。）
 -   [x] `F-1208` 明确套餐设备数量限制。
     - 备注（Task ID: F-1208 | Status: Done | Evidence: DeviceLimit/IPLimit；TestSubscriptionDeviceLimit+TestSubscriptionIPLimit | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1209` 明确流量耗尽处理策略。
     - 备注（Task ID: F-1209 | Status: Done | Evidence: review 耗尽停用+订阅空；TestDisableInactive+TestSubscription | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1210` 支持套餐升级和降级。
+    - 待补（F-1210 | 部分：字段级变更齐（PATCH user.go:219-268+卡密发放 redeem.go:179-209+SAVE-6 自动降档）；无命名套餐升级/降级流程、无按比例折算。）
 -   [ ] `F-1211` 支持套餐变更历史。
+    - 待补（F-1211 | 部分：无套餐变更历史表；仅间接留痕：AuditLog 请求体快照（models.go:735-745）+Grant.Snapshot 变更前后快照（models.go:441-450）。）
 
 ## 10.2 设备管理
 
 -   [x] `F-1221` 审计现有 HWID 和设备数限制。
     - 备注（Task ID: F-1221 | Status: Done | Evidence: HWID 与设备数限制审计 §3.7（SubDevice idx_subdev_key+TestSubscriptionDeviceLimit） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1222` 统一设备绑定规则。
+-   [x] `F-1222` 统一设备绑定规则。
+    - 备注（Task ID: F-1222 | Status: Done | Evidence: subdevice.go:18-82 subDeviceCheck 统一 hwid/ip 双 kind 绑定+复合唯一索引 models.go:68-76+24h IP 窗懒清理 | Verification: TestSubscriptionDeviceLimit+TestSubscriptionIPLimit+TestSubDeviceLimitValidation+TestSubDevicePruneUnlimited（subdevice_test.go:43/80/182/133） | Commit: 见本批提交）
 -   [x] `F-1223` 支持设备列表。
     - 备注（Task ID: F-1223 | Status: Done | Evidence: GET devices；TestUserDevicesErrors+TestPanelMeDeviceUsage | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1224` 支持设备解绑。
+    - 待补（F-1224 | 未满足：仅 GET /api/users/:id/devices（router.go:239→subdevice.go:85-100）；无解绑/删除端点（用户删除清设备行属整户删除）。）
 -   [x] `F-1225` 支持设备上限检查。
     - 备注（Task ID: F-1225 | Status: Done | Evidence: subdevice 上限检查；TestSubDeviceLimitValidation | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1226` 支持异常设备告警。
--   [ ] `F-1227` 避免仅凭 IP 变化认定设备变化。
+    - 待补（F-1226 | 部分：仅设备/IP 超限告警（subdevice.go:136-156 herald.KindDeviceLimit 按用户按日去重）；无异常设备检测（异常 UA/IP/偏离）。）
+-   [x] `F-1227` 避免仅凭 IP 变化认定设备变化。
+    - 备注（Task ID: F-1227 | Status: Done | Evidence: subdevice.go:56-80 设备身份=hwid 行；IP 变化仅新增 ip-kind 行不重认/重计设备；无 hwid 请求不落设备行 | Verification: TestSubscriptionDeviceLimit+TestSubscriptionIPLimit（subdevice_test.go:43/80） | Commit: 见本批提交）
 
 ## 10.3 流量记账
 
 -   [x] `F-1241` 审计 traffic.report 的真实处理链路。
     - 备注（Task ID: F-1241 | Status: Done | Evidence: traffic.report 处理链路审计 §3.7（agentws.go:445→291→460） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1242` 明确入口、出口或单端计量口径。
+    - 待补（F-1242 | 部分：计量在持有用户 inbound 的节点 xray（xraystats.go:67-89）→saveUserTraffic（agentws.go:346-433）；无节点角色/单端口径判定（role 记录而流量路径忽略）。）
 -   [ ] `F-1243` 防止入口和落地重复计费。
--   [ ] `F-1244` 统一流量单位。
+    - 待补（F-1243 | 部分：at-most-once 去重（agentws_dedupe）+离线即丢（traffic.go:219-226）防帧重传重复计；无入口/落地双端防重守卫或测试。）
+-   [x] `F-1244` 统一流量单位。
+    - 备注（Task ID: F-1244 | Status: Done | Evidence: 全链路统一字节 int64：rx_bytes/tx_bytes（models.go:138-139/266-267）+proto Rx/Tx uint64（messages.go:202-203）+agentws.go:335-340 直拷；GB 仅计价/展示 | Verification: traffic_test.go:55-58 原值透传+TestAgentWSTrafficReport（agentws_test.go:477） | Commit: 见本批提交）
 -   [ ] `F-1245` 统一上行和下行定义。
+    - 待补（F-1245 | 部分：agent 口径 downlink=Rx=用户收/uplink=Tx=用户发（xraystats.go:33-34）；客户端 Subscription-Userinfo 映射 upload=Rx/download=Tx（sub.go:114,180）——与 agent 口径上下行相反。）
 -   [x] `F-1246` 支持用户维度统计。
     - 备注（Task ID: F-1246 | Status: Done | Evidence: agentws.go:291 saveUserTraffic→traffic_logs；TestAgentWSUserTraffic | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1247` 支持 Node 维度统计。
     - 备注（Task ID: F-1247 | Status: Done | Evidence: agentws.go:269 saveNodeTraffic→node_traffic_logs；TestAgentWSTrafficReport | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1248` 支持 Path 维度统计。
+    - 待补（F-1248 | 未满足：无 Path 模型/维度；统计仅用户×日（traffic.go:134-135）与节点×进程（models.go:262-273）。）
 -   [x] `F-1249` 支持周期配额重置。
     - 备注（Task ID: F-1249 | Status: Done | Evidence: quota.go:54 UsedBytes 周期窗；TestSubResetCycleWindow | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1250` 支持重复上报去重。
     - 备注（Task ID: F-1250 | Status: Done | Evidence: agentws_dedupe 去重；dedupe_test 7 例 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1251` 支持断线后的补报。
+    - 待补（F-1251 | 未满足：断线流量静默丢弃（traffic.go:219-226 send==nil 即 return）；spool 只承载 probe 角色；设计明确 at-most-once 无重传。）
 -   [ ] `F-1252` 支持流量异常检测。
+    - 待补（F-1252 | 部分：仅阈值型配额预警（notifyscan/scan.go:111-158 默认 80%）+节点带宽利用率（loadapi.go:12）；无尖峰/异常偏离检测。）
 -   [ ] `F-1253` 支持流量账目审计。
+    - 待补（F-1253 | 部分：traffic_logs 只增不改+管理员审计轮转；无流量账目对账/复核（对账仅支付侧 payrecon.go）。）
 -   [x] `F-1254` 建立流量记账幂等测试。
     - 备注（Task ID: F-1254 | Status: Done | Evidence: 流量幂等；TestAgentWSDuplicateTrafficFrame+TestAgentWSDedupSurvivesReconnect | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1255` 建立断线补报集成测试。
+    - 待补（F-1255 | 未满足：无断线补报集成测试；TestReporterOfflineDropsSilently（traffic_test.go:67）反而断言「丢弃」。）
 
 ------------------------------------------------------------------------
 
@@ -1527,6 +1547,7 @@ External Client
 -   [x] `F-1302` 统一订单幂等规则。
     - 备注（Task ID: F-1302 | Status: Done | Evidence: order_no uniqueIndex models.go:330+paynotify.go:51 事务；TestEpusdtNotify+TestReconcileGuards | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1303` 统一订单超时和取消规则。
+    - 待补（F-1303 | 未满足原因：未满足：expired 状态声明(models.go:345,351)但全仓无写入；无过期/取消路由(router.go:260-306 仅 reconcile/detail/refund/orders/notify)；coupon.go:273 明注「本仓无订单过期清扫，pending 常驻」。）
 -   [x] `F-1304` 审计支付 Provider 接口。
     - 备注（Task ID: F-1304 | Status: Done | Evidence: 支付 Provider 接口审计 §3.8（provider.go:14-20） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1305` 验证支付回调签名。
@@ -1534,7 +1555,9 @@ External Client
 -   [x] `F-1306` 保证支付回调幂等。
     - 备注（Task ID: F-1306 | Status: Done | Evidence: idx_provider_external models.go:413-414 唯一+事务；TestEpusdtNotify | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1307` 建立支付结果补偿机制。
+    - 待补（F-1307 | 未满足原因：部分：仅检测无补救——payrecon.go:93-135 标记缺流水/缺发放/孤儿，但无重发 Grant/重查回调；Provider 接口(provider.go:14-20)无 query/pull 方法，且回调即永久 pending。）
 -   [ ] `F-1308` 建立支付对账任务。
+    - 待补（F-1308 | 未满足原因：未满足：对账仅为查询接口(router.go:260 GET /api/payments/reconcile→payrecon.go:43)；main.go 约 17 个后台循环无一为支付对账。）
 -   [x] `F-1309` 对未接通的支付渠道明确标记不可用。
     - 备注（Task ID: F-1309 | Status: Done | Evidence: packages/payment/disabled.go:11 NewDisabled(alipay/wechat)；payment 包 TestRegistered/TestDisabled | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1310` 记录订单和支付操作审计。
@@ -1549,8 +1572,11 @@ External Client
 -   [x] `F-1323` 审计分销佣金计算。
     - 备注（Task ID: F-1323 | Status: Done | Evidence: 分销佣金审计（Distributor :436/Ledger :449 佣金 0-100+distributor.go:166+TestDistributorCRUD/TestRedeemDistributorLedger/TestDistributorPayoutAdjust） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1324` 统一账目流水。
+    - 待补（F-1324 | 未满足原因：部分：三张异构表（PaymentTransaction models.go:428/Grant :441/DistributorLedger :467）仅以字符串关联；统一仅在查询层(payrecon.go:17-47 reconcileRow+distributor.go:131)，无统一流水表/枚举。）
 -   [ ] `F-1325` 统一佣金结算状态。
+    - 待补（F-1325 | 未满足原因：部分：统一 ledger(kind sale/commission/payout/adjust)+派生未结余额(distributor.go:131-152)+条件 INSERT payout 守卫(:382)；但无显式结算状态（无 pending/settled/paid 字段、无结算批次，payout 仅手动 distributor.go:329-333）。）
 -   [ ] `F-1326` 建立异常订单和重复佣金测试。
+    - 待补（F-1326 | 未满足原因：部分：异常订单已覆盖（TestReconcile/TestEpusdtNotifyConcurrentSettle/TestReconcileGuards）；重复佣金无重放测试（dedup 仅断言 txn/grant 计数，佣金唯一性靠原子核销 redeem.go:78-84 未在 ledger 层测试）。）
 
 ## 11.3 通知
 
