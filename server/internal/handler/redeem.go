@@ -169,25 +169,58 @@ type grantSnapshot struct {
 // applyGrant 在事务内执行权益并写发放记录（卡密兑换与在线支付回调共用）：
 // add_quota 加配额；其余按 extend_days 口径延到期（无到期自当下起算）。
 // extra 并入快照（卡密的码/批次、在线支付的 trade_id 等），失败回滚整个事务。
+// 写回按读时值做乐观守卫、只写本发放涉及的列，守卫落空（并发退款回收等
+// 他方改行）重读重算至多三轮，响应侧 u 随重读保鲜——单侧守卫不够，裸写
+// 会把对方已提交的变更静默覆盖回旧值（codex 深审 P2 丢更新竞态）。
 func applyGrant(tx *gorm.DB, orderNo string, u *storage.User, grantType string, grantValue int64, now time.Time, extra map[string]any) error {
 	before := grantSnapshot{QuotaBytes: u.QuotaBytes, ExpiresAt: u.ExpiresAt}
-	if grantType == "add_quota" {
-		u.QuotaBytes += grantValue
-	} else {
-		base := now
-		if u.ExpiresAt != nil && u.ExpiresAt.After(now) {
-			base = *u.ExpiresAt
+	after := before
+	for attempt := 0; attempt < 3; attempt++ {
+		if grantType == "add_quota" {
+			res := tx.Model(&storage.User{}).
+				Where("id = ? AND quota_bytes = ?", u.ID, u.QuotaBytes).
+				Update("quota_bytes", u.QuotaBytes+grantValue)
+			if res.Error != nil {
+				return res.Error
+			}
+			if res.RowsAffected == 1 {
+				u.QuotaBytes += grantValue
+				after = grantSnapshot{QuotaBytes: u.QuotaBytes, ExpiresAt: u.ExpiresAt}
+				break
+			}
+		} else {
+			base := now
+			if u.ExpiresAt != nil && u.ExpiresAt.After(now) {
+				base = *u.ExpiresAt
+			}
+			ext := base.Add(time.Duration(grantValue) * 24 * time.Hour)
+			q := tx.Model(&storage.User{}).Where("id = ?", u.ID)
+			if u.ExpiresAt == nil {
+				q = q.Where("expires_at IS NULL")
+			} else {
+				q = q.Where("expires_at = ?", *u.ExpiresAt)
+			}
+			res := q.Update("expires_at", ext)
+			if res.Error != nil {
+				return res.Error
+			}
+			if res.RowsAffected == 1 {
+				u.ExpiresAt = &ext
+				after = grantSnapshot{QuotaBytes: u.QuotaBytes, ExpiresAt: u.ExpiresAt}
+				break
+			}
 		}
-		ext := base.Add(time.Duration(grantValue) * 24 * time.Hour)
-		u.ExpiresAt = &ext
-	}
-	if err := tx.Model(&storage.User{}).Where("id = ?", u.ID).
-		Updates(map[string]any{"quota_bytes": u.QuotaBytes, "expires_at": u.ExpiresAt}).Error; err != nil {
-		return err
+		if attempt == 2 {
+			return errors.New("apply grant: concurrent user update contention")
+		}
+		// 守卫失守：他方并发改行（如退款回收），重读后按新值重算再试。
+		if err := tx.First(u, u.ID).Error; err != nil {
+			return err
+		}
 	}
 	snap := map[string]any{
 		"before": before,
-		"after":  grantSnapshot{QuotaBytes: u.QuotaBytes, ExpiresAt: u.ExpiresAt},
+		"after":  after,
 	}
 	for k, v := range extra {
 		snap[k] = v

@@ -143,9 +143,9 @@ func (h *Handler) listReconcile(c *gin.Context) {
 		RefundedCents  int64
 	}
 	if err := h.db.Model(&storage.PaymentOrder{}).Select(
-		"COALESCE(SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END), 0) AS paid_orders, "+
-			"COALESCE(SUM(CASE WHEN status = 'paid' THEN amount_cents ELSE 0 END), 0) AS paid_cents, "+
-			"COALESCE(SUM(CASE WHEN status = 'refunded' THEN 1 ELSE 0 END), 0) AS refunded_orders, "+
+		"COALESCE(SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END), 0) AS paid_orders, " +
+			"COALESCE(SUM(CASE WHEN status = 'paid' THEN amount_cents ELSE 0 END), 0) AS paid_cents, " +
+			"COALESCE(SUM(CASE WHEN status = 'refunded' THEN 1 ELSE 0 END), 0) AS refunded_orders, " +
 			"COALESCE(SUM(CASE WHEN status = 'refunded' THEN amount_cents ELSE 0 END), 0) AS refunded_cents",
 	).Scan(&sum).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
@@ -239,10 +239,14 @@ func (h *Handler) refundOrder(c *gin.Context) {
 }
 
 // revokeOrderGrants 回收订单发放过的权益（与退款状态流转同事务）：
+// 仅 add_quota/extend_days 两类有回收口径，显式匹配——未知类型跳过不扣
+// （旧实现 else 兜底把任何非 add_quota 类型都当延长到期扣回）。
 // add_quota 从当前余额扣回（下限 0——流量可能已消耗，不记负数）；extend_days
 // 从当前到期扣回天数（扣后落在过去即过期态；当前无到期无从扣回，不动）。
-// 用户行已删的发放无从回收，跳过（发放记录无外键不随用户删除）。回收落一条
-// 站内信告知用户（每用户至多一条）。
+// 写回带乐观守卫（WHERE 按读时值比对），与并发 applyGrant 的读改写交错时
+// 重读重算至多三轮，防丢更新（codex 深审 P2）。用户行已删的发放无从回收，
+// 跳过（发放记录无外键不随用户删除）。回收落一条站内信告知用户（每用户
+// 至多一条）。
 func revokeOrderGrants(tx *gorm.DB, orderNo string, now time.Time) error {
 	var grants []storage.Grant
 	if err := tx.Where("order_no = ?", orderNo).Find(&grants).Error; err != nil {
@@ -257,19 +261,7 @@ func revokeOrderGrants(tx *gorm.DB, orderNo string, now time.Time) error {
 			}
 			return err
 		}
-		if g.GrantType == "add_quota" {
-			u.QuotaBytes -= g.GrantValue
-			if u.QuotaBytes < 0 {
-				u.QuotaBytes = 0
-			}
-		} else if u.ExpiresAt != nil {
-			revoked := u.ExpiresAt.Add(-time.Duration(g.GrantValue) * 24 * time.Hour)
-			u.ExpiresAt = &revoked
-		} else {
-			continue
-		}
-		if err := tx.Model(&storage.User{}).Where("id = ?", u.ID).
-			Updates(map[string]any{"quota_bytes": u.QuotaBytes, "expires_at": u.ExpiresAt}).Error; err != nil {
+		if err := revokeOneGrant(tx, g, &u); err != nil {
 			return err
 		}
 		if !notified[u.ID] {
@@ -283,6 +275,62 @@ func revokeOrderGrants(tx *gorm.DB, orderNo string, now time.Time) error {
 		}
 	}
 	return nil
+}
+
+// revokeOneGrant 回收单条发放。无从回收（未知类型/无到期）返回 nil 跳过；
+// 写回按读时值做乐观守卫，守卫落空（他方并发改行，如同时刻 applyGrant）
+// 则重读重算再试，三轮仍失守报错回滚整个退款事务——refunded 态蕴含权益
+// 已收，宁可退款失败不可静默漏收。
+func revokeOneGrant(tx *gorm.DB, g storage.Grant, u *storage.User) error {
+	for attempt := 0; attempt < 3; attempt++ {
+		updates, ok := revokeUpdates(g, u)
+		if !ok {
+			return nil
+		}
+		q := tx.Model(&storage.User{}).Where("id = ?", u.ID)
+		if _, has := updates["quota_bytes"]; has {
+			q = q.Where("quota_bytes = ?", u.QuotaBytes)
+		}
+		if _, has := updates["expires_at"]; has && u.ExpiresAt != nil {
+			q = q.Where("expires_at = ?", *u.ExpiresAt)
+		}
+		res := q.Updates(updates)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 1 {
+			return nil
+		}
+		if attempt == 2 {
+			return errors.New("revoke grant: concurrent user update contention")
+		}
+		// 守卫失守：他方并发改行，重读后按新值重算再试。
+		if err := tx.First(u, u.ID).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// revokeUpdates 按发放类型算回收写集：ok=false 表示无从回收（未知类型/
+// 无到期）。算式只依赖读到的用户行，重试时随重读重算。
+func revokeUpdates(g storage.Grant, u *storage.User) (map[string]any, bool) {
+	switch g.GrantType {
+	case "add_quota":
+		q := u.QuotaBytes - g.GrantValue
+		if q < 0 {
+			q = 0
+		}
+		return map[string]any{"quota_bytes": q}, true
+	case "extend_days":
+		if u.ExpiresAt == nil {
+			return nil, false
+		}
+		revoked := u.ExpiresAt.Add(-time.Duration(g.GrantValue) * 24 * time.Hour)
+		return map[string]any{"expires_at": revoked}, true
+	default:
+		return nil, false
+	}
 }
 
 // loadReconcileRow 组装一单的三账视图；订单不存在返回 (nil, false)。
