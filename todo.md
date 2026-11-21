@@ -948,6 +948,7 @@ External Client
 -   [x] `F-0501` 审计现有 Cost、CostRef 和成本统计实现。
     - 备注（Task ID: F-0501 | Status: Done | Evidence: Cost/CostRef/统计审计 §3.10 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0502` 定义 Cost Provider 数据来源。
+    - 待补（F-0502 | 区级未满足原因：区级结构缺口：成本系统为节点级估算(cost.Build)+价格参考/告警/监控层；无账单表/Provider/Account/Resource/Path 维度、无分摊引擎——§4.1 F-0502~F-0513 未满足（CostProvider/CostRecord/CostItem/CostAllocation/CostEstimate/CostReconciliation 均 0 命中）。）
 -   [ ] `F-0503` 定义 Cost Record 原始账单记录。
 -   [ ] `F-0504` 定义 Cost Item 费用明细。
 -   [ ] `F-0505` 定义 Cost Allocation 分摊记录。
@@ -963,6 +964,7 @@ External Client
 ## 4.2 云账单导入
 
 -   [ ] `F-0521` 定义统一账单导入 Adapter。
+    - 待补（F-0521 | 区级未满足原因：区级结构缺口：无账单导入（type BillImport 0 命中；costref 仅价格表导入非账单）——§4.2 F-0521~F-0534 未满足。）
 -   [ ] `F-0522` 为每个 Provider 声明账单 API 支持能力。
 -   [ ] `F-0523` 支持手动导入账单文件（Provider 提供可用文件格式时）。
 -   [ ] `F-0524` 支持通过 Provider Billing API 拉取账单（Provider
@@ -980,9 +982,12 @@ External Client
 
 ## 4.3 估算成本
 
--   [ ] `F-0541` 定义实例包月成本估算。
+-   [x] `F-0541` 定义实例包月成本估算。
+    - 备注（Task ID: F-0541 | Status: Done | Evidence: cost.go:137-138 FixedCostCents=MonthlyCostCents 包月口径+ProjectedCents 计入 | Verification: TestBuild(fixed 3000/oversea ~2100) | Commit: 见本批提交）
 -   [ ] `F-0542` 定义按小时计费资源的成本估算。
--   [ ] `F-0543` 定义按量流量成本估算。
+    - 待补（F-0542 | 区级未满足原因：本区 F-0541(包月)/F-0543(流量) 已关；其余未满足：BillingType 仅 按流量/包月/固定带宽(models.go:104)，无按时计费/额外IP/磁盘快照/备份存储/折扣预留/自定义项/未知单价哨兵/估账分离。）
+-   [x] `F-0543` 定义按量流量成本估算。
+    - 备注（Task ID: F-0543 | Status: Done | Evidence: cost.go:130 TrafficPriceCents×(rx+tx)/BytesPerGB 按量流量 | Verification: TestBuild(metered 1000分) | Commit: 见本批提交）
 -   [ ] `F-0544` 定义固定带宽成本估算。
 -   [ ] `F-0545` 定义额外公网 IP 成本估算。
 -   [ ] `F-0546` 定义磁盘和快照成本估算。
@@ -996,6 +1001,7 @@ External Client
 ## 4.4 成本归属与分摊
 
 -   [ ] `F-0561`
+    - 待补（F-0561 | 区级未满足原因：区级结构缺口：无分摊引擎——§4.4 F-0561~F-0572 未满足（Provider 仅 Node.Datacenter 串+key，无 Account/Resource/Path 归属；无共享资源/带宽/比例分摊规则）。）
     定义成本归属对象：Provider、Account、Resource、Node、Region、Path。
 -   [ ] `F-0562` 支持资源成本直接归属到 Node。
 -   [ ] `F-0563` 支持共享资源成本按规则分摊。
@@ -1012,6 +1018,7 @@ External Client
 ## 4.5 成本核算与对账
 
 -   [ ] `F-0581` 按 Provider 统计实际账单金额。
+    - 待补（F-0581 | 区级未满足原因：区级结构缺口：无实际账单、无 Provider/Account/Path 桶（Build 仅 byRegion/byISP 估算）——§4.5 F-0581~F-0597 未满足。）
 -   [ ] `F-0582` 按账号统计实际账单金额。
 -   [ ] `F-0583` 按区域统计实际账单金额。
 -   [ ] `F-0584` 按资源统计实际账单金额。
@@ -1036,6 +1043,7 @@ External Client
 -   [x] `F-0602` 为 Node 提供单位流量成本数据。
     - 备注（Task ID: F-0602 | Status: Done | Evidence: TrafficPriceCents models.go:91+costPerGB；TestBuild | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0603` 为 Path 计算可解释的成本估算。
+    - 待补（F-0603 | 区级未满足原因：区级结构缺口：无 Path 成本估算、alloc 直读 Node 价格列无新鲜度检查、缺价按 0 计无 Policy 降级规则——§4.6 F-0603~F-0610 未满足。）
 -   [ ] `F-0604` 调度器读取成本数据时检查数据新鲜度。
 -   [ ] `F-0605` 成本缺失时按 Policy 定义的降级规则处理。
 -   [ ] `F-0606` 支持成本上限过滤候选 Path。
@@ -1050,11 +1058,14 @@ External Client
 -   [x] `F-0621` 增加成本总览页面。
     - 备注（Task ID: F-0621 | Status: Done | Evidence: dash CostView.vue；TestCostAPI+TestCostThresholdGuards+build 绿 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0622` 展示本月实际账单。
--   [ ] `F-0623` 展示本月估算成本。
+    - 待补（F-0622 | 区级未满足原因：本区 F-0623(月度预估)/F-0627(区域排序) 已关；其余未满足：无实际账单页/Provider-账号维度/Path 成本/成本趋势/账单同步与明细页/分摊规则页/筛选导出。）
+-   [x] `F-0623` 展示本月估算成本。
+    - 备注（Task ID: F-0623 | Status: Done | Evidence: CostView.vue:288 月度预估+区域/运营商汇总；后端 ProjectedCents | Verification: TestBuild+TestCostAPI | Commit: 见本批提交）
 -   [ ] `F-0624` 展示估算与实际差异。
 -   [ ] `F-0625` 展示 Provider 成本排名。
 -   [ ] `F-0626` 展示账号成本排名。
--   [ ] `F-0627` 展示区域成本排名。
+-   [x] `F-0627` 展示区域成本排名。
+    - 备注（Task ID: F-0627 | Status: Done | Evidence: 区域汇总按 projected 降序(cost.go:176 sortedGroups) | Verification: TestBuild(regions ordering) | Commit: 见本批提交）
 -   [ ] `F-0628` 展示 Node 成本排名。
 -   [ ] `F-0629` 展示 Path 成本估算。
 -   [ ] `F-0630` 展示流量成本趋势。
