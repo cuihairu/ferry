@@ -304,6 +304,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 			panel.GET("/orders", h.panelOrders)
 			// 在线下单（PAY-11，对 epusdt 段）
 			panel.GET("/products", h.panelProducts)
+			panel.GET("/channels", h.panelChannels)
 			panel.GET("/campaigns", h.panelCampaigns)
 			panel.POST("/orders", h.panelCreateOrder)
 			panel.GET("/orders/:order_no", h.panelOrderStatus)

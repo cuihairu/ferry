@@ -178,3 +178,37 @@ func TestPanelOrderFlow(t *testing.T) {
 		t.Fatalf("unknown order should 404: %d", rec.Code)
 	}
 }
+
+// TestPanelChannels 覆盖渠道注册态查询（SHOP-1）：真实现记 enabled、
+// 占位渠道（NewDisabled）记 disabled，面板据此渲染渠道选择置灰。
+func TestPanelChannels(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	if err := db.Create(&storage.User{
+		Username: "buyer", SubToken: "buyer-sub", QuotaBytes: 1 << 30, Enabled: true,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	payment.Register(stubGateway{})
+	payment.Register(payment.NewDisabled("wechat", "等商户资质"))
+	rec := doPanel(t, r, "buyer-sub", "GET", "/api/panel/channels", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("channels: %d %s", rec.Code, rec.Body)
+	}
+	var chans []struct {
+		Name    string `json:"name"`
+		Enabled bool   `json:"enabled"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &chans); err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]bool{}
+	for _, ch := range chans {
+		byName[ch.Name] = ch.Enabled
+	}
+	if !byName["epusdt"] {
+		t.Fatalf("epusdt should be enabled: %+v", chans)
+	}
+	if byName["wechat"] {
+		t.Fatalf("disabled placeholder wechat should not be enabled: %+v", chans)
+	}
+}

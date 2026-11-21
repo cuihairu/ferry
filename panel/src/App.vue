@@ -47,6 +47,7 @@ function doLogout() {
       <nav v-if="auth.token" class="nav">
         <RouterLink to="/" class="nav-link" :class="{ active: route.path === '/' }">概览</RouterLink>
         <RouterLink to="/redeem" class="nav-link" :class="{ active: route.path === '/redeem' }">兑换</RouterLink>
+        <RouterLink to="/shop" class="nav-link" :class="{ active: route.path === '/shop' }">购买</RouterLink>
         <RouterLink to="/orders" class="nav-link" :class="{ active: route.path === '/orders' }">订单</RouterLink>
         <RouterLink to="/subscriptions" class="nav-link" :class="{ active: route.path === '/subscriptions' }">订阅</RouterLink>
         <RouterLink to="/notifications" class="nav-link" :class="{ active: route.path === '/notifications' }">

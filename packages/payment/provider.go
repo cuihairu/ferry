@@ -79,3 +79,24 @@ func Names() []string {
 	sort.Strings(out)
 	return out
 }
+
+// ChannelState 描述一个已注册收款渠道的可用性（SHOP-1 面板渠道选择用）。
+type ChannelState struct {
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+}
+
+// Channels 返回全部已注册渠道及可用态，按名称字典序：占位渠道
+// （NewDisabled，资质未到）记不可用，真实现记可用。面板据此按注册态
+// 渲染渠道选择，占位渠道前端置灰并带「未启用」提示。
+func Channels() []ChannelState {
+	regMu.RLock()
+	defer regMu.RUnlock()
+	out := make([]ChannelState, 0, len(registry))
+	for name, p := range registry {
+		_, placeholder := p.(disabled)
+		out = append(out, ChannelState{Name: name, Enabled: !placeholder})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}

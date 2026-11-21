@@ -37,3 +37,27 @@ func TestRegistry(t *testing.T) {
 		t.Fatalf("names = %v", names)
 	}
 }
+
+// TestChannels 覆盖渠道注册态枚举（SHOP-1）：真实现记 enabled，
+// 占位渠道记 disabled，且按名称字典序返回。
+func TestChannels(t *testing.T) {
+	Register(NewDisabled("wx", "等商户资质"))
+	Register(stubProvider{name: "real"})
+	states := Channels()
+	byName := map[string]ChannelState{}
+	for _, s := range states {
+		byName[s.Name] = s
+	}
+	if _, ok := byName["wx"]; ok && byName["wx"].Enabled {
+		t.Fatalf("placeholder wx should be disabled: %+v", states)
+	}
+	if _, ok := byName["real"]; ok && !byName["real"].Enabled {
+		t.Fatalf("real provider should be enabled: %+v", states)
+	}
+	// 字典序
+	for i := 1; i < len(states); i++ {
+		if states[i-1].Name > states[i].Name {
+			t.Fatalf("channels not sorted: %+v", states)
+		}
+	}
+}

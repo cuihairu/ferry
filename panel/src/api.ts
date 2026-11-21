@@ -71,6 +71,64 @@ export interface RedeemResult {
   expires_at: string | null
 }
 
+/** PanelProduct 是 GET /api/panel/products 的单条：可售套餐（设价未过期有余量）。 */
+export interface PanelProduct {
+  id: number
+  name: string
+  price_cents: number
+  grant_type: 'add_quota' | 'extend_days'
+  grant_value: number
+  remaining: number
+}
+
+export function getPanelProducts(): Promise<PanelProduct[]> {
+  return get<PanelProduct[]>('/api/panel/products')
+}
+
+/** PanelChannel 是 GET /api/panel/channels 的单条：渠道注册态（SHOP-1）。 */
+export interface PanelChannel {
+  name: string
+  enabled: boolean
+}
+
+export function getPanelChannels(): Promise<PanelChannel[]> {
+  return get<PanelChannel[]>('/api/panel/channels')
+}
+
+/** CreateOrderResult 是 POST /api/panel/orders 的响应：订单锚点 + 收银台地址。 */
+export interface CreateOrderResult {
+  order_no: string
+  provider: string
+  product: string
+  amount_cents: number
+  pay_url: string
+  external_id: string
+  expires_at: string
+}
+
+export function createPanelOrder(p: { batch_id: number; provider: string; coupon_code?: string }): Promise<CreateOrderResult> {
+  return post<CreateOrderResult>('/api/panel/orders', p)
+}
+
+/** OrderStatus 是 GET /api/panel/orders/:order_no 的响应：单笔订单终态与发放。 */
+export interface OrderStatus {
+  order_no: string
+  provider: string
+  product: string
+  amount_cents: number
+  status: string
+  grant_type: string
+  grant_value: number
+  created_at: string
+  paid_at: string | null
+  refund_at: string | null
+  grants: Array<{ grant_type: string; grant_value: number }>
+}
+
+export function getPanelOrderStatus(orderNo: string): Promise<OrderStatus> {
+  return get<OrderStatus>(`/api/panel/orders/${encodeURIComponent(orderNo)}`)
+}
+
 /** OrderRow 是 GET /api/panel/orders 的单条：订单 + 归并的发放记录。 */
 export interface OrderRow {
   order_no: string

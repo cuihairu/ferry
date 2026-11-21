@@ -209,6 +209,19 @@ type panelProduct struct {
 	Remaining  int64  `json:"remaining"`
 }
 
+// panelChannels 可用收款渠道（GET /api/panel/channels）：按注册态渲染
+// 渠道选择，占位渠道（NewDisabled，等商户资质）记 disabled（SHOP-1）。
+func (h *Handler) panelChannels(c *gin.Context) {
+	if _, ok := h.panelUser(c); !ok {
+		return
+	}
+	out := make([]gin.H, 0)
+	for _, ch := range payment.Channels() {
+		out = append(out, gin.H{"name": ch.Name, "enabled": ch.Enabled})
+	}
+	c.JSON(http.StatusOK, out)
+}
+
 // panelProducts 可售商品列表（GET /api/panel/products）。
 func (h *Handler) panelProducts(c *gin.Context) {
 	if _, ok := h.panelUser(c); !ok {
