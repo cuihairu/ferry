@@ -35,6 +35,14 @@ export function put<T>(path: string, body: unknown): Promise<T> {
   return request<T>(path, { method: 'PUT', body: JSON.stringify(body) })
 }
 
+export function patch<T>(path: string, body: unknown): Promise<T> {
+  return request<T>(path, { method: 'PATCH', body: JSON.stringify(body) })
+}
+
+export function del<T>(path: string): Promise<T> {
+  return request<T>(path, { method: 'DELETE' })
+}
+
 // ---- 资源类型（对齐 server 的 JSON 载荷）----
 
 /** Me 是 GET /api/panel/me 的响应：身份、用量与可用状态。 */
@@ -146,4 +154,67 @@ export function getContact(): Promise<ContactInfo> {
 
 export function updateContact(p: Partial<ContactInfo>): Promise<ContactInfo> {
   return put('/api/panel/contact', p)
+}
+
+// ---- 自建订阅（ferry-sub-filters，2026-11-21）----
+
+/** SubFilter 是自建订阅的过滤维度（三维度全可选，空数组=该维度不过滤）。 */
+export interface SubFilter {
+  regions?: string[]
+  labels?: string[]
+  protocols?: string[]
+}
+
+/** SubConfig 是自建订阅的 per-sub 配置定制（缺省沿用现有行为）。 */
+export interface SubConfig {
+  remark_template?: string
+  sort?: '' | 'region' | 'rtt' | 'name'
+  max_nodes?: number
+  include_rtt?: boolean
+}
+
+/** SubscriptionRow 是 /api/subscriptions 的记录：filter/config 为 JSON 原文。 */
+export interface SubscriptionRow {
+  id: number
+  user_id: number
+  token: string
+  name: string
+  filter: string
+  config: string
+  enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface SubCreatePayload {
+  name: string
+  filter?: SubFilter
+  config?: SubConfig
+}
+
+export interface SubUpdatePayload {
+  name?: string
+  filter?: SubFilter
+  config?: SubConfig
+  enabled?: boolean
+}
+
+export function getSubscriptions(): Promise<SubscriptionRow[]> {
+  return get<SubscriptionRow[]>('/api/subscriptions')
+}
+
+export function createSubscription(p: SubCreatePayload): Promise<SubscriptionRow> {
+  return post('/api/subscriptions', p)
+}
+
+export function updateSubscription(id: number, p: SubUpdatePayload): Promise<SubscriptionRow> {
+  return patch(`/api/subscriptions/${id}`, p)
+}
+
+export function deleteSubscription(id: number): Promise<{ ok: boolean }> {
+  return del(`/api/subscriptions/${id}`)
+}
+
+export function resetSubscriptionToken(id: number): Promise<SubscriptionRow> {
+  return post(`/api/subscriptions/${id}/reset-token`)
 }

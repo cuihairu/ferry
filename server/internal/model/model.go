@@ -1,7 +1,10 @@
 // Package model 定义跨层共享的数据结构与请求/响应载荷。
 package model
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // 支持的节点协议，范围口径见 todo P2-7。hysteria2（hy2）是第五种：
 // 入口伪装形态走 QUIC/HTTP/3（UDP 443），被管内核是 hysteria2-server
@@ -97,4 +100,22 @@ type TrafficLogInput struct {
 // TrafficLogBatchInput 是流量记账批量载荷，items 为空或超量整体拒绝。
 type TrafficLogBatchInput struct {
 	Items []TrafficLogInput `json:"items"`
+}
+
+// ---- 自建订阅（ferry-sub-filters，2026-11-21）----
+
+// SubCreateInput 是创建自建订阅的请求载荷。Filter/Config 以 JSON 原文透传，
+// 语义校验（严格模式：未知字段 400）在 handler 侧经 sub.ParseFilter/ParseConfig。
+type SubCreateInput struct {
+	Name   string          `json:"name"`
+	Filter json.RawMessage `json:"filter,omitempty"`
+	Config json.RawMessage `json:"config,omitempty"`
+}
+
+// SubUpdateInput 是更新自建订阅的请求载荷（PATCH，可选字段缺省保持原值）。
+type SubUpdateInput struct {
+	Name    *string          `json:"name,omitempty"`
+	Filter  *json.RawMessage `json:"filter,omitempty"`
+	Config  *json.RawMessage `json:"config,omitempty"`
+	Enabled *bool            `json:"enabled,omitempty"`
 }

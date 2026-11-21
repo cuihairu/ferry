@@ -48,6 +48,7 @@ function doLogout() {
         <RouterLink to="/" class="nav-link" :class="{ active: route.path === '/' }">概览</RouterLink>
         <RouterLink to="/redeem" class="nav-link" :class="{ active: route.path === '/redeem' }">兑换</RouterLink>
         <RouterLink to="/orders" class="nav-link" :class="{ active: route.path === '/orders' }">订单</RouterLink>
+        <RouterLink to="/subscriptions" class="nav-link" :class="{ active: route.path === '/subscriptions' }">订阅</RouterLink>
         <RouterLink to="/notifications" class="nav-link" :class="{ active: route.path === '/notifications' }">
           通知<span v-if="auth.unread > 0" class="badge">{{ auth.unread > 99 ? '99+' : auth.unread }}</span>
         </RouterLink>

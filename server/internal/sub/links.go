@@ -166,9 +166,13 @@ func shareLink(n *storage.Node, remark string) (string, error) {
 
 // Entry 是下发给客户端的一个入口：节点本体 + 面板聚合的测速延迟（E-19）。
 // RttMs 为边缘探测结论的近期聚合值，0 表示暂无数据。
+// Remark 非空时覆盖默认备注（per-sub remark_template，ferry-sub-filters）；
+// 空则沿用 entryRemark（区域 · 名称 (延迟ms)）——主订阅路径不受影响。
 type Entry struct {
 	Node  storage.Node
 	RttMs int
+	// Remark 是下发侧预生成的覆盖备注（见 sub/filter.go ApplyConfig）。
+	Remark string
 }
 
 // entryRegion 展示用区域名：空值回退「未知」。
@@ -190,8 +194,13 @@ func entryRemark(e *Entry) string {
 }
 
 // entryLink 生成带备注的分享链接（协议内字段：URI 片段 / vmess ps）。
+// Remark 非空时用它（per-sub 备注模板），否则用默认区域·名称备注。
 func entryLink(e *Entry) (string, error) {
-	return shareLink(&e.Node, entryRemark(e))
+	remark := e.Remark
+	if remark == "" {
+		remark = entryRemark(e)
+	}
+	return shareLink(&e.Node, remark)
 }
 
 // PackV2Ray 返回按区域分组排序的链接列表 base64（v2ray 客户端订阅格式，E-19）。
@@ -199,15 +208,22 @@ func entryLink(e *Entry) (string, error) {
 // 客户端逐行解析时忽略非链接行——订阅缓存里自带逃生通道。空列表仍输出备注：
 // 无可用节点时订阅可刷新，用户手里留着备用入口与公告地址。
 func PackV2Ray(entries []Entry, notes []string) (string, error) {
-	sorted := orderByProbe(entries, time.Now())
-	lines := make([]string, 0, len(notes)+len(sorted))
+	return PackV2RayOrdered(orderByProbe(entries, time.Now()), notes)
+}
+
+// PackV2RayOrdered 与 PackV2Ray 同体，但保持调用方给定的顺序不重排
+// （per-sub sort 配置口径，ferry-sub-filters）：主订阅走 PackV2Ray 的区域
+// 分组排序，自建订阅已在 sub.ApplyConfig 内按 per-sub sort 排好序。
+// PackV2Ray 复用它，故主订阅输出不变。
+func PackV2RayOrdered(entries []Entry, notes []string) (string, error) {
+	lines := make([]string, 0, len(notes)+len(entries))
 	for _, n := range notes {
 		lines = append(lines, "# "+n)
 	}
-	for i := range sorted {
-		link, err := entryLink(&sorted[i])
+	for i := range entries {
+		link, err := entryLink(&entries[i])
 		if err != nil {
-			return "", fmt.Errorf("node %s: %w", sorted[i].Node.Name, err)
+			return "", fmt.Errorf("node %s: %w", entries[i].Node.Name, err)
 		}
 		lines = append(lines, link)
 	}

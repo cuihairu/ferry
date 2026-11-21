@@ -68,6 +68,7 @@ func AutoMigrate(db *gorm.DB) error {
 	return db.AutoMigrate(
 		&User{},
 		&UserAlias{},
+		&Subscription{},
 		&SubDevice{},
 		&Node{},
 		&TrafficLog{},

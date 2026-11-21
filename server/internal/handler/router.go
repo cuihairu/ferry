@@ -110,6 +110,9 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 	r.GET("/api/health", h.healthGuard(), h.health)
 	r.GET("/agent/ws", h.agentWS)
 	r.GET("/sub/:token", h.subscription)
+	// 自建订阅（ferry-sub-filters）：独立 token 的新路径。gin 静态段优先于
+	// 同层参数段，/sub/x/abc 命中本条、/sub/abc 仍走主订阅（编译运行已验证）。
+	r.GET("/sub/x/:token", h.subscriptionFiltered)
 	r.GET("/feed.xml", h.feedXML)
 	r.GET("/api/speedtest/bytes", h.speedtestBytes)
 
@@ -327,6 +330,17 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		open.POST("/enroll", h.enrollNode)
 		// 在线支付回调（PAY-8）：自带 Provider 验签。
 		open.POST("/pay/epusdt/notify", h.epusdtNotify)
+	}
+	// 自建订阅自助面（ferry-sub-filters）：订阅令牌登录（panelUser 同口径），
+	// 用户管理自己的独立订阅。路径同前缀 /api 但鉴权是订阅令牌而非管理员 JWT，
+	// 故挂独立组（不带 apiAuth/auditMiddleware）。
+	subs := r.Group("/api", h.panelAuth())
+	{
+		subs.GET("/subscriptions", h.listSubscriptions)
+		subs.POST("/subscriptions", h.createSubscription)
+		subs.PATCH("/subscriptions/:id", h.updateSubscription)
+		subs.DELETE("/subscriptions/:id", h.deleteSubscription)
+		subs.POST("/subscriptions/:id/reset-token", h.resetSubscriptionToken)
 	}
 	// P1-1 管理员登录是获取首个令牌的唯一入口，公开挂在鉴权组外
 	//（此前误挂组内导致登录面 401 不可达，安全批修复）。
