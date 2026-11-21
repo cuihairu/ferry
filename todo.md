@@ -811,7 +811,7 @@ External Client
 -   [x] `F-0321` 定义 Cloud Account 数据模型。
     - 备注（Task ID: F-0321 | Status: Done | Evidence: Provider models.go:462（Name/Type/密钥/Enabled=云账号）；TestProviderAPI | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0322` 支持添加云服务商账号。
-    - 备注（Task ID: F-0322 | Status: Done | Evidence: POST /api/providers→createProvider(router.go:147+providerapi.go:50-85) | Verification: TestProviderAPI(POST create) | Commit: 见本批提交）
+    - 备注（Task ID: F-0322 | Status: Done | Evidence: POST /api/providers→createProvider(router.go:147+providerapi.go:50-85) | Verification: TestProviderAPI(POST create) | Commit: acb0810）
 -   [ ] `F-0323` 支持配置账号名称和备注。
     - 待补（F-0323 | 未满足原因：未满足：Provider.Name(models.go:482) 可配，但无 Note/Remark 字段（model/input/view 均无备注）。）
 -   [ ] `F-0324` 支持配置账号所属区域或租户范围。
@@ -819,7 +819,7 @@ External Client
 -   [x] `F-0325` 将 Access Key/Secret 等凭据加密存储。
     - 备注（Task ID: F-0325 | Status: Done | Evidence: providerapi sealSecret→secret.Store AES-GCM；TestProviderAPI+TestStoreRoundtrip | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0326` 凭据读取仅允许 Provider Adapter 内部使用。
-    - 备注（Task ID: F-0326 | Status: Done | Evidence: AccessKey AES-256-GCM 密文(providerapi.go:60,149-154)；唯一读取者 provision.DecryptKey(provision.go:214-218) 仅 runProvision/PrepareLaunch；API 层只回 has_access_key(providerapi.go:19-25) | Verification: TestProviderAPI+secret_test | Commit: 见本批提交）
+    - 备注（Task ID: F-0326 | Status: Done | Evidence: AccessKey AES-256-GCM 密文(providerapi.go:60,149-154)；唯一读取者 provision.DecryptKey(provision.go:214-218) 仅 runProvision/PrepareLaunch；API 层只回 has_access_key(providerapi.go:19-25) | Verification: TestProviderAPI+secret_test | Commit: acb0810）
 -   [x] `F-0327` Dash 不回显完整 Secret。
     - 备注（Task ID: F-0327 | Status: Done | Evidence: HasAccessKey 不回显；TestProviderAPI+TestListEnrollmentTokensMasksSecret | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0328` 支持测试账号连接。
@@ -829,9 +829,9 @@ External Client
 -   [ ] `F-0330` 支持凭据轮换。
     - 待补（F-0330 | 未满足原因：未满足：PUT /api/providers/:id 非空 access_key 为单键替换(providerapi.go:113-120)，无轮换语义（无双键/版本/宽限）。）
 -   [x] `F-0331` 支持账号禁用。
-    - 备注（Task ID: F-0331 | Status: Done | Evidence: Provider.Enabled(models.go:485,default:true) 可配(providerapi.go:65-82,110-112)；runProvision 拒绝 disabled("provider disabled" provisionapi.go:44-47) | Verification: TestProviderAPI | Commit: 见本批提交）
+    - 备注（Task ID: F-0331 | Status: Done | Evidence: Provider.Enabled(models.go:485,default:true) 可配(providerapi.go:65-82,110-112)；runProvision 拒绝 disabled("provider disabled" provisionapi.go:44-47) | Verification: TestProviderAPI | Commit: acb0810）
 -   [x] `F-0332` 支持账号删除前依赖检查。
-    - 备注（Task ID: F-0332 | Status: Done | Evidence: deleteProvider 按 provider_id 数 ProvisionTemplate 引用 409(providerapi.go:136-140)；job/node 经模板门禁传递守卫 | Verification: TestProviderAPI(有模板引用时拒绝删除) | Commit: 见本批提交）
+    - 备注（Task ID: F-0332 | Status: Done | Evidence: deleteProvider 按 provider_id 数 ProvisionTemplate 引用 409(providerapi.go:136-140)；job/node 经模板门禁传递守卫 | Verification: TestProviderAPI(有模板引用时拒绝删除) | Commit: acb0810）
 -   [x] `F-0333` 记录账号凭据变更审计。
     - 备注（Task ID: F-0333 | Status: Done | Evidence: auditMiddleware 覆盖 PUT /api/providers；TestAuditLogsCaptureWriteOps | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0334` 支持按账号授权可操作的资源范围。
