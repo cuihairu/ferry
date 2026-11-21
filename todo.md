@@ -1777,24 +1777,40 @@ External Client
 -   [x] `F-1601` 审计现有任务、Provision、Recovery 实现。
     - 备注（Task ID: F-1601 | Status: Done | Evidence: 任务/Provision/Recovery 审计 §3.12 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1602` 统一后台任务状态模型。
+    - 待补（F-1602 | 未满足：无统一任务状态模型；五张独立任务表各持词汇（TouchJob models.go:305/ProvisionJob :514/Recovery :528/CertTask :603/Event :670），无共享状态机。）
 -   [ ] `F-1603` 支持任务排队。
+    - 待补（F-1603 | 部分：仅 event outbox 排队（pending+next_attempt_at 批 100 deliver.go:74-75）与各类型 sweep；无统一队列。）
 -   [ ] `F-1604` 支持任务超时。
+    - 待补（F-1604 | 部分：各子系统超时（recovery LevelTimeout recovery.go:56/proc_ctl 15s/upgrade ack 15s/herald 10s）；无任务级超时（provision goroutine 用 context.Background() provisionapi.go:73）。）
 -   [ ] `F-1605` 支持有限次数重试。
+    - 待补（F-1605 | 部分：仅 event outbox 有限重试（MaxAttempts=6 deliver.go:15,90+TestDeliverRetryBackoffAndDeadLetter）；cert 重试无上限；无统一重试预算。）
 -   [ ] `F-1606` 支持退避策略。
+    - 待补（F-1606 | 部分：退避散落三处（herald 1m→1h deliver.go:27/cert 1h cert.go:33/agent procs 1s→30s manager.go:90-91）；无统一策略。）
 -   [ ] `F-1607` 支持任务取消。
+    - 待补（F-1607 | 未满足：无任何任务取消端点/状态（仅请求级 ctx 取消）。）
 -   [ ] `F-1608` 支持任务幂等。
+    - 待补（F-1608 | 部分：幂等散落（Event DedupKey herald.go:83/Recovery node_id 唯一索引 models.go:528/节点名复用 launch.go:94）；无任务级幂等键。）
 -   [ ] `F-1609` 支持任务进度和阶段信息。
+    - 待补（F-1609 | 部分：recovery Level+ActionState（models.go:536）与 cert State 有阶段；无进度百分比。）
 -   [ ] `F-1610` 支持任务日志。
+    - 待补（F-1610 | 部分：各行日志尾/错误字段（ProvisionJob.Log 8KB models.go:518/RecoveryAction.Detail/CertTask.LastError/EventDelivery.Detail）；无结构化任务日志流。）
 -   [ ] `F-1611` 支持任务人工重试。
+    - 待补（F-1611 | 部分：人工重试散落（死信重投 eventsapi.go:61/cert 重签 certapi.go:148/provision 重跑 provisionapi.go:105）；recovery 无。）
 -   [ ] `F-1612` 支持任务部分成功结果。
+    - 待补（F-1612 | 部分：批量操作逐节点 ok/error（procop.go:120-142+TestBatchNodeProc/TestBatchNodeConfig）；无统一部分成功态。）
 -   [ ] `F-1613` 支持任务执行者和操作者审计。
+    - 待补（F-1613 | 部分：管理端写操作入审计（AuditLog models.go:735+auditMiddleware router.go:119）；任务行本身无执行者/操作者字段，自动任务无归属。）
 -   [ ] `F-1614` 支持任务并发配额。
+    - 待补（F-1614 | 部分：provision 互斥串行（provision.go:34,58-83）+批量上限 50（procop.go:22）；无可配置并发配额。）
 -   [ ] `F-1615` 支持任务积压和失败告警。
+    - 待补（F-1615 | 部分：events 积压/失败计数（eventsapi.go:46,269-275）；无阈值告警。）
 
 ## 14.2 节点运维任务
 
 -   [ ] `F-1621` 支持 Agent 重启任务。
+    - 待补（F-1621 | 未满足：无 agent 重启任务（agentproto 仅 MsgUpgrade/MsgProcCtl messages.go:148；agent 自重启仅升级 Exec upgrade.go:92）。）
 -   [ ] `F-1622` 支持 Relay 重启任务。
+    - 待补（F-1622 | 部分：relay 是受管进程（roles/relay/relay.go:5），可经通用 proc_ctl 启停（procop.go:27-31）；无专门 relay 重启任务。）
 -   [x] `F-1623` 支持代理进程重启任务。
     - 备注（Task ID: F-1623 | Status: Done | Evidence: procop 重启；TestNodeProcOp+TestBatchNodeProc | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1624` 支持节点配置重应用任务。
@@ -1802,10 +1818,15 @@ External Client
 -   [x] `F-1625` 支持节点升级任务。
     - 备注（Task ID: F-1625 | Status: Done | Evidence: router.go:183 nodeUpgrade；TestNodeUpgrade | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1626` 支持节点回滚任务。
+    - 待补（F-1626 | 部分：仅 agent 侧自动回滚（120s 看门狗→Rollback upgrade.go:22,53,76）；面板无回滚任务/端点。）
 -   [ ] `F-1627` 支持节点重新探测任务。
+    - 待补（F-1627 | 未满足：探测是 agent 本地周期循环（probe/probe.go:62-164）；无面板重新探测端点。）
 -   [ ] `F-1628` 支持节点摘除任务。
+    - 待补（F-1628 | 部分：手动摘除 /pool/:id/suspend（poolapi.go:56）同步翻状态；无任务行/跟踪。）
 -   [ ] `F-1629` 支持节点恢复任务。
+    - 待补（F-1629 | 部分：手动恢复 /pool/:id/resume（poolapi.go:83）；无任务行/跟踪。）
 -   [ ] `F-1630` 支持任务执行前依赖检查。
+    - 待补（F-1630 | 部分：provision/cert 各有前置检查（provisionapi.go:44-66/launch.go:46-54/loop.go:83-97）；无通用任务前依赖检查。）
 
 ## 14.3 自动恢复
 
@@ -1816,8 +1837,11 @@ External Client
 -   [x] `F-1643` 定义自动恢复最大执行次数。
     - 备注（Task ID: F-1643 | Status: Done | Evidence: Level 1-3 最大次数；TestTimeoutExhaustFails+TestLastLine | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1644` 定义自动恢复冷却时间。
+    - 待补（F-1644 | 未满足：无恢复冷却时间（仅 SustainedAfter 预判窗 recovery.go:54）；全仓 cooldown 命中均无关；无测试。）
 -   [ ] `F-1645` 定义自动恢复失败后的人工介入状态。
+    - 待补（F-1645 | 部分：失败升级「需人工介入」经 Herald KindRecoveryFailed+notify（recovery.go:344-368+TestFailedEscalationNotify）；模型仅 running/done/failed（recovery.go:27-29）——无人工介入态、无人工确认/重试清除。）
 -   [ ] `F-1646` 防止自动恢复循环重启。
+    - 待补（F-1646 | 未满足：失败管线后节点保持 suspended，下次 Sweep 会开新 Recovery（查询仅排除 running 与 手动% pool_reason recovery.go:169-189）；无失败重开守卫——循环重启风险确认。）
 -   [x] `F-1647` 记录自动恢复决策和执行结果。
     - 备注（Task ID: F-1647 | Status: Done | Evidence: RecoveryAction 轨迹 models.go:527；TestTraceRowsReplay | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 
@@ -1826,16 +1850,23 @@ External Client
 -   [x] `F-1651` 审计当前 OpenTofu 和 Provider Provision 能力。
     - 备注（Task ID: F-1651 | Status: Done | Evidence: OpenTofu/Provider Provision 能力审计 §3.9 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1652` 将云资源创建纳入统一任务系统。
+    - 待补（F-1652 | 未满足：云创建未入统一任务系统（ProvisionJob 独立表 models.go:514）。）
 -   [ ] `F-1653` 支持创建前成本预估。
+    - 待补（F-1653 | 部分：成本参考查询有（costref.go:49-117+packages/costref Quote.MonthlyCents:42）；非申请流内预估步骤，模板成本手填（providerapi.go:229）。）
 -   [ ] `F-1654` 支持创建前资源规格校验。
+    - 待补（F-1654 | 部分：仅模板表单校验（providerapi.go:174-199）；无云端规格存在/配额检查。）
 -   [ ] `F-1655` 支持创建后资源同步。
+    - 待补（F-1655 | 部分：创建后同步=agent 首注册+OS-4 管线（pipeline.go 探测→online）；无云侧实例对账。）
 -   [x] `F-1656` 支持创建后 Agent 注册。
     - 备注（Task ID: F-1656 | Status: Done | Evidence: cloudinit 注册+agent-install 同口径；TestCloudInit+TestProvisionPipeline | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1657` 支持节点入池检查。
     - 备注（Task ID: F-1657 | Status: Done | Evidence: OS-4 入池检查；TestProvisionPipeline | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1658` 创建失败时按策略清理部分资源。
+    - 待补（F-1658 | 未满足：无失败清理——provision 仅 plan/apply（provision.go:172），全仓无 tofu destroy。）
 -   [ ] `F-1659` 支持资源销毁前依赖检查。
+    - 待补（F-1659 | 未满足：无销毁流程即无销毁前依赖检查。）
 -   [ ] `F-1660` 支持资源销毁审批和二次确认。
+    - 待补（F-1660 | 未满足：无销毁流程即无审批/二次确认。）
 
 ------------------------------------------------------------------------
 
@@ -1848,12 +1879,14 @@ External Client
 -   [x] `F-1702` 审计管理员角色和权限模型。
     - 备注（Task ID: F-1702 | Status: Done | Evidence: 管理员角色权限审计 §3.13（requireSuper+TestAdminRoleCRUD） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1703` 为云账号管理定义独立权限。
+    - 待补（F-1703 | 区级未满足原因：无细粒度资源权限——数据面仅 apiAuth+audit（router.go:119），唯一角色门槛 requireSuper 只挂 /api/admins（router.go:227）；API-Token 路径只置 apiUser 不置 role（apitoken.go:140），前端 role 仅 admin/distributor/空（dash/src/auth.ts:19）；本区 F-1703~F-1708、F-1710 未满足。）
 -   [ ] `F-1704` 为云资源开关机定义独立权限。
 -   [ ] `F-1705` 为强制停止和重装定义高危权限。
 -   [ ] `F-1706` 为成本查看和账单导出定义权限。
 -   [ ] `F-1707` 为成本调整和分摊规则修改定义权限。
 -   [ ] `F-1708` 为节点和线路操作定义权限。
 -   [ ] `F-1709` 为敏感操作增加二次确认。
+    - 待补（F-1709 | 部分：仅前端 ElMessageBox.confirm 二次确认（NodesView.vue:121,293,306,586 等）；无服务端确认令牌/CSRF；强制停止 runProc('stop') 无确认（NodesView.vue:358-364）。）
 -   [ ] `F-1710` 支持按账号或资源范围限制操作权限。
 
 ## 15.2 凭据安全
@@ -1863,6 +1896,7 @@ External Client
 -   [x] `F-1722` 验证云凭据加密存储。
     - 备注（Task ID: F-1722 | Status: Done | Evidence: secret.Store AES-GCM+providerapi sealSecret；TestStoreRoundtrip+TestProviderAPI | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1723` 验证密钥轮换。
+    - 待补（F-1723 | 未满足：keyinit 仅首启生成/持久化（keyinit.go:48-138）；secret.Store 有版本键位与按版本解密（secret.go:24-26,70-88）但 NewStore 恒写 v1（secret.go:35）——无加新钥/重加密存量/退休旧钥路径；测试仅初始化与加解密，无轮换用例。）
 -   [x] `F-1724` 验证凭据吊销。
     - 备注（Task ID: F-1724 | Status: Done | Evidence: enroll 吊销+节点吊销；TestRevokeUsedEnrollmentToken+TestNodeTokenRevocation | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1725` 验证订阅令牌重置。
@@ -1878,14 +1912,18 @@ External Client
 
 -   [x] `F-1731` 测试管理员越权访问。
     - 备注（Task ID: F-1731 | Status: Done | Evidence: operator 越权 403；TestAdminRoleCRUD | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1732` 测试云账号凭据泄漏。
+-   [x] `F-1732` 测试云账号凭据泄漏。
+    - 备注（Task ID: F-1732 | Status: Done | Evidence: TestProviderAPI（providerapi_test.go:40）断言创建响应不回显密钥（:59-61）、库中存密文非明文（:68-73）、列表掩码（:81-83） | Verification: providerapi_test.go TestProviderAPI | Commit: 见本批提交）
 -   [ ] `F-1733` 测试高危云操作权限绕过。
+    - 待补（F-1733 | 未满足：无高危云操作越权测试——TestAdminRoleCRUD（adminrole_test.go:39）仅 /api/admins 403；procop_test.go/upgrade_test.go 仅成功路径，无 403 断言。）
 -   [x] `F-1734` 测试 Agent 消息伪造和重放。
     - 备注（Task ID: F-1734 | Status: Done | Evidence: bad token 拒绝+envelope ID 重放去重；TestAgentWSBadToken+dedupe_test | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1735` 测试配置篡改。
+    - 待补（F-1735 | 部分：篡改检测仅 standby 快照（standby_test.go:126）/机密密文（secret_test.go TestStoreKeyIsolation）/回执签名（callback_test.go:129）；无管理面配置（config push/routing/web-cert/provision）篡改测试。）
 -   [x] `F-1736` 测试订阅令牌爆破和滥用。
     - 备注（Task ID: F-1736 | Status: Done | Evidence: 订阅限频枚举锁定；TestSubscriptionRateLimit | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1737` 测试敏感信息日志泄漏。
+    - 待补（F-1737 | 部分：敏感信息日志泄漏仅经 audit 行体脱敏（audit_test.go:70 TestAuditLogsRedactSensitiveBody）+sub.go:34 令牌前 6 位；无 stdout/stderr 日志断言无明文密钥的测试。）
 -   [x] `F-1738` 执行依赖安全扫描。
     - 备注（Task ID: F-1738 | Status: Done | Evidence: .github/dependabot.yml security alerts+test.yml CI 绿 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 
@@ -1896,40 +1934,66 @@ External Client
 ## 16.1 指标
 
 -   [ ] `F-1801` 采集 Server API 请求量和延迟。
+    - 待补（F-1801 | 未满足：无指标层——prometheus|/metrics|pprof 全仓 0 实命中；gin.Default() 无 metrics 钩子（router.go:100）。）
 -   [ ] `F-1802` 采集数据库连接数和查询延迟。
+    - 待补（F-1802 | 未满足：无 DB 连接/查询延迟采集。）
 -   [ ] `F-1803` 采集 Agent 在线数量和心跳延迟。
+    - 待补（F-1803 | 部分：在线数经 /api/health agents_online（router.go:433→hub.OnlineCount）与 /admin/status nodes.online（status.go:195）；无指标采集、无心跳延迟。）
 -   [ ] `F-1804` 采集 Relay 在线数量和连接数。
+    - 待补（F-1804 | 未满足：relaypush 仅渲染配置覆盖（relaypush.go:1-2）；无 relay 在线/连接跟踪。）
 -   [ ] `F-1805` 采集 Relay 吞吐量。
+    - 待补（F-1805 | 未满足：无 relay 吞吐。）
 -   [ ] `F-1806` 采集 Path 可用率和质量指标。
+    - 待补（F-1806 | 部分：探测判定入库（ProbeReport+aggregate.go:127）经 /api/probe-reports+/api/dimension-status 暴露；无 Path 可用率/质量指标。）
 -   [ ] `F-1807` 采集 Probe 任务成功率。
+    - 待补（F-1807 | 未满足：有判定记录无成功率计算/采集。）
 -   [ ] `F-1808` 采集配置下发成功率。
+    - 待补（F-1808 | 部分：NodeConfig 行持久 pending/applied/failed（models.go:237）；无成功率聚合指标。）
 -   [ ] `F-1809` 采集流量记账延迟。
+    - 待补（F-1809 | 未满足：NodeTrafficLog 有 recorded_at（models.go:271）；无记账延迟指标。）
 -   [ ] `F-1810` 采集调度耗时。
+    - 待补（F-1810 | 未满足：alloc 调度器无耗时指标。）
 -   [ ] `F-1811` 采集 Provider API 请求成功率和延迟。
+    - 待补（F-1811 | 未满足：providerapi 仅 CRUD；无调用成功率/延迟指标。）
 -   [ ] `F-1812` 采集云操作任务成功率和耗时。
+    - 待补（F-1812 | 部分：ProvisionJob 持久 running/ok/failed（models.go:519）；无成功率/耗时指标。）
 -   [ ] `F-1813` 采集账单同步成功率和延迟。
+    - 待补（F-1813 | 未满足：无账单同步组件（账单同步|syncBill 0 命中）。）
 -   [ ] `F-1814` 采集成本数据新鲜度。
+    - 待补（F-1814 | 未满足：cost.Build 无成本数据新鲜度指标。）
 
 ## 16.2 告警
 
 -   [ ] `F-1821` Agent 离线告警。
+    - 待补（F-1821 | 未满足：agent 掉线仅 setNodeStatus("offline")+日志（agentws.go:178-179）；无 Alert 行、无 Herald 事件。）
 -   [ ] `F-1822` Relay 离线告警。
+    - 待补（F-1822 | 未满足：无 relay 在线跟踪即无掉线告警。）
 -   [ ] `F-1823` Path 不可用告警。
+    - 待补（F-1823 | 部分：region/ISP 故障经 monitor applyVerdict→Herald KindRegionFault/KindISPFault（monitor.go:123-138）；无按 Path 不可用告警。）
 -   [ ] `F-1824` Path 质量下降告警。
+    - 待补（F-1824 | 部分：维度降级发 notify dimension.degraded（monitor.go:148-151）；无质量下降 Alert 行。）
 -   [ ] `F-1825` 节点带宽超限告警。
+    - 待补（F-1825 | 未满足：无带宽超限告警（quota/link、userbw 无告警）。）
 -   [ ] `F-1826` 配置下发失败告警。
+    - 待补（F-1826 | 部分：config_error kind+recordAlert 通路在（alerts.go:26+TestAlertGuards）；agent 生产侧从不发送（AlarmKindConfigError 仅见于 agentproto+测试，configd 回滚仅 ack.Error configd.go:117）——有通路无生产者。）
 -   [ ] `F-1827` 节点升级失败告警。
+    - 待补（F-1827 | 部分：agent 侧升级回滚（upgrade/upgrade.go:54）+管线穷尽发 recovery_failed Herald（recovery.go:347-360）；无升级失败 Alert 行。）
 -   [ ] `F-1828` Provider API 认证失败告警。
+    - 待补（F-1828 | 未满足：providerapi 无认证失败检测/告警。）
 -   [ ] `F-1829` 云资源操作失败告警。
+    - 待补（F-1829 | 未满足：provision 失败仅记 status（models.go:519）；无云操作失败告警。）
 -   [ ] `F-1830` 云账单同步失败告警。
+    - 待补（F-1830 | 未满足：无账单同步即无同步失败告警。）
 -   [ ] `F-1831` 成本异常增长告警。
+    - 待补（F-1831 | 部分：high_cost Alert（cost.go:30,233-241）+cost_exceeded Herald（:249）覆盖阈值；非增长率异常。）
 -   [x] `F-1832` 备份失败告警。
     - 备注（Task ID: F-1832 | Status: Done | Evidence: backup.go:253/260 emitBackupFailed/emitUploadFailed；TestBackupFailedEmit | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1833` 告警支持去重和恢复通知。
     - 备注（Task ID: F-1833 | Status: Done | Evidence: node+kind+proc 去重+自动恢复；TestAlertGuards+TestAgentWSAlarmProcRecover | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1834` 告警支持确认、关闭和处理记录。
     - 备注（Task ID: F-1834 | Status: Done | Evidence: resolveAlert+Alert.ResolvedAt；TestAlertGuards | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1835` 通知通道故障不阻塞主业务。
+-   [x] `F-1835` 通知通道故障不阻塞主业务。
+    - 备注（Task ID: F-1835 | Status: Done | Evidence: Herald outbox+Emit 仅插行（herald.go:89）+后台 Loop 投递（deliver.go:40），失败仅记日志；notify.Send 5s 超时（notify.go:24），通道故障不阻塞主业务 | Verification: TestEventDeliveriesBoard（heraldboard_test.go:17） | Commit: 见本批提交）
 
 ------------------------------------------------------------------------
 
