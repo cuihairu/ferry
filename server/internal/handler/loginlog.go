@@ -28,9 +28,9 @@ const (
 
 // writeLoginLog 落一行登录审计；失败只记日志，不阻断登录响应。
 func (h *Handler) writeLoginLog(username, ip, ua string, ok bool) storage.LoginLog {
-	if len(ua) > loginLogUALimit {
-		ua = ua[:loginLogUALimit]
-	}
+	// UA 截断按字符边界（UA 可含非 ASCII 名称，字节硬切会把多字节字符
+	// 截半落库成非法 UTF-8）。
+	ua = truncate(ua, loginLogUALimit)
 	row := storage.LoginLog{Username: username, IP: ip, UA: ua, OK: ok, CreatedAt: time.Now()}
 	if err := h.db.Create(&row).Error; err != nil {
 		log.Printf("login log: %v", err)

@@ -10,6 +10,7 @@ import (
 
 	"github.com/cuihairu/ferry/server/internal/herald"
 	"github.com/cuihairu/ferry/server/internal/notify"
+	"github.com/cuihairu/ferry/server/internal/safestr"
 	"github.com/cuihairu/ferry/server/internal/secret"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"gorm.io/gorm"
@@ -208,13 +209,10 @@ func sendAlert(n *notify.Notifier, event string, task storage.CertTask, detail s
 	})
 }
 
-// tail 取输出尾段作错误摘要（完整输出在执行日志）。
+// tail 取输出尾段作错误摘要（完整输出在执行日志）：起点前移到 UTF-8
+// 字符边界（签发/续期失败输出可含中文证书路径，按字节硬切会截半）。
 func tail(s string, n int) string {
-	s = strings.TrimSpace(s)
-	if len(s) <= n {
-		return s
-	}
-	return s[len(s)-n:]
+	return safestr.Tail(strings.TrimSpace(s), n)
 }
 
 // IssueNow 手动触发一次签发（管理端）：置 issuing 防重后异步执行，

@@ -17,6 +17,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/herald"
 	"github.com/cuihairu/ferry/server/internal/notify"
 	"github.com/cuihairu/ferry/server/internal/pool"
+	"github.com/cuihairu/ferry/server/internal/safestr"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"gorm.io/gorm"
 )
@@ -287,7 +288,7 @@ func runAction(db *gorm.DB, a Action, rec storage.Recovery, node storage.Node, l
 		updates["action_state"] = ActionFailed
 		msg := err.Error()
 		if len(msg) > 500 {
-			msg = msg[len(msg)-500:]
+			msg = safestr.Tail(msg, 500)
 		}
 		updates["last_err"] = msg
 		traceState, detail = ActionFailed, msg

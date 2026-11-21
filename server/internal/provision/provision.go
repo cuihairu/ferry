@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/safestr"
 	"github.com/cuihairu/ferry/server/internal/secret"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"gorm.io/gorm"
@@ -224,9 +225,8 @@ func errString(err error) string {
 	return "\n" + err.Error()
 }
 
+// tailLog 取执行日志尾段留痕：起点前移到 UTF-8 字符边界（tofu 输出可含
+// 中文，按字节硬切会截半字符）。
 func tailLog(s string) string {
-	if len(s) <= logTail {
-		return s
-	}
-	return s[len(s)-logTail:]
+	return safestr.Tail(s, logTail)
 }

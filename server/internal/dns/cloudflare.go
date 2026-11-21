@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/cuihairu/ferry/server/internal/safestr"
 )
 
 const defaultBase = "https://api.cloudflare.com/client/v4"
@@ -173,9 +175,8 @@ func (c *Cloudflare) Delete(ctx context.Context, name, rtype string) error {
 	return nil
 }
 
+// truncate 取错误摘要前缀并追加省略号：截点回退到 UTF-8 字符边界（错误
+// 文案可含中文，字节硬切会截半）。
 func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
+	return safestr.HeadEllipsis(s, n)
 }
