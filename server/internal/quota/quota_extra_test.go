@@ -14,7 +14,11 @@ func TestUsedBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { if s, _ := db.DB(); s != nil { _ = s.Close() } })
+	t.Cleanup(func() {
+		if s, _ := db.DB(); s != nil {
+			_ = s.Close()
+		}
+	})
 	now := time.Now()
 	// 建一个用户，保证外键约束。
 	u := storage.User{Username: "quota-used"}

@@ -364,7 +364,11 @@ func TestPayoutAtomicGuard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	t.Cleanup(func() { if s, e := db.DB(); e == nil { _ = s.Close() } })
+	t.Cleanup(func() {
+		if s, e := db.DB(); e == nil {
+			_ = s.Close()
+		}
+	})
 	r, _ := NewRouter(db, config.Default())
 
 	rec := doJSON(t, r, "POST", "/api/distributors", map[string]any{"username": "d5", "password": "secret123"})

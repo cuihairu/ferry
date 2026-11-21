@@ -97,3 +97,21 @@ jobs:
         run: bash deploy/start-args-test.sh
       - name: e2e deploy smoke
         run: bash deploy/e2e-smoke.sh
+
+  gofmt:
+    name: gofmt gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.1.0
+        with:
+          go-version: 1.27.2
+      - name: format gate
+        # 格式门禁（codex 深审 P2）：任一文件未 gofmt 即红，防漂移进主分支。
+        # 目录集与 Makefile 的 fmt 目标一致。
+        run: |
+          out=$(gofmt -l server agent packages/agentproto packages/costref packages/payment payments)
+          if [ -n "$out" ]; then
+            echo "::error::未 gofmt 的文件：$out"
+            exit 1
+          fi

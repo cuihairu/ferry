@@ -54,7 +54,11 @@ func TestFromDBBadURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { if s, _ := db.DB(); s != nil { _ = s.Close() } })
+	t.Cleanup(func() {
+		if s, _ := db.DB(); s != nil {
+			_ = s.Close()
+		}
+	})
 	if n := FromDB(db); n.Enabled() {
 		t.Fatal("unset should be disabled")
 	}

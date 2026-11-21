@@ -106,7 +106,7 @@ func (h *Handler) apiAuth() gin.HandlerFunc {
 
 // authorizeAPI 校验管理面凭据（P2 供 health 等免中间件路径复用）：admin JWT
 // 或 API Token 任一有效即置上下文并返回 true；失败不改上下文返回 false
-//（未写响应，调用方决定收尾口径）。
+// （未写响应，调用方决定收尾口径）。
 func (h *Handler) authorizeAPI(c *gin.Context) bool {
 	tokenStr := bearerToken(c)
 	if tokenStr == "" {
