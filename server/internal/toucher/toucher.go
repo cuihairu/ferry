@@ -251,10 +251,12 @@ func quotaText(quota int64) string {
 }
 
 // expireText 到期展示：nil=不限期；按服务器本地日历日期（与计费窗口同时区，
-// 避免非 UTC 部署下到期日显示差一天）。
+// 避免非 UTC 部署下到期日显示差一天）。统一转本地再取日历日——DB 读回的
+// 时区不定（sqlite 按 UTC 文本读回），裸 Format 会随读回时区漂移
+// （codex 深审 P2）。
 func expireText(t *time.Time) string {
 	if t == nil {
 		return "不限期"
 	}
-	return t.Format("2006-01-02")
+	return t.Local().Format("2006-01-02")
 }

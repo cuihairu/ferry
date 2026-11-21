@@ -61,7 +61,9 @@ func (h *Handler) panelSupport(c *gin.Context) {
 		}
 		expiry := "长期有效"
 		if u.ExpiresAt != nil {
-			expiry = u.ExpiresAt.Format("2006-01-02")
+			// 按服务器本地日历展示（与计费窗口/toucher 同一口径，避免非
+			// UTC 部署下客服看到「刚到期」而用户侧仍有效）。
+			expiry = u.ExpiresAt.Local().Format("2006-01-02")
 		}
 		notes = fmt.Sprintf("状态：%s；流量：%d/%d 字节（%d%%）；到期：%s",
 			state, used, u.QuotaBytes, pct, expiry)

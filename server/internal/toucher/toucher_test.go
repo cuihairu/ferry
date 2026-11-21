@@ -328,3 +328,25 @@ func TestBillGateFollowsLocalCalendar(t *testing.T) {
 		t.Fatalf("bill re-sent in same local month: %d", n)
 	}
 }
+
+// TestExpireTextLocalCalendar 覆盖 codex 深审 P2「统一过期日期展示时区」：
+// DB 读回的时区不定（sqlite 按 UTC 文本读回），展示必须统一转服务器本地
+// 日历——UTC 2026-10-31 20:00 在东八区已是 11-01 04:00，裸 Format 会落
+// 前一天，与计费窗口（本地日历月）差一天。
+func TestExpireTextLocalCalendar(t *testing.T) {
+	old := time.Local
+	time.Local = time.FixedZone("exp-tz", 8*3600)
+	defer func() { time.Local = old }()
+
+	if got := expireText(nil); got != "不限期" {
+		t.Fatalf("nil = %q", got)
+	}
+	u := time.Date(2026, 10, 31, 20, 0, 0, 0, time.UTC)
+	if got := expireText(&u); got != "2026-11-01" {
+		t.Fatalf("utc 20:00 = %q, want 2026-11-01", got)
+	}
+	// 修复前（裸 Format 不转本地）会落前一天，用作反证。
+	if got := u.Format("2006-01-02"); got != "2026-10-31" {
+		t.Fatalf("pre-fix probe = %q, want 2026-10-31", got)
+	}
+}
