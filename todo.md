@@ -124,7 +124,7 @@
   - 状态=阻塞｜原因：二进制/证书/防火墙均为外部提供项，仓内无法联调｜触发条件：用户提供测试二进制+证书+防火墙环境
 - [x] TestProvisionRunAPI 偶发观察：已复现、已定位、已修复（2026-10-20 PATROL1020）
   - 状态=完成｜复现=2026-10-19 晚 sweep `-race -cpu=1,2,4 -count=100`（300 连跑）逮出 1 次：t.TempDir RemoveAll 清理 `unlinkat .../002/tpl-1: directory not empty`｜根因=测试只轮询首个 apply 的 job 终态即返回，re-apply 与 final plan 的后台 job goroutine 仍在写 TofuWorkdir/tpl-<id>，与 TempDir 清理竞态｜修复=测试收尾补等全部 provision_jobs 离开 running（job 落终态即后台 Execute 写盘全部结束）再返回｜验证=修复后同款 sweep 300 连跑全绿 exit 0（312s）
-- [ ] [BLOCKED] 上游等待：VitePress 2 stable 尚未发布；npm latest 仍为 1.6.4（2026-10-19 复核 dist-tags.latest=1.6.4），待 stable 发布后验证再撤 override
+- [ ] [BLOCKED] 上游等待：VitePress 2 stable 尚未发布；npm latest 仍为 1.6.4（2026-10-19 复核 dist-tags.latest=1.6.4；2026-11-21 复核仍 1.6.4、next=2.0.0-alpha.21，stable 未发），待 stable 发布后验证再撤 override
   - 状态=阻塞｜原因：vitepress 2 stable 未发布，pnpm override 不可撤｜触发条件：vitepress 2 stable 发布且构建验证通过
 - [x] FERRY-001 节点注册认证闭环（外部评审 2026-10-18）：一次性短时注册凭据（enrollment token）打通安装脚本首装
   - 状态=完成｜落地=2026-10-19 FIRE1019：服务端 EnrollmentToken 模型+管理面签发/列表/吊销（apiAuth+审计）+公开面 /api/enroll 事务原子消费（双花/重放 401、IP 限流）；安装脚本 --register 改配 --enroll-token、注册移到资产校验后、JSON 三级解析｜证据=enroll_test.go 9 用例 + handler/storage/model -race -count=2 全绿
@@ -2154,7 +2154,7 @@ P2 合并简列 14 项全部修复并推送，每项单 commit、英文简短、
 - [ ] [BLOCKED] costref 接真实在线来源：缺真实商家 API 文档及 license 信息，无法选型核验
 - [ ] [BLOCKED] OSS 三候选（Xray proto/GeoIP 已代决收口）：支付 SDK 腿缺商户资质（appid、merchant_id、证书）
 - [ ] [BLOCKED] hy2 二进制真机联调：待用户提供 hysteria2 测试二进制、证书及可配置防火墙的服务器环境（服务器侧输入项，非三台 Windows 真机 openclaw/imac/.5 可替代）
-- [ ] [BLOCKED] 上游等待：VitePress 2 stable 尚未发布；npm latest 仍为 1.6.4（2026-10-19 复核 dist-tags.latest=1.6.4），待 stable 发布后验证再撤 override
+- [ ] [BLOCKED] 上游等待：VitePress 2 stable 尚未发布；npm latest 仍为 1.6.4（2026-10-19 复核 dist-tags.latest=1.6.4；2026-11-21 复核仍 1.6.4、next=2.0.0-alpha.21，stable 未发），待 stable 发布后验证再撤 override
 - [ ] [BLOCKED] FERRY-002 正式 Release 与 latest 安装流程：脚本侧已修（下载/校验链路回归已补，见状态行）；发版腿缺用户明确发版指令及指定版本号（本轮不 bump 版本）
 - [ ] [BLOCKED] FERRY-004 端到端部署与节点通信集成测试：仓内全链路已本地等价收口（e2e/compose/systemd/rollback 四腿进 CI 或 nightly），余一件=生产内核二进制（hysteria2 等）真机接入验收
 - [ ] G1 订阅格式补 mihomo/xray-json（报告 P2 观察项）：触发条件=出现 clash-meta 拒载或 xray-json 消费方的真实反馈
