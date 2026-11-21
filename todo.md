@@ -2398,15 +2398,15 @@ External Client
 -   [ ] `F-10007` 支持实际 TCP 和 UDP 转发。
     - 待补（F-10007 | 部分：TCP io.Copy 转发已实现（F-0802）；UDP 未实现（F-0812）——仅 TCP 转发。）
 -   [x] `F-10008` 配置能够可靠下发和回滚。
-    - 备注（Task ID: F-10008 | Status: Done | Evidence: config push+ACK+失败回滚（F-2023/2024 关：relaypush_test 9 例+configd_test TestApplyReloadFailRollsBack） | Verification: server/internal/relaypush/relaypush_test.go+agent/internal/configd/configd_test.go | Commit: 见本批提交）
+    - 备注（Task ID: F-10008 | Status: Done | Evidence: config push+ACK+失败回滚（F-2023/2024 关：relaypush_test 9 例+configd_test TestApplyReloadFailRollsBack） | Verification: server/internal/relaypush/relaypush_test.go+agent/internal/configd/configd_test.go | Commit: cb60ba7）
 -   [x] `F-10009` 能够生成 sing-box 配置。
-    - 备注（Task ID: F-10009 | Status: Done | Evidence: PackSingBox（sub/singbox.go:165+TestPackSingBox）| Verification: server/internal/sub/singbox_test.go | Commit: 见本批提交）
+    - 备注（Task ID: F-10009 | Status: Done | Evidence: PackSingBox（sub/singbox.go:165+TestPackSingBox）| Verification: server/internal/sub/singbox_test.go | Commit: cb60ba7）
 -   [x] `F-10010` 能够生成 Clash/Mihomo 配置。
-    - 备注（Task ID: F-10010 | Status: Done | Evidence: PackClash（sub/clash.go:72+TestPackClash）| Verification: server/internal/sub/clash_test.go | Commit: 见本批提交）
+    - 备注（Task ID: F-10010 | Status: Done | Evidence: PackClash（sub/clash.go:72+TestPackClash）| Verification: server/internal/sub/clash_test.go | Commit: cb60ba7）
 -   [ ] `F-10011` 生成内容经过真实客户端解析测试。
     - 待补（F-10011 | 未满足：合成 UA 无 fixture（F-1129）——生成内容未经真实客户端解析测试。）
 -   [x] `F-10012` Ferry 不需要自研客户端即可完成用户接入。
-    - 备注（Task ID: F-10012 | Status: Done | Evidence: v2ray/clash/sing-box 适配（F-1102-1105 关：PackV2Ray/PackClash/PackSingBox）| Verification: sub/{links,clash,singbox}_test.go | Commit: 见本批提交）
+    - 备注（Task ID: F-10012 | Status: Done | Evidence: v2ray/clash/sing-box 适配（F-1102-1105 关：PackV2Ray/PackClash/PackSingBox）| Verification: sub/{links,clash,singbox}_test.go | Commit: cb60ba7）
 
 ## 运营和可靠性
 
@@ -2423,7 +2423,7 @@ External Client
 -   [ ] `F-10018` 关键故障有监控、告警、审计和恢复路径。
     - 待补（F-10018 | 部分：Alert 4 kind+审计+recovery 齐（§7/§16 关闭项）；无 metric 层（F-1801-1814）、部分告警无生产者（F-1821/1822/1825/1828/1829/1830）——监控告警审计恢复路径部分。）
 -   [x] `F-10019` 备份经过真实恢复演练。
-    - 备注（Task ID: F-10019 | Status: Done | Evidence: deploy/restore.sh+e2e 备份恢复腿（F-1927 关，53 断言内）+restore.sh --key（deploy/restore.sh:16）| Verification: deploy/e2e-smoke.sh（备份恢复断言）+deploy/restore.sh | Commit: 见本批提交）
+    - 备注（Task ID: F-10019 | Status: Done | Evidence: deploy/restore.sh+e2e 备份恢复腿（F-1927 关，53 断言内）+restore.sh --key（deploy/restore.sh:16）| Verification: deploy/e2e-smoke.sh（备份恢复断言）+deploy/restore.sh | Commit: cb60ba7）
 -   [ ] `F-10020` 所有最终验收项均有可复现的测试证据。
     - 待补（F-10020 | 未满足：§18.4 无基准/压测（F-2061-2076 全未满足）；大量项仅单测无 e2e（F-2042-2055）——并非所有最终验收项有可复现测试证据。）
 
