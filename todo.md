@@ -2357,45 +2357,75 @@ External Client
 ## 控制面
 
 -   [ ] `F-9991` 用户、套餐、订阅和节点管理可用。
+    - 待补（F-9991 | 部分：用户/订阅/节点 CRUD 已实现（§1/§10，F-1202/1222/1244 等关）；无 Plan/套餐实体（F-0101 未满足）——「用户、套餐、订阅和节点」仅套餐缺。）
 -   [ ] `F-9992` Node、Capability、Tunnel、Path、Path Group、Policy
+    - 待补（F-9992 | 未满足：Capability/Path/PathGroup/Policy 模型全 0 命中（F-0222/0243/0261/0282）——「Node、Capability、Tunnel、Path、Path Group、Policy 模型收敛」仅 Node/Tunnel 收敛。）
     边界清晰。
 -   [ ] `F-9993` 能够管理 Entry、Landing 和 Relay。
+    - 待补（F-9993 | 部分：Entry/Landing 管理齐（landing 指派+sweep 关 F-0244）；Relay 仅受管进程启停（F-0804/1404 缺口）——「管理 Entry、Landing 和 Relay」Relay 部分。）
 -   [ ] `F-9994` 能够探测并识别节点、隧道和线路故障。
+    - 待补（F-9994 | 部分：probe TCP+verdict+dimension-status 齐（F-0903/0929/0930 关）；无 Path/Egress 健康区分、无 UDP/应用层探测（F-0902/0904/0905/0910/0911）——识别节点/隧道/线路故障部分。）
 -   [ ] `F-9995` 能够基于健康、容量和成本选择线路。
+    - 待补（F-9995 | 部分：alloc 按健康/容量/成本评分（F-1024-1027/1030/1049 关）；无 Path、无 cost 新鲜度/降级（F-0604/0605）——选择线路基于健康/容量/成本部分。）
 -   [ ] `F-9996` 能够解释调度结果。
+    - 待补（F-9996 | 未满足：无调度结果解释/候选排除原因/模拟 API（F-1033/1034/1035）——不能解释调度结果。）
 
 ## 云资源与成本
 
 -   [ ] `F-9997` 能够在 Dash 管理至少一个真实 Provider 账号。
+    - 待补（F-9997 | 部分：Provider CRUD 已实现（F-1441 关）；无账号连接测试（F-1443 未满足）——Dash 管理真实 Provider 账号部分（无凭据验证）。）
 -   [ ] `F-9998` 能够同步 Provider 云资源。
+    - 待补（F-9998 | 未满足：无 CloudResource 模型/同步（F-0341-0356）——不能同步 Provider 云资源。）
 -   [ ] `F-9999` 能够在权限控制下执行开机、关机和重启。
+    - 待补（F-9999 | 未满足：无云资源电源开/关/重启路径（F-0327 等）+无细粒度权限（F-1704）——不能在权限控制下执行开机/关机/重启。）
 -   [ ] `F-10000` 云操作状态能够与 Provider 实际状态对账。
+    - 待补（F-10000 | 未满足：无 CloudOperation 状态机/超时对账（F-0361+）——云操作状态不能与 Provider 实际状态对账。）
 -   [ ] `F-10001` Cloud Resource 能够与 Ferry Node 关联。
+    - 待补（F-10001 | 未满足：无 CloudResource/关联（F-0103/0341）——Cloud Resource 不能与 Node 关联。）
 -   [ ] `F-10002` 能够导入或同步实际账单。
+    - 待补（F-10002 | 未满足：无账单导入/同步（F-0521-0534）——不能导入或同步实际账单。）
 -   [ ] `F-10003` 能够区分实际账单、估算成本和成本分摊。
+    - 待补（F-10003 | 部分：估算（traffic/fixed/projected，F-0623 关）与参考价偏差（cost.CheckNode）有；无实际账单/分摊（F-0552/0505）——区分实际/估算/分摊仅估算。）
 -   [ ] `F-10004` 能够按 Provider、账号、区域、资源和 Node 查看成本。
+    - 待补（F-10004 | 部分：区域/ISP/节点成本维度有（F-1464/1466 关）；无 Provider/账号/资源维度（F-1462/1463/1465）——按五维度查看成本缺二。）
 -   [ ] `F-10005` 能够发现账单缺失、资源无法匹配和异常成本。
+    - 待补（F-10005 | 未满足：无账单（F-0588/0589）；仅高成本阈值（F-1473 部分）——不能发现账单缺失/资源无法匹配/异常成本。）
 
 ## 数据面与订阅
 
 -   [ ] `F-10006` Entry 和 Landing 能够建立 Relay 隧道。
+    - 待补（F-10006 | 部分：relay 隧道插件已实现（§6 F-0802/0803 关）；无 UDP、无 Path 实体（F-0812/0243）——Entry/Landing 建立 Relay 隧道部分（TCP only）。）
 -   [ ] `F-10007` 支持实际 TCP 和 UDP 转发。
--   [ ] `F-10008` 配置能够可靠下发和回滚。
--   [ ] `F-10009` 能够生成 sing-box 配置。
--   [ ] `F-10010` 能够生成 Clash/Mihomo 配置。
+    - 待补（F-10007 | 部分：TCP io.Copy 转发已实现（F-0802）；UDP 未实现（F-0812）——仅 TCP 转发。）
+-   [x] `F-10008` 配置能够可靠下发和回滚。
+    - 备注（Task ID: F-10008 | Status: Done | Evidence: config push+ACK+失败回滚（F-2023/2024 关：relaypush_test 9 例+configd_test TestApplyReloadFailRollsBack） | Verification: server/internal/relaypush/relaypush_test.go+agent/internal/configd/configd_test.go | Commit: 见本批提交）
+-   [x] `F-10009` 能够生成 sing-box 配置。
+    - 备注（Task ID: F-10009 | Status: Done | Evidence: PackSingBox（sub/singbox.go:165+TestPackSingBox）| Verification: server/internal/sub/singbox_test.go | Commit: 见本批提交）
+-   [x] `F-10010` 能够生成 Clash/Mihomo 配置。
+    - 备注（Task ID: F-10010 | Status: Done | Evidence: PackClash（sub/clash.go:72+TestPackClash）| Verification: server/internal/sub/clash_test.go | Commit: 见本批提交）
 -   [ ] `F-10011` 生成内容经过真实客户端解析测试。
--   [ ] `F-10012` Ferry 不需要自研客户端即可完成用户接入。
+    - 待补（F-10011 | 未满足：合成 UA 无 fixture（F-1129）——生成内容未经真实客户端解析测试。）
+-   [x] `F-10012` Ferry 不需要自研客户端即可完成用户接入。
+    - 备注（Task ID: F-10012 | Status: Done | Evidence: v2ray/clash/sing-box 适配（F-1102-1105 关：PackV2Ray/PackClash/PackSingBox）| Verification: sub/{links,clash,singbox}_test.go | Commit: 见本批提交）
 
 ## 运营和可靠性
 
 -   [ ] `F-10013` 套餐权限与订阅内容一致。
+    - 待补（F-10013 | 部分：配额降档+权限过滤有（F-1142 部分）；无套餐/PathGroup/Policy 过滤（F-1143/1144）——套餐权限与订阅内容一致性部分。）
 -   [ ] `F-10014` 流量记账具备幂等和补报能力。
+    - 待补（F-10014 | 部分：幂等去重已实现（F-1250 关：agentws_dedupe_test 7 例）；补报未实现（F-1251）——记账幂等有、补报无。）
 -   [ ] `F-10015` Dash 能够完成日常节点、云资源、线路和成本管理。
+    - 待补（F-10015 | 部分：节点/线路/成本/审计/恢复 Dash 页有（§12 关闭 19 项）；云资源页无（F-0411-0432）——Dash 日常管理缺云资源。）
 -   [ ] `F-10016` Server 重启后能够恢复控制面管理状态。
+    - 待补（F-10016 | 部分：server 恢复态恢复有（F-2053 部分 e2e-smoke.sh:417-427）；agent 重连未断言（F-1931）——重启后控制面管理状态恢复部分。）
 -   [ ] `F-10017` Server 短时不可用不导致已运行的数据面立即停止。
+    - 待补（F-10017 | 部分：故障语义文档（面板可用性设计.md:5-18）+离线缓冲测试（F-1932 部分 spool_test.go:99/147）；无「数据面在 server 宕机时继续转发」断言——部分。）
 -   [ ] `F-10018` 关键故障有监控、告警、审计和恢复路径。
--   [ ] `F-10019` 备份经过真实恢复演练。
+    - 待补（F-10018 | 部分：Alert 4 kind+审计+recovery 齐（§7/§16 关闭项）；无 metric 层（F-1801-1814）、部分告警无生产者（F-1821/1822/1825/1828/1829/1830）——监控告警审计恢复路径部分。）
+-   [x] `F-10019` 备份经过真实恢复演练。
+    - 备注（Task ID: F-10019 | Status: Done | Evidence: deploy/restore.sh+e2e 备份恢复腿（F-1927 关，53 断言内）+restore.sh --key（deploy/restore.sh:16）| Verification: deploy/e2e-smoke.sh（备份恢复断言）+deploy/restore.sh | Commit: 见本批提交）
 -   [ ] `F-10020` 所有最终验收项均有可复现的测试证据。
+    - 待补（F-10020 | 未满足：§18.4 无基准/压测（F-2061-2076 全未满足）；大量项仅单测无 e2e（F-2042-2055）——并非所有最终验收项有可复现测试证据。）
 
 ------------------------------------------------------------------------
 
