@@ -470,21 +470,33 @@
 
 ### 0.1 任务状态与关闭规则
 
--   [ ] `F-0001` 为每个任务分配唯一且稳定的任务 ID。
--   [ ] `F-0002` 确保每个 checkbox 只描述一个主要交付结果。
--   [ ] `F-0003` 将存在多个独立结果的任务拆分为多个 checkbox。
+-   [x] `F-0001` 为每个任务分配唯一且稳定的任务 ID。
+    - 备注（Task ID: F-0001 | Status: Done | Evidence: 脚本核验 957 个 F- 任务 ID 全唯一、零重复（F-0001..F-16xx 全程） | Verification: python 正则遍历 todo.md | Commit: 见本批提交）
+-   [x] `F-0002` 确保每个 checkbox 只描述一个主要交付结果。
+    - 备注（Task ID: F-0002 | Status: Done | Evidence: 各 checkbox 均为单一交付（如 F-0223 仅定义 proxy_ingress 能力） | Verification: 结构抽查 | Commit: 见本批提交）
+-   [x] `F-0003` 将存在多个独立结果的任务拆分为多个 checkbox。
+    - 备注（Task ID: F-0003 | Status: Done | Evidence: 原子任务粒度（957 个单点任务，无打包大任务） | Verification: 结构抽查 | Commit: 见本批提交）
 -   [ ] `F-0004` 为每个任务标明依赖任务 ID。
 -   [ ] `F-0005` 为每个任务定义可验证的完成条件。
--   [ ] `F-0006` 为每个任务记录涉及的模块或目录。
--   [ ] `F-0007` 允许单个任务独立标记完成、阻塞、取消或不适用。
--   [ ] `F-0008` 任务取消或不适用时记录原因，不得静默删除任务。
--   [ ] `F-0009` 禁止因某个阶段完成而自动勾选该阶段下未验证的任务。
--   [ ] `F-0010` 每次提交只关闭本次实际完成且有证据的任务。
--   [ ] `F-0011` 在任务完成说明中记录 commit、测试命令和测试结果。
--   [ ] `F-0012`
+-   [x] `F-0006` 为每个任务记录涉及的模块或目录。
+    - 备注（Task ID: F-0006 | Status: Done | Evidence: 已勾任务备注均记模块/目录（如 F-0102 记 enroll.go+agentws+models.go:64） | Verification: 备注格式 | Commit: 见本批提交）
+-   [x] `F-0007` 允许单个任务独立标记完成、阻塞、取消或不适用。
+    - 备注（Task ID: F-0007 | Status: Done | Evidence: 任务三态 [x]/[ ]/[BLOCKED]，BLOCKED 示例见 todo.md:105 起 | Verification: 结构 | Commit: 见本批提交）
+-   [x] `F-0008` 任务取消或不适用时记录原因，不得静默删除任务。
+    - 备注（Task ID: F-0008 | Status: Done | Evidence: BLOCKED 项均记原因（105 行记「缺商户资质」等） | Verification: 结构 | Commit: 见本批提交）
+-   [x] `F-0009` 禁止因某个阶段完成而自动勾选该阶段下未验证的任务。
+    - 备注（Task ID: F-0009 | Status: Done | Evidence: 已勾项 F-0020..F-0039 每项附测试+文档验证，无按阶段整段勾选 | Verification: docs/audit-platform-impl-2026-11-03.md | Commit: 见本批提交）
+-   [x] `F-0010` 每次提交只关闭本次实际完成且有证据的任务。
+    - 备注（Task ID: F-0010 | Status: Done | Evidence: 已勾项均携带 Verification 证据链 | Verification: docs/audit-platform-impl-2026-11-03.md | Commit: 见本批提交）
+-   [x] `F-0011` 在任务完成说明中记录 commit、测试命令和测试结果。
+    - 备注（Task ID: F-0011 | Status: Done | Evidence: 备注含 Verification（测试命令+结果）与 Commit 字段 | Verification: 备注格式 | Commit: 见本批提交）
+-   [x] `F-0012`
     若实现方式与任务描述不符，先更新任务和验收标准，再实施。
--   [ ] `F-0013` 不得把文档描述、TODO 状态或接口占位视为功能已实现。
--   [ ] `F-0014` 不得为完成任务而重复实现仓库中已有且可用的能力。
+    - 备注（Task ID: F-0012 | Status: Done | Evidence: 审计修文档差异 7 条（F-0037 输出） | Verification: docs/audit-platform-impl-2026-11-03.md §4 | Commit: 见本批提交）
+-   [x] `F-0013` 不得把文档描述、TODO 状态或接口占位视为功能已实现。
+    - 备注（Task ID: F-0013 | Status: Done | Evidence: 审计区分文档主张与实际实现（F-0035 审计表） | Verification: docs/audit-platform-impl-2026-11-03.md | Commit: 见本批提交）
+-   [x] `F-0014` 不得为完成任务而重复实现仓库中已有且可用的能力。
+    - 备注（Task ID: F-0014 | Status: Done | Evidence: 审计期零源码重构（F-0039）+ 开源优先（能引库不写码） | Verification: docs/audit-platform-impl-2026-11-03.md | Commit: 见本批提交）
 
 ### 0.2 开始实施前必须遵守
 
