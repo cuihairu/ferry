@@ -1096,6 +1096,7 @@ External Client
 -   [x] `F-0705` 统一 Agent 版本上报。
     - 备注（Task ID: F-0705 | Status: Done | Evidence: Hello.Version 上报；TestAgentWSHelloVersion | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0706` 统一 Agent 能力上报。
+    - 待补（F-0706 | 未满足原因：未满足：无统一能力上报消息/字段（capability|caps 在 agent/packages/server 0 命中）；能力由 role/labels 隐式承载。）
 -   [x] `F-0707` 统一 Agent 资源使用情况上报。
     - 备注（Task ID: F-0707 | Status: Done | Evidence: Heartbeat CPU/内存/连接字段（messages.go:99-111）；TestAgentWSHeartbeat+TestSysStatus | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0708` 支持 Agent 断线重连。
@@ -1107,6 +1108,7 @@ External Client
 -   [x] `F-0711` 支持 Agent 凭据轮换。
     - 备注（Task ID: F-0711 | Status: Done | Evidence: node.go:183 rotateNodeToken+agentws.go:48 10min 宽限；TestNodeTokenRotation+TestAuthNodeTokenRotationWindow+e2e 轮换腿 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0712` 支持 Agent 升级状态上报。
+    - 待补（F-0712 | 未满足原因：部分：面板 MsgUpgrade→UpgradeAck 接受/拒绝(upgrade.go:43-73+app.go:280-293)，结果经 hello.Version→agent_version 间接体现(agentws.go:138-144)；无专用升级状态/进度消息（无 UpgradeStatus）。）
 -   [x] `F-0713` 支持 Agent 升级失败恢复。
     - 备注（Task ID: F-0713 | Status: Done | Evidence: upgrade 看门狗回滚；TestWatchdogRollback+TestWatchdogRollbackFailure | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 
@@ -1115,7 +1117,9 @@ External Client
 -   [x] `F-0721` 审计现有 agentproto 消息定义。
     - 备注（Task ID: F-0721 | Status: Done | Evidence: agentproto 消息定义审计 §3.2（Msg* 信封+Version） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0722` 为现有消息补充协议文档。
--   [ ] `F-0723` 为消息定义版本兼容规则。
+    - 待补（F-0722 | 未满足原因：部分：契约经 Go 注释+docs/design/agent架构设计.md §8 记录；无独立协议参考文档枚举全部消息类型。）
+-   [x] `F-0723` 为消息定义版本兼容规则。
+    - 备注（Task ID: F-0723 | Status: Done | Evidence: Envelope.V+ProtocolVersion(envelope.go:7-8,36-41)+Valid() 拒绝未知版本(envelope.go:70)+link readLoop 丢弃(link.go:160-163) | Verification: TestEnvelopeVersionGuard+TestReadLoopDropsBadMessages | Commit: 见本批提交）
 -   [x] `F-0724` 为有副作用消息定义幂等键。
     - 备注（Task ID: F-0724 | Status: Done | Evidence: agentws_dedupe envelope ID 去重；dedupe_test 7 例 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0725` 为需要确认的消息定义 ACK。
@@ -1123,22 +1127,28 @@ External Client
 -   [x] `F-0726` 定义消息超时和重试规则。
     - 备注（Task ID: F-0726 | Status: Done | Evidence: agenthub/hub.go:114 Request 超时 ErrTimeout；TestPushTimeout+TestPushSendError | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0727` 定义断线期间消息处理规则。
+    - 待补（F-0727 | 未满足原因：部分：分路径规则——进程内离线静默丢(app.go:194-199)、spool 角色上报保留重试(spool.go:79-83)、面板命令返 ErrOffline(upgrade.go:55)；无统一断线策略文档。）
 -   [ ] `F-0728` 定义消息大小限制。
+    - 待补（F-0728 | 未满足原因：部分：服务端 agent-WS 入站 8MiB 上限(agentws.go:41-44,113 TestAgentWSFrameLimit)；agent 入站 readLoop 无 SetReadLimit(link.go:149-166)；HTTP API body 无 MaxBytesReader。）
 -   [x] `F-0729` 定义未知消息处理方式。
     - 备注（Task ID: F-0729 | Status: Done | Evidence: link readLoop 丢弃坏消息+服务端留痕；TestReadLoopDropsBadMessages | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0730` 增加 Agent 协议兼容性测试。
+    - 待补（F-0730 | 未满足原因：部分：agentproto 有 round-trip/类型稳定/版本守卫测试（TestMarshalRoundTrip/TestMessageTypesStable/TestEnvelopeVersionGuard）；无跨版本(旧schema→新解码)兼容测试。）
 
 ## 5.3 节点管理
 
 -   [ ] `F-0741` 支持节点注册审批。
+    - 待补（F-0741 | 未满足原因：未满足：无审批流，注册令牌即授权(enroll.go:124/159)；凭据即授权。）
 -   [x] `F-0742` 支持节点元数据自动采集。
     - 备注（Task ID: F-0742 | Status: Done | Evidence: syncNodeMeta 注册元数据采集（meta_init 面板为准）；TestAgentWSHelloMeta | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0743` 支持管理员编辑业务元数据。
+    - 待补（F-0743 | 未满足原因：部分：PUT /api/nodes/:id 编辑 name/address/port/protocol/meta role/direction/region/isp 等(node.go:90-153 TestNodeMetaInput)；labels 列有但 NodeInput 无、group 字段全无、计费字段不可编辑。）
 -   [x] `F-0744` 支持节点入池检查。
     - 备注（Task ID: F-0744 | Status: Done | Evidence: provision→probe→online 入池检查流水线；TestProvisionPipeline | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0745` 支持节点摘池。
     - 备注（Task ID: F-0745 | Status: Done | Evidence: pool.go suspend/resume 摘池；TestSuspend+TestSweepSuspendAndResume | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0746` 支持节点维护模式。
+    - 待补（F-0746 | 未满足原因：未满足：无维护模式字段/状态（maintenance|维护模式 全仓 0 命中）；pool suspend/resume 是摘池非维护。）
 -   [x] `F-0747` 支持节点禁用。
     - 备注（Task ID: F-0747 | Status: Done | Evidence: enabled 关停；TestNodeCRUD | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0748` 支持节点重新启用。
@@ -1146,7 +1156,9 @@ External Client
 -   [x] `F-0749` 支持节点批量操作。
     - 备注（Task ID: F-0749 | Status: Done | Evidence: router.go:184-185 batch；TestBatchNodeProc+TestBatchNodeConfig | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0750` 支持节点详情展示 Agent、Relay、Probe 状态。
--   [ ] `F-0751` 支持节点操作历史。
+    - 待补（F-0750 | 未满足原因：部分：节点详情返回 agent 状态(node.go:26-33)、/procs 进程状态(procstatus.go:69)、probe 仅全局 GET /api/probe-reports 无 per-node 过滤(router.go:450)；无单端点聚合三态。）
+-   [x] `F-0751` 支持节点操作历史。
+    - 备注（Task ID: F-0751 | Status: Done | Evidence: auditMiddleware 覆盖 /api,/admin 写(audit.go:119-140)+GET /api/audit-logs?target=:id 按节点过滤(audit.go:169-171,router.go:274) | Verification: TestAuditLogsCaptureWriteOps+TestAuditLogsCaptureFailedWriteAndFilters | Commit: 见本批提交）
 -   [x] `F-0752` 支持节点配置版本查看。
     - 备注（Task ID: F-0752 | Status: Done | Evidence: GET /api/nodes/:id/configs；config_err_test limit/404+agentws_test:442 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 
