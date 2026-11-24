@@ -1,0 +1,169 @@
+{
+  "links": [
+    "vless://u-vless-1@hk.example.com:443?encryption=none\u0026flow=xtls-rprx-vision\u0026host=cdn.example.com\u0026path=%2Fws\u0026security=tls\u0026sni=sni.example.com\u0026type=ws#%E9%A6%99%E6%B8%AF%2001",
+    "vless://u-vless-2@us.example.com:8443?encryption=none#%E7%BE%8E%E8%A5%BF%2002",
+    "vmess://eyJhZGQiOiJqcC5leGFtcGxlLmNvbSIsImFpZCI6IjY0IiwiaG9zdCI6ImguanAiLCJpZCI6InUtdm1lc3MtMSIsIm5ldCI6IndzIiwicGF0aCI6Ii93IiwicG9ydCI6IjQ0MyIsInBzIjoi5Lic5LqsIDAzIiwic2N5IjoiYWVzLTEyOC1nY20iLCJzbmkiOiJzLmpwIiwidGxzIjoidGxzIiwidHlwZSI6Im5vbmUiLCJ2IjoiMiJ9",
+    "vmess://eyJhZGQiOiJkZS5leGFtcGxlLmNvbSIsImFpZCI6IjAiLCJob3N0IjoiIiwiaWQiOiJ1LXZtZXNzLTIiLCJuZXQiOiJ0Y3AiLCJwYXRoIjoiIiwicG9ydCI6IjIwNTMiLCJwcyI6IuazleWFsCAwNCIsInNjeSI6ImF1dG8iLCJ0eXBlIjoibm9uZSIsInYiOiIyIn0=",
+    "trojan://pw-trojan@sg.example.com:443?security=tls\u0026sni=s.sg\u0026type=grpc#%E7%8B%AE%E5%9F%8E%2005",
+    "trojan://pw-uk@uk.example.com:443?#%E4%BC%A6%E6%95%A6%2006",
+    "ss://YWVzLTI1Ni1nY206cHctc3M@kr.example.com:8388#%E9%A6%96%E5%B0%94%2007",
+    "hysteria2://pw-hy2@la.example.com:443?down=200\u0026insecure=1\u0026obfs=salamander\u0026obfs-password=op\u0026sni=s.la\u0026up=100#%E6%B4%9B%E6%9D%89%E7%9F%B6%2008",
+    "hysteria2://pw-au@au.example.com:8443?#%E6%82%89%E5%B0%BC%2009"
+  ],
+  "pack_v2ray": "IyDlhazlkYrkuIAKIyDlhazlkYrkuowKdmxlc3M6Ly91LXZsZXNzLTFAaGsuZXhhbXBsZS5jb206NDQzP2VuY3J5cHRpb249bm9uZSZmbG93PXh0bHMtcnByeC12aXNpb24maG9zdD1jZG4uZXhhbXBsZS5jb20mcGF0aD0lMkZ3cyZzZWN1cml0eT10bHMmc25pPXNuaS5leGFtcGxlLmNvbSZ0eXBlPXdzIyVFNiU5QyVBQSVFNyU5RiVBNSUyMCVDMiVCNyUyMCVFOSVBNiU5OSVFNiVCOCVBRiUyMDAxCnZsZXNzOi8vdS12bGVzcy0yQHVzLmV4YW1wbGUuY29tOjg0NDM/ZW5jcnlwdGlvbj1ub25lIyVFNiU5QyVBQSVFNyU5RiVBNSUyMCVDMiVCNyUyMCVFNyVCRSU4RSVFOCVBNSVCRiUyMDAyCnZtZXNzOi8vZXlKaFpHUWlPaUpxY0M1bGVHRnRjR3hsTG1OdmJTSXNJbUZwWkNJNklqWTBJaXdpYUc5emRDSTZJbWd1YW5BaUxDSnBaQ0k2SW5VdGRtMWxjM010TVNJc0ltNWxkQ0k2SW5keklpd2ljR0YwYUNJNklpOTNJaXdpY0c5eWRDSTZJalEwTXlJc0luQnpJam9pNXB5cTU1K2xJTUszSU9TNG5PUzZyQ0F3TXlJc0luTmplU0k2SW1GbGN5MHhNamd0WjJOdElpd2ljMjVwSWpvaWN5NXFjQ0lzSW5Sc2N5STZJblJzY3lJc0luUjVjR1VpT2lKdWIyNWxJaXdpZGlJNklqSWlmUT09CnZtZXNzOi8vZXlKaFpHUWlPaUprWlM1bGVHRnRjR3hsTG1OdmJTSXNJbUZwWkNJNklqQWlMQ0pvYjNOMElqb2lJaXdpYVdRaU9pSjFMWFp0WlhOekxUSWlMQ0p1WlhRaU9pSjBZM0FpTENKd1lYUm9Jam9pSWl3aWNHOXlkQ0k2SWpJd05UTWlMQ0p3Y3lJNkl1YWNxdWVmcFNEQ3R5RG1zNVhsaGJBZ01EUWlMQ0p6WTNraU9pSmhkWFJ2SWl3aWRIbHdaU0k2SW01dmJtVWlMQ0oySWpvaU1pSjkKdHJvamFuOi8vcHctdHJvamFuQHNnLmV4YW1wbGUuY29tOjQ0Mz9zZWN1cml0eT10bHMmc25pPXMuc2cmdHlwZT1ncnBjIyVFNiU5QyVBQSVFNyU5RiVBNSUyMCVDMiVCNyUyMCVFNyU4QiVBRSVFNSU5RiU4RSUyMDA1CnRyb2phbjovL3B3LXVrQHVrLmV4YW1wbGUuY29tOjQ0Mz8jJUU2JTlDJUFBJUU3JTlGJUE1JTIwJUMyJUI3JTIwJUU0JUJDJUE2JUU2JTk1JUE2JTIwMDYKc3M6Ly9ZV1Z6TFRJMU5pMW5ZMjA2Y0hjdGMzTUBrci5leGFtcGxlLmNvbTo4Mzg4IyVFNiU5QyVBQSVFNyU5RiVBNSUyMCVDMiVCNyUyMCVFOSVBNiU5NiVFNSVCMCU5NCUyMDA3Cmh5c3RlcmlhMjovL3B3LWh5MkBsYS5leGFtcGxlLmNvbTo0NDM/ZG93bj0yMDAmaW5zZWN1cmU9MSZvYmZzPXNhbGFtYW5kZXImb2Jmcy1wYXNzd29yZD1vcCZzbmk9cy5sYSZ1cD0xMDAjJUU2JTlDJUFBJUU3JTlGJUE1JTIwJUMyJUI3JTIwJUU2JUI0JTlCJUU2JTlEJTg5JUU3JTlGJUI2JTIwMDgKaHlzdGVyaWEyOi8vcHctYXVAYXUuZXhhbXBsZS5jb206ODQ0Mz8jJUU2JTlDJUFBJUU3JTlGJUE1JTIwJUMyJUI3JTIwJUU2JTgyJTg5JUU1JUIwJUJDJTIwMDk=",
+  "pack_v2ray_ordered": "dmxlc3M6Ly91LXZsZXNzLTFAaGsuZXhhbXBsZS5jb206NDQzP2VuY3J5cHRpb249bm9uZSZmbG93PXh0bHMtcnByeC12aXNpb24maG9zdD1jZG4uZXhhbXBsZS5jb20mcGF0aD0lMkZ3cyZzZWN1cml0eT10bHMmc25pPXNuaS5leGFtcGxlLmNvbSZ0eXBlPXdzIyVFNiU5QyVBQSVFNyU5RiVBNSUyMCVDMiVCNyUyMCVFOSVBNiU5OSVFNiVCOCVBRiUyMDAxCnZsZXNzOi8vdS12bGVzcy0yQHVzLmV4YW1wbGUuY29tOjg0NDM/ZW5jcnlwdGlvbj1ub25lIyVFNiU5QyVBQSVFNyU5RiVBNSUyMCVDMiVCNyUyMCVFNyVCRSU4RSVFOCVBNSVCRiUyMDAyCnZtZXNzOi8vZXlKaFpHUWlPaUpxY0M1bGVHRnRjR3hsTG1OdmJTSXNJbUZwWkNJNklqWTBJaXdpYUc5emRDSTZJbWd1YW5BaUxDSnBaQ0k2SW5VdGRtMWxjM010TVNJc0ltNWxkQ0k2SW5keklpd2ljR0YwYUNJNklpOTNJaXdpY0c5eWRDSTZJalEwTXlJc0luQnpJam9pNXB5cTU1K2xJTUszSU9TNG5PUzZyQ0F3TXlJc0luTmplU0k2SW1GbGN5MHhNamd0WjJOdElpd2ljMjVwSWpvaWN5NXFjQ0lzSW5Sc2N5STZJblJzY3lJc0luUjVjR1VpT2lKdWIyNWxJaXdpZGlJNklqSWlmUT09CnZtZXNzOi8vZXlKaFpHUWlPaUprWlM1bGVHRnRjR3hsTG1OdmJTSXNJbUZwWkNJNklqQWlMQ0pvYjNOMElqb2lJaXdpYVdRaU9pSjFMWFp0WlhOekxUSWlMQ0p1WlhRaU9pSjBZM0FpTENKd1lYUm9Jam9pSWl3aWNHOXlkQ0k2SWpJd05UTWlMQ0p3Y3lJNkl1YWNxdWVmcFNEQ3R5RG1zNVhsaGJBZ01EUWlMQ0p6WTNraU9pSmhkWFJ2SWl3aWRIbHdaU0k2SW01dmJtVWlMQ0oySWpvaU1pSjkKdHJvamFuOi8vcHctdHJvamFuQHNnLmV4YW1wbGUuY29tOjQ0Mz9zZWN1cml0eT10bHMmc25pPXMuc2cmdHlwZT1ncnBjIyVFNiU5QyVBQSVFNyU5RiVBNSUyMCVDMiVCNyUyMCVFNyU4QiVBRSVFNSU5RiU4RSUyMDA1CnRyb2phbjovL3B3LXVrQHVrLmV4YW1wbGUuY29tOjQ0Mz8jJUU2JTlDJUFBJUU3JTlGJUE1JTIwJUMyJUI3JTIwJUU0JUJDJUE2JUU2JTk1JUE2JTIwMDYKc3M6Ly9ZV1Z6TFRJMU5pMW5ZMjA2Y0hjdGMzTUBrci5leGFtcGxlLmNvbTo4Mzg4IyVFNiU5QyVBQSVFNyU5RiVBNSUyMCVDMiVCNyUyMCVFOSVBNiU5NiVFNSVCMCU5NCUyMDA3Cmh5c3RlcmlhMjovL3B3LWh5MkBsYS5leGFtcGxlLmNvbTo0NDM/ZG93bj0yMDAmaW5zZWN1cmU9MSZvYmZzPXNhbGFtYW5kZXImb2Jmcy1wYXNzd29yZD1vcCZzbmk9cy5sYSZ1cD0xMDAjJUU2JTlDJUFBJUU3JTlGJUE1JTIwJUMyJUI3JTIwJUU2JUI0JTlCJUU2JTlEJTg5JUU3JTlGJUI2JTIwMDgKaHlzdGVyaWEyOi8vcHctYXVAYXUuZXhhbXBsZS5jb206ODQ0Mz8jJUU2JTlDJUFBJUU3JTlGJUE1JTIwJUMyJUI3JTIwJUU2JTgyJTg5JUU1JUIwJUJDJTIwMDk=",
+  "pack_clash": "# note\nproxies:\n    - name: 香港 01\n      type: vless\n      server: hk.example.com\n      port: 443\n      network: ws\n      uuid: u-vless-1\n      flow: xtls-rprx-vision\n      tls: true\n      servername: sni.example.com\n      sni: sni.example.com\n      ws-opts:\n        path: /ws\n        headers:\n            Host: cdn.example.com\n    - name: 美西 02\n      type: vless\n      server: us.example.com\n      port: 8443\n      uuid: u-vless-2\n    - name: 东京 03\n      type: vmess\n      server: jp.example.com\n      port: 443\n      network: ws\n      uuid: u-vmess-1\n      alterId: 64\n      cipher: aes-128-gcm\n      tls: true\n      servername: s.jp\n      sni: s.jp\n      ws-opts:\n        path: /w\n        headers:\n            Host: h.jp\n    - name: 法兰 04\n      type: vmess\n      server: de.example.com\n      port: 2053\n      uuid: u-vmess-2\n      cipher: auto\n    - name: 狮城 05\n      type: trojan\n      server: sg.example.com\n      port: 443\n      network: grpc\n      servername: s.sg\n      sni: s.sg\n      password: pw-trojan\n    - name: 伦敦 06\n      type: trojan\n      server: uk.example.com\n      port: 443\n      password: pw-uk\n    - name: 首尔 07\n      type: ss\n      server: kr.example.com\n      port: 8388\n      cipher: aes-256-gcm\n      password: pw-ss\n    - name: 洛杉矶 08\n      type: hysteria2\n      server: la.example.com\n      port: 443\n      servername: s.la\n      sni: s.la\n      password: pw-hy2\n      obfs: salamander\n      obfs-password: op\n      up: 100\n      down: 200\n      skip-cert-verify: true\n    - name: 悉尼 09\n      type: hysteria2\n      server: au.example.com\n      port: 8443\n      password: pw-au\nproxy-groups:\n    - name: PROXY\n      type: select\n      proxies:\n        - 未知\n    - name: 未知\n      type: url-test\n      proxies:\n        - 香港 01\n        - 美西 02\n        - 东京 03\n        - 法兰 04\n        - 狮城 05\n        - 伦敦 06\n        - 首尔 07\n        - 洛杉矶 08\n        - 悉尼 09\n      url: https://www.gstatic.com/generate_204\n      interval: 300\nrules:\n    - MATCH,PROXY\n",
+  "pack_singbox": "[\n  {\n    \"flow\": \"xtls-rprx-vision\",\n    \"server\": \"hk.example.com\",\n    \"server_port\": 443,\n    \"tag\": \"香港 01\",\n    \"tls\": {\n      \"enabled\": true,\n      \"server_name\": \"sni.example.com\"\n    },\n    \"transport\": {\n      \"headers\": {\n        \"Host\": \"cdn.example.com\"\n      },\n      \"path\": \"/ws\",\n      \"type\": \"ws\"\n    },\n    \"type\": \"vless\",\n    \"uuid\": \"u-vless-1\"\n  },\n  {\n    \"server\": \"us.example.com\",\n    \"server_port\": 8443,\n    \"tag\": \"美西 02\",\n    \"type\": \"vless\",\n    \"uuid\": \"u-vless-2\"\n  },\n  {\n    \"alter_id\": 64,\n    \"security\": \"aes-128-gcm\",\n    \"server\": \"jp.example.com\",\n    \"server_port\": 443,\n    \"tag\": \"东京 03\",\n    \"tls\": {\n      \"enabled\": true,\n      \"server_name\": \"s.jp\"\n    },\n    \"transport\": {\n      \"headers\": {\n        \"Host\": \"h.jp\"\n      },\n      \"path\": \"/w\",\n      \"type\": \"ws\"\n    },\n    \"type\": \"vmess\",\n    \"uuid\": \"u-vmess-1\"\n  },\n  {\n    \"alter_id\": 0,\n    \"security\": \"auto\",\n    \"server\": \"de.example.com\",\n    \"server_port\": 2053,\n    \"tag\": \"法兰 04\",\n    \"type\": \"vmess\",\n    \"uuid\": \"u-vmess-2\"\n  },\n  {\n    \"password\": \"pw-trojan\",\n    \"server\": \"sg.example.com\",\n    \"server_port\": 443,\n    \"tag\": \"狮城 05\",\n    \"tls\": {\n      \"enabled\": true,\n      \"server_name\": \"s.sg\"\n    },\n    \"transport\": {\n      \"type\": \"grpc\"\n    },\n    \"type\": \"trojan\"\n  },\n  {\n    \"password\": \"pw-uk\",\n    \"server\": \"uk.example.com\",\n    \"server_port\": 443,\n    \"tag\": \"伦敦 06\",\n    \"tls\": {\n      \"enabled\": true\n    },\n    \"type\": \"trojan\"\n  },\n  {\n    \"method\": \"aes-256-gcm\",\n    \"password\": \"pw-ss\",\n    \"server\": \"kr.example.com\",\n    \"server_port\": 8388,\n    \"tag\": \"首尔 07\",\n    \"type\": \"shadowsocks\"\n  },\n  {\n    \"down_mbps\": 200,\n    \"insecure\": true,\n    \"obfs\": {\n      \"password\": \"op\",\n      \"type\": \"salamander\"\n    },\n    \"password\": \"pw-hy2\",\n    \"server\": \"la.example.com\",\n    \"server_port\": 443,\n    \"sni\": \"s.la\",\n    \"tag\": \"洛杉矶 08\",\n    \"type\": \"hysteria2\",\n    \"up_mbps\": 100\n  },\n  {\n    \"password\": \"pw-au\",\n    \"server\": \"au.example.com\",\n    \"server_port\": 8443,\n    \"tag\": \"悉尼 09\",\n    \"type\": \"hysteria2\"\n  }\n]",
+  "outbounds": [
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "hk.example.com",
+      "server_port": 443,
+      "tag": "香港 01",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni.example.com"
+      },
+      "transport": {
+        "headers": {
+          "Host": "cdn.example.com"
+        },
+        "path": "/ws",
+        "type": "ws"
+      },
+      "type": "vless",
+      "uuid": "u-vless-1"
+    },
+    {
+      "server": "us.example.com",
+      "server_port": 8443,
+      "tag": "美西 02",
+      "type": "vless",
+      "uuid": "u-vless-2"
+    },
+    {
+      "alter_id": 64,
+      "security": "aes-128-gcm",
+      "server": "jp.example.com",
+      "server_port": 443,
+      "tag": "东京 03",
+      "tls": {
+        "enabled": true,
+        "server_name": "s.jp"
+      },
+      "transport": {
+        "headers": {
+          "Host": "h.jp"
+        },
+        "path": "/w",
+        "type": "ws"
+      },
+      "type": "vmess",
+      "uuid": "u-vmess-1"
+    },
+    {
+      "alter_id": 0,
+      "security": "auto",
+      "server": "de.example.com",
+      "server_port": 2053,
+      "tag": "法兰 04",
+      "type": "vmess",
+      "uuid": "u-vmess-2"
+    },
+    {
+      "password": "pw-trojan",
+      "server": "sg.example.com",
+      "server_port": 443,
+      "tag": "狮城 05",
+      "tls": {
+        "enabled": true,
+        "server_name": "s.sg"
+      },
+      "transport": {
+        "type": "grpc"
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "pw-uk",
+      "server": "uk.example.com",
+      "server_port": 443,
+      "tag": "伦敦 06",
+      "tls": {
+        "enabled": true
+      },
+      "type": "trojan"
+    },
+    {
+      "method": "aes-256-gcm",
+      "password": "pw-ss",
+      "server": "kr.example.com",
+      "server_port": 8388,
+      "tag": "首尔 07",
+      "type": "shadowsocks"
+    },
+    {
+      "down_mbps": 200,
+      "insecure": true,
+      "obfs": {
+        "password": "op",
+        "type": "salamander"
+      },
+      "password": "pw-hy2",
+      "server": "la.example.com",
+      "server_port": 443,
+      "sni": "s.la",
+      "tag": "洛杉矶 08",
+      "type": "hysteria2",
+      "up_mbps": 100
+    },
+    {
+      "password": "pw-au",
+      "server": "au.example.com",
+      "server_port": 8443,
+      "tag": "悉尼 09",
+      "type": "hysteria2"
+    }
+  ],
+  "singbox_of_keys": {
+    "hysteria2": [
+      "password",
+      "server",
+      "server_port",
+      "tag",
+      "type"
+    ],
+    "shadowsocks": [
+      "method",
+      "password",
+      "server",
+      "server_port",
+      "tag",
+      "type"
+    ],
+    "trojan": [
+      "password",
+      "server",
+      "server_port",
+      "tag",
+      "tls",
+      "type"
+    ],
+    "vless": [
+      "server",
+      "server_port",
+      "tag",
+      "type",
+      "uuid"
+    ],
+    "vmess": [
+      "alter_id",
+      "security",
+      "server",
+      "server_port",
+      "tag",
+      "type",
+      "uuid"
+    ]
+  }
+}
