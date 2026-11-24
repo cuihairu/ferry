@@ -327,10 +327,22 @@ func TestStartHeartbeatCtxCancel(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	cancel()
-	n := rec.count()
-	time.Sleep(150 * time.Millisecond)
-	if got := rec.count(); got != n {
-		t.Fatalf("heartbeats continued after ctx cancel: %d -> %d", n, got)
+	// 取消后允许一个在途 tick 落账（select 已选中已触发 timer.C 的竞态
+	// 窗口，CI 慢机实证 1 -> 2），断言「计数最终稳定」：连续两帧相等即
+	// 视为循环已退出；若循环未退出，10ms 间隔下计数持续增长，stabilize
+	// 窗口内永不满足。
+	stabilize := time.Now().Add(2 * time.Second)
+	prev := rec.count()
+	for {
+		time.Sleep(150 * time.Millisecond)
+		cur := rec.count()
+		if cur == prev {
+			break
+		}
+		if time.Now().After(stabilize) {
+			t.Fatalf("heartbeats kept growing after ctx cancel: %d -> %d", prev, cur)
+		}
+		prev = cur
 	}
 }
 
