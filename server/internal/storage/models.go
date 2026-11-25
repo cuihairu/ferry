@@ -736,7 +736,7 @@ type LoginLog struct {
 type AuditLog struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	Actor     string    `gorm:"size:128;index" json:"actor"`  // operator name (admin username / API Token subject)
-	ActorKind string    `gorm:"size:16" json:"actor_kind"`    // admin | api
+	ActorKind string    `gorm:"size:16" json:"actor_kind"`    // admin | api | distributor | panel
 	Action    string    `gorm:"size:255;index" json:"action"` // "PUT /api/users/:id"
 	Target    string    `gorm:"size:64" json:"target"`        // object id (the path :id parameter)
 	Body      string    `gorm:"size:2048" json:"body"`        // request-body snapshot (sensitive fields sanitized, truncated to 2KB)

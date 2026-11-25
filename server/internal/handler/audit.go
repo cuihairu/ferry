@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -148,6 +149,21 @@ func (h *Handler) auditMiddleware() gin.HandlerFunc {
 			IP:        c.ClientIP(),
 		}
 		h.db.Create(&row)
+	}
+}
+
+// auditSensitive lands an audit row for a sensitive operation running outside
+// the apiAuth+auditMiddleware plane (F-0045): the distributor and panel
+// surfaces carry their own credentials, so their mutating endpoints log
+// explicitly instead of relying on the middleware. A write failure only logs
+// and never blocks the operation.
+func (h *Handler) auditSensitive(actor, actorKind, action, target string, success bool, ip string) {
+	row := storage.AuditLog{
+		Actor: actor, ActorKind: actorKind, Action: action,
+		Target: target, Success: success, IP: ip,
+	}
+	if err := h.db.Create(&row).Error; err != nil {
+		log.Printf("audit sensitive row: %v", err)
 	}
 }
 

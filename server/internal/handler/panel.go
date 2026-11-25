@@ -135,7 +135,12 @@ func (h *Handler) panelRedeem(c *gin.Context) {
 		fail(c, http.StatusBadRequest, errRedeemFailed)
 		return
 	}
+	// The panel plane bypasses auditMiddleware (F-0045): redemption attempts are
+	// audited here, target = the card code, outcome = response status.
 	ip := c.ClientIP()
+	defer func() {
+		h.auditSensitive(u.Username, "panel", "POST /api/panel/redeem", code, c.Writer.Status() < 400, ip)
+	}()
 	if !h.redeemLimiter.Allow(ip) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "尝试过于频繁，请稍后再试"})
 		return

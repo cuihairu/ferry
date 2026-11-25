@@ -39,6 +39,12 @@ func (h *Handler) DistributorLogin(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
 		return
 	}
+	// The distributor plane bypasses auditMiddleware (F-0045): login attempts are
+	// audited here, actor = the submitted username (unverified on failures).
+	name := strings.TrimSpace(in.Username)
+	defer func() {
+		h.auditSensitive(name, "distributor", "POST /distributor/login", "", c.Writer.Status() < 400, ip)
+	}()
 	var d storage.Distributor
 	err := h.db.Where("username = ?", strings.TrimSpace(in.Username)).First(&d).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
