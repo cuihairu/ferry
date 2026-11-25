@@ -13,8 +13,8 @@ import (
 	"github.com/cuihairu/ferry/server/internal/secret"
 )
 
-// TestBackupDecryptRoundtrip 覆盖解密子命令（restore.sh 的判定依据）：正确
-// 钥还原原文、-out 缺省去 .enc 后缀、错钥/未配钥/缺 -in 一律非 0。
+// TestBackupDecryptRoundtrip covers the decrypt subcommand (what restore.sh judges on): the right
+// key restores the original, -out defaults to stripping the .enc suffix, wrong key / missing key / missing -in all exit non-zero.
 func TestBackupDecryptRoundtrip(t *testing.T) {
 	dir := t.TempDir()
 	store := secret.NewStore("mk")
@@ -28,7 +28,7 @@ func TestBackupDecryptRoundtrip(t *testing.T) {
 		t.Fatalf("write enc: %v", err)
 	}
 
-	// 显式 -out：明文逐字节还原。
+	// Explicit -out: plaintext restored byte for byte.
 	out := filepath.Join(dir, "restored.db")
 	if code := backupDecrypt([]string{"-key", "mk", "-in", in, "-out", out}); code != 0 {
 		t.Fatalf("exit = %d, want 0", code)
@@ -38,7 +38,7 @@ func TestBackupDecryptRoundtrip(t *testing.T) {
 		t.Fatalf("restored mismatch: err=%v bytes=%q", err, got)
 	}
 
-	// -out 缺省：还原为去掉 .enc 后缀的同名文件。
+	// -out omitted: restored to the same file name with the .enc suffix stripped.
 	defIn := filepath.Join(dir, "ferry-backup-y.db.enc")
 	if err := os.WriteFile(defIn, enc, 0o600); err != nil {
 		t.Fatalf("write enc: %v", err)
@@ -50,7 +50,7 @@ func TestBackupDecryptRoundtrip(t *testing.T) {
 		t.Fatalf("default out file missing: %v", err)
 	}
 
-	// 失败面：错钥 / 未配钥（-key 空）/ 缺 -in。
+	// Failure side: wrong key / unconfigured key (empty -key) / missing -in.
 	if code := backupDecrypt([]string{"-key", "wrong", "-in", in, "-out", filepath.Join(dir, "w.db")}); code == 0 {
 		t.Fatal("wrong key should exit non-zero")
 	}
@@ -62,10 +62,10 @@ func TestBackupDecryptRoundtrip(t *testing.T) {
 	}
 }
 
-// TestRunServesUntilCancel 覆盖装配主路径：起库、引导管理员、挂全部后台
-// 循环并起 HTTP 监听；ctx 取消即优雅关停回收，不悬挂不报错。
+// TestRunServesUntilCancel covers the main wiring path: opens the DB, bootstraps the admin, mounts all
+// background loops and starts the HTTP listener; cancelling ctx shuts down gracefully without hanging or erroring.
 func TestRunServesUntilCancel(t *testing.T) {
-	cfg := config.Default() // Load 的缺省基线：周期字段落默认，避免零值周期
+	cfg := config.Default() // Load's default baseline: period fields get defaults, avoiding zero-value periods
 	cfg.Addr = "127.0.0.1:0"
 	cfg.DBDriver = "sqlite"
 	cfg.DBDSN = filepath.Join(t.TempDir(), "ferry.db")
@@ -84,7 +84,7 @@ func TestRunServesUntilCancel(t *testing.T) {
 	}
 }
 
-// TestRunBadDB 库打不开即冒错，不冒称起服。
+// TestRunBadDB: an unopenable DB surfaces the error instead of pretending to serve.
 func TestRunBadDB(t *testing.T) {
 	cfg := config.Config{DBDriver: "bogus", DBDSN: "x"}
 	err := run(context.Background(), cfg)

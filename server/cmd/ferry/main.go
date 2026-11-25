@@ -1,4 +1,4 @@
-// ferry 命令是服务入口：装配配置、数据库与 HTTP 路由后对外提供服务。
+// The ferry command is the service entrypoint: after wiring config, database and HTTP routes it serves externally.
 package main
 
 import (
@@ -17,9 +17,9 @@ import (
 	"syscall"
 	"time"
 
-	_ "github.com/cuihairu/ferry/payments/alipay" // PAY-10：占位渠道（未启用文案）
-	_ "github.com/cuihairu/ferry/payments/epusdt" // PAY-8：init 自注册收款渠道
-	_ "github.com/cuihairu/ferry/payments/wechat" // PAY-10：占位渠道（未启用文案）
+	_ "github.com/cuihairu/ferry/payments/alipay" // PAY-10: placeholder channel (no enabled copy)
+	_ "github.com/cuihairu/ferry/payments/epusdt" // PAY-8: init self-registers the payment channel
+	_ "github.com/cuihairu/ferry/payments/wechat" // PAY-10: placeholder channel (no enabled copy)
 	"github.com/cuihairu/ferry/server/internal/alloc"
 	"github.com/cuihairu/ferry/server/internal/audit"
 	"github.com/cuihairu/ferry/server/internal/backup"
@@ -49,9 +49,9 @@ import (
 )
 
 func main() {
-	// 备份解包子命令（面板可用性 §3 恢复②，deploy/restore.sh 调用）：.enc
-	// 档是主密钥派生钥 AES-256-GCM 的紧凑二进制，openssl enc 无 GCM 能力，
-	// 恢复时借本二进制自身的 secret 包还原明文；不带子命令时照常起服务。
+	// Backup-decrypt subcommand (panel availability §3 restore ②, called by deploy/restore.sh): the .enc
+	// file is the compact binary of AES-256-GCM under a master-key-derived key, and openssl enc has no GCM support,
+	// so restoration borrows this binary's own secret package to restore the plaintext; without the subcommand the service starts as usual.
 	if len(os.Args) > 1 && os.Args[1] == "backup-decrypt" {
 		os.Exit(backupDecrypt(os.Args[2:]))
 	}
@@ -62,19 +62,19 @@ func main() {
 	}
 }
 
-// run 装配并服务一个面板实例：起库、引导管理员、挂全部后台循环，最后
-// 起监听直到 ctx 取消（优雅关停）。返回错误交 main 统一退出；context.
-// Canceled 是正常停机。
+// run wires up and serves one panel instance: opens the DB, bootstraps the admin, mounts all background loops, then
+// listens until ctx is cancelled (graceful shutdown). Returned errors are handed to main for a uniform exit; context.
+// Canceled means a normal shutdown.
 func run(ctx context.Context, cfg config.Config) error {
-	// 运行日志（P1-11）：std log 与 gin 输出镜像进环形缓冲，供管理端查看。
+	// Runtime logs (P1-11): std log and gin output are mirrored into the ring buffer for the admin UI to view.
 	ring := ringlog.Default()
 	log.SetOutput(io.MultiWriter(os.Stderr, ring))
 	gin.DefaultWriter = io.MultiWriter(os.Stdout, ring)
 	gin.DefaultErrorWriter = io.MultiWriter(os.Stderr, ring)
 
-	// 密钥门禁（FERRY-003）：签名/加密密钥按「显式配置 > 密钥文件 > 生成并
-	// 持久化」定值；生产环境（FERRY_ENV=production）缺钥无从持久化、弱钥、
-	// 开发默认常量拒绝启动。日志只报名不报值。
+	// Key gate (FERRY-003): signing/encryption keys resolve as "explicit config > key file > generate and
+	// persist"; in production (FERRY_ENV=production) a missing key with nowhere to persist, a weak key, or a
+	// dev default constant refuses startup. Logs name keys but never print values.
 	resolved, keys, err := keyinit.Resolve(cfg)
 	if err != nil {
 		return fmt.Errorf("key init: %w", err)
@@ -97,25 +97,25 @@ func run(ctx context.Context, cfg config.Config) error {
 	}
 	defer sqlDB.Close()
 
-	// 重启后在线状态一律置离线，等 agent 重连刷新。
+	// After restart, online status is reset to offline, awaiting agent reconnects to refresh it.
 	if err := db.Exec(`UPDATE nodes SET status='offline'`).Error; err != nil {
 		return fmt.Errorf("reset node status: %w", err)
 	}
 
-	// 管理员首启引导（安全设计 §1）：FERRY_ADMIN_PASSWORD 非空且库内无管理员
-	// 时按 FERRY_ADMIN_USER（缺省 admin）建号；已有管理员则忽略，不覆盖密码。
+	// Admin first-boot bootstrap (security design §1): when FERRY_ADMIN_PASSWORD is non-empty and the DB has no admin,
+	// create one as FERRY_ADMIN_USER (default admin); if an admin already exists, ignore it and do not overwrite the password.
 	if created, err := handler.EnsureAdmin(db, cfg.AdminUser, cfg.AdminPassword); err != nil {
 		return fmt.Errorf("bootstrap admin: %w", err)
 	} else if created {
 		log.Printf("bootstrap admin: created admin user %q", cfg.AdminUser)
 	}
-	// 多级管理员（P2-2）旧号归一：bootstrap 时代的管理员补 super 角色（幂等）。
+	// Multi-level admins (P2-2) legacy normalization: bootstrap-era admins get the super role (idempotent).
 	if err := handler.NormalizeAdminRoles(db); err != nil {
 		return fmt.Errorf("normalize admin roles: %w", err)
 	}
 
-	// 主密钥是本轮新生成、库里已有加密机密（云凭证等）：多半是此前用 env 钥
-	// 写入后被拿掉——提示恢复原钥，而不是让解密错误在使用时才冒出来。
+	// The master key was freshly generated this run but the DB already holds encrypted secrets (cloud credentials etc.):
+	// they were most likely written under an earlier env key that was then removed - prompt to restore that key instead of letting decrypt errors surface only at use time.
 	if slices.Contains(keys.Generated, "FERRY_SECRET_KEY") {
 		var n int64
 		if err := db.Model(&storage.Provider{}).Count(&n).Error; err == nil && n > 0 {
@@ -124,15 +124,15 @@ func run(ctx context.Context, cfg config.Config) error {
 		}
 	}
 
-	// Xray 内核对接未启用前使用空实现，接口保持稳定。
+	// Until the Xray core integration is enabled, use a no-op implementation so the interface stays stable.
 	_ = xray.NoopHandler{}
 
-	// 区域/运营商聚合判定：周期聚合探测结论，状态迁移时合并告警。
+	// Region/ISP aggregate determination: periodically aggregates probe conclusions, merging alerts on state transitions.
 	go monitor.Run(ctx, db, time.Duration(cfg.MonitorIntervalSec)*time.Second, nil)
 
-	// 入口池自动摘挂（E-16）：连续 sick 摘除/恢复复位，订阅入口池即时生效；
-	// 池态迁移经 OnChange 钩子触发分地域对账（E-27 §C.8：事件驱动不建
-	// 轮询，摘挂换代表入口即同步 {区域slug}.{前置域名} A 记录）。
+	// Entry pool auto removal/restore (E-16): consecutive sick removals and restores reset, the subscription entry pool takes effect immediately;
+	// pool state transitions trigger per-region reconciliation via the OnChange hook (E-27 §C.8: event-driven, no
+	// polling built - removing/restoring the representative entry syncs the {region-slug}.{front-domain} A record).
 	pool.OnChange = func(db *gorm.DB) {
 		s := &geodns.Syncer{DB: db, Store: secret.NewStore(cfg.SecretKey)}
 		if _, err := s.Sync(ctx); err != nil {
@@ -141,26 +141,26 @@ func run(ctx context.Context, cfg config.Config) error {
 	}
 	go pool.Loop(ctx, db, time.Duration(cfg.PoolIntervalSec)*time.Second, nil)
 
-	// 路由与配置推送器（E-16b）：自动换线经同一条 config.push 链路重指落地。
+	// Router and config pusher (E-16b): automatic line switching re-points landings through the same config.push pipeline.
 	r, pusher := handler.NewRouter(db, cfg)
 
-	// 落地自动分配（E-21）：加权最小连接，策略三档可配，换线留痕并通知；
-	// 换线即重指（E-16b）：变更列表逐入口下发 relay 落地覆盖 spec。
+	// Landing auto-assignment (E-21): weighted least connections, three configurable strategy tiers, switches audited and notified;
+	// switching means re-pointing (E-16b): the change list pushes a per-entry relay landing override into the spec.
 	go alloc.Loop(ctx, db, time.Duration(cfg.AllocIntervalSec)*time.Second, nil, pusher.OnSwitch)
 
-	// 高成本告警（E-23）：按流量节点月花费超阈值单发，回落自动消解。
+	// High-cost alerting (E-23): fires once when a traffic node's monthly spend exceeds the threshold, auto-resolves when it falls back.
 	go cost.Loop(ctx, db, time.Duration(cfg.CostIntervalSec)*time.Second, nil)
 
-	// 封禁恢复流水线（BR-1）：摘除持续未恢复判封，L1→L2→L3 分级推进、
-	// 每级超时进下一级；L1 域名前置切备用 IP（BR-2，未配置则失败推进），
-	// L2 预备机补位（BR-3），L3 一键开新机接供给模板（0=不启用）。
+	// Ban-recovery pipeline (BR-1): a removal that never recovers is judged banned, advancing tier by tier L1→L2→L3,
+	// each tier timing out into the next; L1 switches domain fronting to a backup IP (BR-2, fails forward if unconfigured),
+	// L2 fills in with a standby machine (BR-3), L3 opens a new machine in one shot off the supply template (0 = disabled).
 	{
 		reg := recovery.Registry{}
 		secrets := secret.NewStore(cfg.SecretKey)
-		// L1（BR-2）：前置域名 A 记录切备用 IP 轮换，探测恢复回切常态。
+		// L1 (BR-2): rotate the front-domain A record onto a backup IP, switching back to normal once probes recover.
 		dnsAct := &recovery.DNSAction{DB: db, Store: secrets}
 		reg[1] = dnsAct
-		// L2（BR-3）：预备清单取一台在线备用入口升池，订阅换线即时生效。
+		// L2 (BR-3): take one online standby entry from the standby list into the pool, subscription switching takes effect immediately.
 		reg[2] = &recovery.StandbyAction{DB: db}
 		opts := recovery.Options{
 			OnDone: func(nodeID uint, nodeName string) {
@@ -187,8 +187,8 @@ func run(ctx context.Context, cfg config.Config) error {
 		go recovery.Loop(ctx, db, time.Duration(cfg.RecoveryIntervalSec)*time.Second, opts, reg, nil)
 	}
 
-	// 池空保底（BR-3）：入口池全空且无在途供给时按模板自动开新机，
-	// 开出的机器走 OS-4 流水线自动入池。模板 0=不启用。
+	// Empty-pool fallback (BR-3): when the entry pool is entirely empty and no supply is in flight, auto-open a new machine from the template;
+	// launched machines join the pool automatically via the OS-4 pipeline. Template 0 = disabled.
 	{
 		repl := &provision.Replenisher{
 			Manager:    provision.Shared(db, cfg.TofuBin, cfg.TofuWorkdir, nil),
@@ -206,47 +206,47 @@ func run(ctx context.Context, cfg config.Config) error {
 		go provision.ReplenishLoop(ctx, repl, time.Duration(cfg.ReplenishIntervalSec)*time.Second, nil)
 	}
 
-	// 证书编排（BR-4）：待签/临期/失败退避逐个驱动，签发执行 acme.sh
-	// 工具位（DNS-01 复用 BR-2 凭证通道），到期前 30 天自动续，失败告警。
+	// Certificate orchestration (BR-4): drives pending/expiring/failed-with-backoff items one by one, issuance runs the acme.sh
+	// tool slot (DNS-01 reuses the BR-2 credential channel), auto-renews 30 days before expiry, alerts on failure.
 	{
 		cm := &cert.Manager{Bin: cfg.AcmeBin, Home: cfg.AcmeHome, Webroot: cfg.AcmeWebroot}
 		go cert.Loop(ctx, db, cm, secret.NewStore(cfg.SecretKey), time.Duration(cfg.CertIntervalSec)*time.Second, nil)
 	}
 
-	// 到期/超限用户停用扫表。
+	// Scan and disable expired / over-limit users.
 	go review.Run(ctx, db, time.Duration(cfg.ReviewIntervalSec)*time.Second)
 
-	// 站内信自动触发（NT-2）：到期提醒与流量预警扫表，按日去重；
-	// 发放到账的事件触发在 applyGrant 事务内，公告扇出在管理 API。
+	// In-app message auto-trigger (NT-2): expiry reminders and traffic warnings scan tables, deduped per day;
+	// the grant-credit event trigger lives in the applyGrant transaction, announcement fan-out lives in the admin API.
 	go notifyscan.Loop(ctx, db, time.Duration(cfg.NotifyScanIntervalSec)*time.Second, nil)
 
-	// 配额联动（SAVE-6）：流量/费用超阈值用户订阅自动降档（只出低成本档
-	// 入口），触发/释放留痕与站内信由扫表驱动，订阅出口读留痕即时生效。
+	// Quota linkage (SAVE-6): subscriptions of users over the traffic/cost threshold auto-downgrade (only low-cost tier
+	// entries are emitted), trigger/release audit and in-app messages are scan-driven, the subscription egress reads the audit trail instantly.
 	go quota.LinkLoop(ctx, db, time.Duration(cfg.QuotaLinkIntervalSec)*time.Second, nil)
-	// 价格关注扫描（E-32）：降价/到位经 Herald price_alert，未配 Herald 落本地 outbox。
+	// Price-watch scan (E-32): price drops and targets reached go via Herald price_alert, or land in the local outbox when Herald is unconfigured.
 	go cost.WatchLoop(ctx, db, time.Duration(cfg.PriceWatchIntervalSec)*time.Second, nil)
 
-	// 节省报表聚合（SAVE-7）：流量行按日累计进 save_stats，报表与成本看板
-	// 同页呈现；折算费用在 API 侧按节点流量单价现算。
+	// Savings report aggregation (SAVE-7): traffic rows accumulate daily into save_stats, report and cost dashboard
+	// are shown on the same page; converted cost is computed on the fly API-side from each node's traffic unit price.
 	go save.Loop(ctx, db, time.Duration(cfg.SaveStatsIntervalSec)*time.Second, nil)
-	// 例行触达（TOUCH-4）：月账单+域名例行邮件，任务落 touch_jobs 经 Herald 投递。
+	// Routine outreach (TOUCH-4): monthly bill plus domain routine emails, jobs land in touch_jobs and are delivered via Herald.
 	go toucher.Loop(ctx, db, toucher.Config{
 		DomainsDays: cfg.TouchDomainsDays, BaseURL: strings.TrimRight(cfg.BaseURL, "/"),
 	}, time.Duration(cfg.TouchIntervalSec)*time.Second, nil)
 
-	// 事件 outbox（HERALD-1/2）：事件落库即返回，投递循环异步重试；
-	// 配置 FERRY_HERALD_URL 即接 Herald 投递腿，未配置时只落库 dash 可见。
+	// Event outbox (HERALD-1/2): events persist and return immediately, the delivery loop retries asynchronously;
+	// setting FERRY_HERALD_URL hooks up the Herald delivery leg, when unset events only land in the DB, visible on the dash.
 	var eventSender herald.Sender
 	if cfg.HeraldURL != "" {
 		eventSender = herald.HTTPSender(cfg.HeraldURL, cfg.HeraldToken)
 	}
 	go herald.Loop(ctx, db, time.Duration(cfg.EventFlushIntervalSec)*time.Second, eventSender, nil)
 
-	// 本地周期备份（面板可用性 §2，P1）：VACUUM INTO 在线快照打包加密落
-	// FERRY_BACKUP_DIR（主密钥派生钥，主密钥不进备份包），滚动保留
-	// FERRY_BACKUP_KEEP 份，失败经 Herald backup_failed 告警；外发位
-	// S3_* 默认关闭零变化，显式 ENABLED=1 才注入 S3 外发（SigV4 PUT，
-	// 成功置 uploaded=1，失败告警且本地档保留）。
+	// Local periodic backup (panel availability §2, P1): VACUUM INTO online snapshot packed and encrypted into
+	// FERRY_BACKUP_DIR (master-key-derived key, the master key never enters the backup archive), keeping
+	// FERRY_BACKUP_KEEP copies rolling, failures alert via Herald backup_failed; the offload slot
+	// S3_* is off by default with zero change, only an explicit ENABLED=1 injects S3 offload (SigV4 PUT,
+	// success sets uploaded=1, failure alerts and keeps the local archive).
 	backupOpts := backup.Options{
 		Dir: cfg.BackupDir, Cron: cfg.BackupCron, Keep: cfg.BackupKeep,
 		S3Enabled: cfg.BackupS3Enabled,
@@ -262,10 +262,10 @@ func run(ctx context.Context, cfg config.Config) error {
 	}
 	go backup.Loop(ctx, db, backupOpts, secret.NewStore(cfg.SecretKey))
 
-	// 面板主从同步（P2-1）：standby 实例配置 FERRY_STANDBY_MASTER_URL 即
-	// 周期拉取主面板加密快照原子替换本机库，替换后退出交 systemd 重启加载
-	// 新库（RPO ≤ 间隔；主面板不可达时继续服务陈旧库不替换）。主面板侧
-	// 只需 FERRY_STANDBY_TOKEN 开放快照端点（handler/standby.go）。
+	// Panel primary/standby sync (P2-1): a standby instance with FERRY_STANDBY_MASTER_URL set
+	// periodically pulls the primary panel's encrypted snapshot and atomically replaces the local DB, then exits for systemd to restart and load
+	// the new DB (RPO <= interval; if the primary is unreachable it keeps serving the stale DB without replacing). On the primary side
+	// only FERRY_STANDBY_TOKEN is needed to open the snapshot endpoint (handler/standby.go).
 	if cfg.StandbyMasterURL != "" {
 		go standby.Loop(ctx, standby.Options{
 			MasterURL: cfg.StandbyMasterURL, Token: cfg.StandbyToken,
@@ -276,11 +276,11 @@ func run(ctx context.Context, cfg config.Config) error {
 		})
 	}
 
-	// 操作审计保留清扫（AU-3）：retention<=0 永久保留不启动。
+	// Operation audit retention sweep (AU-3): retention<=0 keeps records forever and does not start.
 	go audit.Loop(ctx, db, cfg.AuditRetentionDays, nil)
 
-	// 面板 Web 证书（P1-7）：settings 里配置了证书即走 HTTPS，
-	// 配置损坏启动中止以免静默降级 HTTP；切换证书需重启生效。
+	// Panel web certificate (P1-7): if a certificate is configured in settings, serve HTTPS;
+	// corrupted config aborts startup to avoid a silent downgrade to HTTP; switching certificates requires a restart.
 	cert, hasCert, err := handler.WebTLSCert(db)
 	if err != nil {
 		return fmt.Errorf("load web cert: %w", err)
@@ -295,8 +295,8 @@ func run(ctx context.Context, cfg config.Config) error {
 	return serve(ctx, srv)
 }
 
-// serve 起监听直到 ctx 取消：优雅关停等在途请求收尾（http.ErrServerClosed
-// 是正常停机口径不算错）；TLSConfig 已配即走 TLS 监听。
+// serve listens until ctx is cancelled: graceful shutdown waits for in-flight requests to finish (http.ErrServerClosed
+// is the normal-shutdown convention and not counted as an error); if TLSConfig is set, listen over TLS.
 func serve(ctx context.Context, srv *http.Server) error {
 	errCh := make(chan error, 1)
 	go func() {
@@ -326,9 +326,9 @@ func serve(ctx context.Context, srv *http.Server) error {
 	}
 }
 
-// backupDecrypt 解密周期备份的 .enc 档为明文（面板可用性 §3 恢复②），返回
-// 退出码：-key 缺省取 FERRY_SECRET_KEY，-out 缺省去掉 .enc 后缀；缺参、未配
-// 主密钥、解密失败（错钥/档损坏）都明确报错非 0 退出，供 restore.sh 判定。
+// backupDecrypt decrypts a periodic backup .enc archive to plaintext (panel availability §3 restore ②) and returns
+// an exit code: -key defaults to FERRY_SECRET_KEY, -out defaults to stripping the .enc suffix; missing args, an unconfigured
+// master key, and decryption failure (wrong key / corrupt archive) all report errors clearly and exit non-zero, for restore.sh to judge.
 func backupDecrypt(args []string) int {
 	fs := flag.NewFlagSet("backup-decrypt", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
