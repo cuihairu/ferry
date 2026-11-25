@@ -9,8 +9,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// 投递重试口径：指数退避 1m/2m/4m/…封顶 1h，连败 MaxAttempts 轮置 failed
-// 死信（dash 标红提示通道故障，事件不删不静默丢，修好通道可人工重投）。
+// Delivery retry policy: exponential backoff 1m/2m/4m/..., capped at 1h; MaxAttempts
+// consecutive failures mark it failed / dead-lettered (dash flags the channel failure in red; the event
 const (
 	MaxAttempts = 6
 	baseDelay   = time.Minute
@@ -18,12 +18,12 @@ const (
 	batchSize   = 100
 )
 
-// Sender 是一次投递尝试：返回 nil=Herald 接收成功。HTTP 实现随 HERALD-2
-// （FERRY_HERALD_URL/TOKEN）；未配置通道时 Loop 收到 nil sender，
-// 事件留在 outbox 不尝试不烧次数（设计稿 §3：不阻塞主流程）。
+// Sender is one delivery attempt: nil means Herald accepted it. The HTTP implementation comes with HERALD-2
+// (FERRY_HERALD_URL/TOKEN); when the channel is unconfigured, Loop receives a nil sender and
+// events stay in the outbox without trying or burning attempts (design §3: do not block the main flow).
 type Sender func(storage.Event) error
 
-// backoff 第 n 次失败后的重投等待（n 从 1 起）。
+// backoff is the wait before retry after the n-th failure (n starts at 1).
 func backoff(n int) time.Duration {
 	d := baseDelay
 	for i := 1; i < n; i++ {
@@ -35,8 +35,8 @@ func backoff(n int) time.Duration {
 	return d
 }
 
-// Loop 周期投递直到 ctx 取消（启动即跑一轮）。sender 为 nil 时只空转——
-// 事件落库等通道配置，不标记不重试。
+// Loop delivers periodically until ctx is cancelled (one round runs at startup). A nil sender just spins idle -
+// events stay persisted awaiting channel configuration, unmarked and unretried.
 func Loop(ctx context.Context, db *gorm.DB, interval time.Duration, sender Sender, logger *log.Logger) {
 	if logger == nil {
 		logger = log.Default()
@@ -63,9 +63,9 @@ func Loop(ctx context.Context, db *gorm.DB, interval time.Duration, sender Sende
 	}
 }
 
-// Deliver 投递一轮到期事件：取到期的 pending（首投或重投时刻已到）逐条
-// 尝试，成功置 sent，失败记投递留痕并按退避排下次，超限置 failed 死信。
-// 返回本轮成功条数。
+// Deliver runs one round of due events: picks due pending ones (first send or retry time reached),
+// attempts each, marks sent on success, logs the delivery trail and schedules the next attempt per backoff on failure,
+// and marks over-limit ones failed (dead-lettered).
 func Deliver(db *gorm.DB, now time.Time, sender Sender) (int, error) {
 	if sender == nil {
 		return 0, nil
@@ -88,7 +88,7 @@ func Deliver(db *gorm.DB, now time.Time, sender Sender) (int, error) {
 		}
 		status := StatusPending
 		if attempts >= MaxAttempts {
-			status = StatusFailed // 死信：重试超限，dash 标红
+			status = StatusFailed // dead-letter: retry limit exceeded, dash flags in red
 		}
 		if err := markRetry(db, ev.ID, attempts, status, now, err.Error()); err != nil {
 			return delivered, err

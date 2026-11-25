@@ -1,7 +1,7 @@
-// Package herald 事件 outbox（《告警通道设计》HERALD-1）：ferry 不自建投递
-// 通道——事件（管理告警 + 用户触达）统一落本地 outbox 后异步投递 Herald，
-// 通道分发（TG/微信/邮件）由 Herald 管。面板离线/Herald 不可达时事件不丢
-// （pending 重试、超限标红 failed 死信），恢复后补投。
+// Package herald is the event outbox ("alert channel design" HERALD-1): ferry builds no delivery
+// channel of its own - events (admin alerts + user outreach) all land in the local outbox and are delivered to Herald
+// asynchronously, with channel dispatch (TG/WeChat/email) managed by Herald. When the panel is offline or Herald
+// is unreachable, events are not lost (pending retries, marked red as failed dead-letters past the limit), and are
 package herald
 
 import (
@@ -13,57 +13,57 @@ import (
 	"gorm.io/gorm"
 )
 
-// 事件状态与严重度取值。
+// Event status and severity values.
 const (
-	StatusPending = "pending" // 待投/重试中
-	StatusSent    = "sent"    // 已投出（Herald 接收成功）
-	StatusFailed  = "failed"  // 重试超限死信（dash 标红，通道故障不静默丢）
+	StatusPending = "pending" // awaiting delivery / retrying
+	StatusSent    = "sent"    // delivered (Herald accepted)
+	StatusFailed  = "failed"  // dead-lettered past the retry limit (dash flags in red, channel failures are never silently dropped)
 
 	SeverityCritical = "critical"
 	SeverityWarning  = "warning"
 	SeverityInfo     = "info"
 )
 
-// 投递腿 channel 名：ferry→Herald 的 POST 结果按此落 event_deliveries；
-// Herald 异步回投的通道分发回执（HERALD-2）用具体通道名。
+// Delivery-leg channel name: the ferry→Herald POST result lands in event_deliveries under this;
+// Herald's async channel-dispatch receipts (HERALD-2) use the concrete channel name.
 const ChannelHerald = "herald"
 
-// 事件 kind 与 target 取值（《告警通道设计》§2 清单，HERALD-3 起按类接入）。
+// Event kinds and target values ("alert channel design" §2 list; wired in per class from HERALD-3 on).
 const (
-	KindRegionFault    = "region_fault"       // 区域聚合整体故障
-	KindISPFault       = "isp_fault"          // 运营商聚合整体故障
-	KindNodeBlocked    = "node_blocked"       // 节点判封进恢复流水线
-	KindNodeDown       = "node_down"          // 单点自动摘挂
-	KindCostExceeded   = "cost_exceeded"      // 高成本告警激活
-	KindProcCrashed    = "proc_crashed"       // 进程崩溃拉起失败
-	KindRecoveryFailed = "recovery_failed"    // 恢复流水线全级耗尽（升级人工）
-	KindCertExpiring   = "cert_expiring"      // 证书临近到期
-	KindBackupFailed   = "backup_failed"      // 备份失败（面板可用性 §2.2，P1 周期备份接生产点）
-	KindLoginAlert     = "login_alert"        // 管理员登录异常（安全设计 §1：连续失败/新网段，登录审计接生产点）
-	KindPriceAlert     = "price_alert"        // 价格关注命中降价/到位（套餐与成本设计 §4.2，E-32 参考库批接生产点）
-	KindGeoSyncFailed  = "geodns_sync_failed" // 智能 DNS 分地域对账失败（入口与负载均衡 §C.8，E-27 接生产点）
-	KindDeviceLimit    = "device_limit"       // 订阅端设备/IP 数超限（P2-4，按用户按日去重）
+	KindRegionFault    = "region_fault"       // region aggregate fully faulty
+	KindISPFault       = "isp_fault"          // ISP aggregate fully faulty
+	KindNodeBlocked    = "node_blocked"       // node judged banned, entered the recovery pipeline
+	KindNodeDown       = "node_down"          // single-point auto removal
+	KindCostExceeded   = "cost_exceeded"      // high-cost alert activated
+	KindProcCrashed    = "proc_crashed"       // process restart after crash failed
+	KindRecoveryFailed = "recovery_failed"    // recovery pipeline exhausted all tiers (escalates to a human)
+	KindCertExpiring   = "cert_expiring"      // certificate nearing expiry
+	KindBackupFailed   = "backup_failed"      // backup failure (panel availability §2.2, P1 periodic backup wired to production points)
+	KindLoginAlert     = "login_alert"        // anomalous admin login (security design §1: consecutive failures / new subnet, login audit wired to production points)
+	KindPriceAlert     = "price_alert"        // price watch hit a drop / target price (plans and cost design §4.2, E-32 reference-library batch wired to production points)
+	KindGeoSyncFailed  = "geodns_sync_failed" // smart-DNS per-region reconciliation failure (entries and load balancing §C.8, E-27 wired to production points)
+	KindDeviceLimit    = "device_limit"       // subscription client device/IP count exceeded (P2-4, deduped per user per day)
 
-	// 用户触达（HERALD-4，§2.2；站内信照发，本通道供站外投递）。
-	KindExpire = "expire" // 账号到期提醒
-	KindQuota  = "quota"  // 流量预警
-	KindOrder  = "order"  // 发放/订单结果
-	KindNotice = "notice" // 公告
+	// User outreach (HERALD-4, §2.2; in-app messages still go out, this channel serves out-of-app delivery).
+	KindExpire = "expire" // account expiry reminder
+	KindQuota  = "quota"  // traffic warning
+	KindOrder  = "order"  // grant / order result
+	KindNotice = "notice" // announcement
 
-	// 例行触达（TOUCH-4，§5）：账单类默认必收，域名例行可退订。
-	KindBill    = "bill"    // 月账单（用量/状态/到期/续费入口/已省下亮点）
-	KindDomains = "domains" // 入口域名例行清单（保新鲜，可退订）
-	KindContact = "contact" // 联系方式连续投递失败升级（换通道再试，TOUCH-5）
+	// Routine outreach (TOUCH-4, §5): bill types are mandatory by default, the domain routine one can be unsubscribed.
+	KindBill    = "bill"    // monthly bill (usage/status/expiry/renewal entry/highlight of savings)
+	KindDomains = "domains" // routine entry-domain list (kept fresh, unsubscribable)
+	KindContact = "contact" // escalation after consecutive delivery failures to the contact (retry on another channel, TOUCH-5)
 
 	TargetAdmin = "admin"
 )
 
-// TargetUser 用户维度的 target 取值（user:<id>）。
+// TargetUser target values for the user dimension (user:<id>).
 func TargetUser(id int64) string {
 	return fmt.Sprintf("user:%d", id)
 }
 
-// ValidSeverity 严重度取值是否合法。
+// ValidSeverity reports whether a severity value is legal.
 func ValidSeverity(s string) bool {
 	switch s {
 	case SeverityCritical, SeverityWarning, SeverityInfo:
@@ -72,20 +72,20 @@ func ValidSeverity(s string) bool {
 	return false
 }
 
-// EmitInput 是事件生产侧的载荷（HERALD-3 起管理告警九类、触达批起用户事件
-// 都走这里）。Meta 为任意可 JSON 序列化对象，落库为 JSON 文本。
+// EmitInput is the payload on the event-producing side (from HERALD-3 on, the nine admin alert classes and,
+// from the outreach batch on, user events all go through here). Meta is any JSON-serializable object, persisted as JSON text.
 type EmitInput struct {
 	Kind       string
 	Severity   string
 	Title      string
 	Body       string
 	Target     string // admin / user:<id>
-	DedupKey   string // 去重键兜底（窗口内同键合并由 Herald 做，ferry 侧只透传）
+	DedupKey   string // dedup-key fallback (same-key merging within the window is Herald's job; ferry only passes it through)
 	Meta       any
 	OccurredAt time.Time
 }
 
-// Emit 落一条 pending 事件并立即返回（outbox 语义：生产侧不碰网络）。
+// Emit lands one pending event and returns immediately (outbox semantics: the producing side never touches the network).
 func Emit(db *gorm.DB, in EmitInput) (*storage.Event, error) {
 	if !ValidSeverity(in.Severity) {
 		in.Severity = SeverityInfo
@@ -112,7 +112,7 @@ func Emit(db *gorm.DB, in EmitInput) (*storage.Event, error) {
 	return &row, nil
 }
 
-// Count 取各状态事件计数（dash 红标口径：failed>0 即通道故障未消化）。
+// Count returns per-status event counts (dash red-flag policy: failed>0 means an undigested channel failure).
 func Count(db *gorm.DB) (pending, sent, failed int64, err error) {
 	type row struct {
 		Status string

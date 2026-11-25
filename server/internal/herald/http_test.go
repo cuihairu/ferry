@@ -11,8 +11,8 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestHTTPSender 覆盖投递腿：路径/Bearer 头/载荷格式（含 id 扩展与 Meta
-// 透传）、2xx 成功、非 2xx 报错（进退避重试）。
+// TestHTTPSender covers the delivery leg: path / Bearer header / payload shape (including the id extension and Meta
+// pass-through), 2xx success, and non-2xx erroring (into backoff retries).
 func TestHTTPSender(t *testing.T) {
 	var gotPath, gotAuth, gotCT string
 	var gotPayload outgoingEvent
@@ -53,7 +53,7 @@ func TestHTTPSender(t *testing.T) {
 		t.Fatal("occurred_at missing")
 	}
 
-	// 无令牌不带 Authorization 头
+	// No token means no Authorization header
 	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "" {
 			t.Error("empty token should not set Authorization")
@@ -64,7 +64,7 @@ func TestHTTPSender(t *testing.T) {
 		t.Fatalf("tokenless send: %v", err)
 	}
 
-	// 5xx 报错（由 Deliver 走退避）
+	// 5xx errors out (Deliver then applies backoff)
 	srv3 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
@@ -72,7 +72,7 @@ func TestHTTPSender(t *testing.T) {
 	if err := HTTPSender(srv3.URL, "t")(ev); err == nil {
 		t.Fatal("503 should be an error")
 	}
-	// 尾斜线 URL 去重
+	// Trailing-slash URL dedup
 	if err := HTTPSender(srv.URL+"/", "t")(ev); err != nil {
 		t.Fatalf("trailing slash url: %v", err)
 	}

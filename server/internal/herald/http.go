@@ -12,10 +12,10 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// HTTPSender 是 ferry→Herald 的投递腿（HERALD-2，《告警通道设计》§3）：
-// POST {url}/events，Bearer 鉴权，2xx=Herald 接收成功（其后通道分发与重试
-// 由 Herald 管，异步回执经 /api/internal/event-results 落 event_deliveries）。
-// 载荷带 ferry 侧 outbox id（协议扩展字段），供回执关联。
+// HTTPSender is the ferry→Herald delivery leg (HERALD-2, "alert channel design" §3):
+// POST {url}/events with Bearer auth; 2xx means Herald accepted (channel dispatch and retries from there
+// are Herald's, with async receipts landing in event_deliveries via /api/internal/event-results).
+// The payload carries the ferry-side outbox id (a protocol extension field) so receipts can be correlated.
 func HTTPSender(url, token string) Sender {
 	base := strings.TrimSuffix(url, "/")
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -50,7 +50,7 @@ func HTTPSender(url, token string) Sender {
 	}
 }
 
-// outgoingEvent 是投递载荷（设计稿 §3 示例 + id 扩展字段供回执关联）。
+// outgoingEvent is the delivery payload (design §3 example plus the id extension field for receipt correlation).
 type outgoingEvent struct {
 	ID         int64           `json:"id"`
 	Kind       string          `json:"kind"`

@@ -14,7 +14,7 @@ import (
 
 func newHeraldDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	// 按测试名+时刻隔离内存库：cache=shared 全包共库会跨测试残留事件行。
+	// Isolate the in-memory DB by test name + timestamp: cache=shared gives the whole package one DB, leaving event rows across tests.
 	dsn := fmt.Sprintf("file:herald-%s-%d?mode=memory&cache=shared", t.Name(), time.Now().UnixNano())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
@@ -53,7 +53,7 @@ func TestEmit(t *testing.T) {
 	if ev.Meta != `{"count":3,"region":"华东"}` {
 		t.Fatalf("meta = %q", ev.Meta)
 	}
-	// 非法严重度归 info，零时刻归当前
+	// Invalid severity normalizes to info, the zero time normalizes to now
 	ev2, err := Emit(db, EmitInput{Kind: "x", Severity: "boom", Title: "t"})
 	if err != nil || ev2.Severity != SeverityInfo {
 		t.Fatalf("invalid severity should fall back info: %+v err=%v", ev2, err)
@@ -82,13 +82,13 @@ func TestDeliverSuccess(t *testing.T) {
 	if got.Status != StatusSent || got.Attempts != 1 || got.NextAttemptAt != nil {
 		t.Fatalf("event after success = %+v", got)
 	}
-	// 投递留痕落行
+	// The delivery trail lands a row
 	var dl storage.EventDelivery
 	if err := db.Where("event_id = ?", ev.ID).First(&dl).Error; err != nil ||
 		dl.Channel != ChannelHerald || dl.Status != "sent" {
 		t.Fatalf("delivery = %+v err=%v", dl, err)
 	}
-	// 二轮不再投
+	// A second round delivers nothing
 	sent, err = Deliver(db, time.Now().Add(time.Minute), func(storage.Event) error {
 		t.Fatal("sent event should not be re-delivered")
 		return nil
@@ -121,7 +121,7 @@ func TestDeliverRetryBackoffAndDeadLetter(t *testing.T) {
 			if got.NextAttemptAt == nil || !got.NextAttemptAt.After(now) {
 				t.Fatalf("attempt %d next_attempt_at = %v, want future", attempt, got.NextAttemptAt)
 			}
-			// 退避递增且封顶
+			// Backoff increases and is capped
 			want := backoff(attempt)
 			if want > maxDelay {
 				want = maxDelay
@@ -129,7 +129,7 @@ func TestDeliverRetryBackoffAndDeadLetter(t *testing.T) {
 			if got.NextAttemptAt.Sub(now) != want {
 				t.Fatalf("attempt %d delay = %v, want %v", attempt, got.NextAttemptAt.Sub(now), want)
 			}
-			// 未到期不重投
+			// Not yet due, no retry
 			if n, _ := Deliver(db, got.NextAttemptAt.Add(-time.Second), fail); n != 0 {
 				t.Fatalf("attempt %d: early retry happened", attempt)
 			}
@@ -144,13 +144,13 @@ func TestDeliverRetryBackoffAndDeadLetter(t *testing.T) {
 			}
 		}
 	}
-	// 失败留痕逐次落行
+	// Failure trails land one row per attempt
 	var n int64
 	db.Model(&storage.EventDelivery{}).Where("event_id = ? AND status = ?", ev.ID, "failed").Count(&n)
 	if n != MaxAttempts {
 		t.Fatalf("failed deliveries = %d, want %d", n, MaxAttempts)
 	}
-	// 死信不再重投（sender 不该被调到）
+	// Dead-letters are not retried (the sender must not be called)
 	if _, err := Deliver(db, now.Add(24*time.Hour), func(storage.Event) error {
 		t.Fatal("dead letter should not be re-delivered")
 		return nil
@@ -211,7 +211,7 @@ func TestLoopDelivers(t *testing.T) {
 			t.Fatalf("loop did not deliver in time, seen=%v", seen)
 		}
 	}
-	// sender 回调先于 markSent 提交，sent 计数轮询等到提交完成（提交竞态在案）。
+	// The sender callback precedes the markSent commit; the sent count polls until the commit completes (the commit race is on record).
 	var n int64
 	for {
 		db.Model(&storage.Event{}).Where("status = ?", StatusSent).Count(&n)
@@ -226,7 +226,7 @@ func TestLoopDelivers(t *testing.T) {
 	}
 }
 
-// TestTargetUserAndCount 用户维度 target 与状态计数（dash 红标口径）。
+// TestTargetUserAndCount: user-dimension target and status counts (dash red-flag policy).
 func TestTargetUserAndCount(t *testing.T) {
 	if got := TargetUser(7); got != "user:7" {
 		t.Fatalf("target = %q", got)
