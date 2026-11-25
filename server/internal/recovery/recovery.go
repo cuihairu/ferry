@@ -1,11 +1,11 @@
-// Package recovery 是封禁恢复流水线（BR-1）：判封状态机与 L1→L2→L3
-// 分级编排。判封口径：入口被 E-16 摘除后持续 SustainedAfter 仍未复位
-// （探测仍不可达）→ 判封入流水线；探测恢复（摘挂复位）随时完成。
-// 级别动作经 Registry 注册，未注册级别记 skipped 直接推进：
-// L1 域名前置 DNS 切换（BR-2 插件位）、L2 IP 池补位（BR-3 插件位）、
-// L3 一键开新机（接 §1 供给流水线）。每级超时未恢复进下一级，
-// 全级耗尽记 failed 并告警升级人工（BR-5，经通知通道外发）；
-// 每级尝试落 recovery_actions 留痕供回放。
+// Package recovery implements the block-recovery pipeline (BR-1): the block
+// verdict state machine and tiered L1→L2→L3 orchestration. Verdict rule: an
+// entry removed by E-16 that stays unrestored for SustainedAfter (probe still
+// unreachable) enters the pipeline; probe recovery (reset) finishes it anytime.
+// Level actions register via the Registry; unregistered levels record skipped
+// and advance directly: L1 domain-front DNS switch (BR-2 slot), L2 IP pool
+// backup (BR-3 slot), L3 one-click new instance (§1 provisioning). Timeout
+// advances a level; exhaustion fails + escalates (BR-5, notify channel); attempts traced to recovery_actions.
 package recovery
 
 import (
@@ -22,14 +22,14 @@ import (
 	"gorm.io/gorm"
 )
 
-// 状态与级别取值。
+// State and level values.
 const (
 	StateRunning = "running"
 	StateDone    = "done"
 	StateFailed  = "failed"
 
-	// ActionUnset/ActionRunning 等动作态取值（Recovery.ActionState）；
-	// ActionTimeout 只出现在留痕行（RecoveryAction.State，BR-5）。
+	// ActionUnset/ActionRunning etc. are the action-state values (Recovery.ActionState);
+	// ActionTimeout only appears on trace rows (RecoveryAction.State, BR-5).
 	ActionUnset   = ""
 	ActionRunning = "running"
 	ActionOK      = "ok"
@@ -37,26 +37,26 @@ const (
 	ActionSkipped = "skipped"
 	ActionTimeout = "timeout"
 
-	// MaxLevel 是恢复三级上限（L1 域名/DNS → L2 IP 池 → L3 开新机）。
+	// MaxLevel is the three-level recovery ceiling (L1 domain/DNS → L2 IP pool → L3 new instance).
 	MaxLevel = 3
 )
 
-// 判封与推进的默认口径。
+// Default verdict and advancement rules.
 const (
 	DefaultSustainedAfter = 10 * time.Minute
 	DefaultLevelTimeout   = 10 * time.Minute
 )
 
-// Options 是判封/推进口径，零值回退默认。
+// Options holds the verdict/advancement rules; zero values fall back to defaults.
 type Options struct {
-	// SustainedAfter 是摘除后持续未恢复满此时长才判封（给探测恢复留窗口，
-	// 避免瞬时抖动直接开新机）。
+	// SustainedAfter is how long an entry must stay unrestored after removal before
+	// verdict (leaves a window for probe recovery, avoiding a new instance on a blip).
 	SustainedAfter time.Duration
-	// LevelTimeout 是单级动作的等待窗口：超时未恢复进下一级。
+	// LevelTimeout is the wait window for a single-level action: timeout without recovery advances.
 	LevelTimeout time.Duration
-	// OnDone 是恢复完成（探测恢复收尾，failed 不触发）的钩子，主装配
-	// 注入（BR-2：域名前置回切常态 IP）。同步执行——done 每轮至多几条，
-	// 下游通道自带超时，测试据此可确定断言。
+	// OnDone is the hook fired when recovery completes (probe-recovery finish;
+	// failed does not trigger it), injected by the main assembly (BR-2: domain front
+	// switch back to the normal IP). Runs synchronously — done has only a few rows per round and downstream channels carry their own timeouts, so tests can assert deterministically.
 	OnDone func(nodeID uint, nodeName string)
 }
 
@@ -70,17 +70,17 @@ func (o Options) normalize() Options {
 	return o
 }
 
-// Action 是一级恢复动作。Run 可能阻塞分钟级（L3 开新机），由引擎在
-// goroutine 中执行；结果经行内 ActionState 回写。
+// Action is one recovery-level action. Run may block for minutes (L3 new
+// instance); the engine runs it in a goroutine, with the result written back
 type Action interface {
 	Name() string
 	Run(ctx context.Context, node storage.Node) error
 }
 
-// Registry 按级别注册动作（1-3）；缺省级别 skipped 推进。
+// Registry maps levels (1-3) to actions; absent levels advance as skipped.
 type Registry map[int]Action
 
-// Loop 是状态机周期循环（interval 0 回退 60s）。
+// Loop is the state machine's periodic loop (interval 0 falls back to 60s).
 func Loop(ctx context.Context, db *gorm.DB, interval time.Duration, opts Options, reg Registry, logger *log.Logger) {
 	if logger == nil {
 		logger = log.Default()
@@ -103,8 +103,8 @@ func Loop(ctx context.Context, db *gorm.DB, interval time.Duration, opts Options
 	}
 }
 
-// Sweep 执行一轮状态机：完成恢复中的、推进等待中的、开新判封的。
-// 单线程串行（引擎级），动作 goroutine 只回写各自行的结果字段。
+// Sweep runs one state-machine round: finish recovering rows, advance
+// waiting rows, and open new verdicts. Single-threaded serial (engine level);
 func Sweep(db *gorm.DB, now time.Time, opts Options, reg Registry, logger *log.Logger) error {
 	if logger == nil {
 		logger = log.Default()
@@ -114,7 +114,7 @@ func Sweep(db *gorm.DB, now time.Time, opts Options, reg Registry, logger *log.L
 		reg = Registry{}
 	}
 
-	// 1) 探测恢复：摘挂复位（pool_state=active）即完成，无条件先收。
+	// 1) Probe recovery: suspension reset (pool_state=active) means done; collect first, unconditionally.
 	var running []storage.Recovery
 	if err := db.Where("state = ?", StateRunning).Find(&running).Error; err != nil {
 		return err
@@ -140,19 +140,19 @@ func Sweep(db *gorm.DB, now time.Time, opts Options, reg Registry, logger *log.L
 				opts.OnDone(rec.NodeID, rec.NodeName)
 			}
 		}
-		// 重取：上一步已收掉恢复中的，剩余即待推进的。
+		// Re-fetch: the step above already collected recovering rows, so what remains waits to advance.
 		if err := db.Where("state = ?", StateRunning).Find(&running).Error; err != nil {
 			return err
 		}
 	}
 
-	// 2) 推进：逐行驱动当前级（启动动作 / 超时进下一级 / 耗尽记失败）。
+	// 2) Advance: drive the current level per row (start action / timeout into next / exhaust and fail).
 	for _, rec := range running {
 		node, err := nodeByID(db, rec.NodeID)
 		if err != nil {
 			return err
 		}
-		// 状态行存在而节点被删：直接终态，不悬置。
+		// State row exists but the node was deleted: go straight to terminal, do not hang.
 		if node == nil {
 			if err := finishRecovery(db, rec, StateFailed, "节点已删除"); err != nil {
 				return err
@@ -164,7 +164,7 @@ func Sweep(db *gorm.DB, now time.Time, opts Options, reg Registry, logger *log.L
 		}
 	}
 
-	// 3) 判封开线：摘除持续未恢复（排除手动摘除）且无进行中流水线。
+	// 3) Open verdicts: removal unrestored for a while (excluding manual removal) and no running pipeline.
 	cutoff := now.Add(-opts.SustainedAfter)
 	var blocked []storage.Node
 	if err := db.Where("pool_state = ? AND pool_changed_at IS NOT NULL AND pool_changed_at <= ? AND pool_reason NOT LIKE ?",
@@ -189,8 +189,8 @@ func Sweep(db *gorm.DB, now time.Time, opts Options, reg Registry, logger *log.L
 		existing[n.ID] = true
 		logger.Printf("recovery open: node=%d %s（摘除持续 %s 判封，进入 L1）",
 			n.ID, n.Name, opts.SustainedAfter)
-		// 判封事件（HERALD-3）：单节点封禁告警；恢复完成不发（dash 流水线
-		// 留痕可见）。失败只记日志不阻断判封。
+		// Verdict event (HERALD-3): single-node block alert; no alert on recovery
+		// completion (visible in the dash pipeline traces). Failures only log, never block verdict.
 		if _, err := herald.Emit(db, herald.EmitInput{
 			Kind: herald.KindNodeBlocked, Severity: herald.SeverityCritical,
 			Title:    fmt.Sprintf("节点 %s 判封，进入恢复流水线", n.Name),
@@ -205,15 +205,15 @@ func Sweep(db *gorm.DB, now time.Time, opts Options, reg Registry, logger *log.L
 	return nil
 }
 
-// advance 驱动一行的当前级别：动作未开跑则启动（未注册记 skipped 推进），
-// 等待中则按 LevelTimeout 超时推进；L3 耗尽记 failed。每级尝试同步落
-// recovery_actions 留痕（BR-5）。
+// advance drives a row's current level: start the action if not running (unregistered
+// records skipped and advances), advance on timeout while waiting; L3 exhaustion
+// records failed. Each attempt synchronously writes a recovery_actions trace (BR-5).
 func advance(db *gorm.DB, rec storage.Recovery, node storage.Node, now time.Time, opts Options, reg Registry, logger *log.Logger) error {
 	switch rec.ActionState {
 	case ActionUnset:
 		a := reg[rec.Level]
 		if a == nil {
-			// 未注册级别（L1/L2 插件位未接）：记 skipped 直接推进。
+			// Unregistered level (L1/L2 plugin slot not wired): record skipped and advance.
 			if err := db.Model(&storage.Recovery{}).Where("id = ?", rec.ID).
 				Updates(map[string]any{"action_state": ActionSkipped, "action": "", "updated_at": now}).Error; err != nil {
 				return err
@@ -226,7 +226,7 @@ func advance(db *gorm.DB, rec storage.Recovery, node storage.Node, now time.Time
 			logger.Printf("recovery level skipped: node=%d level=%d", rec.NodeID, rec.Level)
 			return advanceNext(db, rec, now, logger)
 		}
-		// 同步置 running 后再入 goroutine，避免重复启动。
+		// Set running synchronously before the goroutine starts, to avoid double-launch.
 		if err := db.Model(&storage.Recovery{}).Where("id = ?", rec.ID).
 			Updates(map[string]any{"action_state": ActionRunning, "action": a.Name(), "updated_at": now}).Error; err != nil {
 			return err
@@ -239,17 +239,17 @@ func advance(db *gorm.DB, rec storage.Recovery, node storage.Node, now time.Time
 		go runAction(db, a, rec, node, logger)
 		return nil
 	case ActionSkipped, ActionFailed:
-		// 未注册/动作失败：本级无望，立即进下一级。
+		// Unregistered/failed action: this level is hopeless, advance immediately.
 		return advanceNext(db, rec, now, logger)
 	case ActionOK:
-		// 动作成功：等探测恢复；满 LevelTimeout 仍未复位进下一级。
+		// Action succeeded: wait for probe recovery; advance if still unrestored past LevelTimeout.
 		if now.After(rec.LevelStartedAt.Add(opts.LevelTimeout)) {
 			return advanceNext(db, rec, now, logger)
 		}
 		return nil
 	case ActionRunning:
 		if !now.After(rec.LevelStartedAt.Add(opts.LevelTimeout)) {
-			return nil // 等待窗口内，动作仍在跑
+			return nil // within the wait window, the action is still running
 		}
 		if err := db.Model(&storage.Recovery{}).Where("id = ?", rec.ID).
 			Updates(map[string]any{"action_state": ActionFailed,
@@ -263,7 +263,7 @@ func advance(db *gorm.DB, rec storage.Recovery, node storage.Node, now time.Time
 	return nil
 }
 
-// advanceNext 推进到下一级；超过 MaxLevel 记 failed 并告警升级人工（BR-5）。
+// advanceNext moves to the next level; past MaxLevel records failed and
 func advanceNext(db *gorm.DB, rec storage.Recovery, now time.Time, logger *log.Logger) error {
 	if rec.Level >= MaxLevel {
 		return finishRecovery(db, rec, StateFailed, "L1-L3 全级耗尽仍未恢复")
@@ -277,8 +277,8 @@ func advanceNext(db *gorm.DB, rec storage.Recovery, now time.Time, logger *log.L
 	return nil
 }
 
-// runAction 执行一级动作并回写结果；流水线已终态则丢弃迟到结果
-// （留痕行按 recovery+level+running 收尾，同样天然丢弃）。
+// runAction runs one level action and writes back the result; late results are dropped
+// when the pipeline is already terminal (trace rows finish by recovery+level+running, dropped too).
 func runAction(db *gorm.DB, a Action, rec storage.Recovery, node storage.Node, logger *log.Logger) {
 	err := a.Run(context.Background(), node)
 	now := time.Now()
@@ -302,21 +302,21 @@ func runAction(db *gorm.DB, a Action, rec storage.Recovery, node storage.Node, l
 	}
 	finishTrace(db, rec, traceState, detail, now, logger)
 	if res.RowsAffected == 0 {
-		return // 流水线已终态/推进，迟到结果丢弃
+		return // pipeline already terminal/advanced, late result dropped
 	}
 	if err != nil {
 		logger.Printf("recovery action failed: node=%d level=%d %v", rec.NodeID, rec.Level, err)
 	}
 }
 
-// traceRecovery 落一条动作留痕行（BR-5）；留痕失败只记日志不阻断流水线。
+// traceRecovery writes one action trace row (BR-5); trace failures only
 func traceRecovery(db *gorm.DB, rec storage.Recovery, row storage.RecoveryAction, logger *log.Logger) {
 	if err := db.Create(&row).Error; err != nil {
 		logger.Printf("recovery trace: node=%d %v", rec.NodeID, err)
 	}
 }
 
-// finishTrace 收尾当前级别在途的留痕行（running → 终态）；无在途行忽略。
+// finishTrace closes out the in-flight trace row of the current level
 func finishTrace(db *gorm.DB, rec storage.Recovery, state, detail string, now time.Time, logger *log.Logger) {
 	updates := map[string]any{"state": state, "finished_at": now, "updated_at": now}
 	if detail != "" {
@@ -330,20 +330,20 @@ func finishTrace(db *gorm.DB, rec storage.Recovery, state, detail string, now ti
 	}
 }
 
-// finishRecovery 收尾流水线：failed 翻转时经通知通道外发升级人工
-// （BR-5；现通道 Webhook，HERALD 落地后统一改投同一接口位）。
+// finishRecovery closes the pipeline: on the failed transition it sends an
+// escalation to a human over the notify channel (BR-5; the current channel is
 func finishRecovery(db *gorm.DB, rec storage.Recovery, state, reason string) error {
 	now := time.Now()
 	updates := map[string]any{"state": state, "finished_at": now, "updated_at": now}
 	if state == StateFailed {
-		updates["last_err"] = reason // 完成态不写 last_err，失败原因在此
+		updates["last_err"] = reason // the done state does not write last_err; the failure reason lives here
 	}
 	if err := db.Model(&storage.Recovery{}).Where("id = ?", rec.ID).Updates(updates).Error; err != nil {
 		return err
 	}
 	if state == StateFailed {
-		// 升级人工（BR-5）：落事件 outbox 统一投递（HERALD-3），webhook
-		// 通道并行期保留，Herald 验证后收敛。
+		// Escalate to a human (BR-5): drop an event into the outbox for unified
+		// delivery (HERALD-3); the webhook channel is kept during the parallel
 		if _, err := herald.Emit(db, herald.EmitInput{
 			Kind: herald.KindRecoveryFailed, Severity: herald.SeverityCritical,
 			Title:    fmt.Sprintf("节点 %s 恢复流水线失败", rec.NodeName),
@@ -369,7 +369,7 @@ func finishRecovery(db *gorm.DB, rec storage.Recovery, state, reason string) err
 	return nil
 }
 
-// nodeByID 查节点；不存在返回 (nil, nil)。
+// nodeByID looks up a node; missing returns (nil, nil).
 func nodeByID(db *gorm.DB, id uint) (*storage.Node, error) {
 	var n storage.Node
 	err := db.First(&n, id).Error
