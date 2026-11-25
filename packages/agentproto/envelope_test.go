@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// roundTrip 序列化后还原，断言字段一致。
+// roundTrip serializes and restores a value, asserting the fields line up.
 func roundTrip(t *testing.T, e Envelope, want any) {
 	t.Helper()
 	raw, err := json.Marshal(e)
@@ -79,7 +79,8 @@ func TestEnvelopeVersionGuard(t *testing.T) {
 	}
 }
 
-// TestMessageTypesStable 锁定消息类型字符串，防意外改动破坏两端兼容。
+// TestMessageTypesStable pins the message type strings to guard against accidental
+// changes that would break compatibility between the two ends.
 func TestMessageTypesStable(t *testing.T) {
 	want := map[string]string{
 		MsgHello:        "agent.hello",
@@ -159,7 +160,7 @@ func TestProbeReportRoundTrip(t *testing.T) {
 }
 
 func TestNodeMetaNormalize(t *testing.T) {
-	// 零值应补齐缺省，region/isp 不许空。
+	// Zero values should get defaults filled in; region/isp must not be empty.
 	m := NodeMeta{}
 	m.Normalize()
 	if m.Role != RoleLanding || m.Direction != DirectionOut {
@@ -171,7 +172,7 @@ func TestNodeMetaNormalize(t *testing.T) {
 	if m.Transport != "tls" || m.BillingType != "包月" || m.Currency != "CNY" {
 		t.Fatalf("transport/billing/currency defaults wrong: %+v", m)
 	}
-	// 非法取值收敛到默认，合法取值原样保留。
+	// Invalid values clamp back to defaults; valid values are kept as-is.
 	m = NodeMeta{Role: "gateway", Direction: "x", LineType: "y", Transport: "raw",
 		BillingType: "z", Region: "华东", ISP: "电信", Labels: []string{"bgp"}}
 	m.Normalize()

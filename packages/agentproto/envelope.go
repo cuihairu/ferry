@@ -1,46 +1,47 @@
-// Package agentproto 定义 ferry 面板与 ferry-agent 之间的消息契约。
-// 双方共用本包；传输层为 WebSocket，编码统一 JSON。agent 只出站连接面板。
+// Package agentproto defines the message contract between the ferry panel and ferry-agent.
+// Both sides share this package; the transport is WebSocket and the encoding is JSON throughout.
+// The agent only opens outbound connections to the panel.
 package agentproto
 
 import "encoding/json"
 
-// ProtocolVersion 是消息契约版本，破坏性变更时递增。
+// ProtocolVersion is the message contract version; bump it on breaking changes.
 const ProtocolVersion = 1
 
-// 消息类型：agent→panel 用 agent. 前缀，panel→agent 用 panel. 前缀。
+// Message types: agent→panel use the agent. prefix, panel→agent use the panel. prefix.
 const (
-	MsgHello        = "agent.hello"         // 握手，携带节点令牌
-	MsgHelloAck     = "panel.hello_ack"     // 握手应答
-	MsgHeartbeat    = "agent.heartbeat"     // 周期心跳
-	MsgHeartbeatAck = "panel.heartbeat_ack" // 心跳应答
-	MsgAlarm        = "agent.alarm"         // 异常告警
-	MsgAlarmAck     = "panel.alarm_ack"     // 告警应答
-	MsgTraffic      = "agent.traffic"       // 流量与在线数上报
-	MsgTrafficAck   = "panel.traffic_ack"   // 流量上报应答
-	MsgProcReport   = "agent.proc_report"   // 进程状态事件上报
-	MsgProcCtl      = "panel.proc_ctl"      // 面板进程操作指令
-	MsgProcCtlAck   = "agent.proc_ctl_ack"  // 进程操作应答
-	MsgProcLogs     = "panel.proc_logs"     // 面板进程日志拉取请求（P1-11）
-	MsgProcLogsAck  = "agent.proc_logs_ack" // 进程日志拉取应答
-	MsgConfigPush   = "panel.config_push"   // 配置下发
-	MsgConfigAck    = "agent.config_ack"    // 配置下发应答
-	MsgProbeReport  = "agent.probe_report"  // 边缘探测结论上报
-	MsgProbeAck     = "panel.probe_ack"     // 探测上报应答
-	MsgCalibrate    = "agent.calibrate"     // 测速校准上报（E-8）
-	MsgCalibrateAck = "panel.calibrate_ack" // 测速校准应答
-	MsgUpgrade      = "panel.upgrade"       // 自升级指令（A-23）
-	MsgUpgradeAck   = "agent.upgrade_ack"   // 自升级应答
+	MsgHello        = "agent.hello"         // handshake, carries the node token
+	MsgHelloAck     = "panel.hello_ack"     // handshake reply
+	MsgHeartbeat    = "agent.heartbeat"     // periodic heartbeat
+	MsgHeartbeatAck = "panel.heartbeat_ack" // heartbeat reply
+	MsgAlarm        = "agent.alarm"         // anomaly alarm
+	MsgAlarmAck     = "panel.alarm_ack"     // alarm reply
+	MsgTraffic      = "agent.traffic"       // traffic and online-count report
+	MsgTrafficAck   = "panel.traffic_ack"   // traffic report reply
+	MsgProcReport   = "agent.proc_report"   // process state event report
+	MsgProcCtl      = "panel.proc_ctl"      // panel process control command
+	MsgProcCtlAck   = "agent.proc_ctl_ack"  // process control reply
+	MsgProcLogs     = "panel.proc_logs"     // panel process log fetch request (P1-11)
+	MsgProcLogsAck  = "agent.proc_logs_ack" // process log fetch reply
+	MsgConfigPush   = "panel.config_push"   // config push
+	MsgConfigAck    = "agent.config_ack"    // config push reply
+	MsgProbeReport  = "agent.probe_report"  // edge probe verdict report
+	MsgProbeAck     = "panel.probe_ack"     // probe report reply
+	MsgCalibrate    = "agent.calibrate"     // speed calibration report (E-8)
+	MsgCalibrateAck = "panel.calibrate_ack" // speed calibration reply
+	MsgUpgrade      = "panel.upgrade"       // self-upgrade command (A-23)
+	MsgUpgradeAck   = "agent.upgrade_ack"   // self-upgrade reply
 )
 
-// Envelope 是所有消息的统一封装。请求方设置 ID，应答方原样带回。
+// Envelope is the common wrapper for all messages. The requester sets ID; the replier echoes it back.
 type Envelope struct {
-	V       int             `json:"v"` // 协议版本，须等于 ProtocolVersion
+	V       int             `json:"v"` // protocol version, must equal ProtocolVersion
 	ID      string          `json:"id,omitempty"`
 	Type    string          `json:"type"`
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
-// NewEnvelope 组装一条消息，payload 为 nil 时表示无载荷。
+// NewEnvelope assembles a message; a nil payload means no payload.
 func NewEnvelope(id, msgType string, payload any) (Envelope, error) {
 	e := Envelope{V: ProtocolVersion, ID: id, Type: msgType}
 	if payload != nil {
@@ -53,7 +54,7 @@ func NewEnvelope(id, msgType string, payload any) (Envelope, error) {
 	return e, nil
 }
 
-// Decode 将载荷解析到 v。空载荷直接返回 nil。
+// Decode unmarshals the payload into v. An empty payload returns nil.
 func (e Envelope) Decode(v any) error {
 	if len(e.Payload) == 0 {
 		return nil
@@ -61,10 +62,10 @@ func (e Envelope) Decode(v any) error {
 	return json.Unmarshal(e.Payload, v)
 }
 
-// Marshal 编码为传输报文。
+// Marshal encodes the message for transport.
 func (e Envelope) Marshal() ([]byte, error) {
 	return json.Marshal(e)
 }
 
-// Valid 校验消息版本，未知版本直接拒绝。
+// Valid checks the message version; unknown versions are rejected outright.
 func (e Envelope) Valid() bool { return e.V == ProtocolVersion }

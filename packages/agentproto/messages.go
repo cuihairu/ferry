@@ -2,65 +2,67 @@ package agentproto
 
 import "time"
 
-// 节点角色取值（池归属与组件装配）。
+// Node role values (pool membership and component assembly).
 const (
-	RoleEntry   = "entry"   // 入口节点
-	RoleLanding = "landing" // 落地节点
-	RoleBoth    = "both"    // 入口与落地一体
+	RoleEntry   = "entry"   // entry node
+	RoleLanding = "landing" // landing node
+	RoleBoth    = "both"    // entry and landing combined
 )
 
-// 拓扑方向取值（出海线/回国线）。
+// Topology direction values (overseas line / return line).
 const (
-	DirectionOut  = "out"  // 出海：国内入口 → 海外落地
-	DirectionIn   = "in"   // 回国：海外入口 → 国内落地
-	DirectionBoth = "both" // 双向
+	DirectionOut  = "out"  // outbound: domestic entry → overseas landing
+	DirectionIn   = "in"   // return: overseas entry → domestic landing
+	DirectionBoth = "both" // bidirectional
 )
 
-// NodeMeta 是节点注册元数据：配置文件填写为初值，注册时随 hello 上报，
-// 面板可改且以面板为准（改后经 hello_ack 同步回 agent）。
-// region 与 isp 必填，可标「未知」但不许空——区域与运营商是故障聚合维度。
+// NodeMeta is node registration metadata: the config file supplies the initial
+// values, reported with hello at registration; the panel may change them and
+// the panel wins (changes sync back to the agent via hello_ack).
+// region and isp are required; they may be marked "unknown" but never empty —
+// region and ISP are fault-aggregation dimensions.
 type NodeMeta struct {
 	Role                string   `json:"role"`                            // entry/landing/both
 	Direction           string   `json:"direction"`                       // out/in/both
-	LineType            string   `json:"line_type"`                       // cn2_gia/cu_vip/cmi/iplc/163/普通
-	Region              string   `json:"region"`                          // 区域，可「未知」
-	City                string   `json:"city,omitempty"`                  // 城市
-	Datacenter          string   `json:"datacenter,omitempty"`            // 机房
-	ISP                 string   `json:"isp"`                             // 运营商，可「未知」但不许空
-	Labels              []string `json:"labels,omitempty"`                // 自定义标签
+	LineType            string   `json:"line_type"`                       // cn2_gia/cu_vip/cmi/iplc/163/standard
+	Region              string   `json:"region"`                          // region, may be "unknown"
+	City                string   `json:"city,omitempty"`                  // city
+	Datacenter          string   `json:"datacenter,omitempty"`            // datacenter
+	ISP                 string   `json:"isp"`                             // ISP, may be "unknown" but must not be empty
+	Labels              []string `json:"labels,omitempty"`                // custom labels
 	Transport           string   `json:"transport"`                       // tls/quic/ws-tls/ssh
-	BillingType         string   `json:"billing_type"`                    // 按流量/包月/固定带宽
-	TrafficPriceCents   int64    `json:"traffic_price_cents,omitempty"`   // 流量单价（分/GB），仅按流量计费有意义
-	MonthlyCostCents    int64    `json:"monthly_cost_cents,omitempty"`    // 月固定成本（分/月）
-	Currency            string   `json:"currency,omitempty"`              // 币种，默认 CNY
-	CostNote            string   `json:"cost_note,omitempty"`             // 成本备注
-	BwUpMbps            int      `json:"bw_up_mbps"`                      // 套餐上行 Mbps，必填
-	BwDownMbps          int      `json:"bw_down_mbps"`                    // 套餐下行 Mbps，必填
-	MonthlyTrafficQuota int64    `json:"monthly_traffic_quota,omitempty"` // 月流量配额（字节，0=不限）
-	RateLimited         bool     `json:"rate_limited"`                    // 是否限速
-	Burst               bool     `json:"burst,omitempty"`                 // 是否峰值突发
+	BillingType         string   `json:"billing_type"`                    // usage-based/monthly/fixed-bandwidth
+	TrafficPriceCents   int64    `json:"traffic_price_cents,omitempty"`   // traffic unit price (cents/GB), only meaningful for usage-based billing
+	MonthlyCostCents    int64    `json:"monthly_cost_cents,omitempty"`    // fixed monthly cost (cents/month)
+	Currency            string   `json:"currency,omitempty"`              // currency, defaults to CNY
+	CostNote            string   `json:"cost_note,omitempty"`             // cost note
+	BwUpMbps            int      `json:"bw_up_mbps"`                      // plan upload Mbps, required
+	BwDownMbps          int      `json:"bw_down_mbps"`                    // plan download Mbps, required
+	MonthlyTrafficQuota int64    `json:"monthly_traffic_quota,omitempty"` // monthly traffic quota (bytes, 0 = unlimited)
+	RateLimited         bool     `json:"rate_limited"`                    // whether rate-limited
+	Burst               bool     `json:"burst,omitempty"`                 // whether burst is allowed
 }
 
-// Hello 是 agent 连接后发出的第一条消息，认证失败面板直接断开。
+// Hello is the first message the agent sends after connecting; on auth failure the panel drops it.
 type Hello struct {
-	Token     string    `json:"token"`      // 节点令牌
-	AgentID   string    `json:"agent_id"`   // 节点标识，对齐 nodes 表
-	Version   string    `json:"version"`    // agent 构建版本
-	Hostname  string    `json:"hostname"`   // 主机名，仅展示用
-	StartedAt time.Time `json:"started_at"` // agent 进程启动时间
-	Meta      NodeMeta  `json:"meta"`       // 节点注册元数据
+	Token     string    `json:"token"`      // node token
+	AgentID   string    `json:"agent_id"`   // node identifier, aligned with the nodes table
+	Version   string    `json:"version"`    // agent build version
+	Hostname  string    `json:"hostname"`   // hostname, display only
+	StartedAt time.Time `json:"started_at"` // agent process start time
+	Meta      NodeMeta  `json:"meta"`       // node registration metadata
 }
 
-// HelloAck 是面板的握手应答，Agent 据此校准心跳周期。
-// Meta 为面板权威的节点元数据（Role/ISP 非空时覆盖 agent 本地初值）。
+// HelloAck is the panel's handshake reply; the agent calibrates its heartbeat period from it.
+// Meta is the panel-authoritative node metadata (non-empty Role/ISP overrides the agent's local initial values).
 type HelloAck struct {
 	ServerTime           time.Time `json:"server_time"`
 	HeartbeatIntervalSec int       `json:"heartbeat_interval_sec"`
 	Meta                 NodeMeta  `json:"meta"`
 }
 
-// Normalize 补齐元数据缺省值并把取值收敛到合法范围；
-// region 与 isp 必填，未知时标「未知」（不许空）。面板与 agent 共用。
+// Normalize fills in metadata defaults and clamps values into the legal range;
+// region and isp are required, marked "unknown" when not known (never empty). Shared by panel and agent.
 func (m *NodeMeta) Normalize() {
 	if m.Role != RoleEntry && m.Role != RoleLanding && m.Role != RoleBoth {
 		m.Role = RoleLanding
@@ -94,64 +96,64 @@ func (m *NodeMeta) Normalize() {
 	}
 }
 
-// Heartbeat 是周期心跳，汇总存活与负载快照。
-// NetRxBytes/NetTxBytes 为开机以来累计字节，面板按心跳间隔差分得带宽速率。
+// Heartbeat is the periodic heartbeat, summarizing liveness and a load snapshot.
+// NetRxBytes/NetTxBytes are cumulative bytes since boot; the panel differences them across heartbeat intervals to get bandwidth rates.
 type Heartbeat struct {
 	UptimeSec     int64        `json:"uptime_sec"`
 	Load1         float64      `json:"load1"`
-	CPUUtil       float64      `json:"cpu_util"` // CPU 使用率 0-100
+	CPUUtil       float64      `json:"cpu_util"` // CPU utilization 0-100
 	MemUsedBytes  uint64       `json:"mem_used_bytes"`
 	MemTotalBytes uint64       `json:"mem_total_bytes"`
-	NetRxBytes    uint64       `json:"net_rx_bytes"` // 累计接收字节（不含 lo）
-	NetTxBytes    uint64       `json:"net_tx_bytes"` // 累计发送字节（不含 lo）
-	Conns         int          `json:"conns"`        // 本机 ESTABLISHED 连接数
+	NetRxBytes    uint64       `json:"net_rx_bytes"` // cumulative received bytes (excluding lo)
+	NetTxBytes    uint64       `json:"net_tx_bytes"` // cumulative sent bytes (excluding lo)
+	Conns         int          `json:"conns"`        // local ESTABLISHED connection count
 	Certs         []CertStatus `json:"certs,omitempty"`
 	Procs         []ProcStatus `json:"procs,omitempty"`
 	At            time.Time    `json:"at"`
 }
 
-// HeartbeatAck 允许面板调整下次心跳间隔。
+// HeartbeatAck lets the panel adjust the next heartbeat interval.
 type HeartbeatAck struct {
 	NextIntervalSec int `json:"next_interval_sec"`
 }
 
-// CertStatus 报告一张证书的到期时间，供面板提前告警。
+// CertStatus reports a certificate's expiry time so the panel can alarm early.
 type CertStatus struct {
 	Domain   string    `json:"domain"`
 	NotAfter time.Time `json:"not_after"`
 }
 
-// 进程状态机取值。
+// Process state machine values.
 const (
 	ProcRunning = "running"
 	ProcStopped = "stopped"
 	ProcCrashed = "crashed"
 )
 
-// ProcStatus 是单个被管进程的状态快照。
+// ProcStatus is a state snapshot of a single managed process.
 type ProcStatus struct {
 	Name     string            `json:"name"`
 	State    string            `json:"state"` // running/stopped/crashed
-	Since    time.Time         `json:"since"` // 进入当前状态的时间
+	Since    time.Time         `json:"since"` // time it entered the current state
 	Restarts int               `json:"restarts"`
 	PID      int               `json:"pid,omitempty"`
-	Metrics  map[string]uint64 `json:"metrics,omitempty"` // 进程指标（key-value 数字对象，从 MetricsURL 采集）
+	Metrics  map[string]uint64 `json:"metrics,omitempty"` // process metrics (key-value numeric map, collected from MetricsURL)
 }
 
-// 进程操作取值。
+// Process action values.
 const (
 	ProcActionStart  = "start"
 	ProcActionStop   = "stop"
 	ProcActionReload = "reload"
 )
 
-// ProcCtl 是面板下发的进程操作指令。
+// ProcCtl is a process control command issued by the panel.
 type ProcCtl struct {
 	Proc   string `json:"proc"`
 	Action string `json:"action"` // start/stop/reload
 }
 
-// ProcCtlAck 是进程操作的执行结果。
+// ProcCtlAck is the result of a process control action.
 type ProcCtlAck struct {
 	Proc   string `json:"proc"`
 	Action string `json:"action"`
@@ -159,141 +161,141 @@ type ProcCtlAck struct {
 	Error  string `json:"error,omitempty"`
 }
 
-// ProcLogsReq 是面板拉取进程运行日志的请求（P1-11）。
+// ProcLogsReq is the panel's request to fetch process runtime logs (P1-11).
 type ProcLogsReq struct {
 	Proc  string `json:"proc"`
-	Limit int    `json:"limit"` // 最近 N 行，缺省 200，上限 1000
+	Limit int    `json:"limit"` // last N lines, default 200, max 1000
 }
 
-// ProcLogsAck 是进程运行日志应答；agent 侧内存环形缓冲，重启即空。
+// ProcLogsAck is the process log reply; the agent side uses an in-memory ring buffer, emptied on restart.
 type ProcLogsAck struct {
 	Proc  string   `json:"proc"`
 	Lines []string `json:"lines"`
 	Error string   `json:"error,omitempty"`
 }
 
-// ProcReport 是 agent 主动上报的进程状态变化事件。
+// ProcReport is a process state-change event proactively reported by the agent.
 type ProcReport struct {
 	Procs []ProcStatus `json:"procs"`
 }
 
-// ConfigPush 是面板下发的完整配置。
+// ConfigPush is the complete configuration pushed by the panel.
 type ConfigPush struct {
-	Proc    string `json:"proc"`    // 目标进程名（对齐 agent 进程规格）
+	Proc    string `json:"proc"`    // target process name (aligned with the agent process spec)
 	Kind    string `json:"kind"`    // xray/sing-box/hysteria2
-	Version string `json:"version"` // 配置版本，单调递增或内容哈希
-	Sha256  string `json:"sha256"`  // Payload 的十六进制 SHA-256
-	Payload string `json:"payload"` // 完整配置文本
+	Version string `json:"version"` // config version, monotonically increasing or a content hash
+	Sha256  string `json:"sha256"`  // hex SHA-256 of Payload
+	Payload string `json:"payload"` // full config text
 }
 
-// ConfigAck 是配置下发的执行结果；Reverted 为真表示已回滚旧配置。
+// ConfigAck is the result of a config push; Reverted true means the old config was rolled back.
 type ConfigAck struct {
 	Proc      string `json:"proc"`
 	Version   string `json:"version"`
 	OK        bool   `json:"ok"`
 	Reverted  bool   `json:"reverted,omitempty"`
-	Validated bool   `json:"validated,omitempty"` // 是否通过了校验命令
+	Validated bool   `json:"validated,omitempty"` // whether it passed the validation command
 	Error     string `json:"error,omitempty"`
 }
 
-// ProcTraffic 是单个进程自上次上报以来的流量增量与在线连接数。
+// ProcTraffic is a single process's traffic delta since the last report plus its live connection count.
 type ProcTraffic struct {
 	Proc  string        `json:"proc"`
-	Rx    uint64        `json:"rx"` // 本次周期内的增量字节
+	Rx    uint64        `json:"rx"` // delta bytes within this period
 	Tx    uint64        `json:"tx"`
-	Conns int           `json:"conns"` // 采样时刻在线连接数
+	Conns int           `json:"conns"` // live connection count at sampling time
 	At    time.Time     `json:"at"`
-	Users []UserTraffic `json:"users,omitempty"` // per-user 增量（xray gRPC stats，P1-3）
-	// DirectBytes/BlockedBytes 是本周期分流出站的流量增量（SAVE-1 直连 /
-	// SAVE-4 屏蔽，xray outbound 计数一次查询同取），无采集时缺省。
+	Users []UserTraffic `json:"users,omitempty"` // per-user deltas (xray gRPC stats, P1-3)
+	// DirectBytes/BlockedBytes are this period's diverted-outbound traffic deltas (SAVE-1 direct /
+	// SAVE-4 blocking, both fetched in one xray outbound counter query); omitted when not collected.
 	DirectBytes  uint64 `json:"direct_bytes,omitempty"`
 	BlockedBytes uint64 `json:"blocked_bytes,omitempty"`
 }
 
-// UserTraffic 是采集周期内单个用户的流量增量（xray stats 采集）。
-// Email 是 xray inbound 用户邮箱，面板按 users.username 映射。
+// UserTraffic is a single user's traffic delta over the collection period (xray stats collection).
+// Email is the xray inbound user email; the panel maps it via users.username.
 type UserTraffic struct {
 	Email string `json:"email"`
-	Rx    uint64 `json:"rx"` // 用户收（xray downlink）
-	Tx    uint64 `json:"tx"` // 用户发（xray uplink）
+	Rx    uint64 `json:"rx"` // user receive (xray downlink)
+	Tx    uint64 `json:"tx"` // user send (xray uplink)
 }
 
-// TrafficReport 一次批量上报多个进程的流量。
+// TrafficReport reports traffic for multiple processes in one batch.
 type TrafficReport struct {
 	Items []ProcTraffic `json:"items"`
 }
 
-// TrafficAck 确认面板已记账的条数。
+// TrafficAck confirms how many entries the panel has recorded.
 type TrafficAck struct {
 	Recorded int `json:"recorded"`
 }
 
-// Calibrate 是 agent 注册后轻量测速的上报（E-8）：实测下行容量。
+// Calibrate is the report of the lightweight speed test run after the agent registers (E-8): measured download capacity.
 type Calibrate struct {
-	MeasuredDownMbps int     `json:"measured_down_mbps"` // 实测下行 Mbps
-	Bytes            int64   `json:"bytes"`              // 实测字节数
-	Seconds          float64 `json:"seconds"`            // 实测耗时（秒）
+	MeasuredDownMbps int     `json:"measured_down_mbps"` // measured download Mbps
+	Bytes            int64   `json:"bytes"`              // bytes measured
+	Seconds          float64 `json:"seconds"`            // measurement duration (seconds)
 }
 
-// CalibrateAck 是面板的校准应答：是否采纳实测为有效容量。
+// CalibrateAck is the panel's calibration reply: whether the measurement is accepted as effective capacity.
 type CalibrateAck struct {
 	Accepted          bool   `json:"accepted"`
-	EffectiveDownMbps int    `json:"effective_down_mbps"` // 生效容量（采纳=实测，否则=套餐）
+	EffectiveDownMbps int    `json:"effective_down_mbps"` // effective capacity (accepted = measured, otherwise = plan)
 	Note              string `json:"note,omitempty"`
 }
 
-// 探测目标类型取值。
+// Probe target kind values.
 const (
-	ProbeTargetTunnel = "tunnel" // 经 relay 的隧道连通/延迟/丢包
-	ProbeTargetExit   = "exit"   // 出口基线（区分隧道问题与本机问题）
-	ProbeTargetPeer   = "peer"   // 入口互探（被封检测）
+	ProbeTargetTunnel = "tunnel" // tunnel reachability/latency/loss via relay
+	ProbeTargetExit   = "exit"   // exit baseline (distinguishes tunnel problems from local ones)
+	ProbeTargetPeer   = "peer"   // entry-node cross-probing (block detection)
 )
 
-// 探测结论取值。
+// Probe verdict values.
 const (
 	ProbeVerdictHealthy = "healthy"
 	ProbeVerdictSick    = "sick"
 )
 
-// ProbeReport 是一条边缘探测结论。探测在节点本地完成，
-// 面板只收结论做聚合判定，不集中探测。
+// ProbeReport is a single edge-probe verdict. Probing happens locally on the node;
+// the panel only collects verdicts for aggregation and judgment, it does not probe centrally.
 type ProbeReport struct {
 	TargetKind string    `json:"target_kind"`           // tunnel/exit/peer
-	TargetNode int64     `json:"target_node,omitempty"` // 目标节点 ID（隧道/互探）
-	TargetHost string    `json:"target_host,omitempty"` // 出口探测目标
-	Direction  string    `json:"direction"`             // out/in，探测方向
-	RttMs      int       `json:"rtt_ms,omitempty"`      // 往返延迟（毫秒）
-	LossPct    int       `json:"loss_pct,omitempty"`    // 丢包率 0-100
-	Reachable  bool      `json:"reachable"`             // 是否可达
-	Blocked    bool      `json:"blocked"`               // 是否判定被封
+	TargetNode int64     `json:"target_node,omitempty"` // target node ID (tunnel/peer)
+	TargetHost string    `json:"target_host,omitempty"` // exit probe target
+	Direction  string    `json:"direction"`             // out/in, probe direction
+	RttMs      int       `json:"rtt_ms,omitempty"`      // round-trip latency (ms)
+	LossPct    int       `json:"loss_pct,omitempty"`    // loss percentage 0-100
+	Reachable  bool      `json:"reachable"`             // whether reachable
+	Blocked    bool      `json:"blocked"`               // whether judged blocked
 	Verdict    string    `json:"verdict"`               // healthy/sick
-	Region     string    `json:"region"`                // 目标区域快照（聚合用）
-	ISP        string    `json:"isp"`                   // 目标运营商快照
+	Region     string    `json:"region"`                // target region snapshot (for aggregation)
+	ISP        string    `json:"isp"`                   // target ISP snapshot
 	ProbedAt   time.Time `json:"probed_at"`
 }
 
-// ProbeReportBatch 一次批量上报多条探测结论。
+// ProbeReportBatch reports multiple probe verdicts in one batch.
 type ProbeReportBatch struct {
 	Items []ProbeReport `json:"items"`
 }
 
-// ProbeAck 确认面板已接收的条数。
+// ProbeAck confirms how many entries the panel has received.
 type ProbeAck struct {
 	Recorded int `json:"recorded"`
 }
 
-// 告警级别与类别取值。
+// Alarm severity and kind values.
 const (
 	AlarmSeverityWarning  = "warning"
 	AlarmSeverityCritical = "critical"
 
-	AlarmKindProcCrash   = "proc_crash"   // 进程崩溃且拉起失败
-	AlarmKindCertExpiry  = "cert_expiry"  // 证书临近到期
-	AlarmKindHighLoad    = "high_load"    // 负载过高
-	AlarmKindConfigError = "config_error" // 配置下发失败且回滚
+	AlarmKindProcCrash   = "proc_crash"   // process crashed and failed to restart
+	AlarmKindCertExpiry  = "cert_expiry"  // certificate nearing expiry
+	AlarmKindHighLoad    = "high_load"    // load too high
+	AlarmKindConfigError = "config_error" // config push failed and rolled back
 )
 
-// Alarm 是 agent 检测到的异常，面板侧应即时可见。
+// Alarm is an anomaly detected by the agent; it must be immediately visible on the panel side.
 type Alarm struct {
 	Kind     string    `json:"kind"`
 	Severity string    `json:"severity"`
@@ -302,14 +304,14 @@ type Alarm struct {
 	At       time.Time `json:"at"`
 }
 
-// Upgrade 是面板下发的自升级指令（A-23）：agent 下载新版本二进制替换自身并重启。
+// Upgrade is the self-upgrade command issued by the panel (A-23): the agent downloads the new binary, replaces itself, and restarts.
 type Upgrade struct {
-	Version string `json:"version"` // 目标版本号
-	URL     string `json:"url"`     // 新二进制下载地址
-	Sha256  string `json:"sha256"`  // 校验和（十六进制，空则不校验）
+	Version string `json:"version"` // target version
+	URL     string `json:"url"`     // download URL of the new binary
+	Sha256  string `json:"sha256"`  // checksum (hex, empty means no check)
 }
 
-// UpgradeAck 是升级指令的即时应答：受理或拒绝（拒绝带原因，不换二进制）。
+// UpgradeAck is the immediate reply to the upgrade command: accepted or rejected (rejection carries a reason, no binary swap).
 type UpgradeAck struct {
 	Version string `json:"version"`
 	OK      bool   `json:"ok"`

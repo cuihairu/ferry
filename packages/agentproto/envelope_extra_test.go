@@ -6,14 +6,14 @@ import (
 	"testing"
 )
 
-// TestNewEnvelopeMarshalError 载荷不可序列化（函数值）：组包报错。
+// TestNewEnvelopeMarshalError covers an unserializable payload (a func value): NewEnvelope errors.
 func TestNewEnvelopeMarshalError(t *testing.T) {
 	if _, err := NewEnvelope("id-1", MsgProbeReport, func() {}); err == nil {
 		t.Fatal("unmarshalable payload must error")
 	}
 }
 
-// TestDecodeEmptyPayload 空载荷 Decode 直接成功且不动目标。
+// TestDecodeEmptyPayload covers decoding with an empty payload, which succeeds and leaves the target untouched.
 func TestDecodeEmptyPayload(t *testing.T) {
 	var p ProbeReportBatch
 	if err := (Envelope{V: ProtocolVersion, Type: MsgProbeReport}).Decode(&p); err != nil {
@@ -21,7 +21,7 @@ func TestDecodeEmptyPayload(t *testing.T) {
 	}
 }
 
-// TestDecodePayload 载荷能解析进目标结构。
+// TestDecodePayload covers parsing a payload into the destination struct.
 func TestDecodePayload(t *testing.T) {
 	env, err := NewEnvelope("id-2", MsgProbeReport, ProbeReportBatch{Items: []ProbeReport{{TargetHost: "h"}}})
 	if err != nil {
@@ -36,7 +36,7 @@ func TestDecodePayload(t *testing.T) {
 	}
 }
 
-// TestMarshalRoundTrip Marshal 编出的报文能解回同值信封。
+// TestMarshalRoundTrip checks that the bytes from Marshal unmarshal back to the same envelope.
 func TestMarshalRoundTrip(t *testing.T) {
 	env, err := NewEnvelope("id-3", MsgProbeReport, ProbeReportBatch{Items: []ProbeReport{{TargetHost: "h"}}})
 	if err != nil {
@@ -55,7 +55,7 @@ func TestMarshalRoundTrip(t *testing.T) {
 	}
 }
 
-// TestNormalizeKeepsKnownValues 合法取值原样保留（各 switch 命中 case 而非 default）。
+// TestNormalizeKeepsKnownValues checks that valid values are kept as-is (each switch hits a case, not the default).
 func TestNormalizeKeepsKnownValues(t *testing.T) {
 	m := NodeMeta{
 		Role:        RoleBoth,
