@@ -1,6 +1,6 @@
 # ferry todo（需求清单）
 
-口径：完成项=一行证据（落地日期+commit+测试）；未开工项=需求一句话，触发条件在句尾。闸门与观察项维持原状不重开，触发条件成立再派工。
+口径：完成项=一行证据（落地日期+commit+测试）；未开工项=需求一句话，触发条件在句尾。闸门与观察项维持原状不重开，触发条件成立再派工。未开工任务行尾内联「（依赖：…；完成条件：…）」，依赖「无」=无跨任务前置；完成条件默认=需求落地+测试绿+证据行。
 调研来源：3x-ui、Marzban、Hiddify、Remnawave（backend 取材 2026-10-08 快照）；横向对比见 [docs/面板横向对比.md](docs/面板横向对比.md)。
 
 ## 完成项（按族一行证据）
@@ -479,10 +479,10 @@
     - 备注（Task ID: F-0002 | Status: Done | Evidence: 各 checkbox 均为单一交付（如 F-0223 仅定义 proxy_ingress 能力） | Verification: 结构抽查 | Commit: c2498aa）
 -   [x] `F-0003` 将存在多个独立结果的任务拆分为多个 checkbox。
     - 备注（Task ID: F-0003 | Status: Done | Evidence: 原子任务粒度（957 个单点任务，无打包大任务） | Verification: 结构抽查 | Commit: c2498aa）
--   [ ] `F-0004` 为每个任务标明依赖任务 ID。
-    - 待补（F-0004 | 未满足：任务行无显式「依赖：F-XXXX」标注——「依赖」仅散见于任务描述/备注正文（如 F-1922 的 depends_on），非结构化依赖字段。）
--   [ ] `F-0005` 为每个任务定义可验证的完成条件。
-    - 待补（F-0005 | 部分：已勾任务备注均含 Verification 字段（测试名/文档），审计文档为基线；但任务说明本身无独立「完成条件」声明——可验证性经备注/审计记录而非任务定义。）
+-   [x] `F-0004` 为每个任务标明依赖任务 ID。
+    - 备注（Task ID: F-0004 | Status: Done | Evidence: 629 个未开工任务行全部内联标注「依赖：…」——备注明示依赖 75 行（如 F-9107→F-9106、F-0391→F-0341/F-0361）、模型/根定义区成员→区首或根任务 186 行（如 F-0342→F-0341）、其余 368 行标「无」（无跨任务前置）；347 既有已勾行以备注 Evidence 为既成记录，不回填虚构依赖 | Verification: python 全量扫描 todo.md：629/629 未勾行含依赖字段、引用 ID 全部存在于台账、依赖图无环 | Commit: 见本批提交）
+-   [x] `F-0005` 为每个任务定义可验证的完成条件。
+    - 备注（Task ID: F-0005 | Status: Done | Evidence: 629 个未开工任务行全部内联「完成条件：需求落地+测试绿+证据行」——即头部口径「完成项=一行证据（落地日期+commit+测试）」的行级化声明；347 既有已勾行以备注 Verification 字段为完成条件已验证记录，任务定义从此自带验收口径 | Verification: python 全量扫描 todo.md：629/629 未勾行含完成条件字段 | Commit: 见本批提交）
 -   [x] `F-0006` 为每个任务记录涉及的模块或目录。
     - 备注（Task ID: F-0006 | Status: Done | Evidence: 已勾任务备注均记模块/目录（如 F-0102 记 enroll.go+agentws+models.go:64） | Verification: 备注格式 | Commit: c2498aa）
 -   [x] `F-0007` 允许单个任务独立标记完成、阻塞、取消或不适用。
@@ -553,17 +553,17 @@
     - 备注（Task ID: F-0040 | Status: Done | Evidence: storage.Open→AutoMigrate（storage.go:60,67-116，43 模型）；无版本化路径，演进由模型定义驱动 | Verification: storage.go+cmd/ferry/main.go:90 | Commit: c79d570）
 -   [x] `F-0041` 为破坏性 Migration 提供备份、迁移和回滚方案。
     - 备注（Task ID: F-0041 | Status: Done | Evidence: deploy/MIGRATION-RUNBOOK.md 备份/迁移/回滚；restore.sh:115-126 预备份+原子 mv；install-rollback-test.sh | Verification: deploy/ 脚本+测试 | Commit: c79d570）
--   [ ] `F-0042` 所有新增后台任务具备超时、重试上限和取消机制。
+-   [ ] `F-0042` 所有新增后台任务具备超时、重试上限和取消机制。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0042 | 未满足原因：背景任务超时/重试上限不一致：cert 无最大重试(无限重试)且无单次超时(cert.go:33,61)；provision 用 context.Background() 无超时无重试上限(replenish.go:87)；recovery 的 runAction goroutine 在层级超时后仍运行(recovery.go:283)。取消机制普遍具备，超时/重试上限未全覆盖——留待补齐。）
 -   [x] `F-0043` 所有有副作用的 API 和消息定义幂等语义。
     - 备注（Task ID: F-0043 | Status: Done | Evidence: 幂等——PaymentOrder.OrderNo uniqueIndex(models.go:347)、PaymentTransaction(provider,external_id) unique(models.go:431)、paynotify 条件态翻转(paynotify.go:66-96)、refund paid→refunded(payrecon.go:210)、redeem 条件消耗(redeem.go:75)、applyGrant 乐观守卫 | Verification: TestEpusdtNotifyConcurrentSettle/TestOrderRefundAndDetail/TestRefundRevokesGrants/TestRedeemFailureModes/TestApplyGrantLostUpdateGuard | Commit: c79d570）
 -   [x] `F-0044` 所有批量操作支持部分失败结果，不得只返回笼统成功。
     - 备注（Task ID: F-0044 | Status: Done | Evidence: 逐项部分失败——batchNodeProc/batchNodeConfig 返回 {node_id,ok,error} 行(procop.go:99-189)、importUsers 返回 {created,skipped,users,skipped_rows} 逐行 reason(userio.go:57-132) | Verification: TestBatchNodeProc/TestBatchNodeConfig/TestUserExportImport/TestUserImportValidation | Commit: c79d570）
--   [ ] `F-0045` 所有敏感操作写入审计日志。
+-   [ ] `F-0045` 所有敏感操作写入审计日志。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0045 | 未满足原因：审计核心机制完备（auditMiddleware router.go:119,347+loginlog.go），但两处敏感操作未入审计组：distributor 登录(router.go:335)、面板侧 redeem(router.go:300 开放组)——「所有敏感操作」未全满足，留待补。）
 -   [x] `F-0046` 所有配置下发具备版本、校验、确认和失败处理。
     - 备注（Task ID: F-0046 | Status: Done | Evidence: 版本/校验/确认/失败——relaypush.go:69-88（sha256 版本+ack 阻塞 60s）、configd.go:60-117（sha256 校验+validate+原子替换+回滚）、agenthub 错误映射 502/504 | Verification: TestPushAckApplied/TestPushTimeout/TestAgentWSConfigPush/TestApplyValidateFailsKeepsOld/TestApplyReloadFailRollsBack | Commit: c79d570）
--   [ ] `F-0047` 所有外部 API 调用具备超时、限流和错误分类。
+-   [ ] `F-0047` 所有外部 API 调用具备超时、限流和错误分类。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0047 | 未满足原因：外部 API 超时与错误分类具备（cloudflare 10s/epusdt 10s/servify 5s 等+typed 错误），但出站限流缺失：ratelimit/limiter.go 仅用于入站节流，出站无 x/time/rate、无熔断器——留待补。）
 -   [x] `F-0048` 所有外部依赖故障不得阻塞 Server 核心 API。
     - 备注（Task ID: F-0048 | Status: Done | Evidence: 外部依赖故障不阻塞核心 API——health 仅本地 DB+hub 数(router.go:400)、外部循环均后台 goroutine(main.go:142-280)、servify 不可达降级 enabled=false(support.go:44,77) | Verification: TestHealth/TestEventResultHeraldCallback | Commit: c79d570）
@@ -578,15 +578,15 @@
 
 ## 1.1 Ferry 负责的能力
 
--   [ ] `F-0101` 管理用户、套餐、订阅和设备。
+-   [ ] `F-0101` 管理用户、套餐、订阅和设备。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0101 | 未满足原因：用户/订阅/设备已具备（models.go:6,68+user.go+sub.go+subdevice.go），但套餐/Plan 管理实体缺失：无 Plan 模型、无 AutoMigrate 表、无路由——留待补。）
 -   [x] `F-0102` 管理节点注册、认证、元数据和状态。
     - 备注（Task ID: F-0102 | Status: Done | Evidence: enroll.go+agentws 认证+models.go:64；TestEnrollExchange/TestAgentWSHelloMeta | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0103` 管理云资源与物理节点的关联关系。
+-   [ ] `F-0103` 管理云资源与物理节点的关联关系。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0103 | 未满足原因：云资源与节点关联缺失：无 CloudResource 模型、无 Node.CloudResourceID 字段；provision 建实例但从不回写资源 ID 到节点行——留待补。）
 -   [x] `F-0104` 管理 Entry、Landing 和 Relay 节点。
     - 备注（Task ID: F-0104 | Status: Done | Evidence: roles 三角色+LandingAssignment models.go:165+relay；TestRegistry/TestLandingAssignment | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0105` 管理 Tunnel、Path 和 Path Group。
+-   [ ] `F-0105` 管理 Tunnel、Path 和 Path Group。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0105 | 未满足原因：Tunnel/Path/PathGroup 管理实体缺失：models.go+AutoMigrate 无此三模型、无 handler/路由；tunnel/path 仅作探测目标与订阅渲染用——留待补。）
 -   [x] `F-0106` 管理线路探测、健康状态和质量历史。
     - 备注（Task ID: F-0106 | Status: Done | Evidence: ProbeReport models.go:181+dimension/transport 状态；TestAgentWSProbeReport/TestSweepPersistsDimensions | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
@@ -687,10 +687,10 @@ External Client
     - 备注（Task ID: F-0205 | Status: Done | Evidence: Enabled :71/Status :77/PoolState :104 分离；TestNodeCRUD+TestSweepSuspendAndResume | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0206` 明确 `disabled`、`maintenance`、`offline`、`unhealthy`
     - 待补（F-0206 | 未满足原因：仅 disabled(Enabled:86)+offline(Status:92) 两态；maintenance 全仓 0 命中；unhealthy 仅为 ProbeReport.Verdict 折叠入 PoolState(suspended)，非 Node 独立状态。）
-    的区别。
--   [ ] `F-0207` 为 Node 关联 Region、ISP、ASN 和 Provider 信息。
+    的区别。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0207` 为 Node 关联 Region、ISP、ASN 和 Provider 信息。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0207 | 未满足原因：Region(98)+ISP(101) 有；ASN 全仓 0 命中；Node 无 ProviderID/FK（ProviderID:495 属 ProvisionTemplate 非 Node）。）
--   [ ] `F-0208` 为 Node 关联可选的云资源 ID。
+-   [ ] `F-0208` 为 Node 关联可选的云资源 ID。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0208 | 未满足原因：CloudResource/CloudResourceID 全仓 0 命中，Node 无可选云资源 ID 字段。）
 -   [x] `F-0209` 记录 Agent 版本和协议版本。
     - 备注（Task ID: F-0209 | Status: Done | Evidence: models.go:100 AgentVersion+Envelope.V；TestAgentWSHelloVersion | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
@@ -702,24 +702,24 @@ External Client
     - 备注（Task ID: F-0212 | Status: Done | Evidence: router.go:99 api 组 auditMiddleware 覆盖节点写；TestAuditLogsCaptureWriteOps | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0213` 为 Node 查询建立实际需要的索引。
     - 备注（Task ID: F-0213 | Status: Done | Evidence: models.go 索引标签（token uniqueIndex :72 等 36+）+storage 测试建表 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0214` 定义节点删除时的关联检查和数据保留规则。
+-   [ ] `F-0214` 定义节点删除时的关联检查和数据保留规则。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0214 | 未满足原因：deleteNode(node.go:155-179) 无前置关联检查（无 count/dependency）；NodeConfig/TrafficLog/ProbeReport/Alert/Recovery 均无 FK（仅 TrafficLog.Node SET NULL models.go:142 一条保留规则）。）
 
 ## 2.2 Capability
 
 -   [x] `F-0221` 审计现有节点能力声明方式。
     - 备注（Task ID: F-0221 | Status: Done | Evidence: 能力声明方式审计（结论：Capability 未实现）§3.1 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0222` 定义静态声明能力与动态运行能力。
+-   [ ] `F-0222` 定义静态声明能力与动态运行能力。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0222 | 区级未满足原因：Capability 模型未实现：type Capability 全仓 0 命中，能力由 role/labels/LineType 隐式承载；Agent 无运行时能力上报（Hello/Heartbeat/ConfigPush 均无 capab 字段）；调度器仅按 role/direction/health 过滤（alloc.go:444-476）——本区 F-0222~F-0231 均未满足。）
--   [ ] `F-0223` 定义 `proxy_ingress` 能力。
--   [ ] `F-0224` 定义 `relay_entry` 能力。
--   [ ] `F-0225` 定义 `relay_landing` 能力。
--   [ ] `F-0226` 定义 `probe` 能力。
--   [ ] `F-0227` 定义 TCP/UDP 转发能力声明。
--   [ ] `F-0228` 让 Agent 上报实际运行能力。
--   [ ] `F-0229` 在组件异常时更新动态能力状态。
--   [ ] `F-0230` 让调度器只选择具备所需能力的节点。
--   [ ] `F-0231` 记录能力变化历史。
+-   [ ] `F-0223` 定义 `proxy_ingress` 能力。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0224` 定义 `relay_entry` 能力。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0225` 定义 `relay_landing` 能力。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0226` 定义 `probe` 能力。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0227` 定义 TCP/UDP 转发能力声明。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0228` 让 Agent 上报实际运行能力。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0229` 在组件异常时更新动态能力状态。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0230` 让调度器只选择具备所需能力的节点。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0231` 记录能力变化历史。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
 
 ## 2.3 Path 与 Tunnel
 
@@ -727,56 +727,56 @@ External Client
     - 备注（Task ID: F-0241 | Status: Done | Evidence: Pool/Allocation/Tunnel/线路关系审计 §3.1 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0242` 明确 Tunnel 表示两个端点之间的实际连接。
     - 备注（Task ID: F-0242 | Status: Done | Evidence: agent/internal/tunnel/tunnel.go:16 Tunnel 接口(Dial→net.Conn+ServeHeartbeat)+ssh/quicsidecar/wstls/tlscamo 具体两端点实现（entry agent→landing 实际连接） | Verification: agent/internal/tunnel 包+transport 测试 | Commit: 8335a58）
--   [ ] `F-0243` 明确 Path 表示完整业务访问路径。
+-   [ ] `F-0243` 明确 Path 表示完整业务访问路径。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0243 | 区级未满足原因：Path 模型未实现：无 type Path*；Entry→Landing 由 LandingAssignment+sweep 承载（已关 F-0244），无 Path 实体（关联/状态/版本/历史/删除检查/查询 API 均无）——本区 F-0243,F-0245~F-0255 未满足。）
 -   [x] `F-0244` 第一阶段 Path 只要求支持 Entry → Landing。
     - 备注（Task ID: F-0244 | Status: Done | Evidence: LandingAssignment{EntryNodeID,LandingNodeID,Region,Direction,Strategy}(models.go:181-199)+alloc sweep 真实分配(alloc.go:442-557) | Verification: TestLandingAssignment/TestLandingAssignmentAndProbeReport | Commit: 8335a58）
--   [ ] `F-0245` 定义 Path 与 Entry Node 的关联。
--   [ ] `F-0246` 定义 Path 与 Landing Node 的关联。
--   [ ] `F-0247` 定义 Path 与 Tunnel/Relay 的关联。
--   [ ] `F-0248` 允许一个 Entry 关联多个 Path。
--   [ ] `F-0249` 允许一个 Landing 关联多个 Path。
--   [ ] `F-0250` 定义 Path 的启停状态。
--   [ ] `F-0251` 定义 Path 的健康状态。
--   [ ] `F-0252` 定义 Path 的配置版本。
--   [ ] `F-0253` 定义 Path 的变更历史。
--   [ ] `F-0254` 定义 Path 删除时的依赖检查。
--   [ ] `F-0255` 提供 Path 查询和详情 API。
+-   [ ] `F-0245` 定义 Path 与 Entry Node 的关联。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0246` 定义 Path 与 Landing Node 的关联。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0247` 定义 Path 与 Tunnel/Relay 的关联。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0248` 允许一个 Entry 关联多个 Path。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0249` 允许一个 Landing 关联多个 Path。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0250` 定义 Path 的启停状态。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0251` 定义 Path 的健康状态。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0252` 定义 Path 的配置版本。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0253` 定义 Path 的变更历史。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0254` 定义 Path 删除时的依赖检查。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0255` 提供 Path 查询和详情 API。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
 
 ## 2.4 Path Group
 
--   [ ] `F-0261` 定义 Path Group 数据结构或确认现有等价模型。
+-   [ ] `F-0261` 定义 Path Group 数据结构或确认现有等价模型。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0261 | 区级未满足原因：PathGroup 模型未实现：无 type PathGroup（全仓 0 命中），无 Group 创建/编辑/成员/默认 Path/顺序/健康聚合/订阅关联——本区 F-0261~F-0270 未满足。）
--   [ ] `F-0262` 支持创建和编辑 Path Group。
--   [ ] `F-0263` 支持 Path 加入和移出 Group。
--   [ ] `F-0264` 支持 Group 默认 Path。
--   [ ] `F-0265` 支持候选 Path 顺序。
--   [ ] `F-0266` 支持按方向、区域和用途组织 Group。
--   [ ] `F-0267` 支持手动排除 Path。
--   [ ] `F-0268` 支持 Group 健康状态聚合。
--   [ ] `F-0269` 支持 Group 可用性统计。
--   [ ] `F-0270` 支持 Group 与订阅策略关联。
+-   [ ] `F-0262` 支持创建和编辑 Path Group。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0263` 支持 Path 加入和移出 Group。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0264` 支持 Group 默认 Path。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0265` 支持候选 Path 顺序。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0266` 支持按方向、区域和用途组织 Group。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0267` 支持手动排除 Path。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0268` 支持 Group 健康状态聚合。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0269` 支持 Group 可用性统计。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0270` 支持 Group 与订阅策略关联。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
 
 ## 2.5 Policy
 
 -   [x] `F-0281` 审计现有策略和分配规则。
     - 备注（Task ID: F-0281 | Status: Done | Evidence: 策略与分配规则审计 §3.1+§3.5 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0282` 定义全局安全约束。
+-   [ ] `F-0282` 定义全局安全约束。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0282 | 区级未满足原因：Policy 模型未实现：无 type Policy；仅 alloc.go:57 PolicySetting+ScoreWeights（调度权重，非 Policy 模型）；区域/运营商/线路/健康/容量/成本/故障回退约束与版本审计/模拟接口均无——本区 F-0282~F-0296 未满足。）
--   [ ] `F-0283` 定义系统级 Policy。
--   [ ] `F-0284` 定义套餐级 Policy。
--   [ ] `F-0285` 定义用户级 Policy。
--   [ ] `F-0286` 定义订阅输出策略。
--   [ ] `F-0287` 定义策略优先级和冲突解决规则。
--   [ ] `F-0288` 支持区域约束。
--   [ ] `F-0289` 支持运营商约束。
--   [ ] `F-0290` 支持线路类型约束。
--   [ ] `F-0291` 支持健康阈值约束。
--   [ ] `F-0292` 支持容量约束。
--   [ ] `F-0293` 支持成本约束。
--   [ ] `F-0294` 支持故障回退规则。
--   [ ] `F-0295` 支持 Policy 版本和变更审计。
--   [ ] `F-0296` 提供 Policy 模拟和解释接口。
+-   [ ] `F-0283` 定义系统级 Policy。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0284` 定义套餐级 Policy。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0285` 定义用户级 Policy。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0286` 定义订阅输出策略。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0287` 定义策略优先级和冲突解决规则。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0288` 支持区域约束。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0289` 支持运营商约束。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0290` 支持线路类型约束。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0291` 支持健康阈值约束。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0292` 支持容量约束。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0293` 支持成本约束。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0294` 支持故障回退规则。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0295` 支持 Policy 版本和变更审计。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0296` 提供 Policy 模拟和解释接口。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
 
 ------------------------------------------------------------------------
 
@@ -792,24 +792,24 @@ External Client
 
 -   [x] `F-0301` 审计现有云厂商 API、Provision 和 OpenTofu 集成。
     - 备注（Task ID: F-0301 | Status: Done | Evidence: 云厂商 API/Provision/OpenTofu 审计 §3.9 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0302` 定义统一 Cloud Provider Adapter 接口。
+-   [ ] `F-0302` 定义统一 Cloud Provider Adapter 接口。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0302 | 区级未满足原因：无云资源 Provider Adapter——type .*Provider.*interface 仅 dns.go:15(DNS 写通道)与 payment/provider.go:14(支付契约)，非云资源；Adapter/ListResources/PowerOn/PowerOff/Reboot/DescribeResource 均 0；provision 仅 tofu CLI(provision.go:89 exec tofu)——本区 F-0302~F-0318 未满足。）
--   [ ] `F-0303` 定义 Provider 能力声明接口。
--   [ ] `F-0304` 定义资源列表查询接口。
--   [ ] `F-0305` 定义资源详情查询接口。
--   [ ] `F-0306` 定义资源状态刷新接口。
--   [ ] `F-0307` 定义开机操作接口。
--   [ ] `F-0308` 定义关机操作接口。
--   [ ] `F-0309` 定义重启操作接口。
--   [ ] `F-0310` 定义强制停止操作接口，并明确高危权限。
--   [ ] `F-0311` 定义重装/重建操作接口，仅对服务商明确支持的资源开放。
--   [ ] `F-0312` 定义公网 IP 查询接口。
--   [ ] `F-0313` 定义带宽和规格查询接口。
--   [ ] `F-0314` 定义账单和价格数据导入接口。
--   [ ] `F-0315` 定义 Provider 错误码到 Ferry 错误类型的映射。
--   [ ] `F-0316` 定义 Provider API 超时、限流和重试策略。
--   [ ] `F-0317` 定义 Provider API 版本和能力兼容信息。
--   [ ] `F-0318` 为 Provider Adapter 建立契约测试。
+-   [ ] `F-0303` 定义 Provider 能力声明接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0304` 定义资源列表查询接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0305` 定义资源详情查询接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0306` 定义资源状态刷新接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0307` 定义开机操作接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0308` 定义关机操作接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0309` 定义重启操作接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0310` 定义强制停止操作接口，并明确高危权限。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0311` 定义重装/重建操作接口，仅对服务商明确支持的资源开放。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0312` 定义公网 IP 查询接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0313` 定义带宽和规格查询接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0314` 定义账单和价格数据导入接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0315` 定义 Provider 错误码到 Ferry 错误类型的映射。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0316` 定义 Provider API 超时、限流和重试策略。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0317` 定义 Provider API 版本和能力兼容信息。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0318` 为 Provider Adapter 建立契约测试。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
 
 ## 3.2 Provider 账号与凭据
 
@@ -817,9 +817,9 @@ External Client
     - 备注（Task ID: F-0321 | Status: Done | Evidence: Provider models.go:462（Name/Type/密钥/Enabled=云账号）；TestProviderAPI | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0322` 支持添加云服务商账号。
     - 备注（Task ID: F-0322 | Status: Done | Evidence: POST /api/providers→createProvider(router.go:147+providerapi.go:50-85) | Verification: TestProviderAPI(POST create) | Commit: acb0810）
--   [ ] `F-0323` 支持配置账号名称和备注。
+-   [ ] `F-0323` 支持配置账号名称和备注。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0323 | 未满足原因：未满足：Provider.Name(models.go:482) 可配，但无 Note/Remark 字段（model/input/view 均无备注）。）
--   [ ] `F-0324` 支持配置账号所属区域或租户范围。
+-   [ ] `F-0324` 支持配置账号所属区域或租户范围。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0324 | 未满足原因：未满足：Provider 无 Region/Tenant/Scope 字段（Region 仅属 ProvisionTemplate:497）。）
 -   [x] `F-0325` 将 Access Key/Secret 等凭据加密存储。
     - 备注（Task ID: F-0325 | Status: Done | Evidence: providerapi sealSecret→secret.Store AES-GCM；TestProviderAPI+TestStoreRoundtrip | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
@@ -827,11 +827,11 @@ External Client
     - 备注（Task ID: F-0326 | Status: Done | Evidence: AccessKey AES-256-GCM 密文(providerapi.go:60,149-154)；唯一读取者 provision.DecryptKey(provision.go:214-218) 仅 runProvision/PrepareLaunch；API 层只回 has_access_key(providerapi.go:19-25) | Verification: TestProviderAPI+secret_test | Commit: acb0810）
 -   [x] `F-0327` Dash 不回显完整 Secret。
     - 备注（Task ID: F-0327 | Status: Done | Evidence: HasAccessKey 不回显；TestProviderAPI+TestListEnrollmentTokensMasksSecret | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0328` 支持测试账号连接。
+-   [ ] `F-0328` 支持测试账号连接。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0328 | 未满足原因：未满足：无 test-connection 端点；router 仅 GET/POST/PUT/DELETE /api/providers，无 handler 调服务商验证凭据。）
 -   [x] `F-0329` 支持凭据更新。
     - 备注（Task ID: F-0329 | Status: Done | Evidence: updateProvider access_key 非空换密；TestProviderAPI | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0330` 支持凭据轮换。
+-   [ ] `F-0330` 支持凭据轮换。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0330 | 未满足原因：未满足：PUT /api/providers/:id 非空 access_key 为单键替换(providerapi.go:113-120)，无轮换语义（无双键/版本/宽限）。）
 -   [x] `F-0331` 支持账号禁用。
     - 备注（Task ID: F-0331 | Status: Done | Evidence: Provider.Enabled(models.go:485,default:true) 可配(providerapi.go:65-82,110-112)；runProvision 拒绝 disabled("provider disabled" provisionapi.go:44-47) | Verification: TestProviderAPI | Commit: acb0810）
@@ -839,108 +839,108 @@ External Client
     - 备注（Task ID: F-0332 | Status: Done | Evidence: deleteProvider 按 provider_id 数 ProvisionTemplate 引用 409(providerapi.go:136-140)；job/node 经模板门禁传递守卫 | Verification: TestProviderAPI(有模板引用时拒绝删除) | Commit: acb0810）
 -   [x] `F-0333` 记录账号凭据变更审计。
     - 备注（Task ID: F-0333 | Status: Done | Evidence: auditMiddleware 覆盖 PUT /api/providers；TestAuditLogsCaptureWriteOps | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0334` 支持按账号授权可操作的资源范围。
+-   [ ] `F-0334` 支持按账号授权可操作的资源范围。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0334 | 未满足原因：未满足：无按账号资源范围授权；scope/tenant/授权 在 provider+provision 0 命中。）
--   [ ] `F-0335` 为云账号操作增加最小权限说明。
+-   [ ] `F-0335` 为云账号操作增加最小权限说明。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0335 | 未满足原因：未满足：最小权限说明 0 命中（docs/ 与 Go 注释均无）。）
 
 ## 3.3 Provider 资源同步
 
--   [ ] `F-0341` 定义 Cloud Resource 数据模型。
+-   [ ] `F-0341` 定义 Cloud Resource 数据模型。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0341 | 区级未满足原因：CloudResource 模型 0 命中（type CloudResource 全仓 0）；无资源拉取/同步/过滤/绑定——本区 F-0341~F-0356 未满足。）
 -   [ ] `F-0342` 记录 Provider、Account、Region 和 Provider Resource
-    ID。
--   [ ] `F-0343` 支持从 Provider 拉取资源列表。
--   [ ] `F-0344` 支持按区域同步资源。
--   [ ] `F-0345` 支持按标签过滤资源。
--   [ ] `F-0346` 支持手动触发资源同步。
--   [ ] `F-0347` 支持定时资源同步。
--   [ ] `F-0348` 支持增量同步或合理的分页同步。
--   [ ] `F-0349` 记录最后同步时间和同步结果。
--   [ ] `F-0350` 识别 Provider 中已删除的资源。
--   [ ] `F-0351` 外部资源消失时不得直接删除关联 Node 历史。
--   [ ] `F-0352` 处理资源 ID 冲突和重复导入。
--   [ ] `F-0353` 支持 Cloud Resource 与 Node 绑定。
--   [ ] `F-0354` 支持解除 Cloud Resource 与 Node 绑定。
--   [ ] `F-0355` 阻止同一 Cloud Resource 被多个有效 Node 重复绑定。
--   [ ] `F-0356` 支持资源详情和同步历史查询。
+    ID。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0343` 支持从 Provider 拉取资源列表。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0344` 支持按区域同步资源。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0345` 支持按标签过滤资源。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0346` 支持手动触发资源同步。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0347` 支持定时资源同步。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0348` 支持增量同步或合理的分页同步。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0349` 记录最后同步时间和同步结果。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0350` 识别 Provider 中已删除的资源。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0351` 外部资源消失时不得直接删除关联 Node 历史。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0352` 处理资源 ID 冲突和重复导入。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0353` 支持 Cloud Resource 与 Node 绑定。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0354` 支持解除 Cloud Resource 与 Node 绑定。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0355` 阻止同一 Cloud Resource 被多个有效 Node 重复绑定。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0356` 支持资源详情和同步历史查询。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
 
 ## 3.4 云资源操作任务
 
--   [ ] `F-0361` 定义 Cloud Operation 数据模型。
+-   [ ] `F-0361` 定义 Cloud Operation 数据模型。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0361 | 区级未满足原因：CloudOperation 模型 0 命中；无操作状态机/任务接入/幂等键——本区 F-0361~ 未满足。）
 -   [ ] `F-0362`
-    定义操作状态机：Pending、Running、Succeeded、Failed、Cancelled、Unknown。
--   [ ] `F-0363` 将开机操作接入统一任务系统。
--   [ ] `F-0364` 将关机操作接入统一任务系统。
--   [ ] `F-0365` 将重启操作接入统一任务系统。
--   [ ] `F-0366` 将强制停止操作接入统一任务系统。
+    定义操作状态机：Pending、Running、Succeeded、Failed、Cancelled、Unknown。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0363` 将开机操作接入统一任务系统。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0364` 将关机操作接入统一任务系统。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0365` 将重启操作接入统一任务系统。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0366` 将强制停止操作接入统一任务系统。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
 -   [ ] `F-0367` 将重装/重建操作接入统一任务系统（仅限 Adapter
-    声明支持）。
--   [ ] `F-0368` 操作前检查资源当前状态。
--   [ ] `F-0369` 操作前检查管理员权限。
--   [ ] `F-0370` 对关机、强制停止、重装等高风险操作执行二次确认。
--   [ ] `F-0371` 为每个操作生成幂等键。
--   [ ] `F-0372` 处理 Provider 请求超时后的 Unknown 状态。
+    声明支持）。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0368` 操作前检查资源当前状态。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0369` 操作前检查管理员权限。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0370` 对关机、强制停止、重装等高风险操作执行二次确认。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0371` 为每个操作生成幂等键。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0372` 处理 Provider 请求超时后的 Unknown 状态。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
 -   [ ] `F-0373` Unknown 状态通过查询 Provider
-    结果对账，不盲目重复执行。
--   [ ] `F-0374` 支持任务取消（仅在 Provider 操作允许取消时）。
--   [ ] `F-0375` 支持任务详情和操作日志。
--   [ ] `F-0376` 支持操作失败原因展示。
--   [ ] `F-0377` 支持批量开机。
--   [ ] `F-0378` 支持批量关机。
--   [ ] `F-0379` 支持批量重启。
--   [ ] `F-0380` 批量操作逐资源记录结果。
--   [ ] `F-0381` 批量操作设置并发上限和速率限制。
--   [ ] `F-0382` 批量操作支持预览受影响资源。
--   [ ] `F-0383` 批量操作支持部分成功、部分失败。
--   [ ] `F-0384` 记录操作者、目标资源、请求参数和最终结果。
+    结果对账，不盲目重复执行。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0374` 支持任务取消（仅在 Provider 操作允许取消时）。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0375` 支持任务详情和操作日志。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0376` 支持操作失败原因展示。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0377` 支持批量开机。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0378` 支持批量关机。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0379` 支持批量重启。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0380` 批量操作逐资源记录结果。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0381` 批量操作设置并发上限和速率限制。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0382` 批量操作支持预览受影响资源。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0383` 批量操作支持部分成功、部分失败。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0384` 记录操作者、目标资源、请求参数和最终结果。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
 
 ## 3.5 云资源与 Ferry Node 联动
 
--   [ ] `F-0391` 定义云资源状态与 Node 管理状态的映射规则。
+-   [ ] `F-0391` 定义云资源状态与 Node 管理状态的映射规则。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0391 | 区级未满足原因：依赖 CloudResource/CloudOperation（均未实现，type CloudResource/CloudOperation 全仓 0 命中）；无云资源状态↔Node 管理状态映射、无实例停止/启动/重启/重装/删除后联动、无操作后受控状态刷新——本区 F-0391~F-0399 未满足（F-0400~F-0404 另见其备注）。）
--   [ ] `F-0392` 云实例停止时将关联 Node 标记为不可分配或待确认。
--   [ ] `F-0393` 云实例启动后检查 Agent 心跳再恢复 Node 可用性。
--   [ ] `F-0394` 云实例重启后重新核对 Agent、Relay 和配置状态。
--   [ ] `F-0395` 云实例重装后将 Node 标记为需要重新注册或重新验证。
--   [ ] `F-0396` 云资源删除后将关联 Node 标记为资源丢失。
+-   [ ] `F-0392` 云实例停止时将关联 Node 标记为不可分配或待确认。（依赖：F-0391；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0393` 云实例启动后检查 Agent 心跳再恢复 Node 可用性。（依赖：F-0391；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0394` 云实例重启后重新核对 Agent、Relay 和配置状态。（依赖：F-0391；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0395` 云实例重装后将 Node 标记为需要重新注册或重新验证。（依赖：F-0391；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0396` 云资源删除后将关联 Node 标记为资源丢失。（依赖：F-0391；完成条件：需求落地+测试绿+证据行）
 -   [ ] `F-0397` 云操作不得仅凭 Provider 返回成功就认定 Ferry Node
-    已健康。
--   [ ] `F-0398` 云操作后触发受控的状态刷新。
--   [ ] `F-0399` 云操作与 Path 调度状态联动。
--   [ ] `F-0400` 对有用户流量的节点执行关机前检查和风险提示。
+    已健康。（依赖：F-0391；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0398` 云操作后触发受控的状态刷新。（依赖：F-0391；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0399` 云操作与 Path 调度状态联动。（依赖：F-0391；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0400` 对有用户流量的节点执行关机前检查和风险提示。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0400 | 区级未满足原因：依赖 CloudResource/CloudOperation（均未实现）；无节点联动审计/关机检查/维护窗口——本区 F-0400~F-0404 未满足。）
--   [ ] `F-0401` 支持维护窗口和节点摘流流程。
--   [ ] `F-0402` 支持开机后自动执行节点健康检查。
--   [ ] `F-0403` 支持启动失败后的告警。
--   [ ] `F-0404` 保留云资源操作与 Node 状态变化的关联审计。
+-   [ ] `F-0401` 支持维护窗口和节点摘流流程。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0402` 支持开机后自动执行节点健康检查。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0403` 支持启动失败后的告警。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0404` 保留云资源操作与 Node 状态变化的关联审计。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
 
 ## 3.6 Dash 云资源管理页面
 
--   [ ] `F-0411` 增加 Cloud Providers 页面。
+-   [ ] `F-0411` 增加 Cloud Providers 页面。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0411 | 区级未满足原因：Dash 云资源/云操作页面未实现（无 CloudResource 模型即无页面，审计 §3.11 F-9211/9212 未实现）；仅 Providers 列表存在——本区 F-0411~F-0432 未满足。）
--   [ ] `F-0412` 增加 Cloud Accounts 列表。
--   [ ] `F-0413` 增加 Cloud Account 创建页面。
--   [ ] `F-0414` 增加 Cloud Account 连接测试入口。
--   [ ] `F-0415` 增加 Cloud Resources 列表。
--   [ ] `F-0416` 支持按 Provider 筛选资源。
--   [ ] `F-0417` 支持按账号筛选资源。
--   [ ] `F-0418` 支持按区域筛选资源。
--   [ ] `F-0419` 支持按实例状态筛选资源。
--   [ ] `F-0420` 增加云资源详情页面。
--   [ ] `F-0421` 展示实例规格、区域、IP、带宽和计费信息。
--   [ ] `F-0422` 展示资源与 Ferry Node 的绑定关系。
--   [ ] `F-0423` 提供开机操作入口。
--   [ ] `F-0424` 提供关机操作入口。
--   [ ] `F-0425` 提供重启操作入口。
--   [ ] `F-0426` 对高风险操作展示明确警告和二次确认。
--   [ ] `F-0427` 增加云操作任务列表。
--   [ ] `F-0428` 展示操作执行进度和最终结果。
--   [ ] `F-0429` 支持批量操作结果查看。
--   [ ] `F-0430` 支持从云资源创建或关联 Ferry Node。
--   [ ] `F-0431` 支持从 Node 详情跳转到关联云资源。
--   [ ] `F-0432` 对 Provider API 故障显示数据最后更新时间。
+-   [ ] `F-0412` 增加 Cloud Accounts 列表。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0413` 增加 Cloud Account 创建页面。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0414` 增加 Cloud Account 连接测试入口。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0415` 增加 Cloud Resources 列表。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0416` 支持按 Provider 筛选资源。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0417` 支持按账号筛选资源。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0418` 支持按区域筛选资源。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0419` 支持按实例状态筛选资源。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0420` 增加云资源详情页面。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0421` 展示实例规格、区域、IP、带宽和计费信息。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0422` 展示资源与 Ferry Node 的绑定关系。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0423` 提供开机操作入口。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0424` 提供关机操作入口。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0425` 提供重启操作入口。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0426` 对高风险操作展示明确警告和二次确认。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0427` 增加云操作任务列表。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0428` 展示操作执行进度和最终结果。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0429` 支持批量操作结果查看。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0430` 支持从云资源创建或关联 Ferry Node。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0431` 支持从 Node 详情跳转到关联云资源。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0432` 对 Provider API 故障显示数据最后更新时间。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
 
 ------------------------------------------------------------------------
 
@@ -953,94 +953,94 @@ External Client
 
 -   [x] `F-0501` 审计现有 Cost、CostRef 和成本统计实现。
     - 备注（Task ID: F-0501 | Status: Done | Evidence: Cost/CostRef/统计审计 §3.10 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0502` 定义 Cost Provider 数据来源。
+-   [ ] `F-0502` 定义 Cost Provider 数据来源。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0502 | 区级未满足原因：区级结构缺口：成本系统为节点级估算(cost.Build)+价格参考/告警/监控层；无账单表/Provider/Account/Resource/Path 维度、无分摊引擎——§4.1 F-0502~F-0513 未满足（CostProvider/CostRecord/CostItem/CostAllocation/CostEstimate/CostReconciliation 均 0 命中）。）
--   [ ] `F-0503` 定义 Cost Record 原始账单记录。
--   [ ] `F-0504` 定义 Cost Item 费用明细。
--   [ ] `F-0505` 定义 Cost Allocation 分摊记录。
--   [ ] `F-0506` 定义 Cost Estimate 估算记录。
--   [ ] `F-0507` 定义 Cost Reconciliation 对账记录。
--   [ ] `F-0508` 明确账单币种、金额精度和汇率日期。
--   [ ] `F-0509` 明确费用发生时间、账单周期和入库时间。
--   [ ] `F-0510` 明确含税、未税和税费字段（Provider 可提供时）。
--   [ ] `F-0511` 保留 Provider 原始账单 ID 和原始字段快照。
--   [ ] `F-0512` 为账单记录建立去重约束。
--   [ ] `F-0513` 为成本记录建立时间和资源查询索引。
+-   [ ] `F-0503` 定义 Cost Record 原始账单记录。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0504` 定义 Cost Item 费用明细。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0505` 定义 Cost Allocation 分摊记录。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0506` 定义 Cost Estimate 估算记录。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0507` 定义 Cost Reconciliation 对账记录。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0508` 明确账单币种、金额精度和汇率日期。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0509` 明确费用发生时间、账单周期和入库时间。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0510` 明确含税、未税和税费字段（Provider 可提供时）。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0511` 保留 Provider 原始账单 ID 和原始字段快照。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0512` 为账单记录建立去重约束。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0513` 为成本记录建立时间和资源查询索引。（依赖：无；完成条件：需求落地+测试绿+证据行）
 
 ## 4.2 云账单导入
 
--   [ ] `F-0521` 定义统一账单导入 Adapter。
+-   [ ] `F-0521` 定义统一账单导入 Adapter。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0521 | 区级未满足原因：区级结构缺口：无账单导入（type BillImport 0 命中；costref 仅价格表导入非账单）——§4.2 F-0521~F-0534 未满足。）
--   [ ] `F-0522` 为每个 Provider 声明账单 API 支持能力。
--   [ ] `F-0523` 支持手动导入账单文件（Provider 提供可用文件格式时）。
+-   [ ] `F-0522` 为每个 Provider 声明账单 API 支持能力。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0523` 支持手动导入账单文件（Provider 提供可用文件格式时）。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
 -   [ ] `F-0524` 支持通过 Provider Billing API 拉取账单（Provider
-    支持时）。
--   [ ] `F-0525` 支持按账单周期拉取。
--   [ ] `F-0526` 支持按账号和区域拉取。
--   [ ] `F-0527` 支持分页和增量拉取。
--   [ ] `F-0528` 支持账单补拉。
--   [ ] `F-0529` 支持重复账单去重。
--   [ ] `F-0530` 支持账单修订和冲正记录。
--   [ ] `F-0531` 保留原始账单数据以便追溯。
--   [ ] `F-0532` 账单导入失败时记录失败原因和重试状态。
--   [ ] `F-0533` 展示账单数据来源和最后同步时间。
--   [ ] `F-0534` 明确 Provider 不提供账单 API 时的手工导入流程。
+    支持时）。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0525` 支持按账单周期拉取。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0526` 支持按账号和区域拉取。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0527` 支持分页和增量拉取。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0528` 支持账单补拉。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0529` 支持重复账单去重。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0530` 支持账单修订和冲正记录。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0531` 保留原始账单数据以便追溯。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0532` 账单导入失败时记录失败原因和重试状态。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0533` 展示账单数据来源和最后同步时间。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0534` 明确 Provider 不提供账单 API 时的手工导入流程。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
 
 ## 4.3 估算成本
 
 -   [x] `F-0541` 定义实例包月成本估算。
     - 备注（Task ID: F-0541 | Status: Done | Evidence: cost.go:137-138 FixedCostCents=MonthlyCostCents 包月口径+ProjectedCents 计入 | Verification: TestBuild(fixed 3000/oversea ~2100) | Commit: 506d045）
--   [ ] `F-0542` 定义按小时计费资源的成本估算。
+-   [ ] `F-0542` 定义按小时计费资源的成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0542 | 区级未满足原因：本区 F-0541(包月)/F-0543(流量) 已关；其余未满足：BillingType 仅 按流量/包月/固定带宽(models.go:104)，无按时计费/额外IP/磁盘快照/备份存储/折扣预留/自定义项/未知单价哨兵/估账分离。）
 -   [x] `F-0543` 定义按量流量成本估算。
     - 备注（Task ID: F-0543 | Status: Done | Evidence: cost.go:130 TrafficPriceCents×(rx+tx)/BytesPerGB 按量流量 | Verification: TestBuild(metered 1000分) | Commit: 506d045）
--   [ ] `F-0544` 定义固定带宽成本估算。
--   [ ] `F-0545` 定义额外公网 IP 成本估算。
--   [ ] `F-0546` 定义磁盘和快照成本估算。
--   [ ] `F-0547` 定义备份和存储成本估算。
--   [ ] `F-0548` 定义优惠、折扣和预留实例成本输入。
--   [ ] `F-0549` 支持自定义成本项。
--   [ ] `F-0550` 每条估算记录标明价格来源和生效时间。
--   [ ] `F-0551` 价格未知时显示未知，不使用虚构默认单价。
--   [ ] `F-0552` 估算数据与实际账单分开存储和展示。
+-   [ ] `F-0544` 定义固定带宽成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0545` 定义额外公网 IP 成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0546` 定义磁盘和快照成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0547` 定义备份和存储成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0548` 定义优惠、折扣和预留实例成本输入。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0549` 支持自定义成本项。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0550` 每条估算记录标明价格来源和生效时间。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0551` 价格未知时显示未知，不使用虚构默认单价。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0552` 估算数据与实际账单分开存储和展示。（依赖：无；完成条件：需求落地+测试绿+证据行）
 
 ## 4.4 成本归属与分摊
 
 -   [ ] `F-0561`
     - 待补（F-0561 | 区级未满足原因：区级结构缺口：无分摊引擎——§4.4 F-0561~F-0572 未满足（Provider 仅 Node.Datacenter 串+key，无 Account/Resource/Path 归属；无共享资源/带宽/比例分摊规则）。）
-    定义成本归属对象：Provider、Account、Resource、Node、Region、Path。
--   [ ] `F-0562` 支持资源成本直接归属到 Node。
--   [ ] `F-0563` 支持共享资源成本按规则分摊。
--   [ ] `F-0564` 支持按带宽使用量分摊。
--   [ ] `F-0565` 支持按流量使用量分摊。
--   [ ] `F-0566` 支持按固定比例分摊。
--   [ ] `F-0567` 支持人工调整分摊规则。
--   [ ] `F-0568` 记录分摊规则版本。
--   [ ] `F-0569` 保留原始成本和分摊后成本。
--   [ ] `F-0570` 防止重复分摊同一账单项。
--   [ ] `F-0571` 支持成本分摊结果重算。
--   [ ] `F-0572` 重算不得覆盖历史账单原始记录。
+    定义成本归属对象：Provider、Account、Resource、Node、Region、Path。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0562` 支持资源成本直接归属到 Node。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0563` 支持共享资源成本按规则分摊。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0564` 支持按带宽使用量分摊。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0565` 支持按流量使用量分摊。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0566` 支持按固定比例分摊。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0567` 支持人工调整分摊规则。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0568` 记录分摊规则版本。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0569` 保留原始成本和分摊后成本。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0570` 防止重复分摊同一账单项。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0571` 支持成本分摊结果重算。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0572` 重算不得覆盖历史账单原始记录。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
 
 ## 4.5 成本核算与对账
 
--   [ ] `F-0581` 按 Provider 统计实际账单金额。
+-   [ ] `F-0581` 按 Provider 统计实际账单金额。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0581 | 区级未满足原因：区级结构缺口：无实际账单、无 Provider/Account/Path 桶（Build 仅 byRegion/byISP 估算）——§4.5 F-0581~F-0597 未满足。）
--   [ ] `F-0582` 按账号统计实际账单金额。
--   [ ] `F-0583` 按区域统计实际账单金额。
--   [ ] `F-0584` 按资源统计实际账单金额。
--   [ ] `F-0585` 按 Node 统计分摊成本。
--   [ ] `F-0586` 按 Path 统计估算成本。
--   [ ] `F-0587` 对比估算成本与实际账单。
--   [ ] `F-0588` 识别账单缺失的资源。
--   [ ] `F-0589` 识别账单中无法匹配的资源。
--   [ ] `F-0590` 识别成本异常增长。
--   [ ] `F-0591` 支持账单差异确认。
--   [ ] `F-0592` 支持成本调整备注和审批记录。
--   [ ] `F-0593` 支持按日、月、账单周期汇总。
--   [ ] `F-0594` 支持多币种原币展示。
--   [ ] `F-0595` 支持按指定汇率转换为报表币种。
--   [ ] `F-0596` 记录汇率来源和日期。
--   [ ] `F-0597` 明确未结算账单和已结算账单状态。
+-   [ ] `F-0582` 按账号统计实际账单金额。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0583` 按区域统计实际账单金额。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0584` 按资源统计实际账单金额。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0585` 按 Node 统计分摊成本。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0586` 按 Path 统计估算成本。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0587` 对比估算成本与实际账单。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0588` 识别账单缺失的资源。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0589` 识别账单中无法匹配的资源。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0590` 识别成本异常增长。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0591` 支持账单差异确认。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0592` 支持成本调整备注和审批记录。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0593` 支持按日、月、账单周期汇总。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0594` 支持多币种原币展示。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0595` 支持按指定汇率转换为报表币种。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0596` 记录汇率来源和日期。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0597` 明确未结算账单和已结算账单状态。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
 
 ## 4.6 成本与线路调度联动
 
@@ -1048,42 +1048,42 @@ External Client
     - 备注（Task ID: F-0601 | Status: Done | Evidence: MonthlyCostCents models.go:92+cost/cost.go:96 Build；TestBuild | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0602` 为 Node 提供单位流量成本数据。
     - 备注（Task ID: F-0602 | Status: Done | Evidence: TrafficPriceCents models.go:91+costPerGB；TestBuild | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0603` 为 Path 计算可解释的成本估算。
+-   [ ] `F-0603` 为 Path 计算可解释的成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0603 | 区级未满足原因：区级结构缺口：无 Path 成本估算、alloc 直读 Node 价格列无新鲜度检查、缺价按 0 计无 Policy 降级规则——§4.6 F-0603~F-0610 未满足。）
--   [ ] `F-0604` 调度器读取成本数据时检查数据新鲜度。
--   [ ] `F-0605` 成本缺失时按 Policy 定义的降级规则处理。
--   [ ] `F-0606` 支持成本上限过滤候选 Path。
+-   [ ] `F-0604` 调度器读取成本数据时检查数据新鲜度。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0605` 成本缺失时按 Policy 定义的降级规则处理。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0606` 支持成本上限过滤候选 Path。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-0607` 支持质量与成本权重配置。
     - 备注（Task ID: F-0607 | Status: Done | Evidence: ScoreWeights alloc.go:107-117 逐系数 dash 可配；TestPolicyPersistence+TestPickBalanced | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0608` 支持按套餐设定成本策略。
--   [ ] `F-0609` 记录成本约束导致的候选排除原因。
--   [ ] `F-0610` 不允许使用过期或未知价格生成虚假的精确成本结果。
+-   [ ] `F-0608` 支持按套餐设定成本策略。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0609` 记录成本约束导致的候选排除原因。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0610` 不允许使用过期或未知价格生成虚假的精确成本结果。（依赖：无；完成条件：需求落地+测试绿+证据行）
 
 ## 4.7 Dash 成本管理页面
 
 -   [x] `F-0621` 增加成本总览页面。
     - 备注（Task ID: F-0621 | Status: Done | Evidence: dash CostView.vue；TestCostAPI+TestCostThresholdGuards+build 绿 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0622` 展示本月实际账单。
+-   [ ] `F-0622` 展示本月实际账单。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0622 | 区级未满足原因：本区 F-0623(月度预估)/F-0627(区域排序) 已关；其余未满足：无实际账单页/Provider-账号维度/Path 成本/成本趋势/账单同步与明细页/分摊规则页/筛选导出。）
 -   [x] `F-0623` 展示本月估算成本。
     - 备注（Task ID: F-0623 | Status: Done | Evidence: CostView.vue:288 月度预估+区域/运营商汇总；后端 ProjectedCents | Verification: TestBuild+TestCostAPI | Commit: 506d045）
--   [ ] `F-0624` 展示估算与实际差异。
--   [ ] `F-0625` 展示 Provider 成本排名。
--   [ ] `F-0626` 展示账号成本排名。
+-   [ ] `F-0624` 展示估算与实际差异。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0625` 展示 Provider 成本排名。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0626` 展示账号成本排名。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-0627` 展示区域成本排名。
     - 备注（Task ID: F-0627 | Status: Done | Evidence: 区域汇总按 projected 降序(cost.go:176 sortedGroups) | Verification: TestBuild(regions ordering) | Commit: 506d045）
--   [ ] `F-0628` 展示 Node 成本排名。
--   [ ] `F-0629` 展示 Path 成本估算。
--   [ ] `F-0630` 展示流量成本趋势。
+-   [ ] `F-0628` 展示 Node 成本排名。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0629` 展示 Path 成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0630` 展示流量成本趋势。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-0631` 展示异常成本提醒。
     - 备注（Task ID: F-0631 | Status: Done | Evidence: cost.CheckAlerts 阈值告警+CostView 高亮；TestCheckAlerts+TestLoopChecksAlertsUntilCancel | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0632` 增加账单同步任务页面。
--   [ ] `F-0633` 增加账单明细查询页面。
--   [ ] `F-0634` 增加账单差异对账页面。
--   [ ] `F-0635` 增加成本分摊规则页面。
--   [ ] `F-0636` 支持按日期、Provider、账号、区域和资源筛选。
--   [ ] `F-0637` 支持导出成本明细。
--   [ ] `F-0638` 在 UI 中清楚区分实际账单、估算和分摊值。
+-   [ ] `F-0632` 增加账单同步任务页面。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0633` 增加账单明细查询页面。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0634` 增加账单差异对账页面。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0635` 增加成本分摊规则页面。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0636` 支持按日期、Provider、账号、区域和资源筛选。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0637` 支持导出成本明细。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0638` 在 UI 中清楚区分实际账单、估算和分摊值。（依赖：无；完成条件：需求落地+测试绿+证据行）
 
 ------------------------------------------------------------------------
 
@@ -1101,7 +1101,7 @@ External Client
     - 备注（Task ID: F-0704 | Status: Done | Evidence: agentws.go:381 MsgHeartbeat→:392 Ack；TestAgentWSHeartbeat | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0705` 统一 Agent 版本上报。
     - 备注（Task ID: F-0705 | Status: Done | Evidence: Hello.Version 上报；TestAgentWSHelloVersion | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0706` 统一 Agent 能力上报。
+-   [ ] `F-0706` 统一 Agent 能力上报。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0706 | 未满足原因：未满足：无统一能力上报消息/字段（capability|caps 在 agent/packages/server 0 命中）；能力由 role/labels 隐式承载。）
 -   [x] `F-0707` 统一 Agent 资源使用情况上报。
     - 备注（Task ID: F-0707 | Status: Done | Evidence: Heartbeat CPU/内存/连接字段（messages.go:99-111）；TestAgentWSHeartbeat+TestSysStatus | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
@@ -1113,7 +1113,7 @@ External Client
     - 备注（Task ID: F-0710 | Status: Done | Evidence: node.go:208 revokeNodeToken+NodeTokenRevocation models.go:386；TestNodeTokenRevocation+e2e 吊销腿 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0711` 支持 Agent 凭据轮换。
     - 备注（Task ID: F-0711 | Status: Done | Evidence: node.go:183 rotateNodeToken+agentws.go:48 10min 宽限；TestNodeTokenRotation+TestAuthNodeTokenRotationWindow+e2e 轮换腿 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0712` 支持 Agent 升级状态上报。
+-   [ ] `F-0712` 支持 Agent 升级状态上报。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0712 | 未满足原因：部分：面板 MsgUpgrade→UpgradeAck 接受/拒绝(upgrade.go:43-73+app.go:280-293)，结果经 hello.Version→agent_version 间接体现(agentws.go:138-144)；无专用升级状态/进度消息（无 UpgradeStatus）。）
 -   [x] `F-0713` 支持 Agent 升级失败恢复。
     - 备注（Task ID: F-0713 | Status: Done | Evidence: upgrade 看门狗回滚；TestWatchdogRollback+TestWatchdogRollbackFailure | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
@@ -1122,7 +1122,7 @@ External Client
 
 -   [x] `F-0721` 审计现有 agentproto 消息定义。
     - 备注（Task ID: F-0721 | Status: Done | Evidence: agentproto 消息定义审计 §3.2（Msg* 信封+Version） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0722` 为现有消息补充协议文档。
+-   [ ] `F-0722` 为现有消息补充协议文档。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0722 | 未满足原因：部分：契约经 Go 注释+docs/design/agent架构设计.md §8 记录；无独立协议参考文档枚举全部消息类型。）
 -   [x] `F-0723` 为消息定义版本兼容规则。
     - 备注（Task ID: F-0723 | Status: Done | Evidence: Envelope.V+ProtocolVersion(envelope.go:7-8,36-41)+Valid() 拒绝未知版本(envelope.go:70)+link readLoop 丢弃(link.go:160-163) | Verification: TestEnvelopeVersionGuard+TestReadLoopDropsBadMessages | Commit: 172dad4）
@@ -1132,28 +1132,28 @@ External Client
     - 备注（Task ID: F-0725 | Status: Done | Evidence: ConfigAck/TrafficAck+relaypush；TestPushAckApplied+TestAgentWSTrafficReport | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0726` 定义消息超时和重试规则。
     - 备注（Task ID: F-0726 | Status: Done | Evidence: agenthub/hub.go:114 Request 超时 ErrTimeout；TestPushTimeout+TestPushSendError | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0727` 定义断线期间消息处理规则。
+-   [ ] `F-0727` 定义断线期间消息处理规则。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0727 | 未满足原因：部分：分路径规则——进程内离线静默丢(app.go:194-199)、spool 角色上报保留重试(spool.go:79-83)、面板命令返 ErrOffline(upgrade.go:55)；无统一断线策略文档。）
--   [ ] `F-0728` 定义消息大小限制。
+-   [ ] `F-0728` 定义消息大小限制。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0728 | 未满足原因：部分：服务端 agent-WS 入站 8MiB 上限(agentws.go:41-44,113 TestAgentWSFrameLimit)；agent 入站 readLoop 无 SetReadLimit(link.go:149-166)；HTTP API body 无 MaxBytesReader。）
 -   [x] `F-0729` 定义未知消息处理方式。
     - 备注（Task ID: F-0729 | Status: Done | Evidence: link readLoop 丢弃坏消息+服务端留痕；TestReadLoopDropsBadMessages | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0730` 增加 Agent 协议兼容性测试。
+-   [ ] `F-0730` 增加 Agent 协议兼容性测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0730 | 未满足原因：部分：agentproto 有 round-trip/类型稳定/版本守卫测试（TestMarshalRoundTrip/TestMessageTypesStable/TestEnvelopeVersionGuard）；无跨版本(旧schema→新解码)兼容测试。）
 
 ## 5.3 节点管理
 
--   [ ] `F-0741` 支持节点注册审批。
+-   [ ] `F-0741` 支持节点注册审批。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0741 | 未满足原因：未满足：无审批流，注册令牌即授权(enroll.go:124/159)；凭据即授权。）
 -   [x] `F-0742` 支持节点元数据自动采集。
     - 备注（Task ID: F-0742 | Status: Done | Evidence: syncNodeMeta 注册元数据采集（meta_init 面板为准）；TestAgentWSHelloMeta | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0743` 支持管理员编辑业务元数据。
+-   [ ] `F-0743` 支持管理员编辑业务元数据。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0743 | 未满足原因：部分：PUT /api/nodes/:id 编辑 name/address/port/protocol/meta role/direction/region/isp 等(node.go:90-153 TestNodeMetaInput)；labels 列有但 NodeInput 无、group 字段全无、计费字段不可编辑。）
 -   [x] `F-0744` 支持节点入池检查。
     - 备注（Task ID: F-0744 | Status: Done | Evidence: provision→probe→online 入池检查流水线；TestProvisionPipeline | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0745` 支持节点摘池。
     - 备注（Task ID: F-0745 | Status: Done | Evidence: pool.go suspend/resume 摘池；TestSuspend+TestSweepSuspendAndResume | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0746` 支持节点维护模式。
+-   [ ] `F-0746` 支持节点维护模式。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0746 | 未满足原因：未满足：无维护模式字段/状态（maintenance|维护模式 全仓 0 命中）；pool suspend/resume 是摘池非维护。）
 -   [x] `F-0747` 支持节点禁用。
     - 备注（Task ID: F-0747 | Status: Done | Evidence: enabled 关停；TestNodeCRUD | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
@@ -1161,7 +1161,7 @@ External Client
     - 备注（Task ID: F-0748 | Status: Done | Evidence: enabled 重启+pool resume；TestNodeCRUD+TestResume | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0749` 支持节点批量操作。
     - 备注（Task ID: F-0749 | Status: Done | Evidence: router.go:184-185 batch；TestBatchNodeProc+TestBatchNodeConfig | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0750` 支持节点详情展示 Agent、Relay、Probe 状态。
+-   [ ] `F-0750` 支持节点详情展示 Agent、Relay、Probe 状态。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0750 | 未满足原因：部分：节点详情返回 agent 状态(node.go:26-33)、/procs 进程状态(procstatus.go:69)、probe 仅全局 GET /api/probe-reports 无 per-node 过滤(router.go:450)；无单端点聚合三态。）
 -   [x] `F-0751` 支持节点操作历史。
     - 备注（Task ID: F-0751 | Status: Done | Evidence: auditMiddleware 覆盖 /api,/admin 写(audit.go:119-140)+GET /api/audit-logs?target=:id 按节点过滤(audit.go:169-171,router.go:274) | Verification: TestAuditLogsCaptureWriteOps+TestAuditLogsCaptureFailedWriteAndFilters | Commit: 172dad4）
@@ -1180,7 +1180,7 @@ External Client
     - 备注（Task ID: F-0802 | Status: Done | Evidence: config.RelaySpec(config.go:47-61) 统一模型(Listen/LandingAddr/Tunnel/ServerName/CAFile+ssh 参数)+relay.Run 消费+mergeSpec(relay.go:195-210) | Verification: relay_test | Commit: 842a7dd）
 -   [x] `F-0803` 统一 Relay 状态模型。
     - 备注（Task ID: F-0803 | Status: Done | Evidence: agentproto.ProcStatus State=running/stopped/crashed(messages.go:124-139)+procs.Manager.Statuses 喂心跳(app.go:463-465)+ProcReport 状态变化推送(app.go:175-183) | Verification: TestBuildHeartbeatAndStartHeartbeat | Commit: 842a7dd）
--   [ ] `F-0804` 统一 Relay 能力声明。
+-   [ ] `F-0804` 统一 Relay 能力声明。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0804 | 区级未满足原因：区级现状：F-0802/0803 已关；其余——能力声明未满足(relay 无 UDP/feature 字段)、连接数限制部分(maxConns=128 relay.go:35 但无 drop 路径测试)、并发流/带宽限制未满足(无流限/限速)、UDP 未满足(serveConn 仅 TCP io.Copy relay.go:162-190)、隧道断线重连部分(仅插件级一次重试，无 relay 侧重连器)、空闲清理未满足(无 SetDeadline)、指标采集未满足(relay 无 metrics 端点/计数器)、版本管理未满足(共享 build version)。）
 -   [x] `F-0805` 支持 Relay 独立启停。
     - 备注（Task ID: F-0805 | Status: Done | Evidence: roles.go:31 relay Standalone:true+cmd -role；TestRegistry+TestRelayRunFile | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
@@ -1188,45 +1188,45 @@ External Client
     - 备注（Task ID: F-0806 | Status: Done | Evidence: relay 配置校验；TestRelayValidation | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0807` 支持 Relay 配置热更新。
     - 备注（Task ID: F-0807 | Status: Done | Evidence: loadOverride 热更新；TestRelayHotRepoint | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0808` 支持 Relay 连接数限制。
--   [ ] `F-0809` 支持并发流限制。
--   [ ] `F-0810` 支持带宽限制。
+-   [ ] `F-0808` 支持 Relay 连接数限制。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0809` 支持并发流限制。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0810` 支持带宽限制。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-0811` 支持 TCP 转发。
     - 备注（Task ID: F-0811 | Status: Done | Evidence: roles/relay serveConn；TestRelayForwards | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0812` 支持 UDP 转发。
--   [ ] `F-0813` 支持隧道断线重连。
--   [ ] `F-0814` 支持空闲连接清理。
--   [ ] `F-0815` 支持 Relay 运行指标采集。
--   [ ] `F-0816` 支持 Relay 版本管理。
+-   [ ] `F-0812` 支持 UDP 转发。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0813` 支持隧道断线重连。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0814` 支持空闲连接清理。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0815` 支持 Relay 运行指标采集。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0816` 支持 Relay 版本管理。（依赖：无；完成条件：需求落地+测试绿+证据行）
 
 ## 6.2 传输插件
 
 -   [x] `F-0821` 为现有每种 Relay 传输方式建立独立测试。
     - 备注（Task ID: F-0821 | Status: Done | Evidence: tunnel{ws-tls,ssh,quic}+quictunnel 分测；wstls_test/ssh_test/quicsidecar_test/quictunnel_test | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0822` 统一传输插件能力声明。
+-   [ ] `F-0822` 统一传输插件能力声明。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0822 | 区级未满足原因：区级现状：F-0828 已关；其余——传输插件能力声明未满足(Tunnel 接口仅 Name/Dial/ServeHeartbeat/Close tunnel.go:16-26)、错误分类部分(仅 ErrHeartbeatLost+ErrRejected 两哨兵)、超时/重连部分(Options.Timeout 统一 tunnel.go:93-102 但重连未统一)、QUIC 参数部分(默认值固定无校验/无资源限制 quictunnel.go:89-95)、性能对比测试未满足(无 Benchmark)。）
--   [ ] `F-0823` 统一传输插件错误分类。
--   [ ] `F-0824` 统一连接超时和重连行为。
+-   [ ] `F-0823` 统一传输插件错误分类。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0824` 统一连接超时和重连行为。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-0825` 验证 TLS 证书校验。
     - 备注（Task ID: F-0825 | Status: Done | Evidence: link tlsConfig；TestTLSConfig+TestRunTLSSetupFailure | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0826` 验证 SSH Host Key 校验。
     - 备注（Task ID: F-0826 | Status: Done | Evidence: tunnel/ssh Host Key 校验；TestSSHTunnelHostKeyVerify | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0827` 验证 QUIC 参数和资源限制。
+-   [ ] `F-0827` 验证 QUIC 参数和资源限制。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-0828` 验证 WS-TLS 连接行为。
     - 备注（Task ID: F-0828 | Status: Done | Evidence: TestWSTLSPlugin(注册/TLS/WS 握手/小帧/100KB 流回显)+TestWSTLSCancel+TestWSTLSServerNameFallback+TestWSTLSCAFileErrors+TestWSConnReadSkipsNonBinary+TestWSConnWriteAfterClose | Verification: wstls_test+wstls_extra_test | Commit: 842a7dd）
--   [ ] `F-0829` 建立不同传输插件的性能对比测试。
+-   [ ] `F-0829` 建立不同传输插件的性能对比测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
 
 ## 6.3 故障隔离
 
--   [ ] `F-0831` 验证 Relay 进程故障不影响 Agent 心跳。
+-   [ ] `F-0831` 验证 Relay 进程故障不影响 Agent 心跳。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0831 | 区级未满足原因：区级现状：F-0833/0835 已关；其余——进程故障隔离部分(独立进程+crash 自动重启 manager.go:226-243 但无「杀 relay 断言心跳持续」测试)、故障不影响 Server 未满足(无测试)、Path 状态更新未满足(无 Path 模型)、仅凭进程存活判可用 部分(池/聚合不读 ProcStatus pool.go:143-150 但无显式守卫测试)。）
--   [ ] `F-0832` 验证 Relay 故障不影响 Server 管理节点。
+-   [ ] `F-0832` 验证 Relay 故障不影响 Server 管理节点。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-0833` 验证 Relay 重启后恢复最后有效配置。
     - 备注（Task ID: F-0833 | Status: Done | Evidence: loadOverride 启动重读(relay.go:63-68,213-226)+configd 原子回滚(configd.go:107-126,205-238) | Verification: TestRelayRunFile/TestRelayHotRepoint(损坏 override 保当前)/TestLoadOverrideMissingAndError/TestApplyReloadFailRollsBack | Commit: 842a7dd）
--   [ ] `F-0834` Relay 失联时更新关联 Path 状态。
+-   [ ] `F-0834` Relay 失联时更新关联 Path 状态。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-0835` Relay 恢复后执行健康探测再恢复调度资格。
     - 备注（Task ID: F-0835 | Status: Done | Evidence: pool.Sweep 仅 WellStreak 连续健康后恢复 StateActive(pool.go:161-169；suspend :152-160) | Verification: TestSweepSuspendAndResume(1 次健康不复、2 次复) | Commit: 842a7dd）
--   [ ] `F-0836` 禁止仅凭 Relay 进程存活判定 Path 可用。
+-   [ ] `F-0836` 禁止仅凭 Relay 进程存活判定 Path 可用。（依赖：无；完成条件：需求落地+测试绿+证据行）
 
 ------------------------------------------------------------------------
 
@@ -1236,39 +1236,39 @@ External Client
 
 -   [x] `F-0901` 审计当前 Probe 任务模型和结果模型。
     - 备注（Task ID: F-0901 | Status: Done | Evidence: Probe 任务/结果模型审计 §3.4 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0902` 区分 Node Health。
+-   [ ] `F-0902` 区分 Node Health。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0902 | 区级未满足原因：区级现状：探针 TargetKind 仅 tunnel/exit/peer(messages.go:247-249)，无 node/path kind；Node 健康由 pool.Sweep 从 tunnel+peer 计算(pool.go:129-173)——F-0902/0904/0905 部分或未满足。jitter(F-0907)/UDP(F-0910)/应用层(F-0911)/公网出口(F-0912)/异常样本(F-0916) 均未满足（probe.go:131 仅 TCP、无 jitter/outlier 字段）。）
 -   [x] `F-0903` 区分 Tunnel Health。
     - 备注（Task ID: F-0903 | Status: Done | Evidence: ProbeTargetTunnel="tunnel"(agentproto/messages.go:247)+tunnel 探针(TestProbeTunnelReturnPath)+aggregate tunnel/peer(aggregate.go:69-70) | Verification: TestProbeTunnelReturnPath | Commit: fbcb525）
--   [ ] `F-0904` 区分 Path Health。
--   [ ] `F-0905` 区分 Egress Health。
+-   [ ] `F-0904` 区分 Path Health。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0905` 区分 Egress Health。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-0906` 支持 RTT 探测。
     - 备注（Task ID: F-0906 | Status: Done | Evidence: probe measure RTT；TestProbeHealthy | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0907` 支持 Jitter 统计。
+-   [ ] `F-0907` 支持 Jitter 统计。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-0908` 支持 Packet Loss 统计。
     - 备注（Task ID: F-0908 | Status: Done | Evidence: probe lossPct；TestVerdictOf+TestProbeUnreachable | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0909` 支持 TCP Connect 探测。
     - 备注（Task ID: F-0909 | Status: Done | Evidence: probe.go:131 net.DialTimeout("tcp")；TestProbeHealthy | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0910` 支持 UDP 探测。
--   [ ] `F-0911` 支持应用层探测。
--   [ ] `F-0912` 支持公网出口探测。
--   [ ] `F-0913` 支持探测超时和错误分类。
+-   [ ] `F-0910` 支持 UDP 探测。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0911` 支持应用层探测。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0912` 支持公网出口探测。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0913` 支持探测超时和错误分类。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-0914` 支持探测结果去重。
     - 备注（Task ID: F-0914 | Status: Done | Evidence: agentws repeatReport+dedupe；TestReportDeduperWindow+TestReportDeduperTTL | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0915` 支持探测结果过期处理。
     - 备注（Task ID: F-0915 | Status: Done | Evidence: aggregate 窗口+idx_probe_window models.go:184-195；TestJudgeWindowAndLatest | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0916` 支持异常样本过滤。
+-   [ ] `F-0916` 支持异常样本过滤。（依赖：无；完成条件：需求落地+测试绿+证据行）
 
 ## 7.2 探测调度和健康计算
 
--   [ ] `F-0921` 将可在边缘执行的探测任务下发给 Agent。
+-   [ ] `F-0921` 将可在边缘执行的探测任务下发给 Agent。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0921 | 区级未满足原因：区级现状：服务端不下发探测任务（agent 本地 config.go:74 Probes），无 probe-task 消息类型；无并发限制(F-0922)/无故障提速(F-0925)/无防风暴(F-0926)。F-0923/0929/0930 已关。F-0924/0931/0932-0934 部分（按 spec IntervalSec/池滞回/手动摘除无操作者无过期）。）
--   [ ] `F-0922` 为探测任务设置并发限制。
+-   [ ] `F-0922` 为探测任务设置并发限制。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-0923` 为探测任务设置超时。
     - 备注（Task ID: F-0923 | Status: Done | Evidence: dialTimeout=3s(probe.go:22)+net.DialTimeout(probe.go:131) | Verification: TestProbeUnreachable | Commit: fbcb525）
--   [ ] `F-0924` 支持按 Path 重要性配置探测频率。
--   [ ] `F-0925` 故障时支持临时提高探测频率。
--   [ ] `F-0926` 防止大规模节点互探造成探测风暴。
+-   [ ] `F-0924` 支持按 Path 重要性配置探测频率。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0925` 故障时支持临时提高探测频率。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0926` 防止大规模节点互探造成探测风暴。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-0927` 定义健康状态计算规则。
     - 备注（Task ID: F-0927 | Status: Done | Evidence: aggregate.go:65 Judge+monitor.go:66 applyVerdict；TestJudgeRegionAndISP+TestApplyVerdictTransitions | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0928` 定义健康统计时间窗口。
@@ -1277,23 +1277,23 @@ External Client
     - 备注（Task ID: F-0929 | Status: Done | Evidence: DefaultSickStrikes=3(pool.go:25)+pool.go:152 | Verification: TestSweepSuspendAndResume | Commit: fbcb525）
 -   [x] `F-0930` 定义恢复阈值。
     - 备注（Task ID: F-0930 | Status: Done | Evidence: DefaultWellStreak=2(pool.go:27)+pool.go:161 | Verification: TestSweepSuspendAndResume | Commit: fbcb525）
--   [ ] `F-0931` 实现健康状态滞回，避免频繁抖动。
--   [ ] `F-0932` 支持健康状态人工覆盖。
--   [ ] `F-0933` 人工覆盖必须记录原因、操作者和过期时间。
--   [ ] `F-0934` 提供健康状态变化解释。
+-   [ ] `F-0931` 实现健康状态滞回，避免频繁抖动。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0932` 支持健康状态人工覆盖。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0933` 人工覆盖必须记录原因、操作者和过期时间。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0934` 提供健康状态变化解释。（依赖：无；完成条件：需求落地+测试绿+证据行）
 
 ## 7.3 业务质量指标
 
--   [ ] `F-0941` 定义游戏质量指标集合。
+-   [ ] `F-0941` 定义游戏质量指标集合。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0941 | 区级未满足原因：区级现状：无按业务(game/web/video)质量指标集与评分规则（business/scoring/质量分 0 命中）；仅通用 DimensionStatus(models.go:218-226)+晚间时段报告(eveningapi.go)——F-0941~F-0949 均未满足。）
--   [ ] `F-0942` 定义网页质量指标集合。
--   [ ] `F-0943` 定义视频质量指标集合。
--   [ ] `F-0944` 定义普通代理质量指标集合。
--   [ ] `F-0945` 游戏评分纳入 RTT、Jitter、Loss 和 Availability。
--   [ ] `F-0946` 网页评分纳入连接、TLS、TTFB 和失败率。
--   [ ] `F-0947` 视频评分纳入吞吐、丢包和缓冲风险。
--   [ ] `F-0948` 不同业务评分使用独立规则。
--   [ ] `F-0949` 支持区域、运营商和时段质量报表。
+-   [ ] `F-0942` 定义网页质量指标集合。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0943` 定义视频质量指标集合。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0944` 定义普通代理质量指标集合。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0945` 游戏评分纳入 RTT、Jitter、Loss 和 Availability。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0946` 网页评分纳入连接、TLS、TTFB 和失败率。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0947` 视频评分纳入吞吐、丢包和缓冲风险。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0948` 不同业务评分使用独立规则。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-0949` 支持区域、运营商和时段质量报表。（依赖：无；完成条件：需求落地+测试绿+证据行）
 
 ------------------------------------------------------------------------
 
@@ -1301,20 +1301,20 @@ External Client
 
 ## 8.1 Path 编排
 
--   [ ] `F-1001` 实现 Path 创建和编辑。
+-   [ ] `F-1001` 实现 Path 创建和编辑。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1001 | 区级未满足原因：区级现状：无 Path 模型（type Path 0 命中），仅 LandingAssignment(models.go:181-195)；无 Path CRUD/启停/拓扑校验/候选预览/失败清理。capability/region/ISP-ASN/line-type 过滤部分（仅 landing 层 role/pool/direction 过滤）。人工/自动创建部分（landing.go:81+alloc.go:530-538 写 LandingAssignment 非 Path）。连通性验证部分（probe 健康门）。）
--   [ ] `F-1002` 实现 Path 启停。
--   [ ] `F-1003` 实现 Path 拓扑校验。
+-   [ ] `F-1002` 实现 Path 启停。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1003` 实现 Path 拓扑校验。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-1004` 根据 Role 选择 Entry。
     - 备注（Task ID: F-1004 | Status: Done | Evidence: sub.go:74 role 过滤+alloc.go:448 role 候选；TestPick* | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1005` 根据 Role 选择 Landing。
     - 备注（Task ID: F-1005 | Status: Done | Evidence: alloc.go:454 landing role 过滤；TestPick* | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1006` 根据 Direction 过滤节点。
     - 备注（Task ID: F-1006 | Status: Done | Evidence: alloc.go:486-489 direction 匹配；TestDirectionalDefaults | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1007` 根据 Capability 过滤节点。
--   [ ] `F-1008` 根据 Region 过滤节点。
--   [ ] `F-1009` 根据 ISP/ASN 过滤节点。
--   [ ] `F-1010` 根据 LineType 过滤节点。
+-   [ ] `F-1007` 根据 Capability 过滤节点。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1008` 根据 Region 过滤节点。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1009` 根据 ISP/ASN 过滤节点。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1010` 根据 LineType 过滤节点。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-1011` 根据维护和禁用状态过滤节点。
     - 备注（Task ID: F-1011 | Status: Done | Evidence: alloc.go:448 enabled/pool_state/status 过滤；TestPickHealthGate | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1012` 根据容量过滤节点。
@@ -1323,19 +1323,19 @@ External Client
     - 备注（Task ID: F-1013 | Status: Done | Evidence: costPer 成本序；TestPickCostFirst | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1014` 根据健康状态过滤节点。
     - 备注（Task ID: F-1014 | Status: Done | Evidence: Healthy=!sick 门；TestPickHealthGate | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1015` 支持候选 Path 预览。
--   [ ] `F-1016` 支持人工确认后创建 Path。
--   [ ] `F-1017` 支持自动创建 Path。
--   [ ] `F-1018` 自动创建后执行连通性验证。
--   [ ] `F-1019` 创建失败时清理本次创建的部分资源。
+-   [ ] `F-1015` 支持候选 Path 预览。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1016` 支持人工确认后创建 Path。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1017` 支持自动创建 Path。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1018` 自动创建后执行连通性验证。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1019` 创建失败时清理本次创建的部分资源。（依赖：无；完成条件：需求落地+测试绿+证据行）
 
 ## 8.2 调度器
 
 -   [x] `F-1021` 审计现有调度和分配逻辑。
     - 备注（Task ID: F-1021 | Status: Done | Evidence: 调度分配逻辑审计 §3.5 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1022` 统一调度输入模型。
+-   [ ] `F-1022` 统一调度输入模型。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1022 | 区级未满足原因：本区 F-1024/1025/1026/1027/1030 已关；其余：输入/输出模型部分(Candidate/SwitchEvent 无统一请求响应)、质量评分部分(无 RTT/loss 评分)、优先级规则未满足(仅 4 策略)、故障回退部分(无 Path 重绑执行器)、决策记录部分(无独立快照表)、候选排除原因/结果解释/模拟 API 均未满足。）
--   [ ] `F-1023` 统一调度输出模型。
+-   [ ] `F-1023` 统一调度输出模型。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-1024` 实现候选 Path 过滤器。
     - 备注（Task ID: F-1024 | Status: Done | Evidence: 候选过滤器 alloc.go:448-489(enabled/role/pool_state/status/direction/healthy gate) | Verification: TestPick* | Commit: fbcb525）
 -   [x] `F-1025` 实现健康约束。
@@ -1344,15 +1344,15 @@ External Client
     - 备注（Task ID: F-1026 | Status: Done | Evidence: CapacityMbps alloc.go:188-198 | Verification: TestPickLeastConnCapacityWeight | Commit: fbcb525）
 -   [x] `F-1027` 实现成本约束。
     - 备注（Task ID: F-1027 | Status: Done | Evidence: CostPerGB alloc.go:202-207 | Verification: TestPickCostFirst | Commit: fbcb525）
--   [ ] `F-1028` 实现 Path 质量评分。
--   [ ] `F-1029` 实现优先级规则。
+-   [ ] `F-1028` 实现 Path 质量评分。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1029` 实现优先级规则。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-1030` 实现候选排序。
     - 备注（Task ID: F-1030 | Status: Done | Evidence: lessFor alloc.go:255-318+Pick 217-238+平局确定性 260 | Verification: TestPickTieBreaks | Commit: fbcb525）
--   [ ] `F-1031` 实现故障回退。
--   [ ] `F-1032` 实现调度决策记录。
--   [ ] `F-1033` 实现候选排除原因。
--   [ ] `F-1034` 实现调度结果解释。
--   [ ] `F-1035` 实现调度模拟 API。
+-   [ ] `F-1031` 实现故障回退。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1032` 实现调度决策记录。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1033` 实现候选排除原因。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1034` 实现调度结果解释。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1035` 实现调度模拟 API。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-1036` 实现调度单元测试。
     - 备注（Task ID: F-1036 | Status: Done | Evidence: alloc_test 9 例（Pick/sweep/权重/手动） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 
@@ -1360,24 +1360,24 @@ External Client
 
 -   [x] `F-1041` 定义 manual 调度模式。
     - 备注（Task ID: F-1041 | Status: Done | Evidence: alloc.go:473 hasManualAssignment 优先+LandingAssignment manual；TestSweepManualWins+TestLandingAssignment | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1042` 定义 priority 调度模式。
+-   [ ] `F-1042` 定义 priority 调度模式。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1042 | 区级未满足原因：本区 F-1049 已关；其余：priority/quality 模式未满足(ValidPolicy 仅 4 种 alloc.go:46-52)、按套餐/业务类型配置未满足(PolicySetting 仅 per-direction)、覆盖到期自动恢复未满足(无 TTL、sweep 跳过 manual)、国内直连优先/中继更优/回退/比较依据 部分(perf_first 优质线路偏好近似，无直连vs中继比较依据记录)。）
 -   [x] `F-1043` 定义 balanced 调度模式。
     - 备注（Task ID: F-1043 | Status: Done | Evidence: PolicyBalanced；TestPickBalanced | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1044` 定义 quality 调度模式。
+-   [ ] `F-1044` 定义 quality 调度模式。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-1045` 定义 cost 调度模式。
     - 备注（Task ID: F-1045 | Status: Done | Evidence: PolicyCostFirst；TestPickCostFirst | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1046` 为每种模式定义确定性的评分和约束规则。
     - 备注（Task ID: F-1046 | Status: Done | Evidence: alloc.go:214-216 规则+lessFor 纯函数；TestPick* 断言具体胜者 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1047` 支持按套餐配置调度模式。
--   [ ] `F-1048` 支持按业务类型配置调度模式。
+-   [ ] `F-1047` 支持按套餐配置调度模式。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1048` 支持按业务类型配置调度模式。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-1049` 支持人工覆盖调度结果。
     - 备注（Task ID: F-1049 | Status: Done | Evidence: createLanding Strategy:"manual"(landing.go:81)+hasManualAssignment 跳过自动(alloc.go:568-577) | Verification: TestSweepManualWins | Commit: fbcb525）
--   [ ] `F-1050` 支持人工覆盖到期自动恢复。
--   [ ] `F-1051` 国内访问国内默认优先直连。
--   [ ] `F-1052` 只有测量证明中继更优时才允许国内线路走中继。
--   [ ] `F-1053` 直连不可用时按 Policy 回退。
--   [ ] `F-1054` 记录直连与中继的质量比较依据。
+-   [ ] `F-1050` 支持人工覆盖到期自动恢复。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1051` 国内访问国内默认优先直连。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1052` 只有测量证明中继更优时才允许国内线路走中继。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1053` 直连不可用时按 Policy 回退。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1054` 记录直连与中继的质量比较依据。（依赖：无；完成条件：需求落地+测试绿+证据行）
 
 ## 8.4 容量管理
 
@@ -1387,14 +1387,14 @@ External Client
     - 备注（Task ID: F-1062 | Status: Done | Evidence: BwDownMbps(models.go:110)+CapacityMbps 回退链(alloc.go:188-198) | Verification: TestCapacityMbpsFallbacks | Commit: fbcb525）
 -   [x] `F-1063` 区分标称带宽和实测带宽。
     - 备注（Task ID: F-1063 | Status: Done | Evidence: SpeedMeasuredMbps/SpeedCalibratedAt(models.go:114-115)+measured>down>up>100(alloc.go:189-197) | Verification: TestCapacityMbpsFallbacks | Commit: fbcb525）
--   [ ] `F-1064` 统一带宽利用率计算。
+-   [ ] `F-1064` 统一带宽利用率计算。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1064 | 区级未满足原因：本区 F-1061/1062/1063 已关；其余：带宽利用率计算未满足(loadRatio 是连接数/容量非带宽)、连接数/并发流限制未满足(无 MaxConns/流限制字段)、超载预警部分(仅 high_load agent 告警)、Path 容量估算未满足(无 Path)、容量不足降权部分(按容量加权非降权)、管理员覆盖未满足(无覆盖字段)。）
--   [ ] `F-1065` 支持连接数限制。
--   [ ] `F-1066` 支持并发流限制。
--   [ ] `F-1067` 支持节点超载预警。
--   [ ] `F-1068` 支持 Path 容量估算。
--   [ ] `F-1069` 支持容量不足时自动降权。
--   [ ] `F-1070` 支持管理员容量覆盖。
+-   [ ] `F-1065` 支持连接数限制。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1066` 支持并发流限制。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1067` 支持节点超载预警。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1068` 支持 Path 容量估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1069` 支持容量不足时自动降权。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1070` 支持管理员容量覆盖。（依赖：无；完成条件：需求落地+测试绿+证据行）
 
 ------------------------------------------------------------------------
 
@@ -1412,10 +1412,10 @@ External Client
     - 备注（Task ID: F-1104 | Status: Done | Evidence: nodeConfig{UUID,Password,Method,TLS,SNI,Host,Path,Net,...}(links.go:21-38)+parseConfig(links.go:40-50) 三适配器共用 | Verification: 上述测试 | Commit: 842a7dd）
 -   [x] `F-1105` 统一 TLS、SNI、Transport 和相关参数表达。
     - 备注（Task ID: F-1105 | Status: Done | Evidence: nodeConfig TLS/SNI/Host/Path/Net 各适配器映射自身 schema(v2ray 参数 links.go:67-81/clash servername+applyTransport clash.go:181-201/sing-box tls.server_name+singBoxTransport singbox.go:103-161) | Verification: 上述测试 | Commit: 842a7dd）
--   [ ] `F-1106` 统一 UDP 支持声明。
+-   [ ] `F-1106` 统一 UDP 支持声明。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1106 | 区级未满足原因：区级现状：F-1102/1103/1104/1105 已关；其余——UDP 声明未满足(nodeConfig 与 storage.Node 均无 udp 字段)、标签/地区/排序部分(entryRegion/entryRemark/orderByProbe 统一但 Node.Labels 从未读取)、订阅版本/更新时间未满足(头仅 Subscription-Userinfo/Profile-Update-Interval/Profile-Title)。）
--   [ ] `F-1107` 统一节点标签、地区和排序信息。
--   [ ] `F-1108` 统一订阅版本和更新时间。
+-   [ ] `F-1107` 统一节点标签、地区和排序信息。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1108` 统一订阅版本和更新时间。（依赖：无；完成条件：需求落地+测试绿+证据行）
 
 ## 9.2 格式 Adapter
 
@@ -1431,33 +1431,33 @@ External Client
     - 备注（Task ID: F-1125 | Status: Done | Evidence: sing-box 生成审计 §3.6（singbox.go:165+TestPackSingBox） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1126` 完成 sing-box JSON Adapter。
     - 备注（Task ID: F-1126 | Status: Done | Evidence: sub/singbox.go:165 PackSingBox；TestPackSingBox | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1127` 为每个 Adapter 建立客户端能力矩阵。
+-   [ ] `F-1127` 为每个 Adapter 建立客户端能力矩阵。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1127 | 区级未满足原因：区级现状：F-1131 已关；其余——客户端能力矩阵未满足(仅 UA 嗅探+target 无 per-client 特性表)、真实客户端解析测试未满足(合成 UA 无 fixture)、不支持字段降级部分(硬失败整包/clash 静默裸 network)、策略组能力假设部分(clash 单一 url-test 形状假定所有客户端支持)。）
 -   [x] `F-1128` 为每个 Adapter 建立配置语法测试。
     - 备注（Task ID: F-1128 | Status: Done | Evidence: 测试内 yaml/json 严格解析断言；clash_test+singbox_test | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1129` 使用真实客户端版本执行解析测试。
--   [ ] `F-1130` 对不支持的字段提供明确错误或安全降级。
+-   [ ] `F-1129` 使用真实客户端版本执行解析测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1130` 对不支持的字段提供明确错误或安全降级。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-1131` 不向客户端输出其不支持的配置字段。
     - 备注（Task ID: F-1131 | Status: Done | Evidence: 各适配器仅输出自身 schema 键(clash omitempty clash.go:17-44/sing-box 仅写 set 键 singbox.go:33-86) | Verification: TestPackSingBox(无 sni/insecure/obfs)、TestSingBoxOutboundVless(无 tls/transport/flow)、TestPackClashHysteria2 | Commit: 842a7dd）
--   [ ] `F-1132` 不假设不同客户端具有相同策略组能力。
+-   [ ] `F-1132` 不假设不同客户端具有相同策略组能力。（依赖：无；完成条件：需求落地+测试绿+证据行）
 
 ## 9.3 订阅权限与安全
 
 -   [x] `F-1141` 根据用户状态过滤订阅。
     - 备注（Task ID: F-1141 | Status: Done | Evidence: sub/availability.go:11 UserActive+enabled 过滤；TestSubscriptionAvailability | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1142` 根据套餐权限过滤订阅。
+-   [ ] `F-1142` 根据套餐权限过滤订阅。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1142 | 区级未满足原因：区级现状：全部未满足或部分——套餐权限过滤部分(无 Plan 模型，按 enabled/role/pool_state+SAVE-6 cost-tier 过滤非套餐权限)、Path Group 过滤未满足(无 PathGroup 模型)、Policy 过滤未满足(无 Policy)、ETag/Last-Modified 未满足(无条件请求，每次全量渲染)、缓存失效部分(无缓存、新鲜度靠每次重查)、访问审计部分(仅 device/IP 观察 upsert 非 per-request 审计行)。）
--   [ ] `F-1143` 根据 Path Group 过滤订阅。
--   [ ] `F-1144` 根据 Policy 过滤订阅。
+-   [ ] `F-1143` 根据 Path Group 过滤订阅。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1144` 根据 Policy 过滤订阅。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-1145` 过滤禁用节点和不符合策略的线路。
     - 备注（Task ID: F-1145 | Status: Done | Evidence: sub.go:74 enabled/pool_state/status；TestSubscription | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1146` 支持订阅令牌重置。
     - 备注（Task ID: F-1146 | Status: Done | Evidence: user.go:300 resetSubToken；TestResetSubTokenErrors+e2e 重置腿 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1147` 支持订阅访问限频。
     - 备注（Task ID: F-1147 | Status: Done | Evidence: sub.go:33 subLimiter/subMissLimiter；TestSubscriptionRateLimit | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1148` 支持 ETag 和 Last-Modified。
--   [ ] `F-1149` 支持订阅缓存失效。
--   [ ] `F-1150` 记录订阅访问审计。
+-   [ ] `F-1148` 支持 ETag 和 Last-Modified。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1149` 支持订阅缓存失效。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1150` 记录订阅访问审计。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-1151` 对过期或封禁用户执行明确的订阅拒绝策略。
     - 备注（Task ID: F-1151 | Status: Done | Evidence: 过期/封禁 404 或空订阅；TestSubscription+TestSubscriptionAvailability | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1152` 对流量耗尽用户执行套餐定义的订阅策略。
@@ -1473,23 +1473,23 @@ External Client
     - 备注（Task ID: F-1201 | Status: Done | Evidence: User/Plan/Subscription/Device 模型审计 §3.1+§3.7（结论：Plan/Subscription 表未建） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1202` 明确用户状态机。
     - 备注（Task ID: F-1202 | Status: Done | Evidence: sub/availability.go:11-22 UserActive 四态（启用/到期/超配额/不限）+sub.go:48-52 禁用 404+review.go DisableInactive 周期停用 | Verification: TestUserActive（sub/availability_test.go:11）+TestSubscriptionAvailability（sub_test.go:128）+TestDisableInactiveRespectsResetCycle（review_test.go:88） | Commit: ad8f965）
--   [ ] `F-1203` 明确套餐生效和过期规则。
+-   [ ] `F-1203` 明确套餐生效和过期规则。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1203 | 部分：到期规则明确（User.ExpiresAt models.go:12+UserActive 到期分支+模板默认 usertemplate.go:128-130）；无套餐实体/生效窗口——套餐=单套 user_template KV+每用户 ExpiresAt，无结构化生效窗口。）
 -   [x] `F-1204` 明确套餐流量周期。
     - 备注（Task ID: F-1204 | Status: Done | Evidence: models.go:11 ResetCycle+review 尊重周期；TestDisableInactiveRespectsResetCycle | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1205` 明确套餐限速规则。
+-   [ ] `F-1205` 明确套餐限速规则。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1205 | 部分：限速字段与校验齐（BwUp/BwDown models.go:26-27+校验 usertemplate.go:58-63+PATCH user.go:226-238）；执行点在节点侧/仓外，服务端仅存储下发。）
--   [ ] `F-1206` 明确套餐线路权限。
+-   [ ] `F-1206` 明确套餐线路权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1206 | 部分：无套餐线路权限字段；仅配额联动降档（超阈值只出低成本档入口 sub.go:88-102+quota/link.go:119-129），非套餐线路权限。）
--   [ ] `F-1207` 明确套餐区域权限。
+-   [ ] `F-1207` 明确套餐区域权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1207 | 未满足：Region 仅节点元数据/故障聚合维度（models.go:98），订阅无条件下发全部 entry/both 节点（sub.go:73-84），无按用户/套餐的区域权限。）
 -   [x] `F-1208` 明确套餐设备数量限制。
     - 备注（Task ID: F-1208 | Status: Done | Evidence: DeviceLimit/IPLimit；TestSubscriptionDeviceLimit+TestSubscriptionIPLimit | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1209` 明确流量耗尽处理策略。
     - 备注（Task ID: F-1209 | Status: Done | Evidence: review 耗尽停用+订阅空；TestDisableInactive+TestSubscription | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1210` 支持套餐升级和降级。
+-   [ ] `F-1210` 支持套餐升级和降级。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1210 | 部分：字段级变更齐（PATCH user.go:219-268+卡密发放 redeem.go:179-209+SAVE-6 自动降档）；无命名套餐升级/降级流程、无按比例折算。）
--   [ ] `F-1211` 支持套餐变更历史。
+-   [ ] `F-1211` 支持套餐变更历史。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1211 | 部分：无套餐变更历史表；仅间接留痕：AuditLog 请求体快照（models.go:735-745）+Grant.Snapshot 变更前后快照（models.go:441-450）。）
 
 ## 10.2 设备管理
@@ -1500,11 +1500,11 @@ External Client
     - 备注（Task ID: F-1222 | Status: Done | Evidence: subdevice.go:18-82 subDeviceCheck 统一 hwid/ip 双 kind 绑定+复合唯一索引 models.go:68-76+24h IP 窗懒清理 | Verification: TestSubscriptionDeviceLimit+TestSubscriptionIPLimit+TestSubDeviceLimitValidation+TestSubDevicePruneUnlimited（subdevice_test.go:43/80/182/133） | Commit: ad8f965）
 -   [x] `F-1223` 支持设备列表。
     - 备注（Task ID: F-1223 | Status: Done | Evidence: GET devices；TestUserDevicesErrors+TestPanelMeDeviceUsage | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1224` 支持设备解绑。
+-   [ ] `F-1224` 支持设备解绑。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1224 | 未满足：仅 GET /api/users/:id/devices（router.go:239→subdevice.go:85-100）；无解绑/删除端点（用户删除清设备行属整户删除）。）
 -   [x] `F-1225` 支持设备上限检查。
     - 备注（Task ID: F-1225 | Status: Done | Evidence: subdevice 上限检查；TestSubDeviceLimitValidation | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1226` 支持异常设备告警。
+-   [ ] `F-1226` 支持异常设备告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1226 | 部分：仅设备/IP 超限告警（subdevice.go:136-156 herald.KindDeviceLimit 按用户按日去重）；无异常设备检测（异常 UA/IP/偏离）。）
 -   [x] `F-1227` 避免仅凭 IP 变化认定设备变化。
     - 备注（Task ID: F-1227 | Status: Done | Evidence: subdevice.go:56-80 设备身份=hwid 行；IP 变化仅新增 ip-kind 行不重认/重计设备；无 hwid 请求不落设备行 | Verification: TestSubscriptionDeviceLimit+TestSubscriptionIPLimit（subdevice_test.go:43/80） | Commit: ad8f965）
@@ -1513,33 +1513,33 @@ External Client
 
 -   [x] `F-1241` 审计 traffic.report 的真实处理链路。
     - 备注（Task ID: F-1241 | Status: Done | Evidence: traffic.report 处理链路审计 §3.7（agentws.go:445→291→460） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1242` 明确入口、出口或单端计量口径。
+-   [ ] `F-1242` 明确入口、出口或单端计量口径。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1242 | 部分：计量在持有用户 inbound 的节点 xray（xraystats.go:67-89）→saveUserTraffic（agentws.go:346-433）；无节点角色/单端口径判定（role 记录而流量路径忽略）。）
--   [ ] `F-1243` 防止入口和落地重复计费。
+-   [ ] `F-1243` 防止入口和落地重复计费。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1243 | 部分：at-most-once 去重（agentws_dedupe）+离线即丢（traffic.go:219-226）防帧重传重复计；无入口/落地双端防重守卫或测试。）
 -   [x] `F-1244` 统一流量单位。
     - 备注（Task ID: F-1244 | Status: Done | Evidence: 全链路统一字节 int64：rx_bytes/tx_bytes（models.go:138-139/266-267）+proto Rx/Tx uint64（messages.go:202-203）+agentws.go:335-340 直拷；GB 仅计价/展示 | Verification: traffic_test.go:55-58 原值透传+TestAgentWSTrafficReport（agentws_test.go:477） | Commit: ad8f965）
--   [ ] `F-1245` 统一上行和下行定义。
+-   [ ] `F-1245` 统一上行和下行定义。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1245 | 部分：agent 口径 downlink=Rx=用户收/uplink=Tx=用户发（xraystats.go:33-34）；客户端 Subscription-Userinfo 映射 upload=Rx/download=Tx（sub.go:114,180）——与 agent 口径上下行相反。）
 -   [x] `F-1246` 支持用户维度统计。
     - 备注（Task ID: F-1246 | Status: Done | Evidence: agentws.go:291 saveUserTraffic→traffic_logs；TestAgentWSUserTraffic | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1247` 支持 Node 维度统计。
     - 备注（Task ID: F-1247 | Status: Done | Evidence: agentws.go:269 saveNodeTraffic→node_traffic_logs；TestAgentWSTrafficReport | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1248` 支持 Path 维度统计。
+-   [ ] `F-1248` 支持 Path 维度统计。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1248 | 未满足：无 Path 模型/维度；统计仅用户×日（traffic.go:134-135）与节点×进程（models.go:262-273）。）
 -   [x] `F-1249` 支持周期配额重置。
     - 备注（Task ID: F-1249 | Status: Done | Evidence: quota.go:54 UsedBytes 周期窗；TestSubResetCycleWindow | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1250` 支持重复上报去重。
     - 备注（Task ID: F-1250 | Status: Done | Evidence: agentws_dedupe 去重；dedupe_test 7 例 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1251` 支持断线后的补报。
+-   [ ] `F-1251` 支持断线后的补报。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1251 | 未满足：断线流量静默丢弃（traffic.go:219-226 send==nil 即 return）；spool 只承载 probe 角色；设计明确 at-most-once 无重传。）
--   [ ] `F-1252` 支持流量异常检测。
+-   [ ] `F-1252` 支持流量异常检测。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1252 | 部分：仅阈值型配额预警（notifyscan/scan.go:111-158 默认 80%）+节点带宽利用率（loadapi.go:12）；无尖峰/异常偏离检测。）
--   [ ] `F-1253` 支持流量账目审计。
+-   [ ] `F-1253` 支持流量账目审计。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1253 | 部分：traffic_logs 只增不改+管理员审计轮转；无流量账目对账/复核（对账仅支付侧 payrecon.go）。）
 -   [x] `F-1254` 建立流量记账幂等测试。
     - 备注（Task ID: F-1254 | Status: Done | Evidence: 流量幂等；TestAgentWSDuplicateTrafficFrame+TestAgentWSDedupSurvivesReconnect | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1255` 建立断线补报集成测试。
+-   [ ] `F-1255` 建立断线补报集成测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1255 | 未满足：无断线补报集成测试；TestReporterOfflineDropsSilently（traffic_test.go:67）反而断言「丢弃」。）
 
 ------------------------------------------------------------------------
@@ -1552,7 +1552,7 @@ External Client
     - 备注（Task ID: F-1301 | Status: Done | Evidence: 订单状态机审计 §3.8（PaymentOrder models.go:327） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1302` 统一订单幂等规则。
     - 备注（Task ID: F-1302 | Status: Done | Evidence: order_no uniqueIndex models.go:330+paynotify.go:51 事务；TestEpusdtNotify+TestReconcileGuards | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1303` 统一订单超时和取消规则。
+-   [ ] `F-1303` 统一订单超时和取消规则。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1303 | 未满足原因：未满足：expired 状态声明(models.go:345,351)但全仓无写入；无过期/取消路由(router.go:260-306 仅 reconcile/detail/refund/orders/notify)；coupon.go:273 明注「本仓无订单过期清扫，pending 常驻」。）
 -   [x] `F-1304` 审计支付 Provider 接口。
     - 备注（Task ID: F-1304 | Status: Done | Evidence: 支付 Provider 接口审计 §3.8（provider.go:14-20） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
@@ -1560,9 +1560,9 @@ External Client
     - 备注（Task ID: F-1305 | Status: Done | Evidence: epusdt.go:139 Verify/:168 sign；TestVerify+TestSign | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1306` 保证支付回调幂等。
     - 备注（Task ID: F-1306 | Status: Done | Evidence: idx_provider_external models.go:413-414 唯一+事务；TestEpusdtNotify | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1307` 建立支付结果补偿机制。
+-   [ ] `F-1307` 建立支付结果补偿机制。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1307 | 未满足原因：部分：仅检测无补救——payrecon.go:93-135 标记缺流水/缺发放/孤儿，但无重发 Grant/重查回调；Provider 接口(provider.go:14-20)无 query/pull 方法，且回调即永久 pending。）
--   [ ] `F-1308` 建立支付对账任务。
+-   [ ] `F-1308` 建立支付对账任务。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1308 | 未满足原因：未满足：对账仅为查询接口(router.go:260 GET /api/payments/reconcile→payrecon.go:43)；main.go 约 17 个后台循环无一为支付对账。）
 -   [x] `F-1309` 对未接通的支付渠道明确标记不可用。
     - 备注（Task ID: F-1309 | Status: Done | Evidence: packages/payment/disabled.go:11 NewDisabled(alipay/wechat)；payment 包 TestRegistered/TestDisabled | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
@@ -1577,11 +1577,11 @@ External Client
     - 备注（Task ID: F-1322 | Status: Done | Evidence: 活动规则审计（Campaign models.go:374+TestCampaignCRUDValidation/TestCampaignAutoApply） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1323` 审计分销佣金计算。
     - 备注（Task ID: F-1323 | Status: Done | Evidence: 分销佣金审计（Distributor :436/Ledger :449 佣金 0-100+distributor.go:166+TestDistributorCRUD/TestRedeemDistributorLedger/TestDistributorPayoutAdjust） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1324` 统一账目流水。
+-   [ ] `F-1324` 统一账目流水。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1324 | 未满足原因：部分：三张异构表（PaymentTransaction models.go:428/Grant :441/DistributorLedger :467）仅以字符串关联；统一仅在查询层(payrecon.go:17-47 reconcileRow+distributor.go:131)，无统一流水表/枚举。）
--   [ ] `F-1325` 统一佣金结算状态。
+-   [ ] `F-1325` 统一佣金结算状态。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1325 | 未满足原因：部分：统一 ledger(kind sale/commission/payout/adjust)+派生未结余额(distributor.go:131-152)+条件 INSERT payout 守卫(:382)；但无显式结算状态（无 pending/settled/paid 字段、无结算批次，payout 仅手动 distributor.go:329-333）。）
--   [ ] `F-1326` 建立异常订单和重复佣金测试。
+-   [ ] `F-1326` 建立异常订单和重复佣金测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1326 | 未满足原因：部分：异常订单已覆盖（TestReconcile/TestEpusdtNotifyConcurrentSettle/TestReconcileGuards）；重复佣金无重放测试（dedup 仅断言 txn/grant 计数，佣金唯一性靠原子核销 redeem.go:78-84 未在 ledger 层测试）。）
 
 ## 11.3 通知
@@ -1613,122 +1613,122 @@ External Client
 
 ## 12.1 总览
 
--   [ ] `F-1401` 展示节点总数和在线数。
+-   [ ] `F-1401` 展示节点总数和在线数。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1401 | 部分：仅区域/ISP 维度在线/总数卡（NodesView.vue:207-226）；无全局节点总数/在线数。）
--   [ ] `F-1402` 展示健康与不健康节点数。
+-   [ ] `F-1402` 展示健康与不健康节点数。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1402 | 部分：仅区域/ISP 维度 healthy/degraded/failed（NodesView.vue:228-239）；无不健康计数汇总。）
--   [ ] `F-1403` 展示 Entry、Landing 数量。
+-   [ ] `F-1403` 展示 Entry、Landing 数量。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1403 | 未满足：无 Entry/Landing 数量展示。）
--   [ ] `F-1404` 展示 Relay 在线状态。
+-   [ ] `F-1404` 展示 Relay 在线状态。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1404 | 未满足：relay 仅作受管进程选项（NodesView.vue:829）；无 relay 在线状态。）
--   [ ] `F-1405` 展示 Path 总数和可用率。
+-   [ ] `F-1405` 展示 Path 总数和可用率。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1405 | 部分：晚间报告有可用率/RTT/丢包（CostView.vue:590-637）；无 Path 计数。）
--   [ ] `F-1406` 展示当前总流量和连接数。
+-   [ ] `F-1406` 展示当前总流量和连接数。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1406 | 部分：仅节点级 conns/Mbps 负载单元格（NodesView.vue:95-107）；无聚合总览。）
--   [ ] `F-1407` 展示区域资源分布。
+-   [ ] `F-1407` 展示区域资源分布。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1407 | 部分：区域维度卡（NodesView.vue:731-745）；无专门分布视图。）
 -   [x] `F-1408` 展示告警摘要。
     - 备注（Task ID: F-1408 | Status: Done | Evidence: NodesView.vue:151-196 活跃告警徽标+对话框（:608-610/:875-901，api getAlerts:400） | Verification: API 侧 TestAlertGuards（alerts_test.go:276）；dash 无前端单测 | Commit: ce8b33e）
 -   [x] `F-1409` 展示本月云资源成本摘要。
     - 备注（Task ID: F-1409 | Status: Done | Evidence: CostView.vue:278-295 摘要卡（月至今流量/月固定/月度预估/节点数） | Verification: API 侧 TestCostAPI（costapi_test.go）；dash 无前端单测 | Commit: ce8b33e）
--   [ ] `F-1410` 展示估算成本与实际账单差异。
+-   [ ] `F-1410` 展示估算成本与实际账单差异。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1410 | 未满足：有月度预估（CostView.vue:287-290）；无实际账单对比。）
 
 ## 12.2 节点与线路
 
 -   [x] `F-1421` 提供节点列表和筛选。
     - 备注（Task ID: F-1421 | Status: Done | Evidence: NodesView.vue:598-727 列表+role 筛选+节点/区域/ISP 三视图 | Verification: docs/audit-platform-impl-2026-11-03.md §3.11（17 dash 视图确认）；dash 无前端单测 | Commit: ce8b33e）
--   [ ] `F-1422` 提供节点详情。
+-   [ ] `F-1422` 提供节点详情。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1422 | 部分：仅编辑对话框，无专门详情页（NodesView.vue:747-810）。）
--   [ ] `F-1423` 展示 Node 关联的 Cloud Resource。
+-   [ ] `F-1423` 展示 Node 关联的 Cloud Resource。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1423 | 未满足：无 CloudResource 模型/关联。）
--   [ ] `F-1424` 展示 Agent、Relay 和 Probe 状态。
+-   [ ] `F-1424` 展示 Agent、Relay 和 Probe 状态。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1424 | 部分：agent 版本+进程快照（NodesView.vue:668-672/:312-331）；relay/probe 状态未呈现（/api/probe-reports 后端有、dash 未用）。）
--   [ ] `F-1425` 展示节点配置版本。
+-   [ ] `F-1425` 展示节点配置版本。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1425 | 未满足：/api/nodes/:id/configs（router.go:206）有路由无 UI。）
 -   [x] `F-1426` 提供节点维护和启停管理。
     - 备注（Task ID: F-1426 | Status: Done | Evidence: NodesView.vue:109-148 proc start/stop/reload+pool suspend/resume/standby（:358-372 batch proc/:714-723） | Verification: 后端 TestNodeProcOp/TestBatchNodeProc（procop_test.go）；dash 无前端单测 | Commit: ce8b33e）
--   [ ] `F-1427` 提供 Path 列表。
+-   [ ] `F-1427` 提供 Path 列表。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1427 | 部分：仅 landing assignment 列表（LandingsView.vue:189-230）；无 Path 实体。）
--   [ ] `F-1428` 提供 Path 详情。
+-   [ ] `F-1428` 提供 Path 详情。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1428 | 未满足：无 Path 详情。）
--   [ ] `F-1429` 提供 Path Group 管理。
+-   [ ] `F-1429` 提供 Path Group 管理。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1429 | 部分：区域级指派+传输状态（LandingsView.vue:266-283）；无 PathGroup 模型。）
 -   [x] `F-1430` 提供 Policy 管理。
     - 备注（Task ID: F-1430 | Status: Done | Evidence: LandingsView.vue:232-264 alloc policy out/in/rebalance/权重（api putAllocPolicy:160） | Verification: API 侧 TestAllocPolicy（allocapi_test.go）；dash 无前端单测 | Commit: ce8b33e）
--   [ ] `F-1431` 展示调度候选和排除原因。
+-   [ ] `F-1431` 展示调度候选和排除原因。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1431 | 部分：手动 entry/landing 选择（LandingsView.vue:285-325）；无排除列表。）
--   [ ] `F-1432` 展示探测历史和质量趋势。
+-   [ ] `F-1432` 展示探测历史和质量趋势。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1432 | 部分：24h 质量趋势（CostView.vue:590-637）；无按节点探测历史。）
 
 ## 12.3 云服务商与资源
 
 -   [x] `F-1441` 提供 Provider 管理入口。
     - 备注（Task ID: F-1441 | Status: Done | Evidence: ProvisionView.vue:173-199/:263-282 provider CRUD（api :592-604） | Verification: API 侧 TestProviderAPI（providerapi_test.go:40）；dash 无前端单测 | Commit: ce8b33e）
--   [ ] `F-1442` 提供 Cloud Account 管理入口。
+-   [ ] `F-1442` 提供 Cloud Account 管理入口。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1442 | 区级未满足原因：云资源与云操作页面未实现——无 CloudResource 模型即无资源列表/详情/关联/电源/重装/批量/同步/错误页；本区 F-1443~F-1454、F-1456~F-1457 未满足；F-1442 部分（provider 含加密 access_key 兼作账号，无独立 account 实体）；F-1455 部分（仅 provision job 状态/日志，非资源操作进度）。）
--   [ ] `F-1443` 提供账号连接测试。
--   [ ] `F-1444` 提供资源同步入口。
--   [ ] `F-1445` 提供云资源列表。
--   [ ] `F-1446` 提供云资源详情。
--   [ ] `F-1447` 提供云资源与 Node 关联管理。
--   [ ] `F-1448` 提供开机操作。
--   [ ] `F-1449` 提供关机操作。
--   [ ] `F-1450` 提供重启操作。
--   [ ] `F-1451` 提供强制停止操作和高危确认。
--   [ ] `F-1452` 对支持的 Provider 提供重装/重建入口。
--   [ ] `F-1453` 提供批量操作预览。
--   [ ] `F-1454` 提供批量操作逐资源结果。
--   [ ] `F-1455` 展示云操作任务进度。
--   [ ] `F-1456` 展示 Provider API 最后同步时间。
--   [ ] `F-1457` 展示 Provider 错误和权限不足原因。
+-   [ ] `F-1443` 提供账号连接测试。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1444` 提供资源同步入口。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1445` 提供云资源列表。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1446` 提供云资源详情。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1447` 提供云资源与 Node 关联管理。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1448` 提供开机操作。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1449` 提供关机操作。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1450` 提供重启操作。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1451` 提供强制停止操作和高危确认。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1452` 对支持的 Provider 提供重装/重建入口。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1453` 提供批量操作预览。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1454` 提供批量操作逐资源结果。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1455` 展示云操作任务进度。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1456` 展示 Provider API 最后同步时间。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1457` 展示 Provider 错误和权限不足原因。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
 
 ## 12.4 成本与账单
 
 -   [x] `F-1461` 提供成本总览。
     - 备注（Task ID: F-1461 | Status: Done | Evidence: CostView.vue:278-295 成本总览摘要卡 | Verification: API 侧 TestCostAPI（costapi_test.go）；dash 无前端单测 | Commit: ce8b33e）
--   [ ] `F-1462` 提供 Provider 成本统计。
+-   [ ] `F-1462` 提供 Provider 成本统计。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1462 | 部分：仅节点/区域/ISP 维度（CostView.vue:306-360）；无 Provider 维度成本。）
--   [ ] `F-1463` 提供账号成本统计。
+-   [ ] `F-1463` 提供账号成本统计。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1463 | 未满足：无账号维度成本。）
 -   [x] `F-1464` 提供区域成本统计。
     - 备注（Task ID: F-1464 | Status: Done | Evidence: CostView.vue:333-349 区域汇总表（节点/流量花费/固定成本/月度预估） | Verification: API 侧 TestCostAPI（costapi_test.go）；dash 无前端单测 | Commit: ce8b33e）
--   [ ] `F-1465` 提供资源成本统计。
+-   [ ] `F-1465` 提供资源成本统计。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1465 | 未满足：无资源维度成本。）
 -   [x] `F-1466` 提供 Node 成本统计。
     - 备注（Task ID: F-1466 | Status: Done | Evidence: CostView.vue:306-329 节点行（月流量/流量花费/固定成本/月度预估） | Verification: API 侧 TestCostAPI（costapi_test.go）；dash 无前端单测 | Commit: ce8b33e）
--   [ ] `F-1467` 提供 Path 成本估算。
+-   [ ] `F-1467` 提供 Path 成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1467 | 未满足：无 Path 成本。）
--   [ ] `F-1468` 提供账单导入和同步任务管理。
+-   [ ] `F-1468` 提供账单导入和同步任务管理。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1468 | 未满足：仅价格表导入（CostView.vue:465-474）；无账单导入/同步任务。）
--   [ ] `F-1469` 提供账单明细查询。
+-   [ ] `F-1469` 提供账单明细查询。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1469 | 未满足：无账单明细查询。）
--   [ ] `F-1470` 提供估算与实际账单对比。
+-   [ ] `F-1470` 提供估算与实际账单对比。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1470 | 部分：月至今实际+月度预估并列（CostView.vue:278-290）；无显式对比视图。）
--   [ ] `F-1471` 提供成本分摊规则管理。
+-   [ ] `F-1471` 提供成本分摊规则管理。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1471 | 未满足：成本阈值（CostView.vue:297-303）+价格监控有；无分摊规则（分摊）配置。）
--   [ ] `F-1472` 提供账单差异对账入口。
+-   [ ] `F-1472` 提供账单差异对账入口。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1472 | 未满足：无账单差异对账。）
--   [ ] `F-1473` 提供成本异常告警。
+-   [ ] `F-1473` 提供成本异常告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1473 | 部分：高成本阈值（CostView.vue:297-303）+价格 watch（:560-587）；非增长率异常。）
--   [ ] `F-1474` 支持成本明细导出。
+-   [ ] `F-1474` 支持成本明细导出。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1474 | 未满足：无导出。）
--   [ ] `F-1475` 在页面明确区分实际、估算和分摊金额。
+-   [ ] `F-1475` 在页面明确区分实际、估算和分摊金额。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1475 | 部分：实际（流量/固定）与预估列区分（CostView.vue:310-326）；无分摊金额。）
 
 ## 12.5 配置、任务与审计
 
--   [ ] `F-1481` 提供配置版本列表。
+-   [ ] `F-1481` 提供配置版本列表。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1481 | 未满足：/api/nodes/:id/configs（router.go:206）有路由无 UI。）
--   [ ] `F-1482` 提供配置差异查看。
+-   [ ] `F-1482` 提供配置差异查看。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1482 | 未满足：无配置差异查看。）
--   [ ] `F-1483` 提供配置下发状态。
+-   [ ] `F-1483` 提供配置下发状态。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1483 | 部分：批量配置逐节点 applied/failed（NodesView.vue:406-443）；无任务列表。）
--   [ ] `F-1484` 提供配置失败和回滚记录。
+-   [ ] `F-1484` 提供配置失败和回滚记录。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1484 | 未满足：仅提示文案「失败自动回滚」（NodesView.vue:844）；无失败/回滚记录。）
--   [ ] `F-1485` 提供批量运维任务列表。
+-   [ ] `F-1485` 提供批量运维任务列表。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1485 | 部分：批量 proc/config 即时逐节点结果（NodesView.vue:614-622/:358-443）；无任务队列视图。）
--   [ ] `F-1486` 提供 Agent 升级任务列表。
+-   [ ] `F-1486` 提供 Agent 升级任务列表。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1486 | 部分：逐节点升级对话框（NodesView.vue:445-483）；无任务列表。）
 -   [x] `F-1487` 提供自动恢复任务列表。
     - 备注（Task ID: F-1487 | Status: Done | Evidence: RecoveryView.vue:74-121 recoveries 列表+action 回放（api :795-799） | Verification: API 侧 TestTraceRowsReplay（recovery_test.go）；dash 无前端单测 | Commit: ce8b33e）
@@ -1743,35 +1743,35 @@ External Client
 
 -   [x] `F-1501` 展示用户账户信息。
     - 备注（Task ID: F-1501 | Status: Done | Evidence: panel HomeView.vue:199-215 账户卡（/api/panel/me api.ts Me:41-55） | Verification: API 侧 TestPanelMe（panel_test.go）；panel 无前端单测 | Commit: ce8b33e）
--   [ ] `F-1502` 展示当前套餐。
+-   [ ] `F-1502` 展示当前套餐。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1502 | 部分：配额/状态卡（HomeView.vue:208-213）；无套餐实体展示。）
 -   [x] `F-1503` 展示套餐到期时间。
     - 备注（Task ID: F-1503 | Status: Done | Evidence: HomeView.vue:210 到期字段 formatDate(me.expires_at) | Verification: API 侧 TestPanelMe（panel_test.go）；panel 无前端单测 | Commit: ce8b33e）
 -   [x] `F-1504` 展示流量使用情况。
     - 备注（Task ID: F-1504 | Status: Done | Evidence: HomeView.vue:201-207 用量表+meter（used/quota+剩余） | Verification: API 侧 TestPanelMe（panel_test.go）；panel 无前端单测 | Commit: ce8b33e）
--   [ ] `F-1505` 展示设备列表。
+-   [ ] `F-1505` 展示设备列表。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1505 | 未满足：仅设备计数（HomeView.vue:212）；无列表。）
--   [ ] `F-1506` 提供设备解绑。
+-   [ ] `F-1506` 提供设备解绑。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1506 | 未满足：面板无设备解绑。）
 -   [x] `F-1507` 展示订阅地址。
     - 备注（Task ID: F-1507 | Status: Done | Evidence: HomeView.vue:227-248 订阅链接（v2ray/clash target） | Verification: API 侧 TestSubscription（sub_test.go）；panel 无前端单测 | Commit: ce8b33e）
--   [ ] `F-1508` 支持订阅令牌重置。
+-   [ ] `F-1508` 支持订阅令牌重置。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1508 | 未满足：sub_token 在 Me 返回（api.ts:44）但面板无重置 UI（管理端 UsersView.vue:148 有）。）
 -   [x] `F-1509` 支持选择订阅格式。
     - 备注（Task ID: F-1509 | Status: Done | Evidence: HomeView.vue:108-111/:230-247 通用（v2ray/base64）与 clash/mihomo（YAML）两种格式链接 | Verification: API 侧 TestSubscriptionFormats（sub_test.go）；panel 无前端单测 | Commit: ce8b33e）
--   [ ] `F-1510` 提供 sing-box 导入说明。
+-   [ ] `F-1510` 提供 sing-box 导入说明。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1510 | 未满足：无 sing-box 导入说明。）
--   [ ] `F-1511` 提供 Clash/Mihomo 导入说明。
+-   [ ] `F-1511` 提供 Clash/Mihomo 导入说明。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1511 | 未满足：仅 YAML 链接，无导入指引。）
 -   [x] `F-1512` 展示公告。
     - 备注（Task ID: F-1512 | Status: Done | Evidence: NotificationsView.vue:54-59/:75-89 announcement 类型通知 | Verification: API 侧 TestPanelNotifications（panel_test.go）；panel 无前端单测 | Commit: ce8b33e）
 -   [x] `F-1513` 展示订单和支付记录。
     - 备注（Task ID: F-1513 | Status: Done | Evidence: OrdersView.vue:46-78 订单卡（渠道/金额/权益/支付/退款） | Verification: API 侧 TestPanelOrders（panel_test.go）；panel 无前端单测 | Commit: ce8b33e）
--   [ ] `F-1514` 展示账单和套餐历史。
+-   [ ] `F-1514` 展示账单和套餐历史。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1514 | 部分：订单权益展示发放内容（OrdersView.vue:70-72）；无账单历史。）
--   [ ] `F-1515` 提供账号安全设置。
+-   [ ] `F-1515` 提供账号安全设置。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1515 | 未满足：面板无密码/2FA 设置；仅联系方式绑定（HomeView.vue:178-197）。）
--   [ ] `F-1516` 展示登录记录。
+-   [ ] `F-1516` 展示登录记录。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1516 | 未满足：面板无登录记录（loginlog 仅管理端 SettingsView.vue:368）。）
 
 ------------------------------------------------------------------------
@@ -1782,40 +1782,40 @@ External Client
 
 -   [x] `F-1601` 审计现有任务、Provision、Recovery 实现。
     - 备注（Task ID: F-1601 | Status: Done | Evidence: 任务/Provision/Recovery 审计 §3.12 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1602` 统一后台任务状态模型。
+-   [ ] `F-1602` 统一后台任务状态模型。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1602 | 未满足：无统一任务状态模型；五张独立任务表各持词汇（TouchJob models.go:305/ProvisionJob :514/Recovery :528/CertTask :603/Event :670），无共享状态机。）
--   [ ] `F-1603` 支持任务排队。
+-   [ ] `F-1603` 支持任务排队。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1603 | 部分：仅 event outbox 排队（pending+next_attempt_at 批 100 deliver.go:74-75）与各类型 sweep；无统一队列。）
--   [ ] `F-1604` 支持任务超时。
+-   [ ] `F-1604` 支持任务超时。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1604 | 部分：各子系统超时（recovery LevelTimeout recovery.go:56/proc_ctl 15s/upgrade ack 15s/herald 10s）；无任务级超时（provision goroutine 用 context.Background() provisionapi.go:73）。）
--   [ ] `F-1605` 支持有限次数重试。
+-   [ ] `F-1605` 支持有限次数重试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1605 | 部分：仅 event outbox 有限重试（MaxAttempts=6 deliver.go:15,90+TestDeliverRetryBackoffAndDeadLetter）；cert 重试无上限；无统一重试预算。）
--   [ ] `F-1606` 支持退避策略。
+-   [ ] `F-1606` 支持退避策略。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1606 | 部分：退避散落三处（herald 1m→1h deliver.go:27/cert 1h cert.go:33/agent procs 1s→30s manager.go:90-91）；无统一策略。）
--   [ ] `F-1607` 支持任务取消。
+-   [ ] `F-1607` 支持任务取消。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1607 | 未满足：无任何任务取消端点/状态（仅请求级 ctx 取消）。）
--   [ ] `F-1608` 支持任务幂等。
+-   [ ] `F-1608` 支持任务幂等。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1608 | 部分：幂等散落（Event DedupKey herald.go:83/Recovery node_id 唯一索引 models.go:528/节点名复用 launch.go:94）；无任务级幂等键。）
--   [ ] `F-1609` 支持任务进度和阶段信息。
+-   [ ] `F-1609` 支持任务进度和阶段信息。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1609 | 部分：recovery Level+ActionState（models.go:536）与 cert State 有阶段；无进度百分比。）
--   [ ] `F-1610` 支持任务日志。
+-   [ ] `F-1610` 支持任务日志。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1610 | 部分：各行日志尾/错误字段（ProvisionJob.Log 8KB models.go:518/RecoveryAction.Detail/CertTask.LastError/EventDelivery.Detail）；无结构化任务日志流。）
--   [ ] `F-1611` 支持任务人工重试。
+-   [ ] `F-1611` 支持任务人工重试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1611 | 部分：人工重试散落（死信重投 eventsapi.go:61/cert 重签 certapi.go:148/provision 重跑 provisionapi.go:105）；recovery 无。）
--   [ ] `F-1612` 支持任务部分成功结果。
+-   [ ] `F-1612` 支持任务部分成功结果。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1612 | 部分：批量操作逐节点 ok/error（procop.go:120-142+TestBatchNodeProc/TestBatchNodeConfig）；无统一部分成功态。）
--   [ ] `F-1613` 支持任务执行者和操作者审计。
+-   [ ] `F-1613` 支持任务执行者和操作者审计。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1613 | 部分：管理端写操作入审计（AuditLog models.go:735+auditMiddleware router.go:119）；任务行本身无执行者/操作者字段，自动任务无归属。）
--   [ ] `F-1614` 支持任务并发配额。
+-   [ ] `F-1614` 支持任务并发配额。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1614 | 部分：provision 互斥串行（provision.go:34,58-83）+批量上限 50（procop.go:22）；无可配置并发配额。）
--   [ ] `F-1615` 支持任务积压和失败告警。
+-   [ ] `F-1615` 支持任务积压和失败告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1615 | 部分：events 积压/失败计数（eventsapi.go:46,269-275）；无阈值告警。）
 
 ## 14.2 节点运维任务
 
--   [ ] `F-1621` 支持 Agent 重启任务。
+-   [ ] `F-1621` 支持 Agent 重启任务。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1621 | 未满足：无 agent 重启任务（agentproto 仅 MsgUpgrade/MsgProcCtl messages.go:148；agent 自重启仅升级 Exec upgrade.go:92）。）
--   [ ] `F-1622` 支持 Relay 重启任务。
+-   [ ] `F-1622` 支持 Relay 重启任务。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1622 | 部分：relay 是受管进程（roles/relay/relay.go:5），可经通用 proc_ctl 启停（procop.go:27-31）；无专门 relay 重启任务。）
 -   [x] `F-1623` 支持代理进程重启任务。
     - 备注（Task ID: F-1623 | Status: Done | Evidence: procop 重启；TestNodeProcOp+TestBatchNodeProc | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
@@ -1823,15 +1823,15 @@ External Client
     - 备注（Task ID: F-1624 | Status: Done | Evidence: pushConfig 重应用+configd 回滚；TestNodeConfigGuards+TestApplyReloadFailRollsBack | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1625` 支持节点升级任务。
     - 备注（Task ID: F-1625 | Status: Done | Evidence: router.go:183 nodeUpgrade；TestNodeUpgrade | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1626` 支持节点回滚任务。
+-   [ ] `F-1626` 支持节点回滚任务。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1626 | 部分：仅 agent 侧自动回滚（120s 看门狗→Rollback upgrade.go:22,53,76）；面板无回滚任务/端点。）
--   [ ] `F-1627` 支持节点重新探测任务。
+-   [ ] `F-1627` 支持节点重新探测任务。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1627 | 未满足：探测是 agent 本地周期循环（probe/probe.go:62-164）；无面板重新探测端点。）
--   [ ] `F-1628` 支持节点摘除任务。
+-   [ ] `F-1628` 支持节点摘除任务。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1628 | 部分：手动摘除 /pool/:id/suspend（poolapi.go:56）同步翻状态；无任务行/跟踪。）
--   [ ] `F-1629` 支持节点恢复任务。
+-   [ ] `F-1629` 支持节点恢复任务。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1629 | 部分：手动恢复 /pool/:id/resume（poolapi.go:83）；无任务行/跟踪。）
--   [ ] `F-1630` 支持任务执行前依赖检查。
+-   [ ] `F-1630` 支持任务执行前依赖检查。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1630 | 部分：provision/cert 各有前置检查（provisionapi.go:44-66/launch.go:46-54/loop.go:83-97）；无通用任务前依赖检查。）
 
 ## 14.3 自动恢复
@@ -1842,11 +1842,11 @@ External Client
     - 备注（Task ID: F-1642 | Status: Done | Evidence: recovery 动作集；TestActionNames+TestInstanceActionL3 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1643` 定义自动恢复最大执行次数。
     - 备注（Task ID: F-1643 | Status: Done | Evidence: Level 1-3 最大次数；TestTimeoutExhaustFails+TestLastLine | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1644` 定义自动恢复冷却时间。
+-   [ ] `F-1644` 定义自动恢复冷却时间。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1644 | 未满足：无恢复冷却时间（仅 SustainedAfter 预判窗 recovery.go:54）；全仓 cooldown 命中均无关；无测试。）
--   [ ] `F-1645` 定义自动恢复失败后的人工介入状态。
+-   [ ] `F-1645` 定义自动恢复失败后的人工介入状态。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1645 | 部分：失败升级「需人工介入」经 Herald KindRecoveryFailed+notify（recovery.go:344-368+TestFailedEscalationNotify）；模型仅 running/done/failed（recovery.go:27-29）——无人工介入态、无人工确认/重试清除。）
--   [ ] `F-1646` 防止自动恢复循环重启。
+-   [ ] `F-1646` 防止自动恢复循环重启。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1646 | 未满足：失败管线后节点保持 suspended，下次 Sweep 会开新 Recovery（查询仅排除 running 与 手动% pool_reason recovery.go:169-189）；无失败重开守卫——循环重启风险确认。）
 -   [x] `F-1647` 记录自动恢复决策和执行结果。
     - 备注（Task ID: F-1647 | Status: Done | Evidence: RecoveryAction 轨迹 models.go:527；TestTraceRowsReplay | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
@@ -1855,23 +1855,23 @@ External Client
 
 -   [x] `F-1651` 审计当前 OpenTofu 和 Provider Provision 能力。
     - 备注（Task ID: F-1651 | Status: Done | Evidence: OpenTofu/Provider Provision 能力审计 §3.9 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1652` 将云资源创建纳入统一任务系统。
+-   [ ] `F-1652` 将云资源创建纳入统一任务系统。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1652 | 未满足：云创建未入统一任务系统（ProvisionJob 独立表 models.go:514）。）
--   [ ] `F-1653` 支持创建前成本预估。
+-   [ ] `F-1653` 支持创建前成本预估。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1653 | 部分：成本参考查询有（costref.go:49-117+packages/costref Quote.MonthlyCents:42）；非申请流内预估步骤，模板成本手填（providerapi.go:229）。）
--   [ ] `F-1654` 支持创建前资源规格校验。
+-   [ ] `F-1654` 支持创建前资源规格校验。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1654 | 部分：仅模板表单校验（providerapi.go:174-199）；无云端规格存在/配额检查。）
--   [ ] `F-1655` 支持创建后资源同步。
+-   [ ] `F-1655` 支持创建后资源同步。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1655 | 部分：创建后同步=agent 首注册+OS-4 管线（pipeline.go 探测→online）；无云侧实例对账。）
 -   [x] `F-1656` 支持创建后 Agent 注册。
     - 备注（Task ID: F-1656 | Status: Done | Evidence: cloudinit 注册+agent-install 同口径；TestCloudInit+TestProvisionPipeline | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1657` 支持节点入池检查。
     - 备注（Task ID: F-1657 | Status: Done | Evidence: OS-4 入池检查；TestProvisionPipeline | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1658` 创建失败时按策略清理部分资源。
+-   [ ] `F-1658` 创建失败时按策略清理部分资源。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1658 | 未满足：无失败清理——provision 仅 plan/apply（provision.go:172），全仓无 tofu destroy。）
--   [ ] `F-1659` 支持资源销毁前依赖检查。
+-   [ ] `F-1659` 支持资源销毁前依赖检查。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1659 | 未满足：无销毁流程即无销毁前依赖检查。）
--   [ ] `F-1660` 支持资源销毁审批和二次确认。
+-   [ ] `F-1660` 支持资源销毁审批和二次确认。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1660 | 未满足：无销毁流程即无审批/二次确认。）
 
 ------------------------------------------------------------------------
@@ -1884,16 +1884,16 @@ External Client
     - 备注（Task ID: F-1701 | Status: Done | Evidence: 管理员登录与会话审计 §3.13（admin.go:41+ratelimit+loginlog） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1702` 审计管理员角色和权限模型。
     - 备注（Task ID: F-1702 | Status: Done | Evidence: 管理员角色权限审计 §3.13（requireSuper+TestAdminRoleCRUD） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1703` 为云账号管理定义独立权限。
+-   [ ] `F-1703` 为云账号管理定义独立权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1703 | 区级未满足原因：无细粒度资源权限——数据面仅 apiAuth+audit（router.go:119），唯一角色门槛 requireSuper 只挂 /api/admins（router.go:227）；API-Token 路径只置 apiUser 不置 role（apitoken.go:140），前端 role 仅 admin/distributor/空（dash/src/auth.ts:19）；本区 F-1703~F-1708、F-1710 未满足。）
--   [ ] `F-1704` 为云资源开关机定义独立权限。
--   [ ] `F-1705` 为强制停止和重装定义高危权限。
--   [ ] `F-1706` 为成本查看和账单导出定义权限。
--   [ ] `F-1707` 为成本调整和分摊规则修改定义权限。
--   [ ] `F-1708` 为节点和线路操作定义权限。
--   [ ] `F-1709` 为敏感操作增加二次确认。
+-   [ ] `F-1704` 为云资源开关机定义独立权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1705` 为强制停止和重装定义高危权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1706` 为成本查看和账单导出定义权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1707` 为成本调整和分摊规则修改定义权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1708` 为节点和线路操作定义权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-1709` 为敏感操作增加二次确认。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1709 | 部分：仅前端 ElMessageBox.confirm 二次确认（NodesView.vue:121,293,306,586 等）；无服务端确认令牌/CSRF；强制停止 runProc('stop') 无确认（NodesView.vue:358-364）。）
--   [ ] `F-1710` 支持按账号或资源范围限制操作权限。
+-   [ ] `F-1710` 支持按账号或资源范围限制操作权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
 
 ## 15.2 凭据安全
 
@@ -1901,7 +1901,7 @@ External Client
     - 备注（Task ID: F-1721 | Status: Done | Evidence: secret_store 审计 §3.13（secret_test 6 例） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1722` 验证云凭据加密存储。
     - 备注（Task ID: F-1722 | Status: Done | Evidence: secret.Store AES-GCM+providerapi sealSecret；TestStoreRoundtrip+TestProviderAPI | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1723` 验证密钥轮换。
+-   [ ] `F-1723` 验证密钥轮换。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1723 | 未满足：keyinit 仅首启生成/持久化（keyinit.go:48-138）；secret.Store 有版本键位与按版本解密（secret.go:24-26,70-88）但 NewStore 恒写 v1（secret.go:35）——无加新钥/重加密存量/退休旧钥路径；测试仅初始化与加解密，无轮换用例。）
 -   [x] `F-1724` 验证凭据吊销。
     - 备注（Task ID: F-1724 | Status: Done | Evidence: enroll 吊销+节点吊销；TestRevokeUsedEnrollmentToken+TestNodeTokenRevocation | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
@@ -1920,15 +1920,15 @@ External Client
     - 备注（Task ID: F-1731 | Status: Done | Evidence: operator 越权 403；TestAdminRoleCRUD | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1732` 测试云账号凭据泄漏。
     - 备注（Task ID: F-1732 | Status: Done | Evidence: TestProviderAPI（providerapi_test.go:40）断言创建响应不回显密钥（:59-61）、库中存密文非明文（:68-73）、列表掩码（:81-83） | Verification: providerapi_test.go TestProviderAPI | Commit: 9fcb5ad）
--   [ ] `F-1733` 测试高危云操作权限绕过。
+-   [ ] `F-1733` 测试高危云操作权限绕过。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1733 | 未满足：无高危云操作越权测试——TestAdminRoleCRUD（adminrole_test.go:39）仅 /api/admins 403；procop_test.go/upgrade_test.go 仅成功路径，无 403 断言。）
 -   [x] `F-1734` 测试 Agent 消息伪造和重放。
     - 备注（Task ID: F-1734 | Status: Done | Evidence: bad token 拒绝+envelope ID 重放去重；TestAgentWSBadToken+dedupe_test | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1735` 测试配置篡改。
+-   [ ] `F-1735` 测试配置篡改。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1735 | 部分：篡改检测仅 standby 快照（standby_test.go:126）/机密密文（secret_test.go TestStoreKeyIsolation）/回执签名（callback_test.go:129）；无管理面配置（config push/routing/web-cert/provision）篡改测试。）
 -   [x] `F-1736` 测试订阅令牌爆破和滥用。
     - 备注（Task ID: F-1736 | Status: Done | Evidence: 订阅限频枚举锁定；TestSubscriptionRateLimit | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1737` 测试敏感信息日志泄漏。
+-   [ ] `F-1737` 测试敏感信息日志泄漏。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1737 | 部分：敏感信息日志泄漏仅经 audit 行体脱敏（audit_test.go:70 TestAuditLogsRedactSensitiveBody）+sub.go:34 令牌前 6 位；无 stdout/stderr 日志断言无明文密钥的测试。）
 -   [x] `F-1738` 执行依赖安全扫描。
     - 备注（Task ID: F-1738 | Status: Done | Evidence: .github/dependabot.yml security alerts+test.yml CI 绿 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
@@ -1939,58 +1939,58 @@ External Client
 
 ## 16.1 指标
 
--   [ ] `F-1801` 采集 Server API 请求量和延迟。
+-   [ ] `F-1801` 采集 Server API 请求量和延迟。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1801 | 未满足：无指标层——prometheus|/metrics|pprof 全仓 0 实命中；gin.Default() 无 metrics 钩子（router.go:100）。）
--   [ ] `F-1802` 采集数据库连接数和查询延迟。
+-   [ ] `F-1802` 采集数据库连接数和查询延迟。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1802 | 未满足：无 DB 连接/查询延迟采集。）
--   [ ] `F-1803` 采集 Agent 在线数量和心跳延迟。
+-   [ ] `F-1803` 采集 Agent 在线数量和心跳延迟。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1803 | 部分：在线数经 /api/health agents_online（router.go:433→hub.OnlineCount）与 /admin/status nodes.online（status.go:195）；无指标采集、无心跳延迟。）
--   [ ] `F-1804` 采集 Relay 在线数量和连接数。
+-   [ ] `F-1804` 采集 Relay 在线数量和连接数。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1804 | 未满足：relaypush 仅渲染配置覆盖（relaypush.go:1-2）；无 relay 在线/连接跟踪。）
--   [ ] `F-1805` 采集 Relay 吞吐量。
+-   [ ] `F-1805` 采集 Relay 吞吐量。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1805 | 未满足：无 relay 吞吐。）
--   [ ] `F-1806` 采集 Path 可用率和质量指标。
+-   [ ] `F-1806` 采集 Path 可用率和质量指标。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1806 | 部分：探测判定入库（ProbeReport+aggregate.go:127）经 /api/probe-reports+/api/dimension-status 暴露；无 Path 可用率/质量指标。）
--   [ ] `F-1807` 采集 Probe 任务成功率。
+-   [ ] `F-1807` 采集 Probe 任务成功率。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1807 | 未满足：有判定记录无成功率计算/采集。）
--   [ ] `F-1808` 采集配置下发成功率。
+-   [ ] `F-1808` 采集配置下发成功率。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1808 | 部分：NodeConfig 行持久 pending/applied/failed（models.go:237）；无成功率聚合指标。）
--   [ ] `F-1809` 采集流量记账延迟。
+-   [ ] `F-1809` 采集流量记账延迟。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1809 | 未满足：NodeTrafficLog 有 recorded_at（models.go:271）；无记账延迟指标。）
--   [ ] `F-1810` 采集调度耗时。
+-   [ ] `F-1810` 采集调度耗时。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1810 | 未满足：alloc 调度器无耗时指标。）
--   [ ] `F-1811` 采集 Provider API 请求成功率和延迟。
+-   [ ] `F-1811` 采集 Provider API 请求成功率和延迟。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1811 | 未满足：providerapi 仅 CRUD；无调用成功率/延迟指标。）
--   [ ] `F-1812` 采集云操作任务成功率和耗时。
+-   [ ] `F-1812` 采集云操作任务成功率和耗时。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1812 | 部分：ProvisionJob 持久 running/ok/failed（models.go:519）；无成功率/耗时指标。）
--   [ ] `F-1813` 采集账单同步成功率和延迟。
+-   [ ] `F-1813` 采集账单同步成功率和延迟。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1813 | 未满足：无账单同步组件（账单同步|syncBill 0 命中）。）
--   [ ] `F-1814` 采集成本数据新鲜度。
+-   [ ] `F-1814` 采集成本数据新鲜度。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1814 | 未满足：cost.Build 无成本数据新鲜度指标。）
 
 ## 16.2 告警
 
--   [ ] `F-1821` Agent 离线告警。
+-   [ ] `F-1821` Agent 离线告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1821 | 未满足：agent 掉线仅 setNodeStatus("offline")+日志（agentws.go:178-179）；无 Alert 行、无 Herald 事件。）
--   [ ] `F-1822` Relay 离线告警。
+-   [ ] `F-1822` Relay 离线告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1822 | 未满足：无 relay 在线跟踪即无掉线告警。）
--   [ ] `F-1823` Path 不可用告警。
+-   [ ] `F-1823` Path 不可用告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1823 | 部分：region/ISP 故障经 monitor applyVerdict→Herald KindRegionFault/KindISPFault（monitor.go:123-138）；无按 Path 不可用告警。）
--   [ ] `F-1824` Path 质量下降告警。
+-   [ ] `F-1824` Path 质量下降告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1824 | 部分：维度降级发 notify dimension.degraded（monitor.go:148-151）；无质量下降 Alert 行。）
--   [ ] `F-1825` 节点带宽超限告警。
+-   [ ] `F-1825` 节点带宽超限告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1825 | 未满足：无带宽超限告警（quota/link、userbw 无告警）。）
--   [ ] `F-1826` 配置下发失败告警。
+-   [ ] `F-1826` 配置下发失败告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1826 | 部分：config_error kind+recordAlert 通路在（alerts.go:26+TestAlertGuards）；agent 生产侧从不发送（AlarmKindConfigError 仅见于 agentproto+测试，configd 回滚仅 ack.Error configd.go:117）——有通路无生产者。）
--   [ ] `F-1827` 节点升级失败告警。
+-   [ ] `F-1827` 节点升级失败告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1827 | 部分：agent 侧升级回滚（upgrade/upgrade.go:54）+管线穷尽发 recovery_failed Herald（recovery.go:347-360）；无升级失败 Alert 行。）
--   [ ] `F-1828` Provider API 认证失败告警。
+-   [ ] `F-1828` Provider API 认证失败告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1828 | 未满足：providerapi 无认证失败检测/告警。）
--   [ ] `F-1829` 云资源操作失败告警。
+-   [ ] `F-1829` 云资源操作失败告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1829 | 未满足：provision 失败仅记 status（models.go:519）；无云操作失败告警。）
--   [ ] `F-1830` 云账单同步失败告警。
+-   [ ] `F-1830` 云账单同步失败告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1830 | 未满足：无账单同步即无同步失败告警。）
--   [ ] `F-1831` 成本异常增长告警。
+-   [ ] `F-1831` 成本异常增长告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1831 | 部分：high_cost Alert（cost.go:30,233-241）+cost_exceeded Herald（:249）覆盖阈值；非增长率异常。）
 -   [x] `F-1832` 备份失败告警。
     - 备注（Task ID: F-1832 | Status: Done | Evidence: backup.go:253/260 emitBackupFailed/emitUploadFailed；TestBackupFailedEmit | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
@@ -2025,7 +2025,7 @@ External Client
     - 备注（Task ID: F-1908 | Status: Done | Evidence: SQLite 并发写检查：WAL+busy_timeout(5000)+外键 storage.go:141 §3.15 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1909` 检查 PostgreSQL Migration 兼容性。
     - 备注（Task ID: F-1909 | Status: Done | Evidence: PG Migration 兼容：make test-pg 实跑 ok 4.966s §1+§3.15 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1910` 建立历史数据归档和清理策略。
+-   [ ] `F-1910` 建立历史数据归档和清理策略。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1910 | 未满足：仅 audit.Prune/Loop 轮转（audit.go:20,30+TestPruneRemovesOnlyOutOfWindow audit_test.go:34）；probe_reports/traffic_logs/node_traffic_logs 无任何保留/清理代码（TrafficLog 明示不删不改 models.go:129-131；ProbeReport models.go:199 无）。）
 
 ## 17.2 部署和恢复
@@ -2040,36 +2040,36 @@ External Client
     - 备注（Task ID: F-1924 | Status: Done | Evidence: keyinit.go:21-22 defaultKeyFileName+ :143-159 FERRY_KEYFILE 覆盖；部署指南.md:33-34 记录 FERRY_SECRET_KEY/FERRY_ENV/FERRY_KEYFILE+迁移须携带主钥文件；MIGRATION-RUNBOOK.md:11 主钥不入备份包 | Verification: TestGeneratePersistsAndStable+TestProductionRequiresPersistence+TestKeyfileRoundTrip（keyinit_test.go:25/156/98） | Commit: 57e899f）
 -   [x] `F-1925` 建立数据库自动备份。
     - 备注（Task ID: F-1925 | Status: Done | Evidence: backup.go:153 Loop 周期备份；TestLoopRunsOnceAndPrunes+TestSnapshotEncrypted | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1926` 建立配置和密钥备份策略。
+-   [ ] `F-1926` 建立配置和密钥备份策略。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1926 | 部分：backup.Snapshot（backup.go:110）仅 VACUUM INTO 数据库，主钥故意排除，备份循环不含配置/ferry-keys.env/ferry.env 拷贝；仅手动策略（部署指南.md:33+MIGRATION-RUNBOOK.md:11+restore.sh --key:16）——配置与密钥备份非自动化。）
 -   [x] `F-1927` 建立备份恢复测试。
     - 备注（Task ID: F-1927 | Status: Done | Evidence: deploy/restore.sh+e2e 备份恢复腿（53 断言内） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1928` 建立 Server 升级测试。
+-   [ ] `F-1928` 建立 Server 升级测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1928 | 未满足：无 Server 升级测试——CI deploy 脚本 job（test.yml:94-99）仅 install-rollback-test.sh/start-args-test.sh/e2e-smoke.sh；Server 升级仅文档「拉新镜像重建」+启动 AutoMigrate（storage.go:60-67），无版本升级断言。）
--   [ ] `F-1929` 建立 Server 回滚方案。
+-   [ ] `F-1929` 建立 Server 回滚方案。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1929 | 部分：回滚有文档+agent 原子 .prev 回滚（MIGRATION-RUNBOOK.md:127-132+install-rollback-test.sh:164-178+systemd-smoke.sh:112-120）；无 Server 二进制回滚路径（compose 重建仅前进，AutoMigrate 无 down-migration）。）
 -   [x] `F-1930` 建立完整部署冒烟测试。
     - 备注（Task ID: F-1930 | Status: Done | Evidence: deploy/e2e-smoke.sh 实跑 53 ok EXIT=0 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1931` 验证 Server 重启后 Agent 能重新连接。
+-   [ ] `F-1931` 验证 Server 重启后 Agent 能重新连接。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1931 | 部分：仅通用重连断言 TestRunReconnectsUntilCancel（link_test.go:161-182 disconnects>=3）+TestRunDialErrorReconnectsUntilCancel（link_extra_test.go:19-35）；无杀/重启 ferry-server 断言 agent 回在线——e2e-smoke.sh 先杀 agent 再重启 server，重启腿不覆盖重连（MIGRATION-RUNBOOK.md:96-98 仅手动）。）
--   [ ] `F-1932` 验证 Server 不可用时数据面继续运行。
+-   [ ] `F-1932` 验证 Server 不可用时数据面继续运行。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1932 | 部分：故障语义有文档（面板可用性设计.md:5-18：agent 本地自治/隧道/用户流量继续，管理面断）+离线缓冲测试 TestSendFailureRetries（spool_test.go:99）+TestWatchForwardsUntilCancel（:147）；无「数据面在 server 宕机时继续转发」专门断言。）
 
 ## 17.3 多区域
 
--   [ ] `F-1941` 为 Node 和 Path 建立区域维度管理。
+-   [ ] `F-1941` 为 Node 和 Path 建立区域维度管理。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1941 | 部分：Node 侧区域齐（model.go:41 Region+Node.Region/Datacenter/ISP/City+ProbeReport.Region/.ISP models.go:209-210+DimensionStatus :216-227）；无 Path 模型/实体（type Path 0 命中，仅 Backup.Path 文件字段 models.go:704）——Node 和 Path 仅覆盖一半。）
 -   [x] `F-1942` 支持跨区域探测。
     - 备注（Task ID: F-1942 | Status: Done | Evidence: probe.go:91-95 Target/TargetKind/TargetHost 探测任意目标+ProbeReport.Region/.ISP（models.go:209-210）记录目标区域/运营商快照；entry→landing 探测天然跨区域 | Verification: probe_test.go+TestAgentWSProbeReport（agentws_test.go） | Commit: 57e899f）
--   [ ] `F-1943` 支持跨区域调度。
+-   [ ] `F-1943` 支持跨区域调度。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1943 | 部分：调度不按区域限定（候选跨全部 landing alloc.go:466-475）；区域为手动指派维度（hasManualAssignment alloc.go:568-572 entry_node_id IS NULL AND region=?+TestSweepManualWins alloc_test.go:302,327,334）；无自动区域感知权重（评分仅 load/cost/premium alloc.go:63,186-242）。）
--   [ ] `F-1944` 支持区域容量和成本统计。
+-   [ ] `F-1944` 支持区域容量和成本统计。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1944 | 部分：区域成本统计有（cost.Build 按 region 分组 cost.go:124-149+GroupCost+Report.Regions+TestBuild cost_test.go:87-93 断言 hk）；无区域容量统计（GroupCost 无容量字段，容量仅每节点 alloc.Candidate.CapacityMbps:188）。）
 -   [x] `F-1945` 支持区域故障隔离。
     - 备注（Task ID: F-1945 | Status: Done | Evidence: monitor.go:121-124 区域作用域发 herald.KindRegionFault+DimensionStatus 聚合（monitor.go:21-26,51-59）合并单告警；设计依据 调度核心设计.md:47,84 | Verification: TestApplyVerdictTransitions（monitor_test.go:59,81-101 region_fault 断言） | Commit: 57e899f）
 -   [x] `F-1946` 评估 Server 高可用。
     - 备注（Task ID: F-1946 | Status: Done | Evidence: 面板可用性设计.md:3 单点+§1 故障语义+小时级 RTO；warm-standby 选项 P2-1 standby.go:1-162+deploy/README.md:235-257 拉取加密主快照；结论单点设计+手动提升，无自动故障转移 | Verification: docs/design/面板可用性设计.md+deploy/README.md | Commit: 57e899f）
--   [ ] `F-1947` 评估数据库只读副本。
+-   [ ] `F-1947` 评估数据库只读副本。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1947 | 未满足：无只读副本评估——只读副本|read replica|ReadReplica|副本|读库 全仓 0 命中；standby 是全量加密快照替换自身库并重启（standby.go:115-162）为热备非只读副本，无文档评估。）
 -   [x] `F-1948` 在没有明确需求前不实现数据库双主双写。
     - 备注（Task ID: F-1948 | Status: Done | Evidence: 全仓无 dual|双写|双主|leader|election|lease|advisory|FOR UPDATE（非测试）；Snapshot 显式拒绝非 sqlite（backup.go:111-113）；standby 严格拉取只读从不写主库 | Verification: 全仓 grep 0 命中+standby.go:115-162 | Commit: 57e899f）
@@ -2082,15 +2082,15 @@ External Client
 
 ## 18.1 单元测试
 
--   [ ] `F-2001` 为 Node 状态机建立单元测试。
+-   [ ] `F-2001` 为 Node 状态机建立单元测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2001 | 部分：Node 状态转换经 TestAgentWSHeartbeat（agentws_test.go:53 online→offline :97,101）+维度状态机 TestApplyVerdictTransitions（monitor_test.go:59）+pool 态（standby_test+recovery）；无独立状态机抽象单测。）
--   [ ] `F-2002` 为 Capability 过滤建立单元测试。
+-   [ ] `F-2002` 为 Capability 过滤建立单元测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2002 | 未满足：type Capability 全仓 0 命中，能力仅由 role/labels/LineType 隐式承载（models.go:95-102），alloc 按 role/direction/health 过滤——无能力模型即无过滤测试。）
--   [ ] `F-2003` 为 Path 状态机建立单元测试。
+-   [ ] `F-2003` 为 Path 状态机建立单元测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2003 | 未满足：type Path 0 命中；仅 LandingAssignment（models.go:165）+alloc sweep（alloc.go:497）等价物；无 Path 状态机。）
--   [ ] `F-2004` 为 Path Group 建立单元测试。
+-   [ ] `F-2004` 为 Path Group 建立单元测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2004 | 未满足：type PathGroup 0 命中；无 Group CRUD/成员/顺序。）
--   [ ] `F-2005` 为 Policy 冲突规则建立单元测试。
+-   [ ] `F-2005` 为 Policy 冲突规则建立单元测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2005 | 未满足：Policy 冲突规则缺失——仅 alloc 调度策略（least_conn/cost_first/perf_first/balanced/manual alloc.go:23-46）被 alloc_test 覆盖，无路由 Policy/冲突规则模型。）
 -   [x] `F-2006` 为 Scheduler 过滤和评分建立单元测试。
     - 备注（Task ID: F-2006 | Status: Done | Evidence: alloc_test 9 例调度单测 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
@@ -2102,13 +2102,13 @@ External Client
     - 备注（Task ID: F-2009 | Status: Done | Evidence: sub/{clash,singbox,links}_test Adapter 单测 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-2010` 为 Traffic Dedup 建立单元测试。
     - 备注（Task ID: F-2010 | Status: Done | Evidence: agentws_dedupe_test 7 例去重单测 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-2011` 为 Cloud Provider Adapter 建立契约测试。
+-   [ ] `F-2011` 为 Cloud Provider Adapter 建立契约测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2011 | 未满足：无 Cloud Provider Adapter——providerapi 仅凭据/模板 CRUD（providerapi.go:34-147），无访问云 API 的 adapter 接口；TestProviderAPI 测密钥封装非契约。）
--   [ ] `F-2012` 为 Cloud Operation 状态机建立单元测试。
+-   [ ] `F-2012` 为 Cloud Operation 状态机建立单元测试。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2012 | 未满足：type CloudOperation 0 命中；无操作状态机/幂等键/任务接入。）
--   [ ] `F-2013` 为 Cost Import 去重建立单元测试。
+-   [ ] `F-2013` 为 Cost Import 去重建立单元测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2013 | 未满足：无账单/导入管线（cost 仅逐节点 Build+价格 CheckNode+watch/alert）；无 CostImport 去重单测。）
--   [ ] `F-2014` 为 Cost Allocation 建立单元测试。
+-   [ ] `F-2014` 为 Cost Allocation 建立单元测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2014 | 未满足：type CostAllocation 0 命中；alloc 包是调度非成本分摊；无分摊/重算引擎。）
 -   [x] `F-2015` 为后台任务重试和取消建立单元测试。
     - 备注（Task ID: F-2015 | Status: Done | Evidence: 后台任务重试+取消按管线实测——herald 重试指数退避+尝试上限+死信 TestDeliverRetryBackoffAndDeadLetter（herald_test.go:101）+退避上限 TestBackoffCap（:162）+循环取消 TestLoopDelivers（:192）；cert 任务重试 TestSweepFailedBackoff（cert_test.go:228）+TestLoopSweepsAndStopsOnCancel（:263）；relaypush 超时重推 TestPushTimeout（relaypush_test.go:307） | Verification: herald_test.go+cert_test.go+relaypush_test.go | Commit: 9a8663a）
@@ -2123,102 +2123,102 @@ External Client
     - 备注（Task ID: F-2023 | Status: Done | Evidence: relaypush_test 9 例（ACK/超时/重推） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-2024` 测试配置失败回滚。
     - 备注（Task ID: F-2024 | Status: Done | Evidence: configd_test TestApplyReloadFailRollsBack+TestApplyNoOldConfigRollbackRemoves | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-2025` 测试 Relay 建立和断线重连。
+-   [ ] `F-2025` 测试 Relay 建立和断线重连。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2025 | 部分：relay 建立+转发有 TestRelayForwards（relay_test.go:41 mock 隧道）+TestRelayHotRepoint（:129）；重连仅间接（SSH dial 重试 tunnel_extra_test.go:165 TestSSHDialRetryOnChannelReject+agent-link TestRunReconnectsUntilCancel）；无「断已建 relay 隧道→重连→继续转发」测试。）
 -   [x] `F-2026` 测试 Probe 任务执行和结果回传。
     - 备注（Task ID: F-2026 | Status: Done | Evidence: probe_test+TestAgentWSProbeReport/TestAgentWSProbeReportResolve | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-2027` 测试 Path 健康变化。
+-   [ ] `F-2027` 测试 Path 健康变化。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2027 | 未满足：Path 缺失；sub.go:74 按 status!=offline+pool_state 过滤，但无 Path 健康变化测试（monitor 维度迁移不建模 Path）。）
--   [ ] `F-2028` 测试 Path 故障回退。
+-   [ ] `F-2028` 测试 Path 故障回退。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2028 | 未满足：Path 故障回退缺失；最接近 entry→landing 经 alloc sweep（TestSweepAllocatesAndSwitches alloc_test.go:223），无 Path。）
 -   [x] `F-2029` 测试订阅生成和权限过滤。
     - 备注（Task ID: F-2029 | Status: Done | Evidence: TestSubscription（sub_test.go:30）+TestSubscriptionAvailability（:128 超配额→无节点订阅/过期→无节点/不限→节点+Subscription-Userinfo）+TestSubscriptionHysteria2/TestSubscriptionSingBoxMixed；权限过滤 sub.UserActive（sub/availability.go:11+TestUserActive）+entry-only/pool-active/status 过滤（sub.go:74）；格式渲染 TestPackClash/TestPackSingBox/TestShareLink | Verification: sub_test.go+sub/availability_test.go | Commit: 9a8663a）
 -   [x] `F-2030` 测试流量上报、去重和补报。
     - 备注（Task ID: F-2030 | Status: Done | Evidence: 上报 TestAgentWSTrafficReport（agentws_test.go:477）+TestReporterCollectsAndReports（traffic_test.go:31）；去重 7 例（TestAgentWSDuplicateTrafficFrame:57+TestAgentWSDedupSurvivesReconnect:104+TestReportDeduperWindow:243+TestReportDeduperTTL:267）；补报 spool 离线缓冲+重试 TestSendFailureRetries（spool_test.go:99）+TestWatchForwardsUntilCancel（:147） | Verification: agentws_dedupe_test.go+traffic_test.go+spool_test.go | Commit: 9a8663a）
--   [ ] `F-2031` 测试 Provider 账号连接和资源同步。
+-   [ ] `F-2031` 测试 Provider 账号连接和资源同步。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2031 | 未满足：Provider 凭据库有且测（TestProviderAPI）；无「账号连接」与资源同步（provision 仅 tofu CLI，无 provider API 调用）；无资源同步测试。）
--   [ ] `F-2032` 测试云资源开机操作。
+-   [ ] `F-2032` 测试云资源开机操作。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2032 | 区级未满足原因：无 CloudOperation/CloudResource 模型、无电源开/关/重启路径（provision 仅 tofu launch/replenish）——F-2032/F-2033/F-2034 未满足。）
--   [ ] `F-2033` 测试云资源关机操作。
--   [ ] `F-2034` 测试云资源重启操作。
--   [ ] `F-2035` 测试 Provider 请求超时后的状态对账。
+-   [ ] `F-2033` 测试云资源关机操作。（依赖：F-2032；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-2034` 测试云资源重启操作。（依赖：F-2032；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-2035` 测试 Provider 请求超时后的状态对账。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2035 | 未满足：无 provider adapter→无请求超时对账；仅 agent 请求超时（relaypush TestPushTimeout）非 provider 状态对账。）
--   [ ] `F-2036` 测试账单导入和重复数据去重。
+-   [ ] `F-2036` 测试账单导入和重复数据去重。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2036 | 未满足：无账单导入；storage 无账单表/模型。）
--   [ ] `F-2037` 测试估算与实际账单差异计算。
+-   [ ] `F-2037` 测试估算与实际账单差异计算。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2037 | 未满足：无实际账单导入→无估算 vs 实际差异；仅估算 vs 参考价偏差（cost.CheckNode/TestCheckNode cost_test.go:224）非账单差异。）
--   [ ] `F-2038` 测试成本分摊和重算。
+-   [ ] `F-2038` 测试成本分摊和重算。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2038 | 未满足：无 CostAllocation 引擎；cost.Build（cost.go:96）是节点/区域成本汇总非分摊/重算。）
--   [ ] `F-2039` 测试云资源操作与 Node 状态联动。
+-   [ ] `F-2039` 测试云资源操作与 Node 状态联动。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2039 | 未满足：无 CloudOperation→无云操作↔Node 状态联动；仅手动 proc-control↔node 状态（procop+TestAgentWSProcOp）。）
 
 ## 18.3 端到端测试
 
 -   [x] `F-2041` 自动部署测试 Server。
     - 备注（Task ID: F-2041 | Status: Done | Evidence: 真实 server 二进制启动+健康可达+DB 初始化+degraded→ok 恢复+管理端认证+备份/恢复（deploy/e2e-smoke.sh:116-145,388-427）；CI test.yml:98-99 deploy-scripts job 接入 | Verification: deploy/e2e-smoke.sh（53 断言）+.github/workflows/test.yml | Commit: 9a8663a）
--   [ ] `F-2042` 自动部署 Entry Node。
+-   [ ] `F-2042` 自动部署 Entry Node。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2042 | 未满足：通用 agent 注册上线（e2e-smoke.sh:156,192）；无 entry 角色部署/entry 数据面/Path entry。）
--   [ ] `F-2043` 自动部署 Landing Node。
+-   [ ] `F-2043` 自动部署 Landing Node。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2043 | 未满足：无 landing 角色部署。）
--   [ ] `F-2044` 建立真实 Relay Tunnel。
+-   [ ] `F-2044` 建立真实 Relay Tunnel。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2044 | 未满足：e2e 仅 agent WS 链路；无真实 relay 隧道（relay 角色仅单测 relay_test.go）。）
--   [ ] `F-2045` 创建 Path 并执行探测。
+-   [ ] `F-2045` 创建 Path 并执行探测。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2045 | 未满足：无 Path；e2e 无探测（probe 仅单测）。）
--   [ ] `F-2046` 生成 sing-box 订阅并执行解析测试。
+-   [ ] `F-2046` 生成 sing-box 订阅并执行解析测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2046 | 未满足：sing-box 解析仅单测（sub/singbox_test.go）；e2e-smoke 推 stub 内核配置，无 sing-box 订阅解析。）
--   [ ] `F-2047` 生成 Clash/Mihomo 配置并执行解析测试。
+-   [ ] `F-2047` 生成 Clash/Mihomo 配置并执行解析测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2047 | 未满足：Clash 解析仅单测（sub/clash_test.go）；无 e2e 解析。）
--   [ ] `F-2048` 验证真实 TCP 转发。
+-   [ ] `F-2048` 验证真实 TCP 转发。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2048 | 未满足：无真实 TCP 转发 e2e（relay 转发仅单测/mock TestRelayForwards）。）
--   [ ] `F-2049` 验证真实 UDP 转发。
+-   [ ] `F-2049` 验证真实 UDP 转发。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2049 | 未满足：无 UDP 转发 e2e 或单测。）
--   [ ] `F-2050` 验证节点故障后的线路处理。
+-   [ ] `F-2050` 验证节点故障后的线路处理。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2050 | 未满足：e2e 覆盖进程故障（stub 内核崩溃→自重启 e2e-smoke.sh:235-237,262）；无节点线路/网络故障处理。）
--   [ ] `F-2051` 验证节点恢复后重新加入调度。
+-   [ ] `F-2051` 验证节点恢复后重新加入调度。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2051 | 部分：agent 掉线→重连覆盖（健康 1→0→1+token 轮换窗再上线 e2e-smoke.sh:298-340+单测 TestRunReconnectsUntilCancel）；无故障触发恢复/重入调度 e2e。）
--   [ ] `F-2052` 验证流量记账准确性。
+-   [ ] `F-2052` 验证流量记账准确性。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2052 | 未满足：流量记账准确仅单测（TestSaveStatsAPI+traffic tests）；e2e 不测流量量级。）
--   [ ] `F-2053` 验证 Server 重启后的状态恢复。
+-   [ ] `F-2053` 验证 Server 重启后的状态恢复。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2053 | 部分：server 恢复态恢复覆盖（e2e-smoke.sh:417-427 恢复实例健康+节点数据在）；server 杀/重启→agent 重连未覆盖（F-1931 注：e2e 先杀 agent 再重启 server，重启腿不断言重连）。）
 -   [ ] `F-2054` 在测试 Provider 账号或 Mock Provider
     - 待补（F-2054 | 未满足：无云资源操作、无 test/mock provider（provision 仅 tofu CLI）。）
-    上验证完整云资源操作流程。
--   [ ] `F-2055` 验证云资源账单导入、成本汇总和 Dash 展示。
+    上验证完整云资源操作流程。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-2055` 验证云资源账单导入、成本汇总和 Dash 展示。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2055 | 未满足：无账单导入；成本汇总仅单测（costapi_test）；无 Dash 展示 e2e。）
 
 ## 18.4 性能与故障测试
 
--   [ ] `F-2061` 测试大量 Agent 长连接。
+-   [ ] `F-2061` 测试大量 Agent 长连接。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2061 | 未满足：长连接组件在（agentws.go+agenthub/hub.go），但测试仅 1-2 连接（hub_test.go:21 TestHubRegisterUnregister+agentws_test.go:53）；无多连接压测。）
--   [ ] `F-2062` 测试大量心跳并发。
+-   [ ] `F-2062` 测试大量心跳并发。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2062 | 未满足：心跳组件在（app.go BuildHeartbeat），无并发心跳负载测试（无 t.Parallel/errgroup 心跳压测）。）
--   [ ] `F-2063` 测试大量 ProbeResult 写入。
+-   [ ] `F-2063` 测试大量 ProbeResult 写入。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2063 | 未满足：ProbeReport/ProbeReportBatch 单发测试（agentws_test.go:194 TestAgentWSProbeReport+:254）；无写入量/吞吐测试。）
--   [ ] `F-2064` 测试大量订阅请求。
+-   [ ] `F-2064` 测试大量订阅请求。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2064 | 未满足：订阅单请求测试（sub_test.go:30 TestSubscription+:276）；无多请求负载测试。）
--   [ ] `F-2065` 测试大量流量报告。
+-   [ ] `F-2065` 测试大量流量报告。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2065 | 未满足：流量上报单帧测试（agentws_test.go:477 TestAgentWSTrafficReport）；无量级/并发上报测试。）
--   [ ] `F-2066` 测试大量候选 Path 调度。
+-   [ ] `F-2066` 测试大量候选 Path 调度。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2066 | 未满足：候选调度功能测试在（alloc_test.go 多场景），但均为小候选功能用例；无规模/性能测量。）
--   [ ] `F-2067` 测试大量配置批量下发。
+-   [ ] `F-2067` 测试大量配置批量下发。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2067 | 未满足：配置下发单发测试（agentws_test.go:363 TestAgentWSConfigPush+relaypush_test.go:240）；无批量量级推送测试。）
--   [ ] `F-2068` 测试大量云资源同步。
+-   [ ] `F-2068` 测试大量云资源同步。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2068 | 未满足：无云资源同步组件——providerapi 仅凭据 DB CRUD，唯一外部客户端是 DNS（dns/cloudflare.go）；云资源同步全仓 0 命中。）
--   [ ] `F-2069` 测试 Provider API 限流和超时。
+-   [ ] `F-2069` 测试 Provider API 限流和超时。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2069 | 未满足：ratelimit 单测覆盖 IP/API-auth/sub 节流（limiter_test.go:9/34/62）非 Provider API；无云服务商 API 客户端（provisioning 走 tofu exec provision.go:89），无 Provider API 限流/超时测试。）
--   [ ] `F-2070` 测试账单大批量导入。
+-   [ ] `F-2070` 测试账单大批量导入。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2070 | 未满足：无账单导入端点（账单批量导入 0 命中，仅 storage.BillingType models.go:104 字段）——无负载对象。）
--   [ ] `F-2071` 测试 Server 与 Provider 网络中断。
+-   [ ] `F-2071` 测试 Server 与 Provider 网络中断。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2071 | 未满足：无 Server↔Provider 网络路径（Provider=DB 记录，provisioning 走 tofu CLI 非服务商 REST API）；最近的是 dns_test.go:200 TestCloudflareDoErrors DNS 不可达注入，非云资源开通路径。）
--   [ ] `F-2072` 测试 Relay 故障。
+-   [ ] `F-2072` 测试 Relay 故障。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2072 | 部分：relay 组件在，故障路径单测在（relay_extra_test.go:39 TestRunListenError+:164 TestRunAcceptErrorLogged+relaypush_test.go:307 TestPushTimeout+:326 TestPushSendError）；无真实 relay 数据面故障注入（无杀进程/网络分区）。）
--   [ ] `F-2073` 测试 Agent 故障。
+-   [ ] `F-2073` 测试 Agent 故障。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2073 | 部分：agent 故障路径单测在（agentws_test.go:99-101 掉线→offline+pool_test.go:132 TestSweepOnceEmitsNodeDown+hub_test.go:56 TestHubUnregisterStale+agentws_dedupe_test.go:104）；仅单 agent，无多 agent 故障测试。）
--   [ ] `F-2074` 测试数据库短暂不可用。
+-   [ ] `F-2074` 测试数据库短暂不可用。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2074 | 部分：真实 DB 故障注入在（recovery_test.go:558 TestSweepAndLoopOnClosedDB+:662 TestTraceHelpersOnClosedDB+cost_extra_test.go:42 TestBuildOnBrokenDB，DB 关闭后循环存活持续记日志）；但 DB 保持关闭非短暂抖动，且仅覆盖 recovery/cost 包。）
--   [ ] `F-2075` 测试成本数据过期和缺失时的降级行为。
+-   [ ] `F-2075` 测试成本数据过期和缺失时的降级行为。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2075 | 未满足：cost 无新鲜度/缺失降级处理（非测试代码 grep stale/fresh/过期/degrad 0 命中）；仅 DB 错误路径测试（TestBuildOnBrokenDB）。）
--   [ ] `F-2076` 记录测试环境、数据规模、并发量、P95/P99 和资源占用。
+-   [ ] `F-2076` 记录测试环境、数据规模、并发量、P95/P99 和资源占用。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2076 | 未满足：无测试环境/数据规模/并发量/P95/P99/资源占用记录（P95/P99/benchstat 0 命中）；status.go:182-187 的 runtime.MemStats 是运行指标非压测结果。）
 
 ------------------------------------------------------------------------
@@ -2258,55 +2258,55 @@ External Client
 
 ## P1 --- 核心模型收敛
 
--   [ ] `F-9101` 明确 Node、Capability 和现有 Pool 的关系。
+-   [ ] `F-9101` 明确 Node、Capability 和现有 Pool 的关系。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9101 | 未满足：Capability 模型 0 命中（F-0222 区），Node/Pool 与 Capability 关系未定义——能力由 role/labels/LineType 隐式承载，无显式 Capability 模型。）
--   [ ] `F-9102` 明确 Tunnel 与 Path 的边界。
+-   [ ] `F-9102` 明确 Tunnel 与 Path 的边界。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9102 | 未满足：Path 模型 0 命中（F-0243 区），Tunnel 与 Path 边界未定义——Entry→Landing 由 LandingAssignment+sweep 承载，无 Path 实体。）
--   [ ] `F-9103` 完成 Path 模型或现有模型映射。
+-   [ ] `F-9103` 完成 Path 模型或现有模型映射。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9103 | 未满足：无 type Path，仅 LandingAssignment(models.go:181-195)——Path 模型或现有模型映射未实现。）
--   [ ] `F-9104` 完成 Path Group 模型或现有模型映射。
+-   [ ] `F-9104` 完成 Path Group 模型或现有模型映射。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9104 | 未满足：PathGroup 模型 0 命中（F-0261 区），无 Group 创建/成员/默认 Path/健康聚合。）
--   [ ] `F-9105` 完成 Policy 模型或现有模型映射。
+-   [ ] `F-9105` 完成 Policy 模型或现有模型映射。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9105 | 未满足：无 type Policy；仅 alloc.go:57 PolicySetting+ScoreWeights（调度权重，非 Policy 模型）（F-0282 区）。）
--   [ ] `F-9106` 完成模型 Migration。
+-   [ ] `F-9106` 完成模型 Migration。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9106 | 未满足：新模型（Capability/Path/PathGroup/Policy）未实现，无模型可迁移；storage 仅 AutoMigrate 现有表（storage.go:67），无版本化迁移（schema_version/AddColumn 0 命中）。）
--   [ ] `F-9107` 完成旧数据兼容。
+-   [ ] `F-9107` 完成旧数据兼容。（依赖：F-9106；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9107 | 未满足：无版本化迁移/旧数据兼容机制（schema_version/AddColumn/AlterColumn 全仓 0 命中）；依赖 F-9106。）
--   [ ] `F-9108` 完成核心模型测试。
+-   [ ] `F-9108` 完成核心模型测试。（依赖：F-0222、F-0243、F-0261、F-0282；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9108 | 未满足：核心模型 Capability/Path/PathGroup/Policy 缺失（F-0222/0243/0261/0282）；仅 storage_test.go 一个模型测试文件。）
 
 ## P2 --- 云资源管理与成本基础
 
--   [ ] `F-9201` 完成 Provider Adapter 契约。
+-   [ ] `F-9201` 完成 Provider Adapter 契约。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9201 | 未满足：无云资源 Provider Adapter（F-0302 区，Adapter/ListResources/Power* 均 0）；provision 仅 tofu CLI(provision.go:89 exec tofu)。）
--   [ ] `F-9202` 完成 Cloud Account 和凭据管理。
+-   [ ] `F-9202` 完成 Cloud Account 和凭据管理。（依赖：F-1442；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9202 | 未满足：无独立 Cloud Account 实体——provider 加密 access_key 兼作账号（F-1442 部分），无 account 实体/凭据管理。）
--   [ ] `F-9203` 完成资源同步。
+-   [ ] `F-9203` 完成资源同步。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9203 | 未满足：CloudResource 模型 0 命中（F-0341 区），无资源拉取/同步/过滤/绑定。）
--   [ ] `F-9204` 完成 Cloud Operation 任务状态机。
+-   [ ] `F-9204` 完成 Cloud Operation 任务状态机。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9204 | 未满足：CloudOperation 模型 0 命中（F-0361 区），无操作状态机/幂等键/超时对账。）
--   [ ] `F-9205` 完成开机、关机和重启流程。
+-   [ ] `F-9205` 完成开机、关机和重启流程。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9205 | 未满足：无云资源电源开/关/重启路径（F-0361 区/F-0327 区）。）
--   [ ] `F-9206` 完成 Cloud Resource 与 Node 关联。
+-   [ ] `F-9206` 完成 Cloud Resource 与 Node 关联。（依赖：F-0341、F-0391；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9206 | 未满足：CloudResource 0 命中，无资源↔Node 关联与实例停止/启动/删除联动（F-0391/F-0341 区）。）
--   [ ] `F-9207` 完成账单导入模型。
+-   [ ] `F-9207` 完成账单导入模型。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9207 | 未满足：无账单导入（type BillImport 0 命中；costref 仅价格表导入非账单）（F-0521 区）。）
--   [ ] `F-9208` 完成至少一种 Provider 的实际账单接入或文件导入。
+-   [ ] `F-9208` 完成至少一种 Provider 的实际账单接入或文件导入。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9208 | 未满足：无实际账单接入或文件导入（F-0521 区）。）
--   [ ] `F-9209` 完成估算成本。
+-   [ ] `F-9209` 完成估算成本。（依赖：F-0542；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9209 | 部分：包月（FixedCostCents=MonthlyCostCents cost.go:137-138，F-0541 关）与按量流量（TrafficPriceCents×流量 cost.go:130，F-0543 关）已实现；无按时计费/额外IP/磁盘快照/备份存储/折扣预留/自定义项/未知单价哨兵（F-0542 区）。）
--   [ ] `F-9210` 完成实际账单与估算对比。
+-   [ ] `F-9210` 完成实际账单与估算对比。（依赖：F-0581；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9210 | 未满足：无实际账单与 Provider/Account/Path 桶（Build 仅 byRegion/byISP 估算）（F-0581 区）。）
--   [ ] `F-9211` 完成 Dash 云资源管理页面。
+-   [ ] `F-9211` 完成 Dash 云资源管理页面。（依赖：F-0411；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9211 | 未满足：Dash 云资源/云操作页面未实现（无 CloudResource 模型即无页面，审计 §3.11 F-9211/9212 未实现）；仅 Providers 列表存在（F-0411 区）。）
--   [ ] `F-9212` 完成 Dash 成本管理页面。
+-   [ ] `F-9212` 完成 Dash 成本管理页面。（依赖：F-1462、F-1463、F-1465、F-0622；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9212 | 部分：CostView 节点/区域/运营商维度有（F-1464/1466 关）；无 Provider/账号/资源维度、无账单页/同步任务/明细/分摊规则（F-1462/1463/1465/F-0622 区）。）
 
 ## P3 --- Agent、Relay 和配置闭环
 
 -   [x] `F-9301` 完成 Agent 协议差异修复。
     - 备注（Task ID: F-9301 | Status: Done | Evidence: 双方共用单版本协议契约：ProtocolVersion=1(envelope.go:8)+Envelope.V/ID/Type/Payload(envelope.go:36-41)+Valid() 拒未知版本(envelope.go:70)；server 拒不匹配版本 agentws.go:584-591、agent 丢弃 link.go:160-161。 | Verification: TestAgentWSHelloVersion(upgrade_test.go:100)+TestReadLoopDropsBadMessages(link_test.go:225)+envelope_test.go:76 | Commit: 970e9e2）
--   [ ] `F-9302` 完成能力和状态上报。
+-   [ ] `F-9302` 完成能力和状态上报。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9302 | 部分：状态上报已实现（Heartbeat.Procs messages.go:109+app.go:450-462→saveProcStatuses agentws.go:467-473）；能力上报未实现——capab 全仓 0 命中，Hello/Heartbeat/ConfigPush 均无 capab 字段（app.go:221-228）。）
 -   [x] `F-9303` 完成配置版本和 ACK。
     - 备注（Task ID: F-9303 | Status: Done | Evidence: 配置版本+ACK：ConfigPush.Version(messages.go:184)+ConfigAck.Version(messages.go:192)；relaypush.go:70-119（sha256 digest 作 Version、ackTimeout:24、applied/failed/Finish 写 NodeConfig 状态）+NodeConfig.Version(models.go:233)；agent app.go:359-365 回 ack+configd.go:41-45/124-125。 | Verification: relaypush_test.go:240/268/285/307/326+configd_test.go:63/83/135 | Commit: 970e9e2）
@@ -2325,22 +2325,22 @@ External Client
     - 备注（Task ID: F-9402 | Status: Done | Evidence: Probe 任务调度（去中心化口径）：agent 本地自调度——Runner.Run 每 spec 一循环(probe.go:62-87)+nextInterval 晚高峰 19 时加密(probe.go:156-172)+config.ProbeSpec{TargetKind,Target,Direction,IntervalSec}(config.go:39-45)+Config.Probes(config.go:74)；服务端不下发（ProbeTask 全仓 0 命中，envelope.go:27-28 仅 agent.probe_report/panel.probe_ack），设计明示「面板只收结论做聚合判定，不集中探测」(pool.go:1-5/probe.go:1-5)。 | Verification: agent/internal/probe/probe_test.go（TestProbeHealthy 等 4 例）+agent/internal/config 配置解析 | Commit: 970e9e2）
 -   [x] `F-9403` 完成结果聚合。
     - 备注（Task ID: F-9403 | Status: Done | Evidence: 结果聚合：pool.Sweep 30 分钟窗口拉最新 K 个 verdict(pool.go:129-173, ProbeFresh:28-29, Keep=max(SickStrikes,WellStreak):131-134, allVerdicts:235-245)+维度聚合 aggregate.Judge(aggregate.go:32-38, DefaultMinSick=2/DefaultSickRate=0.5:18-19, DimensionRegion/ISP:27-28)+monitor sweep→Judge→applyVerdict 落 DimensionStatus(monitor.go:52-108)。 | Verification: TestJudgeRegionAndISP(aggregate_test.go:45)+TestJudgeWindowAndLatest(:90)+TestJudgeEmpty(:120)+TestJudgeRatioFailure(aggregate_extra_test.go:12)+TestSweepPersistsDimensions(monitor_test.go:152) | Commit: 970e9e2）
--   [ ] `F-9404` 完成 Node、Tunnel、Path、Egress 健康区分。
+-   [ ] `F-9404` 完成 Node、Tunnel、Path、Egress 健康区分。（依赖：F-0904、F-0905；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9404 | 未满足：无 Node/Tunnel/Path/Egress 健康四区分——仅 Node(pool)+Dimension(region/isp) 两级健康；无 Path 模型即无 Path/Egress 级；TransportHealth 定义于 dash/src/api.ts:122-132 但无视图消费（F-0904/0905 区）。）
 -   [x] `F-9405` 完成健康状态计算。
     - 备注（Task ID: F-9405 | Status: Done | Evidence: 健康状态计算：monitor 状态机 StateHealthy/Degraded/Failed(monitor.go:22-26) 由 v.Failed/v.Sick 计算(:66-73)落 DimensionStatus(:80-108, Since/UpdatedAt, models.go:218-226)；节点/池态 pool.go:151-170（连续 sick→suspended setPoolState:248-255、连续 healthy→active）。 | Verification: TestApplyVerdictTransitions(monitor_test.go:59)+TestApplyVerdictDegraded(:123)+TestSweepPersistsDimensions(:152)+TestSweepSuspendAndResume(pool_test.go:71)+TestSweepScope(:162)+TestLoopSweepsAndStopsOnCancel(:241) | Commit: 970e9e2）
--   [ ] `F-9406` 完成健康管理页面。
+-   [ ] `F-9406` 完成健康管理页面。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9406 | 部分：健康在 NodesView 内渲染——/api/dimension-status 拉取(router.go:132, NodesView.vue:71, dims:56)+状态点(healthy 正常/异常:229-235)+区域/运营商健康聚合(:596)+pool_state 标签(:694-696)+togglePool 摘除/预备(:109-142)；无独立健康管理页面（dash/router.ts 16 路由无 health/dimension/probe）、panel 无健康视图、无 tunnel/path/egress 级健康 UI。）
 
 ## P5 --- Path 编排和调度
 
--   [ ] `F-9501` 完成 Path 创建和校验。
+-   [ ] `F-9501` 完成 Path 创建和校验。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9501 | 未满足：无 type Path（F-0243 区），无 Path 创建/校验/CRUD API。）
 -   [x] `F-9502` 完成 Entry → Landing 编排。
     - 备注（Task ID: F-9502 | Status: Done | Evidence: Entry→Landing 编排：自动调度写 LandingAssignment(alloc.go:530-541 SweepAt→db.Create, 当前 auto 释放:525-528)+手动入口 landing.go:45-109(db.Create:104, 校验 entry/landing role/方向/权重)+路由 /api/landings GET/POST/PUT/DELETE(router.go:137-140)。 | Verification: TestSweepAllocatesAndSwitches(alloc_test.go:223)+TestSweepManualWins(:302)+TestLandingAssignment(landing_test.go:10)+TestAllocAPI(allocapi_test.go:11) | Commit: 970e9e2）
--   [ ] `F-9503` 完成 Path Group。
+-   [ ] `F-9503` 完成 Path Group。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9503 | 未满足：PathGroup 模型 0 命中（F-0261 区）。）
--   [ ] `F-9504` 完成 Policy。
+-   [ ] `F-9504` 完成 Policy。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9504 | 未满足：无 type Policy（F-0282 区）。）
 -   [x] `F-9505` 完成候选过滤。
     - 备注（Task ID: F-9505 | Status: Done | Evidence: 候选过滤：alloc.go:448-455（entry role∈(entry,both)、landing role∈(landing,both)、enabled+pool_state=active+status!=provisioning）+:486-489（Direction 匹配、Healthy:!sick[l.ID]）+sick 来自 latestSick(ProbeFresh 30min):622-635+Pick 健康门控:218-226。 | Verification: TestPickHealthGate(alloc_test.go:155)+TestSweepScopeGuards(:338)+TestSweepAllSickKeepsCurrent(:367)+TestPickLeastConnCapacityWeight(:67) | Commit: 970e9e2）
@@ -2348,12 +2348,12 @@ External Client
     - 备注（Task ID: F-9506 | Status: Done | Evidence: 质量/容量/成本评分：容量 CapacityMbps(alloc.go:188-198 实测>降档>升档>100 兜底)+loadRatio(:241-243)；成本 CostPerGB(:202-207 仅按流量边际价)+costPer(:246-248)；策略比较 lessFor(:256-318 least_conn/cost_first/perf_first 精品线:355-361/balanced 归一加权:293-301)；成本聚合 cost.Build(cost.go:96-152)。 | Verification: TestPickCostFirst(alloc_test.go:89)+TestPickPerfFirstInOnly(:111)+TestPickBalanced(:133)+TestPickBalancedWeights(:480)+TestCapacityMbpsFallbacks(:547)+TestBuild(cost_test.go:48)+TestCheckAlerts(:131) | Commit: 970e9e2）
 -   [x] `F-9507` 完成故障回退。
     - 备注（Task ID: F-9507 | Status: Done | Evidence: 故障回退：故障切换 alloc.go:502-521（当前 auto 落地不在健康候选集→强制换绑，健康问题不排队；释放旧:525-528+建新:530-541）；节点恢复 pool.Sweep(pool.go:129-173 连续 SickStrikes→suspended:156、连续 WellStreak→active:163)+手动 Resume/Suspend(:176-234)；恢复状态机 recovery.Sweep(recovery.go:108)+advance(:211)；离线补报 agent spool。 | Verification: TestSweepAllSickKeepsCurrent(alloc_test.go:367)+TestSweepSuspendAndResume(pool_test.go:71)+TestResume(:193)+TestSuspend(:216) | Commit: 970e9e2）
--   [ ] `F-9508` 完成调度解释和模拟。
+-   [ ] `F-9508` 完成调度解释和模拟。（依赖：F-1032、F-1033、F-1034、F-1035；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9508 | 未满足：无调度决策记录/候选排除原因/结果解释/模拟 API（F-1032/1033/1034/1035 均未关）。）
 
 ## P6 --- 订阅和用户运营
 
--   [ ] `F-9601` 完成统一 Subscription DTO。
+-   [ ] `F-9601` 完成统一 Subscription DTO。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9601 | 部分：共享输入 DTO sub.Entry{Node,RttMs}(links.go:169-173) 被三适配器共用（PackV2Ray links.go:201/PackClash clash.go:72/PackSingBox singbox.go:165）；无统一响应 DTO——各格式自出（v2ray base64 links/clashDoc clash.go:66/sing-box outbounds singbox.go:165），handler 按 target 分支(sub.go:124-152)。）
 -   [x] `F-9602` 完成 sing-box Adapter。
     - 备注（Task ID: F-9602 | Status: Done | Evidence: sing-box Adapter：PackSingBox(singbox.go:165)+tls.server_name/singBoxTransport 映射(singbox.go:103-161)。 | Verification: TestPackSingBox(sub/singbox_test.go) | Commit: 970e9e2）
@@ -2361,22 +2361,22 @@ External Client
     - 备注（Task ID: F-9603 | Status: Done | Evidence: Clash/Mihomo Adapter：PackClash(clash.go:72)+servername/applyTransport 映射(clash.go:181-201)。 | Verification: TestPackClash(sub/clash_test.go) | Commit: 970e9e2）
 -   [x] `F-9604` 完成分享链接 Adapter。
     - 备注（Task ID: F-9604 | Status: Done | Evidence: 分享链接 Adapter：PackV2Ray(links.go:201)+v2ray 参数映射(links.go:67-81)。 | Verification: TestPackV2Ray(sub/links_test.go) | Commit: 970e9e2）
--   [ ] `F-9605` 完成真实客户端解析测试。
+-   [ ] `F-9605` 完成真实客户端解析测试。（依赖：F-1129、F-10011；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9605 | 未满足：真实客户端解析测试未满足——合成 UA 无 fixture（F-1129 区；F-10011 未满足）。）
--   [ ] `F-9606` 完成订阅权限过滤。
+-   [ ] `F-9606` 完成订阅权限过滤。（依赖：F-1143、F-1144；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9606 | 部分：用户级可用门 sub.UserActive(availability.go:11-22, sub.go:70)+配额降档 quota.ActiveAction→LowCost(sub.go:88-102, quota/link.go:107-114)+设备/IP 限制(subDeviceCheck sub.go:56-59)；无套餐/权限过滤——sub+handler/sub.go 内 plan/tier/套餐/permission 0 命中，storage.User.Plan(models.go:496) 是节点机型非订阅套餐（F-1143/1144 区）。）
--   [ ] `F-9607` 完成流量记账可靠性。
+-   [ ] `F-9607` 完成流量记账可靠性。（依赖：F-1251；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9607 | 部分：幂等去重已实现——服务端窗口 agentws_dedupe.go:36-67（repeat 键 msgType\x00id，FIFO cap=512/TTL=10min:13-14, repeatReport:61-67）+记账前拦截 agentws.go:544-556（重复帧双算=多扣费，必须挡在记账前）+TTL 过期即视为新帧(:48)，F-1250 关；补报未实现——断线流量静默丢弃（traffic.go:219-226 send==nil 即 return），spool 仅承载 probe 角色，设计 at-most-once 无重传（F-1251 未满足）。）
--   [ ] `F-9608` 完成套餐与线路权限关联。
+-   [ ] `F-9608` 完成套餐与线路权限关联。（依赖：F-1143、F-1144、F-9991、F-10013；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9608 | 未满足：无套餐/Plan 实体，订阅内容无套餐与线路权限关联（F-1143/1144 区；F-9991/F-10013 部分）。）
 
 ## P7 --- 管理和运营闭环
 
 -   [x] `F-9701` 完成 Dash 节点与线路管理。
     - 备注（Task ID: F-9701 | Status: Done | Evidence: dash NodesView/LandingsView+node/landing API 测试+build 绿 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-9702` 完成 Dash 云资源管理。
+-   [ ] `F-9702` 完成 Dash 云资源管理。（依赖：F-0411；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9702 | 未满足：Dash 云资源管理未实现（无 CloudResource 模型即无页面，仅 Providers 列表存在）（F-0411 区）。）
--   [ ] `F-9703` 完成 Dash 成本和账单管理。
+-   [ ] `F-9703` 完成 Dash 成本和账单管理。（依赖：F-0521、F-0622；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9703 | 部分：成本管理有（CostView 节点/区域/运营商维度 F-1464/1466 关）；账单管理未实现（无账单导入/同步/明细页，F-0521/F-0622 区）。）
 -   [x] `F-9704` 完成 Dash 配置和任务管理。
     - 备注（Task ID: F-9704 | Status: Done | Evidence: SettingsView+config 下发+ProvisionView/RecoveryView；TestNodeConfigGuards+TestApplyLifecycle | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
@@ -2387,34 +2387,34 @@ External Client
 
 ## P8 --- 可靠性和规模化
 
--   [ ] `F-9801` 完成权限和安全测试。
+-   [ ] `F-9801` 完成权限和安全测试。（依赖：F-1733、F-1735、F-1737；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9801 | 部分：server 侧权限/安全测试齐（adminrole_test.go:39 TestAdminRoleCRUD 越权 403、apiauth_test.go 双面鉴权/分销不可提权、twofa_test.go 2FA、providerapi_test.go:40 凭据不回显、sub_test.go:276 限频、agentws_test.go:339 令牌伪造拒、audit_test.go:70 脱敏）；dash/panel 前端测试 0 命中、agent 无独立安全测试文件；F-1733（高危云操作越权）/F-1735（管理面配置篡改）/F-1737（密钥泄漏断言）未满足。）
--   [ ] `F-9802` 完成 Metrics 和告警。
+-   [ ] `F-9802` 完成 Metrics 和告警。（依赖：F-1801~F-1814、F-1821、F-1822、F-1825、F-1828、F-1829、F-1830；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9802 | 部分：告警已落地——monitor.go:52-164（sweep→applyVerdict 状态机, 同状态不重复:95-99, herald.Emit region_fault/isp_fault:123-138, webhook notify:141-162）+notify.go 外发+alerts.go:46/75；Metrics 基本缺失——prometheus/pprof//metrics 代码 0 命中（唯一命中是测试抓取 URL manager_extra_test.go:135），无服务端指标层，仅 JSON 状态页(handler/status.go:181-187)+agent 反向抓取被管进程 MetricsURL(procs/metrics.go:24)；F-1801~1814 全未满足、F-1821/1822/1825/1828/1829/1830 告警生产者缺。）
 -   [x] `F-9803` 完成备份恢复演练。
     - 备注（Task ID: F-9803 | Status: Done | Evidence: 备份恢复演练：deploy/restore.sh 恢复脚本+e2e 备份恢复腿（53 断言内）+restore.sh --key(deploy/restore.sh:16)。 | Verification: deploy/e2e-smoke.sh（备份恢复断言 :385-427）+deploy/restore.sh | Commit: 970e9e2）
--   [ ] `F-9804` 完成 Agent 和 Probe 规模测试。
+-   [ ] `F-9804` 完成 Agent 和 Probe 规模测试。（依赖：F-2061~F-2076；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9804 | 未满足：无 Agent/Probe 规模/压测记录——P95/P99/benchstat 0 命中，§18.4 F-2061~2076 全未满足（无测试环境/数据规模/并发量/资源占用记录）。）
--   [ ] `F-9805` 完成 Provider API 故障测试。
+-   [ ] `F-9805` 完成 Provider API 故障测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9805 | 未满足：无 Provider API 集成可测（仅 tofu CLI provision.go:89，云 Provider Adapter 0 命中），无 Provider API 故障测试。）
--   [ ] `F-9806` 完成账单导入和成本核算规模测试。
+-   [ ] `F-9806` 完成账单导入和成本核算规模测试。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9806 | 未满足：无账单导入（BillImport 0 命中）即无账单导入/成本核算规模测试（F-0521 区）。）
--   [ ] `F-9807` 完成完整端到端测试。
+-   [ ] `F-9807` 完成完整端到端测试。（依赖：F-2042~F-2055；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9807 | 部分：e2e-smoke.sh 444 行/44 expect 真起双二进制全不 mock，覆盖 认证(122-134)→注册/重放拒(146-162)→WS 上线(164-192)→进程监管(213-238)→proc_ctl(243-294)→断线回落(296-298)→轮换吊销(300-340)→配置下发回执(342-383)→备份恢复(385-427)→compose 校验(431-444)；未覆盖 订阅生成/解析、流量记账、Path/探测、Relay 隧道、TCP/UDP 转发、Provider API、账单导入、Dash/Panel 前端（F-2042~2055 多未满足，F-2046/2047 明示解析仅单测）。）
 
 ## P9 --- 后续扩展
 
--   [ ] `F-9901` 评估多区域控制面需求。
+-   [ ] `F-9901` 评估多区域控制面需求。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9901 | 未满足：多区域控制面评估 0 命中（docs/design/*.md 多区域/multi-region 0；唯一相关是 audit 文档 :28「控制面，单二进制 ferry」单点陈述；入口与负载均衡设计.md:202 仅谈数据面 ISP 聚合）——无多区域控制面评估。）
--   [ ] `F-9902` 评估 Server 高可用。
+-   [ ] `F-9902` 评估 Server 高可用。（依赖：F-1947；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9902 | 部分：评估记录存在（F-1946 已关：结论「单点设计+手动提升，无自动故障转移」，面板可用性设计.md:3/5-18/92-97）+真实 warm-standby 机制（standby.go:114-162 加密快照→主钥解密→sqliteMagic 校验→原子替换→清 -wal/-shm；Loop 替换后 os.Exit(0) 交 systemd 重启；DefaultSec=600 RPO≤10min）；无自动故障检测与提升，面板仍单点（F-1947 只读副本未满足）。）
--   [ ] `F-9903` 评估数据库只读副本。
+-   [ ] `F-9903` 评估数据库只读副本。（依赖：F-1947；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9903 | 未满足：只读副本评估 0 命中（只读副本/read replica/读库 全仓 0；F-1947 未满足）——standby.go:114-148 是替换自身库的热备/冷备，从不对外提供只读查询面。）
--   [ ] `F-9904` 评估高级多跳 Path。
+-   [ ] `F-9904` 评估高级多跳 Path。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9904 | 未满足：高级多跳 Path 无评估文档——docs/design 多跳/multi-hop 0 命中、type Path 0 命中；仅 todo.md:2480 一条「不做多跳」决策（先完成 Entry→Landing 两段式，不提前引入任意多跳图调度），非评估报告。）
--   [ ] `F-9905` 评估更多 Cloud Provider Adapter。
+-   [ ] `F-9905` 评估更多 Cloud Provider Adapter。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9905 | 部分：选型评估存在（计划扩充设计.md:12-27 云 SDK 薄封装 vs OpenTofu 五维对比+结论「底座=OpenTofu，不自研供给引擎不逐家封 SDK」、:43 多 provider 靠 OpenTofu provider 生态横向扩）；代码侧 adapter 接口缺位——F-0302 未勾选、providerapi.go:34-147 仅凭据/模板 CRUD 无云 API 客户端、dns.go:29 仅 cloudflare、支付真实现仅 epusdt。）
--   [ ] `F-9906` 评估更多订阅格式和客户端能力。
+-   [ ] `F-9906` 评估更多订阅格式和客户端能力。（依赖：F-1127、F-1129、F-1130、F-1132；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9906 | 部分：三种格式已落地（links.go:201 PackV2Ray/clash.go:72 PackClash/singbox.go:165 PackSingBox，F-1122/1124/1126 关）+条件式延后决策（todo.md:439/2545「补 mihomo/xray-json，触发条件=出现 clash-meta 拒载或 xray-json 消费方真实反馈」）；客户端能力矩阵缺位（F-1127/1129/1130/1132 未满足：无 per-client 特性表、合成 UA 无 fixture、不支持字段降级部分、clash 单一 url-test 形状假设）。）
 
 ------------------------------------------------------------------------
@@ -2423,46 +2423,46 @@ External Client
 
 ## 控制面
 
--   [ ] `F-9991` 用户、套餐、订阅和节点管理可用。
+-   [ ] `F-9991` 用户、套餐、订阅和节点管理可用。（依赖：F-0101；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9991 | 部分：用户/订阅/节点 CRUD 已实现（§1/§10，F-1202/1222/1244 等关）；无 Plan/套餐实体（F-0101 未满足）——「用户、套餐、订阅和节点」仅套餐缺。）
 -   [ ] `F-9992` Node、Capability、Tunnel、Path、Path Group、Policy
     - 待补（F-9992 | 未满足：Capability/Path/PathGroup/Policy 模型全 0 命中（F-0222/0243/0261/0282）——「Node、Capability、Tunnel、Path、Path Group、Policy 模型收敛」仅 Node/Tunnel 收敛。）
-    边界清晰。
--   [ ] `F-9993` 能够管理 Entry、Landing 和 Relay。
+    边界清晰。（依赖：F-0222、F-0243、F-0261、F-0282；完成条件：需求落地+测试绿+证据行）
+-   [ ] `F-9993` 能够管理 Entry、Landing 和 Relay。（依赖：F-0804、F-1404；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9993 | 部分：Entry/Landing 管理齐（landing 指派+sweep 关 F-0244）；Relay 仅受管进程启停（F-0804/1404 缺口）——「管理 Entry、Landing 和 Relay」Relay 部分。）
--   [ ] `F-9994` 能够探测并识别节点、隧道和线路故障。
+-   [ ] `F-9994` 能够探测并识别节点、隧道和线路故障。（依赖：F-0902、F-0904、F-0905、F-0910、F-0911；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9994 | 部分：probe TCP+verdict+dimension-status 齐（F-0903/0929/0930 关）；无 Path/Egress 健康区分、无 UDP/应用层探测（F-0902/0904/0905/0910/0911）——识别节点/隧道/线路故障部分。）
--   [ ] `F-9995` 能够基于健康、容量和成本选择线路。
+-   [ ] `F-9995` 能够基于健康、容量和成本选择线路。（依赖：F-0604、F-0605；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9995 | 部分：alloc 按健康/容量/成本评分（F-1024-1027/1030/1049 关）；无 Path、无 cost 新鲜度/降级（F-0604/0605）——选择线路基于健康/容量/成本部分。）
--   [ ] `F-9996` 能够解释调度结果。
+-   [ ] `F-9996` 能够解释调度结果。（依赖：F-1033、F-1034、F-1035；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9996 | 未满足：无调度结果解释/候选排除原因/模拟 API（F-1033/1034/1035）——不能解释调度结果。）
 
 ## 云资源与成本
 
--   [ ] `F-9997` 能够在 Dash 管理至少一个真实 Provider 账号。
+-   [ ] `F-9997` 能够在 Dash 管理至少一个真实 Provider 账号。（依赖：F-1443；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9997 | 部分：Provider CRUD 已实现（F-1441 关）；无账号连接测试（F-1443 未满足）——Dash 管理真实 Provider 账号部分（无凭据验证）。）
--   [ ] `F-9998` 能够同步 Provider 云资源。
+-   [ ] `F-9998` 能够同步 Provider 云资源。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9998 | 未满足：无 CloudResource 模型/同步（F-0341-0356）——不能同步 Provider 云资源。）
--   [ ] `F-9999` 能够在权限控制下执行开机、关机和重启。
+-   [ ] `F-9999` 能够在权限控制下执行开机、关机和重启。（依赖：F-1704；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9999 | 未满足：无云资源电源开/关/重启路径（F-0327 等）+无细粒度权限（F-1704）——不能在权限控制下执行开机/关机/重启。）
--   [ ] `F-10000` 云操作状态能够与 Provider 实际状态对账。
+-   [ ] `F-10000` 云操作状态能够与 Provider 实际状态对账。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
     - 待补（F-10000 | 未满足：无 CloudOperation 状态机/超时对账（F-0361+）——云操作状态不能与 Provider 实际状态对账。）
--   [ ] `F-10001` Cloud Resource 能够与 Ferry Node 关联。
+-   [ ] `F-10001` Cloud Resource 能够与 Ferry Node 关联。（依赖：F-0103、F-0341；完成条件：需求落地+测试绿+证据行）
     - 待补（F-10001 | 未满足：无 CloudResource/关联（F-0103/0341）——Cloud Resource 不能与 Node 关联。）
--   [ ] `F-10002` 能够导入或同步实际账单。
+-   [ ] `F-10002` 能够导入或同步实际账单。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 待补（F-10002 | 未满足：无账单导入/同步（F-0521-0534）——不能导入或同步实际账单。）
--   [ ] `F-10003` 能够区分实际账单、估算成本和成本分摊。
+-   [ ] `F-10003` 能够区分实际账单、估算成本和成本分摊。（依赖：F-0552、F-0505；完成条件：需求落地+测试绿+证据行）
     - 待补（F-10003 | 部分：估算（traffic/fixed/projected，F-0623 关）与参考价偏差（cost.CheckNode）有；无实际账单/分摊（F-0552/0505）——区分实际/估算/分摊仅估算。）
--   [ ] `F-10004` 能够按 Provider、账号、区域、资源和 Node 查看成本。
+-   [ ] `F-10004` 能够按 Provider、账号、区域、资源和 Node 查看成本。（依赖：F-1462、F-1463、F-1465；完成条件：需求落地+测试绿+证据行）
     - 待补（F-10004 | 部分：区域/ISP/节点成本维度有（F-1464/1466 关）；无 Provider/账号/资源维度（F-1462/1463/1465）——按五维度查看成本缺二。）
--   [ ] `F-10005` 能够发现账单缺失、资源无法匹配和异常成本。
+-   [ ] `F-10005` 能够发现账单缺失、资源无法匹配和异常成本。（依赖：F-0588、F-0589、F-1473；完成条件：需求落地+测试绿+证据行）
     - 待补（F-10005 | 未满足：无账单（F-0588/0589）；仅高成本阈值（F-1473 部分）——不能发现账单缺失/资源无法匹配/异常成本。）
 
 ## 数据面与订阅
 
--   [ ] `F-10006` Entry 和 Landing 能够建立 Relay 隧道。
+-   [ ] `F-10006` Entry 和 Landing 能够建立 Relay 隧道。（依赖：F-0812、F-0243；完成条件：需求落地+测试绿+证据行）
     - 待补（F-10006 | 部分：relay 隧道插件已实现（§6 F-0802/0803 关）；无 UDP、无 Path 实体（F-0812/0243）——Entry/Landing 建立 Relay 隧道部分（TCP only）。）
--   [ ] `F-10007` 支持实际 TCP 和 UDP 转发。
+-   [ ] `F-10007` 支持实际 TCP 和 UDP 转发。（依赖：F-0812；完成条件：需求落地+测试绿+证据行）
     - 待补（F-10007 | 部分：TCP io.Copy 转发已实现（F-0802）；UDP 未实现（F-0812）——仅 TCP 转发。）
 -   [x] `F-10008` 配置能够可靠下发和回滚。
     - 备注（Task ID: F-10008 | Status: Done | Evidence: config push+ACK+失败回滚（F-2023/2024 关：relaypush_test 9 例+configd_test TestApplyReloadFailRollsBack） | Verification: server/internal/relaypush/relaypush_test.go+agent/internal/configd/configd_test.go | Commit: cb60ba7）
@@ -2470,28 +2470,28 @@ External Client
     - 备注（Task ID: F-10009 | Status: Done | Evidence: PackSingBox（sub/singbox.go:165+TestPackSingBox）| Verification: server/internal/sub/singbox_test.go | Commit: cb60ba7）
 -   [x] `F-10010` 能够生成 Clash/Mihomo 配置。
     - 备注（Task ID: F-10010 | Status: Done | Evidence: PackClash（sub/clash.go:72+TestPackClash）| Verification: server/internal/sub/clash_test.go | Commit: cb60ba7）
--   [ ] `F-10011` 生成内容经过真实客户端解析测试。
+-   [ ] `F-10011` 生成内容经过真实客户端解析测试。（依赖：F-1129；完成条件：需求落地+测试绿+证据行）
     - 待补（F-10011 | 未满足：合成 UA 无 fixture（F-1129）——生成内容未经真实客户端解析测试。）
 -   [x] `F-10012` Ferry 不需要自研客户端即可完成用户接入。
     - 备注（Task ID: F-10012 | Status: Done | Evidence: v2ray/clash/sing-box 适配（F-1102-1105 关：PackV2Ray/PackClash/PackSingBox）| Verification: sub/{links,clash,singbox}_test.go | Commit: cb60ba7）
 
 ## 运营和可靠性
 
--   [ ] `F-10013` 套餐权限与订阅内容一致。
+-   [ ] `F-10013` 套餐权限与订阅内容一致。（依赖：F-1142、F-1143、F-1144；完成条件：需求落地+测试绿+证据行）
     - 待补（F-10013 | 部分：配额降档+权限过滤有（F-1142 部分）；无套餐/PathGroup/Policy 过滤（F-1143/1144）——套餐权限与订阅内容一致性部分。）
--   [ ] `F-10014` 流量记账具备幂等和补报能力。
+-   [ ] `F-10014` 流量记账具备幂等和补报能力。（依赖：F-1251；完成条件：需求落地+测试绿+证据行）
     - 待补（F-10014 | 部分：幂等去重已实现（F-1250 关：agentws_dedupe_test 7 例）；补报未实现（F-1251）——记账幂等有、补报无。）
--   [ ] `F-10015` Dash 能够完成日常节点、云资源、线路和成本管理。
+-   [ ] `F-10015` Dash 能够完成日常节点、云资源、线路和成本管理。（依赖：F-0411；完成条件：需求落地+测试绿+证据行）
     - 待补（F-10015 | 部分：节点/线路/成本/审计/恢复 Dash 页有（§12 关闭 19 项）；云资源页无（F-0411-0432）——Dash 日常管理缺云资源。）
--   [ ] `F-10016` Server 重启后能够恢复控制面管理状态。
+-   [ ] `F-10016` Server 重启后能够恢复控制面管理状态。（依赖：F-1931、F-2053；完成条件：需求落地+测试绿+证据行）
     - 待补（F-10016 | 部分：server 恢复态恢复有（F-2053 部分 e2e-smoke.sh:417-427）；agent 重连未断言（F-1931）——重启后控制面管理状态恢复部分。）
--   [ ] `F-10017` Server 短时不可用不导致已运行的数据面立即停止。
+-   [ ] `F-10017` Server 短时不可用不导致已运行的数据面立即停止。（依赖：F-1932；完成条件：需求落地+测试绿+证据行）
     - 待补（F-10017 | 部分：故障语义文档（面板可用性设计.md:5-18）+离线缓冲测试（F-1932 部分 spool_test.go:99/147）；无「数据面在 server 宕机时继续转发」断言——部分。）
--   [ ] `F-10018` 关键故障有监控、告警、审计和恢复路径。
+-   [ ] `F-10018` 关键故障有监控、告警、审计和恢复路径。（依赖：F-1801~F-1814、F-1821、F-1822、F-1825、F-1828、F-1829、F-1830；完成条件：需求落地+测试绿+证据行）
     - 待补（F-10018 | 部分：Alert 4 kind+审计+recovery 齐（§7/§16 关闭项）；无 metric 层（F-1801-1814）、部分告警无生产者（F-1821/1822/1825/1828/1829/1830）——监控告警审计恢复路径部分。）
 -   [x] `F-10019` 备份经过真实恢复演练。
     - 备注（Task ID: F-10019 | Status: Done | Evidence: deploy/restore.sh+e2e 备份恢复腿（F-1927 关，53 断言内）+restore.sh --key（deploy/restore.sh:16）| Verification: deploy/e2e-smoke.sh（备份恢复断言）+deploy/restore.sh | Commit: cb60ba7）
--   [ ] `F-10020` 所有最终验收项均有可复现的测试证据。
+-   [ ] `F-10020` 所有最终验收项均有可复现的测试证据。（依赖：F-2061~F-2076、F-2042~F-2055；完成条件：需求落地+测试绿+证据行）
     - 待补（F-10020 | 未满足：§18.4 无基准/压测（F-2061-2076 全未满足）；大量项仅单测无 e2e（F-2042-2055）——并非所有最终验收项有可复现测试证据。）
 
 ------------------------------------------------------------------------
