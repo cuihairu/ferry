@@ -1,7 +1,7 @@
-// Package routing 生成节点配置模板的分流规则段（流量节省设计 §1/§2）：
-// 命中清单的流量直连不进隧道、不耗落地流量，其余走模板既有出站。
-// 清单经 config.push 分发的规则库数据文件（geoip.dat/geosite.dat）由内核解析，
-// 本包只负责把清单引用渲染进模板并保证 direct 出站存在。
+// Package routing generates the split-routing rule section of node config templates (traffic saving design §1/§2):
+// traffic matching a rule set connects directly, skipping the tunnel and saving landing traffic; the rest goes to the
+// template's existing outbounds. Rule-set data files (geoip.dat/geosite.dat) distributed via config.push are resolved by the
+// core; this package only renders the rule-set references into the template and guarantees the direct outbound exists.
 package routing
 
 import (
@@ -10,17 +10,17 @@ import (
 	"strings"
 )
 
-// RuleSet 是一组同去向的分流规则：域名与 IP 清单命中任一即发往 OutboundTag。
-// Domains/IPs 为内核规则语法（geosite:cn、geoip:cn、domain:、CIDR 等），原样透传。
+// RuleSet is a group of split-routing rules with one destination: matching any domain or IP rule sends traffic to OutboundTag.
+// Domains/IPs use the core rule syntax (geosite:cn, geoip:cn, domain:, CIDR, etc.) and pass through unchanged.
 type RuleSet struct {
-	Name        string   `json:"name"` // 清单名，入配置快照备注
+	Name        string   `json:"name"` // rule-set name, kept in the config snapshot note
 	Domains     []string `json:"domains,omitempty"`
 	IPs         []string `json:"ips,omitempty"`
-	OutboundTag string   `json:"outbound_tag"` // 命中后的出站 tag
+	OutboundTag string   `json:"outbound_tag"` // outbound tag used on a match
 }
 
-// DirectCN 是国内域名/IP 直连清单（SAVE-1）：geosite:cn + geoip:cn，
-// 数据文件（geosite.dat/geoip.dat）经 config.push 分发到节点资产目录。
+// DirectCN is the domestic domain/IP direct rule set (SAVE-1): geosite:cn + geoip:cn, with the data files
+// (geosite.dat/geoip.dat) distributed to the node asset directory via config.push.
 var DirectCN = RuleSet{
 	Name:        "cn-direct",
 	Domains:     []string{"geosite:cn"},
@@ -28,9 +28,9 @@ var DirectCN = RuleSet{
 	OutboundTag: "direct",
 }
 
-// StaticCDN 是公共静态资源/CDN 域名直连清单（SAVE-2）：这些域名的资源
-// 国内可达且免费，走隧道纯属浪费落地流量。条目用 domain: 前缀字面域名
-// （含子域匹配），不依赖规则库数据文件。
+// StaticCDN is the direct rule set for public static-resource/CDN domains (SAVE-2): those resources are reachable and
+// free domestically, so tunneling them would needlessly waste landing traffic. Entries use the domain: prefix with
+// literal domains (including subdomain matching) and do not depend on rule-set data files.
 var StaticCDN = RuleSet{
 	Name: "static-cdn-direct",
 	Domains: []string{
@@ -46,21 +46,21 @@ var StaticCDN = RuleSet{
 	OutboundTag: "direct",
 }
 
-// AdBlock 是广告/追踪域名屏蔽清单（SAVE-4）：命中即发 block 出站
-// （blackhole 丢弃），省落地流量也少建连。名单数据文件与 geoip/geosite
-// 同机制经 rulelib 分发更新（anti-AD 等开源名单可推同格式 geosite 文件）。
+// AdBlock is the ad/tracking domain block rule set (SAVE-4): a match is sent to the block outbound
+// (blackhole drop), saving landing traffic and avoiding extra connections. The list data files are distributed and
+// updated via rulelib with the same mechanism as geoip/geosite (open-source lists such as anti-AD can push a geosite file in the same format).
 var AdBlock = RuleSet{
 	Name:        "ad-block",
 	Domains:     []string{"geosite:category-ads-all"},
 	OutboundTag: "block",
 }
 
-// Sets 返回内置分流清单，按声明序渲染进模板。
+// Sets returns the builtin split-routing rule sets, rendered into the template in declaration order.
 func Sets() []RuleSet {
 	return []RuleSet{DirectCN, StaticCDN, AdBlock}
 }
 
-// WithoutAds 滤掉广告拦截清单（SAVE-4 开关关时的渲染口径）。
+// WithoutAds filters out the ad-blocking rule set (the rendering model when the SAVE-4 switch is off).
 func WithoutAds(sets []RuleSet) []RuleSet {
 	out := make([]RuleSet, 0, len(sets))
 	for _, s := range sets {
@@ -72,16 +72,16 @@ func WithoutAds(sets []RuleSet) []RuleSet {
 	return out
 }
 
-// builtinOutbounds 是分流规则落点的内置出站形态：清单引用的出站
-// 缺失时按此补上（direct=freedom 直连，block=blackhole 丢弃）。
+// builtinOutbounds are the builtin outbound forms where split-routing rules land: referenced outbounds
+// are added per this table when missing (direct = freedom direct connect, block = blackhole drop).
 var builtinOutbounds = map[string]map[string]any{
 	"direct": {"tag": "direct", "protocol": "freedom"},
 	"block":  {"tag": "block", "protocol": "blackhole"},
 }
 
-// Merge 把清单渲染成 routing 规则并注入模板 JSON：
-// 规则前置（先于模板既有规则匹配，避免被兜底规则截胡），
-// outbounds 缺 direct 时前置补上。模板为空对象时生成最小骨架。
+// Merge renders the rule sets into routing rules and injects them into the template JSON:
+// rules are prepended (matched before the template's existing rules, avoiding being intercepted by a catch-all rule),
+// outbounds missing direct get it prepended. An empty template object produces a minimal skeleton.
 func Merge(templateJSON string, sets []RuleSet) (string, error) {
 	tmpl := map[string]any{}
 	if s := strings.TrimSpace(templateJSON); s != "" {
@@ -108,7 +108,7 @@ func Merge(templateJSON string, sets []RuleSet) (string, error) {
 		rules = append(rules, rule)
 	}
 
-	// routing.rules：清单规则前置，保留模板既有规则。
+	// routing.rules: prepend the rule-set rules, keeping the template's existing rules.
 	routingMap, _ := tmpl["routing"].(map[string]any)
 	if routingMap == nil {
 		routingMap = map[string]any{}
@@ -118,8 +118,8 @@ func Merge(templateJSON string, sets []RuleSet) (string, error) {
 	routingMap["rules"] = merged
 	tmpl["routing"] = routingMap
 
-	// outbounds：清单规则引用的出站缺失时按内置形态前置补上
-	// （direct=freedom，block=blackhole）。按清单声明序补齐保证渲染稳定。
+	// outbounds: referenced outbounds are prepended in builtin form when missing
+	// (direct = freedom, block = blackhole). Filling them in rule-set declaration order keeps the render stable.
 	outbounds, _ := tmpl["outbounds"].([]any)
 	ensured := map[string]bool{}
 	for _, set := range sets {
@@ -133,7 +133,7 @@ func Merge(templateJSON string, sets []RuleSet) (string, error) {
 		ensured[tag] = true
 		builtin, ok := builtinOutbounds[tag]
 		if !ok {
-			continue // 非内置落点（模板自有出站）不代补
+			continue // non-builtin destinations (the template's own outbounds) are not patched
 		}
 		found := false
 		for _, ob := range outbounds {

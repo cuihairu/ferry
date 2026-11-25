@@ -46,7 +46,7 @@ func TestMergeEmptyTemplate(t *testing.T) {
 	if _, hasIP := r1["ip"]; hasIP {
 		t.Fatalf("static-cdn 是纯域名清单，不应有 ip 段: %v", r1)
 	}
-	// 广告拦截（SAVE-4）：命中发 block 丢弃
+	// Ad blocking (SAVE-4): a match goes to block and is dropped
 	r2 := rules[2].(map[string]any)
 	if r2["outboundTag"] != "block" {
 		t.Fatalf("rule2 = %v", r2)
@@ -135,8 +135,8 @@ func TestMergeDoesNotDuplicateDirect(t *testing.T) {
 	}
 }
 
-// TestMergeDoesNotDuplicateBlock 覆盖模板自带 block 出站（SAVE-4）：
-// 不重复补，自定义字段原样保留。
+// TestMergeDoesNotDuplicateBlock covers a template carrying its own block outbound (SAVE-4):
+// it is not patched twice, and custom fields are preserved as-is.
 func TestMergeDoesNotDuplicateBlock(t *testing.T) {
 	tmpl := `{"outbounds": [{"tag": "block", "protocol": "blackhole", "settings": {"response": {"type": "none"}}}]}`
 	m := mustMerge(t, tmpl)
@@ -159,8 +159,8 @@ func TestMergeDoesNotDuplicateBlock(t *testing.T) {
 	}
 }
 
-// TestMergeStableRender 覆盖渲染确定性（SAVE-4）：同模板多次 Merge
-// 输出一致（sha256 稳定，出站补齐不依赖 map 迭代序）。
+// TestMergeStableRender covers render determinism (SAVE-4): merging the same template repeatedly
+// yields identical output (stable sha256; outbound completion does not depend on map iteration order).
 func TestMergeStableRender(t *testing.T) {
 	first, err := Merge(`{}`, Sets())
 	if err != nil {
@@ -193,7 +193,7 @@ func TestSetsContainsBuiltinSets(t *testing.T) {
 			t.Fatalf("内置清单缺失或非法: %s", name)
 		}
 	}
-	// static-cdn 条目必须是 domain: 前缀的字面域名，不依赖规则库数据文件。
+	// static-cdn entries must be literal domains prefixed with domain:, independent of rule-set data files.
 	for _, s := range sets {
 		if s.Name != "static-cdn-direct" {
 			continue
@@ -206,8 +206,8 @@ func TestSetsContainsBuiltinSets(t *testing.T) {
 	}
 }
 
-// TestWithoutAds 覆盖广告拦截开关的清单过滤（SAVE-4）：只滤 ad-block，
-// 其余清单原序保留。
+// TestWithoutAds covers the ad-blocking switch's rule-set filter (SAVE-4): only ad-block is filtered,
+// the other rule sets keep their original order.
 func TestWithoutAds(t *testing.T) {
 	filtered := WithoutAds(Sets())
 	if len(filtered) != len(Sets())-1 {
@@ -221,7 +221,7 @@ func TestWithoutAds(t *testing.T) {
 	if filtered[0].Name != "cn-direct" || filtered[1].Name != "static-cdn-direct" {
 		t.Fatalf("其余清单应原序保留: %v", filtered)
 	}
-	// 过滤后渲染不再产生 block 规则与出站
+	// After filtering, rendering produces no block rule and no block outbound
 	m := mustMergeWith(t, "", filtered)
 	rules, _ := m["routing"].(map[string]any)["rules"].([]any)
 	if len(rules) != 2 {
