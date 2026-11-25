@@ -1319,7 +1319,7 @@ External Client
 -   [x] `F-0726` 定义消息超时和重试规则。
     - 备注（Task ID: F-0726 | Status: Done | Evidence: agenthub/hub.go:114 Request 超时 ErrTimeout；TestPushTimeout+TestPushSendError | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0727` 定义断线期间消息处理规则。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0727 | 未满足原因：部分：分路径规则——进程内离线静默丢(app.go:194-199)、spool 角色上报保留重试(spool.go:79-83)、面板命令返 ErrOffline(upgrade.go:55)；无统一断线策略文档。）
+    - 备注（Task ID: F-0727 | Status: Done | Evidence: 统一断线策略落 docs/design/agent协议参考.md §3：四类消息（核心进程内报告静默丢/角色 spool 保留重放偏移回退/面板命令 ErrOffline 502/重连循环）逐类规则表 + 重连对账（syncNodeMeta/hello_ack 周期校准/caps 合并）+ 命令超时口径（ErrTimeout 15s）；代码锚点 spool.Watch 2s 扫描、link.Run 重连、agentws setNodeStatus | Verification: 文档-only，代码行为均有现存测试（TestRunReconnectsUntilCancel/TestPushTimeout 等） | Commit: f198536）
 -   [ ] `F-0728` 定义消息大小限制。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0728 | 未满足原因：部分：服务端 agent-WS 入站 8MiB 上限(agentws.go:41-44,113 TestAgentWSFrameLimit)；agent 入站 readLoop 无 SetReadLimit(link.go:149-166)；HTTP API body 无 MaxBytesReader。）
 -   [x] `F-0729` 定义未知消息处理方式。
