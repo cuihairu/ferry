@@ -2,11 +2,13 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"path/filepath"
 	"strconv"
 	"testing"
 
+	"github.com/cuihairu/ferry/server/internal/cloudprov"
 	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/secret"
 	"github.com/cuihairu/ferry/server/internal/storage"
@@ -285,5 +287,93 @@ func TestProviderNoteRegion(t *testing.T) {
 	if list.Code != http.StatusOK || !containsStr(list.Body.String(), newNote) ||
 		!containsStr(list.Body.String(), newRegion) {
 		t.Fatalf("list = %d %s", list.Code, list.Body)
+	}
+}
+
+// TestProviderTestConnection covers F-0328: the endpoint verifies the stored
+// credential locally for types without an adapter, probes the vendor through
+// a registered cloudprov adapter otherwise, and reports typed failures.
+func TestProviderTestConnection(t *testing.T) {
+	r, _ := newTestRouterWithMasterKey(t)
+
+	// Unknown id: 404.
+	if rec := doJSON(t, r, "POST", "/api/providers/999/test", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown provider = %d", rec.Code)
+	}
+
+	// A type without a registered adapter: local credential check only.
+	rec := doJSON(t, r, "POST", "/api/providers", map[string]any{
+		"name": "tofu-only", "type": "tofu-cli", "access_key": "sk-local",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create = %d %s", rec.Code, rec.Body)
+	}
+	id := uint(mustJSON(t, rec)["id"].(float64))
+	rec = doJSON(t, r, "POST", "/api/providers/"+utoa(id)+"/test", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("test = %d %s", rec.Code, rec.Body)
+	}
+	body := mustJSON(t, rec)
+	if body["ok"] != true || body["mode"] != "local" {
+		t.Fatalf("local test = %v", body)
+	}
+
+	// A registered adapter: the probe goes to the vendor (fake here).
+	cloudprov.Register("fake-probe", func(a cloudprov.Account) (cloudprov.Adapter, error) {
+		f := cloudprov.NewFake()
+		// The account flows through with its name and scope intact.
+		if a.AccessKey == "" {
+			return nil, errors.New("credential not passed to adapter")
+		}
+		f.Seed(cloudprov.Resource{ResourceID: "r-1", Name: a.Name, Region: a.Region})
+		return f, nil
+	})
+	t.Cleanup(func() { cloudprov.Unregister("fake-probe") })
+
+	rec = doJSON(t, r, "POST", "/api/providers", map[string]any{
+		"name": "fake-acct", "type": "fake-probe", "access_key": "sk-fake", "region": "fra",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create fake = %d %s", rec.Code, rec.Body)
+	}
+	fakeID := uint(mustJSON(t, rec)["id"].(float64))
+	rec = doJSON(t, r, "POST", "/api/providers/"+utoa(fakeID)+"/test", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("adapter test = %d %s", rec.Code, rec.Body)
+	}
+	body = mustJSON(t, rec)
+	if body["ok"] != true || body["mode"] != "adapter" || body["api_version"] != "2.1" {
+		t.Fatalf("adapter probe = %v", body)
+	}
+	if body["capabilities"] == nil {
+		t.Fatal("capabilities missing from probe result")
+	}
+
+	// An adapter that rejects the credential: typed auth failure surfaces.
+	cloudprov.Register("fake-bad", func(a cloudprov.Account) (cloudprov.Adapter, error) {
+		return nil, cloudprov.NewError(cloudprov.ErrAuth, cloudprov.OpCapabilities, "", "401", "bad key")
+	})
+	t.Cleanup(func() { cloudprov.Unregister("fake-bad") })
+	rec = doJSON(t, r, "POST", "/api/providers", map[string]any{
+		"name": "bad-acct", "type": "fake-bad", "access_key": "sk-bad",
+	})
+	badID := uint(mustJSON(t, rec)["id"].(float64))
+	rec = doJSON(t, r, "POST", "/api/providers/"+utoa(badID)+"/test", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("bad test = %d %s", rec.Code, rec.Body)
+	}
+	body = mustJSON(t, rec)
+	if body["ok"] != false || body["error_type"] != "auth" {
+		t.Fatalf("bad probe = %v", body)
+	}
+
+	// A disabled account refuses the test outright.
+	rec = doJSON(t, r, "PUT", "/api/providers/"+utoa(id), map[string]any{"enabled": false})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("disable = %d %s", rec.Code, rec.Body)
+	}
+	rec = doJSON(t, r, "POST", "/api/providers/"+utoa(id)+"/test", nil)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("disabled test = %d %s", rec.Code, rec.Body)
 	}
 }

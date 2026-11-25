@@ -184,6 +184,8 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.POST("/providers", h.createProvider)
 		api.PUT("/providers/:id", h.updateProvider)
 		api.DELETE("/providers/:id", h.deleteProvider)
+		// Connection test (F-0328): local credential check + adapter probe.
+		api.POST("/providers/:id/test", h.testProviderConnection)
 		api.POST("/provision-templates/:id/apply", h.applyTemplate)
 		api.POST("/provision-templates/:id/plan", h.planTemplate)
 		api.GET("/provision-jobs", h.listProvisionJobs)

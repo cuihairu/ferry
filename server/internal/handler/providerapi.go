@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cuihairu/ferry/server/internal/cloudprov"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
 )
@@ -167,6 +168,61 @@ func (h *Handler) deleteProvider(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// testProviderConnection verifies an account's credential (F-0328). Every
+// account is checked locally first (the ciphertext must decrypt with the
+// master key); when a cloudprov adapter is registered for the provider type
+// the check goes further and probes the vendor API through the shared client
+// policy (timeout/rate-limit/retry). The plaintext key never leaves the
+// process and is never logged. Test outcomes are 200 with an ok flag; only
+// unknown/disabled accounts are 4xx.
+func (h *Handler) testProviderConnection(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
+		return
+	}
+	var row storage.Provider
+	if err := h.db.First(&row, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
+		return
+	}
+	if !row.Enabled {
+		fail(c, http.StatusConflict, errors.New("provider disabled"))
+		return
+	}
+	plain, err := h.secrets.Decrypt(row.AccessKey)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "mode": "local",
+			"error": "credential unreadable: " + err.Error()})
+		return
+	}
+	factory := cloudprov.Lookup(row.Type)
+	if factory == nil {
+		c.JSON(http.StatusOK, gin.H{"ok": true, "mode": "local",
+			"message": "credential readable; no adapter registered for type " + row.Type})
+		return
+	}
+	a, err := factory(cloudprov.Account{
+		ProviderID: row.ID, Name: row.Name, Type: row.Type,
+		AccessKey: plain, Region: row.Region,
+	})
+	if err != nil {
+		e := cloudprov.AsError(err)
+		c.JSON(http.StatusOK, gin.H{"ok": false, "mode": "adapter",
+			"error_type": e.Type, "error": e.Error()})
+		return
+	}
+	caps, err := cloudprov.NewClient(a, cloudprov.Defaults).Capabilities(c.Request.Context())
+	if err != nil {
+		e := cloudprov.AsError(err)
+		c.JSON(http.StatusOK, gin.H{"ok": false, "mode": "adapter",
+			"error_type": e.Type, "error": e.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "mode": "adapter",
+		"api_version": caps.APIVersion, "capabilities": caps})
 }
 
 // sealSecret encrypts a secret; it returns an actionable error when the master key is not configured.
