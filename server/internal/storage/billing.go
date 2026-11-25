@@ -266,3 +266,32 @@ type CostAllocationRule struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
+
+// NodeCostLine (F-0542, F-0545~F-0549) is one manual recurring cost line of a
+// node beyond its base billing: hourly compute, extra public IP, disk,
+// snapshot, backup, discount/reserved-instance input, or a free-form custom
+// item. Hand-entered prices are the sole authority (design 套餐与成本 §2); the
+// estimate engine turns these lines into CostEstimate rows.
+type NodeCostLine struct {
+	ID uint `gorm:"primaryKey" json:"id"`
+	// NodeID is the billed node (index).
+	NodeID uint `gorm:"index;not null" json:"node_id"`
+	// Kind is the cost class (billing.Kind* constants minus instance/traffic,
+	// which are computed from the node's base billing fields).
+	Kind string `gorm:"size:16;not null" json:"kind"`
+	// HourlyPriceCents is the hourly compute price (F-0542); the engine
+	// multiplies it by the hours of the estimate period. Only for kind=hourly.
+	HourlyPriceCents int64 `gorm:"default:0" json:"hourly_price_cents"`
+	// AmountCents is the fixed monthly amount in minor units; negative only
+	// for kind=discount (F-0548 discount/reserved-instance input).
+	AmountCents int64 `json:"amount_cents"`
+	// UnknownPrice marks a line whose price the operator does not know yet
+	// (F-0551): the amount is treated as zero and the UI shows "unknown".
+	UnknownPrice bool   `gorm:"default:false" json:"unknown_price"`
+	Currency     string `gorm:"size:8;not null" json:"currency"`
+	// Note is the operator's label (e.g. "reserved instance 1y", "extra IP x2").
+	Note      string    `gorm:"size:255" json:"note"`
+	Enabled   bool      `gorm:"default:true" json:"enabled"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}

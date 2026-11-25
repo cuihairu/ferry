@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -217,6 +218,100 @@ func TestBillingAPIImportFromAPI(t *testing.T) {
 	rec = doJSON(t, r, http.MethodPost, "/api/cost/sources/1/import-api", map[string]any{"from": from})
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"ok":false`) {
 		t.Fatalf("no-billing capability must fail closed: code=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestBillingAPICostLines covers the cost-line CRUD and the estimate compute
+// endpoint (F-0542~F-0549): lines feed the estimate engine through the API.
+func TestBillingAPICostLines(t *testing.T) {
+	db, err := storage.Open(storage.DriverSQLite, filepath.Join(t.TempDir(), "billingapi3.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	node := storage.Node{Name: "cl", Token: "tk-cl", BillingType: "包月", MonthlyCostCents: 3100, Currency: "CNY"}
+	if err := db.Create(&node).Error; err != nil {
+		t.Fatalf("node: %v", err)
+	}
+	cfg := config.Default()
+	cfg.SecretKey = "test-master-key"
+	gin.SetMode(gin.TestMode)
+	r, _ := NewRouter(db, cfg)
+
+	// Hourly line (F-0542).
+	rec := doJSON(t, r, http.MethodPost, "/api/cost/lines", map[string]any{
+		"node_id": node.ID, "kind": "hourly", "hourly_price_cents": 10, "note": "spot compute",
+	})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"kind":"hourly"`) {
+		t.Fatalf("create hourly line: code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	// Extra IP and discount lines (F-0545/F-0548); a negative non-discount fails.
+	rec = doJSON(t, r, http.MethodPost, "/api/cost/lines", map[string]any{
+		"node_id": node.ID, "kind": "ip", "amount_cents": 310, "currency": "CNY",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create ip line: code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, r, http.MethodPost, "/api/cost/lines", map[string]any{
+		"node_id": node.ID, "kind": "discount", "amount_cents": -3100,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create discount line: code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, r, http.MethodPost, "/api/cost/lines", map[string]any{
+		"node_id": node.ID, "kind": "ip", "amount_cents": -5,
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("negative non-discount must fail: code=%d", rec.Code)
+	}
+	rec = doJSON(t, r, http.MethodPost, "/api/cost/lines", map[string]any{
+		"node_id": node.ID, "kind": "carrier-pigeon", "amount_cents": 5,
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid kind must fail: code=%d", rec.Code)
+	}
+
+	// Compute over a half-month period: instance and lines prorate, hourly
+	// computes price x hours (F-0542).
+	rec = doJSON(t, r, http.MethodPost, "/api/cost/estimates/compute", map[string]any{
+		"node_id": node.ID, "from": "2026-10-01T00:00:00Z", "to": "2026-10-16T00:00:00Z",
+	})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"count":4`) {
+		t.Fatalf("compute: code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"amount_cents":3600`) {
+		t.Fatalf("hourly estimate must be 10x360h: %s", rec.Body.String())
+	}
+	rec = doJSON(t, r, http.MethodGet, "/api/cost/estimates?node_id="+fmt.Sprint(node.ID), nil)
+	for _, kind := range []string{"instance", "hourly", "ip", "discount"} {
+		if !strings.Contains(rec.Body.String(), `"`+kind+`"`) {
+			t.Fatalf("estimates must list %s: %s", kind, rec.Body.String())
+		}
+	}
+	// Bulk compute path.
+	rec = doJSON(t, r, http.MethodPost, "/api/cost/estimates/compute", map[string]any{
+		"from": "2026-10-01T00:00:00Z", "to": "2026-11-01T00:00:00Z",
+	})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"count":4`) {
+		t.Fatalf("bulk compute: code=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	// Line edit and delete (F-0567-adjacent manual adjustment surface).
+	rec = doJSON(t, r, http.MethodPut, "/api/cost/lines/2", map[string]any{"amount_cents": 620})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"amount_cents":620`) {
+		t.Fatalf("update line: code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, r, http.MethodDelete, "/api/cost/lines/2", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete line: code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, r, http.MethodGet, "/api/cost/lines?node_id="+fmt.Sprint(node.ID), nil)
+	if strings.Contains(rec.Body.String(), `"amount_cents":620`) {
+		t.Fatalf("deleted line must be gone: %s", rec.Body.String())
 	}
 }
 

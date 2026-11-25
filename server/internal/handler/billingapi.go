@@ -415,12 +415,204 @@ func (h *Handler) listAllocations(c *gin.Context) {
 // listEstimates exposes the internal estimates, always separate from bills
 // (F-0552/F-0629).
 func (h *Handler) listEstimates(c *gin.Context) {
+	q := h.db.Order("period_end DESC, id DESC")
+	if s := c.Query("node_id"); s != "" {
+		id, err := strconv.ParseUint(s, 10, 64)
+		if err != nil {
+			fail(c, http.StatusBadRequest, errors.New("invalid node_id"))
+			return
+		}
+		q = q.Where("node_id = ?", id)
+	}
 	var rows []storage.CostEstimate
-	if err := h.db.Order("period_end DESC, id DESC").Find(&rows).Error; err != nil {
+	if err := q.Find(&rows).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"estimates": rows})
+}
+
+// listCostLines lists a node's recurring cost lines (F-0545~F-0549).
+func (h *Handler) listCostLines(c *gin.Context) {
+	q := h.db.Order("id ASC")
+	if s := c.Query("node_id"); s != "" {
+		id, err := strconv.ParseUint(s, 10, 64)
+		if err != nil {
+			fail(c, http.StatusBadRequest, errors.New("invalid node_id"))
+			return
+		}
+		q = q.Where("node_id = ?", id)
+	}
+	var rows []storage.NodeCostLine
+	if err := q.Find(&rows).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"lines": rows})
+}
+
+// createCostLine adds one manual cost line to a node (F-0542/F-0545~F-0549).
+// Hourly lines carry hourly_price_cents, everything else a monthly amount;
+// only discount lines may be negative, and an unknown price is stored marked.
+func (h *Handler) createCostLine(c *gin.Context) {
+	var in struct {
+		NodeID           uint   `json:"node_id"`
+		Kind             string `json:"kind"`
+		HourlyPriceCents int64  `json:"hourly_price_cents"`
+		AmountCents      int64  `json:"amount_cents"`
+		UnknownPrice     bool   `json:"unknown_price"`
+		Currency         string `json:"currency"`
+		Note             string `json:"note"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	if !billing.ValidLineKind(in.Kind) {
+		fail(c, http.StatusBadRequest, errors.New("invalid line kind"))
+		return
+	}
+	var node storage.Node
+	if err := h.db.First(&node, in.NodeID).Error; err != nil {
+		fail(c, http.StatusNotFound, errors.New("node not found"))
+		return
+	}
+	if in.AmountCents < 0 && in.Kind != billing.KindDiscount {
+		fail(c, http.StatusBadRequest, errors.New("only discount lines may be negative"))
+		return
+	}
+	if in.Currency == "" {
+		in.Currency = node.Currency
+	}
+	if in.Currency == "" {
+		in.Currency = "CNY"
+	}
+	row := storage.NodeCostLine{
+		NodeID: in.NodeID, Kind: in.Kind, HourlyPriceCents: in.HourlyPriceCents,
+		AmountCents: in.AmountCents, UnknownPrice: in.UnknownPrice,
+		Currency: in.Currency, Note: in.Note, Enabled: true,
+	}
+	if err := h.db.Create(&row).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, row)
+}
+
+// updateCostLine edits a cost line; recomputation picks the change up.
+func (h *Handler) updateCostLine(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		fail(c, http.StatusNotFound, errors.New("cost line not found"))
+		return
+	}
+	var row storage.NodeCostLine
+	if err := h.db.First(&row, uint(id)).Error; err != nil {
+		fail(c, http.StatusNotFound, err)
+		return
+	}
+	var in struct {
+		HourlyPriceCents *int64  `json:"hourly_price_cents"`
+		AmountCents      *int64  `json:"amount_cents"`
+		UnknownPrice     *bool   `json:"unknown_price"`
+		Note             *string `json:"note"`
+		Enabled          *bool   `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	updates := map[string]any{}
+	if in.HourlyPriceCents != nil {
+		updates["hourly_price_cents"] = *in.HourlyPriceCents
+	}
+	if in.AmountCents != nil {
+		if *in.AmountCents < 0 && row.Kind != billing.KindDiscount {
+			fail(c, http.StatusBadRequest, errors.New("only discount lines may be negative"))
+			return
+		}
+		updates["amount_cents"] = *in.AmountCents
+	}
+	if in.UnknownPrice != nil {
+		updates["unknown_price"] = *in.UnknownPrice
+	}
+	if in.Note != nil {
+		updates["note"] = *in.Note
+	}
+	if in.Enabled != nil {
+		updates["enabled"] = *in.Enabled
+	}
+	if len(updates) > 0 {
+		if err := h.db.Model(&row).Updates(updates).Error; err != nil {
+			fail(c, http.StatusInternalServerError, err)
+			return
+		}
+	}
+	if err := h.db.First(&row, uint(id)).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, row)
+}
+
+// deleteCostLine removes a cost line.
+func (h *Handler) deleteCostLine(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		fail(c, http.StatusNotFound, errors.New("cost line not found"))
+		return
+	}
+	if err := h.db.Delete(&storage.NodeCostLine{}, uint(id)).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// computeEstimates runs the estimate engine for one node or all nodes over a
+// period (F-0542~F-0549); rows upsert by scope/kind/period.
+func (h *Handler) computeEstimates(c *gin.Context) {
+	var in struct {
+		NodeID uint   `json:"node_id"`
+		From   string `json:"from"`
+		To     string `json:"to"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	from, err := time.Parse(time.RFC3339, in.From)
+	if err != nil {
+		fail(c, http.StatusBadRequest, errors.New("from must be RFC3339"))
+		return
+	}
+	to := from.AddDate(0, 1, 0)
+	if in.To != "" {
+		if to, err = time.Parse(time.RFC3339, in.To); err != nil {
+			fail(c, http.StatusBadRequest, errors.New("to must be RFC3339"))
+			return
+		}
+	}
+	if in.NodeID > 0 {
+		var node storage.Node
+		if err := h.db.First(&node, in.NodeID).Error; err != nil {
+			fail(c, http.StatusNotFound, errors.New("node not found"))
+			return
+		}
+		rows, err := billing.EstimateNode(h.db, &node, from, to)
+		if err != nil {
+			fail(c, http.StatusInternalServerError, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"count": len(rows), "estimates": rows})
+		return
+	}
+	count, err := billing.EstimateAll(h.db, from, to)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"count": count})
 }
 
 // createEstimate stores one internal estimate with its price source and
