@@ -1,7 +1,7 @@
-// Package support 对接外部客服服务（servify）：为面板用户签发绑定会话的
-// 访客 token（聊天/反馈认证面），并把用户业务上下文以客户资料形式同步给
-// 坐席侧只读展示。凭据纪律：service key 只在服务端使用，浏览器仅持短期
-// 访客 token；同步失败不影响聊天主链路（best-effort）。
+// Package support bridges the external customer-support service (servify): it issues session-bound
+// guest tokens for panel users (the chat/feedback auth surface) and syncs user business context to the
+// agent side as customer profile data for read-only display. Credential discipline: the service key is used server-side only;
+// browsers hold only short-lived guest tokens, and a sync failure does not affect the main chat path (best-effort).
 package support
 
 import (
@@ -17,13 +17,13 @@ import (
 	"time"
 )
 
-// Client 是 servify 宿主后端调用的最小客户端（嵌入指南 §3.2/§4.2）。
+// Client is the minimal client for servify host-backend calls (embedding guide §3.2/§4.2).
 type Client struct {
-	// BaseURL 是 servify 服务地址（如 http://servify:8080）。
+	// BaseURL is the servify service address (e.g. http://servify:8080).
 	BaseURL string
-	// ServiceKey 是 X-API-Key（service principal），只在此层出现。
+	// ServiceKey is the X-API-Key (service principal), appearing only at this layer.
 	ServiceKey string
-	// HTTP 缺省 5s 超时（客服是旁路，不能拖住面板请求）。
+	// HTTP defaults to a 5s timeout (support is a side path and must not block panel requests).
 	HTTP *http.Client
 }
 
@@ -34,8 +34,8 @@ func (c *Client) http() *http.Client {
 	return &http.Client{Timeout: 5 * time.Second}
 }
 
-// GuestToken 签发绑定 session_id 的访客 token（POST /api/v1/guest/session）。
-// token 不要求会话行已存在，有效期由 servify 侧配置决定（缺省 24h）。
+// GuestToken issues a guest token bound to session_id (POST /api/v1/guest/session).
+// The token does not require the session row to exist; its validity is configured on the servify side (default 24h).
 func (c *Client) GuestToken(ctx context.Context, sessionID string) (token string, expiresAt int64, err error) {
 	var out struct {
 		AccessToken string `json:"access_token"`
@@ -47,15 +47,15 @@ func (c *Client) GuestToken(ctx context.Context, sessionID string) (token string
 	return out.AccessToken, out.ExpiresAt, nil
 }
 
-// CustomerSnapshot 是同步给坐席侧的客户业务上下文（只读展示用）。
+// CustomerSnapshot is the customer business context synced to the agent side (read-only display).
 type CustomerSnapshot struct {
-	Email string // servify 侧按邮箱去重定位（ferry 用户无邮箱，用合成地址）
+	Email string // the servify side dedupes and locates by email (ferry users have no email, so a synthetic address is used)
 	Name  string
-	Notes string // 一次一覆盖的业务快照（配额/到期/状态），坐席在工单页直接看到
+	Notes string // a business snapshot overwritten once per call (quota/expiry/status), which the agent sees directly on the ticket page
 }
 
-// SyncCustomer 按 email 定位客户：有则覆盖 notes，无则建档；并发撞唯一约束
-// （409）时回落再查一次后覆盖。全程走服务端接口（嵌入指南 §4.2）。
+// SyncCustomer locates the customer by email: overwrite notes if present, create a profile if absent;
+// on a concurrent unique-constraint clash (409) it falls back to one re-query and then overwrites. All calls use server-side APIs (embedding guide §4.2).
 func (c *Client) SyncCustomer(ctx context.Context, snap CustomerSnapshot) error {
 	id, err := c.findCustomer(ctx, snap.Email)
 	if err != nil {
@@ -69,7 +69,7 @@ func (c *Client) SyncCustomer(ctx context.Context, snap CustomerSnapshot) error 
 		if !isConflict(cerr) {
 			return cerr
 		}
-		// 并发建档撞唯一约束（409）：回落重查一次按已有档案覆盖。
+		// Concurrent profile creation hit the unique constraint (409): fall back to one re-query and overwrite the existing profile.
 		rid, rerr := c.findCustomer(ctx, snap.Email)
 		if rerr != nil {
 			return rerr
@@ -102,7 +102,7 @@ func (c *Client) findCustomer(ctx context.Context, email string) (uint64, error)
 
 func (c *Client) createCustomer(ctx context.Context, snap CustomerSnapshot) error {
 	body := map[string]string{
-		"username": snap.Email, // servify 侧必填，合成邮箱即唯一键
+		"username": snap.Email, // required by the servify side; the synthetic email is the unique key
 		"email":    snap.Email,
 		"name":     snap.Name,
 		"source":   "ferry",
@@ -116,7 +116,7 @@ func (c *Client) updateNotes(ctx context.Context, id uint64, snap CustomerSnapsh
 	return c.call(ctx, http.MethodPut, fmt.Sprintf("/api/customers/%d", id), body, nil)
 }
 
-// HTTPError 带 status 的调用错误，isConflict 靠它识别 409。
+// HTTPError is a call error carrying the status; isConflict uses it to recognize 409.
 type HTTPError struct {
 	Status int
 	Body   string

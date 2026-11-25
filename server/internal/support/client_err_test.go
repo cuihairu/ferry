@@ -12,23 +12,23 @@ import (
 	"testing"
 )
 
-// 二十三批补口：servify 客户端错误分支——缺省 HTTP 客户端、建档非冲突错误、
-// 409 回落失败两种形态、HTTPError 文案、URL 解析/拨号/读体失败与载荷不可编码。
+// Batch 23 error paths: servify client error branches——default HTTP client, non-conflict create errors,
+// the two shapes of the 409 fallback failure, HTTPError text, URL parse/dial/body-read failures, and an unencodable payload.
 
-// errReader 读即报错（注错响应体读取失败）。
+// errReader fails as soon as it is read (injecting a response-body read failure).
 type errReader struct{ err error }
 
 func (errReader) Read([]byte) (int, error) { return 0, errors.New("read fail") }
 func (errReader) Close() error             { return nil }
 
-// errTransport 返回一个 200 响应但响应体不可读。
+// errTransport returns a 200 response whose body cannot be read.
 type errTransport struct{}
 
 func (errTransport) RoundTrip(*http.Request) (*http.Response, error) {
 	return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: errReader{}}, nil
 }
 
-// deadAddr 返回一个必被拒的本地地址（已关闭的监听端口）。
+// deadAddr returns a local address that is guaranteed to be refused (a closed listener port).
 func deadAddr(t *testing.T) string {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -46,20 +46,20 @@ func errSnap() CustomerSnapshot {
 	return CustomerSnapshot{Email: "x@users.ferry.local", Name: "carol", Notes: "状态：启用"}
 }
 
-// TestHTTPDefaultClient HTTP 字段留空走缺省客户端（5s 超时），调用照常成功。
+// TestHTTPDefaultClient leaves the HTTP field empty to use the default client (5s timeout); the call still succeeds.
 func TestHTTPDefaultClient(t *testing.T) {
 	s := newStubServify(t)
-	cl := &Client{BaseURL: s.srv.URL, ServiceKey: "sk-test"} // HTTP 留空
+	cl := &Client{BaseURL: s.srv.URL, ServiceKey: "sk-test"} // HTTP left empty
 	tok, exp, err := cl.GuestToken(context.Background(), "sess-1")
 	if err != nil || tok == "" || exp <= 0 {
 		t.Fatalf("GuestToken = %q %d err=%v", tok, exp, err)
 	}
 }
 
-// TestSyncCustomerCreateErrors 建档三种失败：非 409 原样冒错、409 后回落
-// 再查失败、409 后回落查无档案。
+// TestSyncCustomerCreateErrors covers the three create failures: non-409 error surfaced as-is, the
+// fallback re-query failing after a 409, and the fallback finding no profile after a 409.
 func TestSyncCustomerCreateErrors(t *testing.T) {
-	// 建档非 409：错误原样冒给调用方。
+	// Create error that is not 409: the error is surfaced to the caller as-is.
 	{
 		s := newStubServify(t)
 		s.onCreate = func(w http.ResponseWriter, _ map[string]any) {
@@ -72,7 +72,7 @@ func TestSyncCustomerCreateErrors(t *testing.T) {
 		}
 	}
 
-	// 首查即失败：建档未发生，查询错误原样冒给调用方。
+	// The first query fails: no create happens, and the query error is surfaced to the caller as-is.
 	{
 		cl := &Client{BaseURL: "http://" + deadAddr(t), ServiceKey: "sk-test"}
 		if err := cl.SyncCustomer(context.Background(), errSnap()); err == nil {
@@ -80,7 +80,7 @@ func TestSyncCustomerCreateErrors(t *testing.T) {
 		}
 	}
 
-	// 409 后回落再查失败：首查命中空表、建档 409、回落重查 500——按查询错误冒错。
+	// Fallback re-query fails after a 409: the first query hits an empty table, the create returns 409, and the fallback re-query gives 500——surfaced as the query error.
 	{
 		var searches int32
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -103,11 +103,11 @@ func TestSyncCustomerCreateErrors(t *testing.T) {
 		}
 	}
 
-	// 409 后回落查无档案：冲突但查不到，冒包装错误。
+	// Fallback finds no profile after a 409: a conflict with nothing to find, surfacing a wrapped error.
 	{
 		s := newStubServify(t)
 		s.onCreate = func(w http.ResponseWriter, _ map[string]any) {
-			w.WriteHeader(http.StatusConflict) // 不建档案
+			w.WriteHeader(http.StatusConflict) // do not create a profile
 		}
 		cl := &Client{BaseURL: s.srv.URL, ServiceKey: "sk-test"}
 		err := cl.SyncCustomer(context.Background(), errSnap())
@@ -117,7 +117,7 @@ func TestSyncCustomerCreateErrors(t *testing.T) {
 	}
 }
 
-// TestHTTPErrorText 调用错误文案带 servify 状态码与响应体。
+// TestHTTPErrorText: the call error text carries the servify status code and response body.
 func TestHTTPErrorText(t *testing.T) {
 	got := (&HTTPError{Status: http.StatusConflict, Body: "email already used"}).Error()
 	want := "servify 409: email already used"
@@ -126,36 +126,36 @@ func TestHTTPErrorText(t *testing.T) {
 	}
 }
 
-// TestCallBadRequests call 的四类请求侧失败：URL 解析、拨号、读响应体、
-// 载荷不可编码。
+// TestCallBadRequests covers the four client-side failures of call: URL parsing, dialing, reading the response body,
+// and an unencodable payload.
 func TestCallBadRequests(t *testing.T) {
 	ctx := context.Background()
 
-	// URL 解析失败（BaseURL 非法）。
+	// URL parsing fails (invalid BaseURL).
 	cl := &Client{BaseURL: "http://bad url"}
 	if err := cl.call(ctx, http.MethodGet, "/x", nil, nil); err == nil {
 		t.Fatal("want URL parse error")
 	}
 
-	// 拨号失败（目标无监听）。
+	// Dialing fails (nothing listening on the target).
 	cl = &Client{BaseURL: "http://" + deadAddr(t)}
 	if err := cl.call(ctx, http.MethodGet, "/x", nil, nil); err == nil {
 		t.Fatal("want dial error")
 	}
 
-	// 响应体读取失败（注错 Reader）。
+	// Reading the response body fails (injected Reader).
 	cl = &Client{BaseURL: "http://x", HTTP: &http.Client{Transport: errTransport{}}}
 	if err := cl.call(ctx, http.MethodGet, "/x", nil, nil); err == nil {
 		t.Fatal("want body read error")
 	}
 
-	// 载荷不可编码（json.Marshal 失败）。
+	// The payload cannot be encoded (json.Marshal fails).
 	if err := cl.call(ctx, http.MethodPost, "/x", map[string]any{"fn": func() {}}, nil); err == nil {
 		t.Fatal("want marshal error")
 	}
 }
 
-// TestServerSideReadFailure 服务端回非 2xx：错误带状态码（调用面契约）。
+// TestServerSideReadFailure: the server replies non-2xx; the error carries the status code (call-surface contract).
 func TestServerSideReadFailure(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)

@@ -9,14 +9,14 @@ import (
 	"testing"
 )
 
-// stubServify 记录调用并按脚本回状态，供宿主侧客户端用例跟跑。
+// stubServify records calls and replies with scripted statuses, for driving host-side client cases.
 type stubServify struct {
 	t      *testing.T
 	srv    *httptest.Server
 	calls  []string
-	cust   map[uint64]map[string]any // id -> 档案
+	cust   map[uint64]map[string]any // id -> profile
 	nextID uint64
-	// onCreate 不为空时接管建档响应（模拟 409 冲突等分支）。
+	// When onCreate is non-nil it takes over the create-profile response (simulating branches such as a 409 conflict).
 	onCreate func(w http.ResponseWriter, body map[string]any)
 }
 
@@ -137,7 +137,7 @@ func TestSyncCustomerUpdatesWhenFound(t *testing.T) {
 func TestSyncCustomerConflictFallsBackToUpdate(t *testing.T) {
 	s := newStubServify(t)
 	s.onCreate = func(w http.ResponseWriter, body map[string]any) {
-		// 模拟并发建档撞唯一约束：先 409，档案其实已存在。
+		// Simulate a concurrent profile create hitting the unique constraint: 409 first, though the profile actually already exists.
 		s.cust[7] = map[string]any{"id": 7, "email": body["email"], "notes": "并发建档的旧快照"}
 		w.WriteHeader(http.StatusConflict)
 	}
