@@ -67,6 +67,18 @@ func (f *Fake) Seed(r Resource) Resource {
 	return r
 }
 
+// Unseed drops a resource, simulating a provider-side deletion for the sync
+// reconciliation tests (F-0350/F-0351); it reports whether the id existed.
+func (f *Fake) Unseed(resourceID string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.res[resourceID]; !ok {
+		return false
+	}
+	delete(f.res, resourceID)
+	return true
+}
+
 // SetCaps replaces the declared capability set (e.g. to test a no-power
 // vendor).
 func (f *Fake) SetCaps(caps Capabilities) {

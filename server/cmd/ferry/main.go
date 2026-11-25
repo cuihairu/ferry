@@ -24,6 +24,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/audit"
 	"github.com/cuihairu/ferry/server/internal/backup"
 	"github.com/cuihairu/ferry/server/internal/cert"
+	"github.com/cuihairu/ferry/server/internal/cloudsync"
 	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/cost"
 	"github.com/cuihairu/ferry/server/internal/geodns"
@@ -233,6 +234,12 @@ func run(ctx context.Context, cfg config.Config) error {
 	go toucher.Loop(ctx, db, toucher.Config{
 		DomainsDays: cfg.TouchDomainsDays, BaseURL: strings.TrimRight(cfg.BaseURL, "/"),
 	}, time.Duration(cfg.TouchIntervalSec)*time.Second, nil)
+
+	// Cloud resource sync (F-0347): each enabled provider account is pulled through
+	// its cloudprov adapter (region scope and tag filter applied), results are
+	// soft-synced into CloudResource rows and every run is logged.
+	go cloudsync.Loop(ctx, db, secret.NewStore(cfg.SecretKey),
+		time.Duration(cfg.CloudSyncIntervalSec)*time.Second, "scheduled")
 
 	// Event outbox (HERALD-1/2): events persist and return immediately, the delivery loop retries asynchronously;
 	// setting FERRY_HERALD_URL hooks up the Herald delivery leg, when unset events only land in the DB, visible on the dash.

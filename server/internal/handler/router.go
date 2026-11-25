@@ -189,6 +189,13 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		// Credential rotation (F-0330): grace-window rotation + early revoke.
 		api.POST("/providers/:id/rotate", h.rotateProviderCredential)
 		api.POST("/providers/:id/revoke-previous", h.revokePreviousCredential)
+		// Cloud resources (F-0341~F-0356): sync, list/detail, binding and history.
+		api.POST("/providers/:id/sync", h.syncCloudResources)
+		api.GET("/cloud-resources", h.listCloudResources)
+		api.GET("/cloud-resources/:id", h.getCloudResource)
+		api.POST("/cloud-resources/:id/bind", h.bindCloudResource)
+		api.POST("/cloud-resources/:id/unbind", h.unbindCloudResource)
+		api.GET("/cloud-sync-logs", h.listCloudSyncLogs)
 		api.POST("/provision-templates/:id/apply", h.applyTemplate)
 		api.POST("/provision-templates/:id/plan", h.planTemplate)
 		api.GET("/provision-jobs", h.listProvisionJobs)

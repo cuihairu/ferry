@@ -585,6 +585,62 @@ type Provider struct {
 	UpdatedAt     time.Time  `json:"updated_at"`
 }
 
+// CloudResource is one resource discovered on a provider account (F-0341):
+// the sync engine (F-0343~F-0349) upserts it from the vendor listing, the
+// panel binds it to a Node, and provider-side deletion only marks the row
+// (F-0350/F-0351) -- history and bindings are never destroyed by a sync.
+type CloudResource struct {
+	ID uint `gorm:"primaryKey" json:"id"`
+	// ExternalID is the provider-side resource identifier (stable across syncs);
+	// together with ProviderID it is the dedup key, so a repeated import of the
+	// same vendor resource updates the row instead of duplicating it (F-0352).
+	ProviderID uint   `gorm:"uniqueIndex:idx_cloudres_provider_external;not null" json:"provider_id"`
+	ExternalID string `gorm:"size:255;uniqueIndex:idx_cloudres_provider_external;not null" json:"external_id"`
+	// Region is where the resource lives (F-0344): the sync scope dimension.
+	Region   string `gorm:"size:64;index" json:"region"`
+	Name     string `gorm:"size:255" json:"name"`
+	State    string `gorm:"size:16" json:"state"` // cloudprov State* constants
+	PublicIP string `gorm:"size:64" json:"public_ip"`
+	BwMbps   int    `json:"bw_mbps"` // 0 = unknown (F-0313)
+	Spec     string `gorm:"size:64" json:"spec"`
+	// Tags is the vendor tag map as JSON (F-0345); "" = untagged.
+	Tags string `gorm:"type:text" json:"tags"`
+	// Binding (F-0353~F-0355): NodeID is nil while unbound; the unique index
+	// lets many resources be unbound but blocks two resources claiming one
+	// Node. Unbind keeps the row (F-0351) and stamps UnboundAt.
+	NodeID    *uint      `gorm:"uniqueIndex" json:"node_id,omitempty"`
+	UnboundAt *time.Time `json:"unbound_at,omitempty"`
+	// Provider-side lifecycle (F-0350/F-0351): a sync that no longer lists the
+	// resource flags Missing instead of deleting the row, so the bound Node's
+	// history and the cost trail survive; re-appearance clears it. LastSeenAt
+	// is the last time a listing touched the row, LastSyncAt the last sync
+	// that saw the row (F-0349); run-level results live in CloudSyncLog.
+	LastSeenAt   time.Time  `json:"last_seen_at"`
+	Missing      bool       `gorm:"default:false" json:"missing"`
+	MissingSince *time.Time `json:"missing_since,omitempty"`
+	LastSyncAt   *time.Time `json:"last_sync_at,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+}
+
+// CloudSyncLog is one sync run's result record (F-0349/F-0356): counts per
+// run, the trigger, and the failure message when the vendor call failed.
+type CloudSyncLog struct {
+	ID         uint `gorm:"primaryKey" json:"id"`
+	ProviderID uint `gorm:"index;not null" json:"provider_id"`
+	// Region is the run's scope ("" = the whole account); Trigger is
+	// manual/scheduled (F-0346/F-0347).
+	Region     string    `gorm:"size:64" json:"region"`
+	Trigger    string    `gorm:"size:16" json:"trigger"`
+	OK         bool      `json:"ok"`
+	Added      int       `json:"added"`
+	Updated    int       `json:"updated"`
+	Missing    int       `json:"missing"`
+	Error      string    `gorm:"size:255" json:"error,omitempty"`
+	StartedAt  time.Time `json:"started_at"`
+	FinishedAt time.Time `json:"finished_at"`
+}
+
 // ProvisionTemplate is a machine template (OS-1): dash enters it, OS-2 renders HCL supply,
 // and when OS-4 fills in node metadata by the template it aligns with the node (direction / line / region / cost policy).
 type ProvisionTemplate struct {
