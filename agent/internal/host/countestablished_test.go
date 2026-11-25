@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// fixture 按 /proc/net/tcp 原文格式造行：state 在第 4 列（十六进制），
-// 01=ESTABLISHED。
+// fixture builds lines in raw /proc/net/tcp format: state is column 4 (hexadecimal),
+// 01 = ESTABLISHED.
 func establishedFixture(v4, v6 string) string {
 	return v4 + "\n" + v6
 }
@@ -25,7 +25,7 @@ bad line no cols
    1: 00000000000000000000000000000001:8AE4 00000000000000000000000000000000:0016 08 00000000:00000000 00:00000000 00000000 0 0 22346 1
 `
 	got := countEstablishedFrom(strings.NewReader(establishedFixture(v4, v6)))
-	// v4: 三行 01（含坏地址行 4）+ v6: 一行 01 = 4；0A=LISTEN、06=TIME_WAIT、08=CLOSE_WAIT 不计。
+	// v4: three 01 lines (including bad address line 4) + v6: one 01 line = 4; 0A=LISTEN, 06=TIME_WAIT and 08=CLOSE_WAIT do not count.
 	if got != 4 {
 		t.Fatalf("count = %d; want 4", got)
 	}
