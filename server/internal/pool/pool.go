@@ -100,6 +100,16 @@ func sweepOnce(db *gorm.DB, logger *log.Logger) error {
 	}
 	for _, ev := range events {
 		logger.Printf("pool %s: node %d %s（%s）", ev.Action, ev.NodeID, ev.Name, ev.Reason)
+		// A planned maintenance window (F-0206) still tracks health but does
+		// not page anyone: the operator already knows the node is out.
+		var n storage.Node
+		if err := db.Select("maintenance").First(&n, ev.NodeID).Error; err != nil {
+			logger.Printf("read node %d maintenance: %v", ev.NodeID, err)
+			continue
+		}
+		if n.Maintenance {
+			continue
+		}
 		announce(db, logger, ev)
 		// Single-node suspend/resume events (HERALD-3 slack): only automatic suspension emits node_down;
 		// resume and manual actions do not (recovery is instant on the subscription side, no alert reach needed). Failures only log.

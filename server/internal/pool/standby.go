@@ -45,8 +45,8 @@ func MarkStandby(db *gorm.DB, nodeID uint) (storage.Node, error) {
 // for id rotation); returns the zero row when there is none.
 func StandbyEntry(db *gorm.DB) (storage.Node, error) {
 	var n storage.Node
-	err := db.Where("enabled = ? AND pool_state = ? AND status = ? AND role IN (?, ?)",
-		true, StateStandby, "online", "entry", "both").
+	err := db.Where("enabled = ? AND maintenance = ? AND pool_state = ? AND status = ? AND role IN (?, ?)",
+		true, false, StateStandby, "online", "entry", "both").
 		Order("id").First(&n).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return storage.Node{}, nil

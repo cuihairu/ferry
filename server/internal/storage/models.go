@@ -154,7 +154,14 @@ type Node struct {
 	Protocol string `gorm:"size:16" json:"protocol"` // vless/vmess/trojan/shadowsocks/hysteria2
 	Config   string `gorm:"type:text" json:"config"` // protocol config template JSON
 	Enabled  bool   `gorm:"default:true" json:"enabled"`
-	Token    string `gorm:"size:64;uniqueIndex" json:"token"`
+	// Node states are four orthogonal flags, not one enum (F-0206):
+	// disabled  = Enabled=false, admin off, out of scheduling, no alerts;
+	// maintenance = Maintenance=true, planned window, out of scheduling but
+	//               still probed/reported, suspension alerts suppressed;
+	// offline   = Status=offline, runtime connectivity lost (agent gone);
+	// unhealthy = PoolState=suspended, probe verdict pulled it from the pool.
+	Maintenance bool   `gorm:"default:false" json:"maintenance"`
+	Token       string `gorm:"size:64;uniqueIndex" json:"token"`
 	// Token rotation grace: an agent replaces local config and reconnects.
 	OldToken       string     `gorm:"size:64;index" json:"old_token,omitempty"`
 	TokenRotatedAt *time.Time `json:"token_rotated_at,omitempty"`

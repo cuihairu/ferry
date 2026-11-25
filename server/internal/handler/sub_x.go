@@ -91,8 +91,8 @@ func (h *Handler) subscriptionFiltered(c *gin.Context) {
 		// The candidate set uses the same conditions as the main subscription; landing
 		// nodes are not delivered, and provisioning nodes stay out of the subscription.
 		var nodes []storage.Node
-		if err := h.db.Where("enabled = ? AND role IN (?, ?) AND pool_state = ? AND status != ?",
-			true, "entry", "both", pool.StateActive, "provisioning").
+		if err := h.db.Where("enabled = ? AND maintenance = ? AND role IN (?, ?) AND pool_state = ? AND status != ?",
+			true, false, "entry", "both", pool.StateActive, "provisioning").
 			Order("id").Find(&nodes).Error; err != nil {
 			fail(c, http.StatusInternalServerError, err)
 			return

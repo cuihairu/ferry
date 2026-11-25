@@ -356,3 +356,38 @@ func TestAnnounceWebhook(t *testing.T) {
 		t.Fatalf("log = %q; want send failure logged", buf.String())
 	}
 }
+
+// TestMaintenanceTracksHealthQuietly covers F-0206: a node under planned
+// maintenance is still suspended by sick verdicts (health tracked) but no
+// node_down alert or webhook announcement is emitted for it.
+func TestMaintenanceTracksHealthQuietly(t *testing.T) {
+	db := newDB(t)
+	n := seedNode(t, db, "maint-entry", "entry", true)
+	if err := db.Model(&storage.Node{}).Where("id = ?", n.ID).Update("maintenance", true).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, age := range []time.Duration{9 * time.Minute, 6 * time.Minute, 3 * time.Minute} {
+		report(t, db, n.ID, agentproto.ProbeVerdictSick, age)
+	}
+	logger := log.New(&bytes.Buffer{}, "", 0)
+	if err := sweepOnce(db, logger); err != nil {
+		t.Fatal(err)
+	}
+	// health verdict still applied
+	if got := getPoolState(t, db, n.ID).PoolState; got != StateSuspended {
+		t.Fatalf("maintenance node pool state = %q, want suspended", got)
+	}
+	// but nobody is paged
+	var evs []storage.Event
+	if err := db.Where("kind = ?", "node_down").Find(&evs).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 0 {
+		t.Fatalf("node_down emitted during maintenance: %+v", evs)
+	}
+	var cnt int64
+	db.Model(&storage.Event{}).Where("kind = ?", "pool.suspend").Count(&cnt)
+	if cnt != 0 {
+		t.Fatalf("pool.suspend announcement emitted during maintenance: %d", cnt)
+	}
+}

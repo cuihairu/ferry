@@ -39,6 +39,9 @@ type NodeInput struct {
 	Protocol string `json:"protocol"`
 	Config   string `json:"config"`
 	Enabled  *bool  `json:"enabled,omitempty"`
+	// Maintenance marks a planned window (F-0206): the node stays out of
+	// scheduling but keeps reporting; probes still run and alerts are hushed.
+	Maintenance *bool `json:"maintenance,omitempty"`
 	// Registration metadata (entry and load-balancing design §C.3/C.6): the
 	// agent reports initial values at enrollment, the panel may change them and
 	// wins; empty string = DB default on create, keep the old value on update.

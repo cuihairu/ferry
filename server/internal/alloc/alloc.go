@@ -445,14 +445,14 @@ func SweepAt(db *gorm.DB, now time.Time) ([]SwitchEvent, error) {
 		return nil, err
 	}
 	var entries []storage.Node
-	if err := db.Where("enabled = ? AND role IN (?, ?) AND pool_state = ? AND status != ?",
-		true, "entry", "both", "active", "provisioning").Find(&entries).Error; err != nil {
+	if err := db.Where("enabled = ? AND maintenance = ? AND role IN (?, ?) AND pool_state = ? AND status != ?",
+		true, false, "entry", "both", "active", "provisioning").Find(&entries).Error; err != nil {
 		return nil, err
 	}
 	// provisioning (OS-3, being provisioned) does not join allocation; once online the next sweep includes it naturally.
 	var landings []storage.Node
-	if err := db.Where("enabled = ? AND role IN (?, ?) AND status != ?",
-		true, "landing", "both", "provisioning").Find(&landings).Error; err != nil {
+	if err := db.Where("enabled = ? AND maintenance = ? AND role IN (?, ?) AND status != ?",
+		true, false, "landing", "both", "provisioning").Find(&landings).Error; err != nil {
 		return nil, err
 	}
 	conns := latestConns(db)

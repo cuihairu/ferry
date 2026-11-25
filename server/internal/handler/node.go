@@ -64,15 +64,20 @@ func newPersistedNode(db *gorm.DB, in *model.NodeInput) (*storage.Node, error) {
 	if in.Enabled != nil {
 		enabled = *in.Enabled
 	}
+	maintenance := false
+	if in.Maintenance != nil {
+		maintenance = *in.Maintenance
+	}
 	n := storage.Node{
-		Name:     strings.TrimSpace(in.Name),
-		Address:  strings.TrimSpace(in.Address),
-		Port:     in.Port,
-		Protocol: in.Protocol,
-		Config:   normalizeConfig(in.Config),
-		Enabled:  enabled,
-		Token:    token,
-		Status:   "unknown",
+		Name:        strings.TrimSpace(in.Name),
+		Address:     strings.TrimSpace(in.Address),
+		Port:        in.Port,
+		Protocol:    in.Protocol,
+		Config:      normalizeConfig(in.Config),
+		Enabled:     enabled,
+		Maintenance: maintenance,
+		Token:       token,
+		Status:      "unknown",
 	}
 	// metadata: non-empty values override the DB defaults, and any one present
 	// sets MetaInit (panel takeover, registration no longer overrides).
@@ -126,13 +131,18 @@ func (h *Handler) updateNode(c *gin.Context) {
 	if in.Enabled != nil {
 		enabled = *in.Enabled
 	}
+	maintenance := n.Maintenance
+	if in.Maintenance != nil {
+		maintenance = *in.Maintenance
+	}
 	updates := map[string]any{
-		"name":     strings.TrimSpace(in.Name),
-		"address":  strings.TrimSpace(in.Address),
-		"port":     in.Port,
-		"protocol": in.Protocol,
-		"config":   normalizeConfig(in.Config),
-		"enabled":  enabled,
+		"name":        strings.TrimSpace(in.Name),
+		"address":     strings.TrimSpace(in.Address),
+		"port":        in.Port,
+		"protocol":    in.Protocol,
+		"config":      normalizeConfig(in.Config),
+		"enabled":     enabled,
+		"maintenance": maintenance,
 	}
 	// metadata left out keeps its current value (same rule as the base fields);
 	// provided values are written back after validation.

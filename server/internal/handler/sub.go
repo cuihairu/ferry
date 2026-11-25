@@ -102,8 +102,8 @@ func (h *Handler) subscription(c *gin.Context) {
 		// Nodes still provisioning (OS-3) stay out of the subscription until they turn
 		// online, at which point they enter the list automatically.
 		var nodes []storage.Node
-		if err := h.db.Where("enabled = ? AND role IN (?, ?) AND pool_state = ? AND status != ?",
-			true, "entry", "both", pool.StateActive, "provisioning").
+		if err := h.db.Where("enabled = ? AND maintenance = ? AND role IN (?, ?) AND pool_state = ? AND status != ?",
+			true, false, "entry", "both", pool.StateActive, "provisioning").
 			Order("id").Find(&nodes).Error; err != nil {
 			fail(c, http.StatusInternalServerError, err)
 			return
