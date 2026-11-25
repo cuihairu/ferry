@@ -1,7 +1,7 @@
-// Package toucher 例行触达调度器（触达批 TOUCH-4，用户触达设计 §5）：月账单
-// （自然月一轮，账单类必收）与入口域名例行清单（可配周期，可退订）两类例行
-// 邮件。任务先落 touch_jobs 再经 herald.Emit 投递（outbox 语义，ferry 不自建
-// 通道）；投出即标 sent 并记 event_id，通道分发失败由 TOUCH-5 回执改写。
+// Package toucher is the routine outreach scheduler (outreach batch TOUCH-4, user outreach design §5):
+// monthly bills (one round per calendar month, bills always sent) and the entry-domain routine list
+// (configurable period, unsubscribe-able) are the two routine emails. Jobs land in touch_jobs first and
+// are delivered via herald.Emit (outbox semantics; ferry does not build its own channel); marked sent with event_id on dispatch, channel failures rewritten by TOUCH-5 receipts.
 package toucher
 
 import (
@@ -20,20 +20,20 @@ import (
 	"gorm.io/gorm"
 )
 
-// settings 键：账单月闸门（同月不重发）与域名例行上次发送时刻。
+// settings keys: bill month gate (no resend within the same month) and the last domains-routine send time.
 const (
 	settingBillMonth = "touch_bill_month"
 	settingDomainsAt = "touch_domains_at"
 )
 
-// Config 是调度器参数：DomainsDays=域名例行周期（天，0=关），BaseURL=渲染
-// 续费/订阅链接用面板对外地址。
+// Config holds scheduler parameters: DomainsDays = domains routine period (days, 0 = off), BaseURL =
+// the panel's public address used to render renewal/subscription links.
 type Config struct {
 	DomainsDays int
 	BaseURL     string
 }
 
-// Loop 周期调度直到 ctx 取消（对齐 notifyscan/recovery 的 Loop 口径）。
+// Loop schedules periodically until ctx is cancelled (same Loop criteria as notifyscan/recovery).
 func Loop(ctx context.Context, db *gorm.DB, cfg Config, interval time.Duration, logger *log.Logger) {
 	if logger == nil {
 		logger = log.Default()
@@ -55,7 +55,7 @@ func Loop(ctx context.Context, db *gorm.DB, cfg Config, interval time.Duration, 
 	}
 }
 
-// Sweep 跑一轮：账单与域名例行各自独立，互不阻断，错误合并返回。
+// Sweep runs one round: bill and domains routines are independent, neither blocks the other; errors are merged.
 func Sweep(db *gorm.DB, cfg Config, now time.Time) error {
 	return joinErr(sweepBill(db, cfg, now), sweepDomains(db, cfg, now))
 }
@@ -67,11 +67,11 @@ func joinErr(a, b error) error {
 	return b
 }
 
-// sweepBill 月账单（§5 必收）：每自然月至多一轮（settings 月闸门），给全部
-// 启用用户各落一单任务；内容=用量/配额/状态/到期/续费入口/已省下亮点。
-// 月闸门按服务器本地日历月（P2 本地时区计费修复：原按 UTC 月，非 UTC 部署
-// 下账单月份与本地日历/流量判定窗口错位）。亮点取数仍用 UTC 月起点——
-// save_stats 按 UTC 日聚合，管道自洽。
+// sweepBill sends monthly bills (§5 always sent): at most one round per calendar month (settings month gate),
+// one job per enabled user; content = usage/quota/state/expiry/renewal entry/savings highlights.
+// The month gate follows the server's local calendar month (P2 local-timezone billing fix: keyed on the
+// UTC month before, which misaligned bill months with the local calendar/traffic verdict window in non-UTC
+// deployments). Highlights still take the UTC month start — save_stats aggregates by UTC day, so the pipeline stays self-consistent.
 func sweepBill(db *gorm.DB, cfg Config, now time.Time) error {
 	month := now.Format("2006-01")
 	if v, ok, err := storage.GetSetting(db, settingBillMonth); err != nil {
@@ -104,9 +104,9 @@ func sweepBill(db *gorm.DB, cfg Config, now time.Time) error {
 	return storage.SetSetting(db, settingBillMonth, month)
 }
 
-// emitBill 渲染并发一单月账单：任务落 touch_jobs，经 Emit 投出后标 sent。
-// 用量窗口=计费窗口：服务器本地自然月起点（quota month 口径，P2 修复——原
-// 按 UTC 字符串月起点，非 UTC 部署下与月流量判定/订阅展示窗口错位）。
+// emitBill renders and sends one monthly bill: the job lands in touch_jobs and is marked sent after Emit.
+// Usage window = billing window: the server's local calendar month start (quota month criteria; P2 fix —
+// it was keyed on the UTC string month start, which misaligned with the monthly traffic verdict / subscription display window in non-UTC deployments).
 func emitBill(db *gorm.DB, cfg Config, u storage.User, sv [3]int64, now time.Time) error {
 	var usage struct {
 		Rx, Tx int64
@@ -129,8 +129,8 @@ func emitBill(db *gorm.DB, cfg Config, u storage.User, sv [3]int64, now time.Tim
 	return emitTouch(db, int64(u.ID), herald.KindBill, title, body, now)
 }
 
-// sweepDomains 入口域名例行清单（§5 可退订）：距上次发送超 DomainsDays 天
-// 给绑了邮箱且未退订例行的用户各落一单；0=关。
+// sweepDomains sends the entry-domain routine list (§5 unsubscribe-able): past DomainsDays since the last
+// send, one job per user with a bound email who has not unsubscribed from routines; 0 = off.
 func sweepDomains(db *gorm.DB, cfg Config, now time.Time) error {
 	if cfg.DomainsDays <= 0 {
 		return nil
@@ -171,7 +171,7 @@ func sweepDomains(db *gorm.DB, cfg Config, now time.Time) error {
 	return storage.SetSetting(db, settingDomainsAt, now.Format(time.RFC3339))
 }
 
-// emitDomains 渲染并发一单域名例行：主/备分组 + 公告订阅地址（断联容灾）。
+// emitDomains renders and sends one domains routine: primary/backup grouping + the announcement feed address (outage resilience).
 func emitDomains(db *gorm.DB, cfg Config, ct storage.UserContact, domains []storage.EntryDomain, now time.Time) error {
 	var primary, backup string
 	for _, d := range domains {
@@ -192,8 +192,8 @@ func emitDomains(db *gorm.DB, cfg Config, ct storage.UserContact, domains []stor
 	return emitTouch(db, int64(ct.UserID), herald.KindDomains, "入口域名清单", body, now)
 }
 
-// emitTouch 落任务并投递：touch_jobs 先行（任务不丢），Emit 成功记 event_id
-// 并标 sent（ferry→Herald 腿 2xx 即视为投出）；Emit 失败任务留在 pending。
+// emitTouch stores and delivers the job: touch_jobs first (no job loss); on Emit success the event_id
+// is recorded and it is marked sent (a 2xx on the ferry→Herald leg counts as dispatched); on Emit failure the job stays pending.
 func emitTouch(db *gorm.DB, userID int64, kind, title, body string, now time.Time) error {
 	payload, err := json.Marshal(map[string]string{"title": title, "body": body})
 	if err != nil {
@@ -228,7 +228,7 @@ func firstErr(a, b error) error {
 	return b
 }
 
-// formatBytes 十进制口径（与成本/节省报表一致）：GB=1e9。
+// formatBytes uses decimal units (consistent with the cost/savings reports): GB = 1e9.
 func formatBytes(n int64) string {
 	switch {
 	case n >= 1_000_000_000:
@@ -242,7 +242,7 @@ func formatBytes(n int64) string {
 	}
 }
 
-// quotaText 配额展示：0=不限量。
+// quotaText renders the quota: 0 = unlimited.
 func quotaText(quota int64) string {
 	if quota <= 0 {
 		return "不限量"
@@ -250,10 +250,10 @@ func quotaText(quota int64) string {
 	return formatBytes(quota)
 }
 
-// expireText 到期展示：nil=不限期；按服务器本地日历日期（与计费窗口同时区，
-// 避免非 UTC 部署下到期日显示差一天）。统一转本地再取日历日——DB 读回的
-// 时区不定（sqlite 按 UTC 文本读回），裸 Format 会随读回时区漂移
-// （codex 深审 P2）。
+// expireText renders the expiry: nil = no expiry; by the server's local calendar date (same zone as the
+// billing window, so a non-UTC deployment does not show the expiry off by a day). Convert to local then
+// take the calendar date — the timezone read back from the DB is not fixed (sqlite reads back UTC text), so
+// a bare Format would drift with the read-back timezone (codex deep review P2).
 func expireText(t *time.Time) string {
 	if t == nil {
 		return "不限期"

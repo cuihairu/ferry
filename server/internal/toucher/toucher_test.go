@@ -33,8 +33,8 @@ func newTestDB(t *testing.T) *gorm.DB {
 
 var cfg = Config{DomainsDays: 7, BaseURL: "https://panel.example.com"}
 
-// TestSweepBill 月账单（TOUCH-4）：启用用户各一单、必收（无偏好过滤）、
-// 月闸门同月不重发、任务 sent 记 event_id、亮点接 UserSavings。
+// TestSweepBill covers monthly bills (TOUCH-4): one job per enabled user, always sent (no preference filter),
+// no resend within the same month by the month gate, jobs marked sent with event_id, highlights wired to UserSavings.
 func TestSweepBill(t *testing.T) {
 	db := newTestDB(t)
 	users := []storage.User{
@@ -44,12 +44,12 @@ func TestSweepBill(t *testing.T) {
 	if err := db.Create(&users).Error; err != nil {
 		t.Fatal(err)
 	}
-	// gorm default:true 吞零值：禁用态建后显式改。
+	// gorm default:true swallows the zero value: patch the disabled state explicitly after create.
 	if err := db.Model(&storage.User{}).Where("username = ?", "bill-b").Update("enabled", false).Error; err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	// A 本月用量 2GB + 节省计数（节点 1 全占：直连 1GB、拦截 0.5GB）
+	// A's month usage 2GB + savings counters (node 1 holds all of it: direct 1GB, blocked 0.5GB)
 	nid := uint(1)
 	uid := users[0].ID
 	if err := db.Create(&[]storage.TrafficLog{
@@ -69,7 +69,7 @@ func TestSweepBill(t *testing.T) {
 	if err := db.Where("kind = ?", "bill").Find(&jobs).Error; err != nil {
 		t.Fatal(err)
 	}
-	if len(jobs) != 1 { // 禁用用户不收
+	if len(jobs) != 1 { // disabled users get none
 		t.Fatalf("jobs = %d, want 1", len(jobs))
 	}
 	if jobs[0].Status != "sent" || jobs[0].EventID == 0 || jobs[0].SentAt == nil {
@@ -87,7 +87,7 @@ func TestSweepBill(t *testing.T) {
 			t.Fatalf("body missing %q:\n%s", want, payload["body"])
 		}
 	}
-	// 对应 outbox 事件带 user target 与 touch_job_id 关联
+	// The corresponding outbox event carries the user target and the touch_job_id link
 	var ev storage.Event
 	if err := db.Where("kind = ? AND id = ?", "bill", jobs[0].EventID).First(&ev).Error; err != nil {
 		t.Fatalf("event: %v", err)
@@ -96,7 +96,7 @@ func TestSweepBill(t *testing.T) {
 		t.Fatalf("target: %s", ev.Target)
 	}
 
-	// 同月二轮不重发
+	// A second round in the same month does not resend
 	if err := Sweep(db, cfg, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
@@ -107,8 +107,8 @@ func TestSweepBill(t *testing.T) {
 	}
 }
 
-// TestSweepDomains 域名例行（TOUCH-4）：只发绑邮箱且未退订的用户、主备分组、
-// 周期闸门、0=关。
+// TestSweepDomains covers the domains routine (TOUCH-4): only users with a bound email who have not
+// unsubscribed, primary/backup grouping, the period gate, and 0 = off.
 func TestSweepDomains(t *testing.T) {
 	db := newTestDB(t)
 	users := []storage.User{
@@ -122,8 +122,8 @@ func TestSweepDomains(t *testing.T) {
 	subF := false
 	if err := db.Create(&[]storage.UserContact{
 		{UserID: users[0].ID, Email: "a@x.c", RoutineEmails: true, BoundAt: time.Now()},
-		{UserID: users[1].ID, Email: "b@x.c", RoutineEmails: subF, BoundAt: time.Now()},    // 退订
-		{UserID: users[2].ID, TgChatID: "10086", RoutineEmails: true, BoundAt: time.Now()}, // 无邮箱
+		{UserID: users[1].ID, Email: "b@x.c", RoutineEmails: subF, BoundAt: time.Now()},    // unsubscribed
+		{UserID: users[2].ID, TgChatID: "10086", RoutineEmails: true, BoundAt: time.Now()}, // no email
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +157,7 @@ func TestSweepDomains(t *testing.T) {
 		t.Fatal("disabled domain leaked")
 	}
 
-	// 周期内二轮不重发
+	// A second round within the period does not resend
 	if err := Sweep(db, cfg, now.Add(24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func TestSweepDomains(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("domains re-sent within period: %d", n)
 	}
-	// 周期到期再发：上轮时刻回拨后过闸
+	// Period elapsed: resend after rewinding the previous round's time past the gate
 	if err := Sweep(db, cfg, now.Add(8*24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestSweepDomains(t *testing.T) {
 		t.Fatalf("domains after period: %d", n)
 	}
 
-	// 0=关：新库一轮零任务
+	// 0 = off: a fresh DB yields zero jobs for one round
 	db2 := newTestDB(t)
 	if err := Sweep(db2, Config{DomainsDays: 0}, now); err != nil {
 		t.Fatal(err)
@@ -191,8 +191,8 @@ func contains(s, sub string) bool {
 	return strings.Contains(s, sub)
 }
 
-// TestLoopSweepsAndStops 覆盖 Loop 启停：interval 可注入，启动即跑一轮
-// （月账单闸门落任务），ctx 取消后退出；nil logger 兜底。
+// TestLoopSweepsAndStops covers Loop start/stop: interval is injectable, one round runs on start
+// (the bill month gate lands a job), and it exits after ctx cancel; nil logger falls back.
 func TestLoopSweepsAndStops(t *testing.T) {
 	db := newTestDB(t)
 	if err := db.Create(&storage.User{Username: "bill-a", SubToken: "ta", Enabled: true}).Error; err != nil {
@@ -228,7 +228,7 @@ func TestLoopSweepsAndStops(t *testing.T) {
 	}
 }
 
-// TestFirstErr 覆盖错误合并：前者优先、前者空取后者。
+// TestFirstErr covers error merging: the earlier one wins; if the earlier is nil, take the latter.
 func TestFirstErr(t *testing.T) {
 	a := errors.New("a")
 	b := errors.New("b")
@@ -243,12 +243,12 @@ func TestFirstErr(t *testing.T) {
 	}
 }
 
-// TestJoinErrAndExpireText joinErr 双错合并口径（任一路失败都冒）、
-// expireText 到期展示（nil=不限期，非 nil 按服务器本地日历日期）。
+// TestJoinErrAndExpireText covers joinErr's merged two-error criteria (either failing leg surfaces both),
+// and expireText's rendering (nil = no expiry; non-nil by the server's local calendar date).
 func TestJoinErrAndExpireText(t *testing.T) {
 	db := newTestDB(t)
 	if sqlDB, err := db.DB(); err == nil {
-		// 关连接池：两路清扫都失败，joinErr 必须合并两条而非只回第一条。
+		// Close the connection pool: both legs of the sweep fail, so joinErr must merge two errors rather than return only the first.
 		if err := sqlDB.Close(); err != nil {
 			t.Fatal(err)
 		}
@@ -265,11 +265,11 @@ func TestJoinErrAndExpireText(t *testing.T) {
 	}
 }
 
-// TestBillGateFollowsLocalCalendar 覆盖 P2「本地时区计费」修复：月账单闸门/
-// 标题按服务器本地日历月，不再按 UTC 月——东八区本地 11-01 02:00（=UTC
-// 10-31 18:00）扫账单，修复前 UTC 月闸门记 10 月、标题落「月账单 · 2026-10」，
-// 与本地日历错一个月；修复后记 11 月且用量窗口（quota month 口径）照常
-// 计入本地 11 月的流量行。
+// TestBillGateFollowsLocalCalendar covers the P2 "local timezone billing" fix: the bill month gate /
+// title follow the server's local calendar month, not the UTC month — sweeping bills at local
+// 11-01 02:00 in UTC+8 (= UTC 10-31 18:00), before the fix the UTC month gate recorded October and
+// the title carried the UTC month, one month off from the local calendar; after the fix it records
+// November and the usage window (quota month criteria) still counts the local November traffic rows.
 func TestBillGateFollowsLocalCalendar(t *testing.T) {
 	db := newTestDB(t)
 	if err := db.Create(&storage.User{Username: "bill-tz", SubToken: "ttz", Enabled: true}).Error; err != nil {
@@ -281,7 +281,7 @@ func TestBillGateFollowsLocalCalendar(t *testing.T) {
 	}
 	uid := u.ID
 	nid := uint(1)
-	// 东八区测试钟；流量行落在本地 11-01 01:00（自然月已开）。
+	// UTC+8 test clock; the traffic row lands at local 11-01 01:00 (the calendar month is already open).
 	tz := time.FixedZone("billtz", 8*3600)
 	now := time.Date(2026, 11, 1, 2, 0, 0, 0, tz)
 	if err := db.Create(&storage.TrafficLog{
@@ -311,7 +311,7 @@ func TestBillGateFollowsLocalCalendar(t *testing.T) {
 	if !contains(payload["body"], "800 B") {
 		t.Fatalf("in-month usage missing:\n%s", payload["body"])
 	}
-	// 月闸门键同落本地月份：同月再扫不重发。
+	// The month gate key also lands on the local month: rescanning within the month does not resend.
 	month, ok, err := storage.GetSetting(db, settingBillMonth)
 	if err != nil {
 		t.Fatal(err)
@@ -329,10 +329,10 @@ func TestBillGateFollowsLocalCalendar(t *testing.T) {
 	}
 }
 
-// TestExpireTextLocalCalendar 覆盖 codex 深审 P2「统一过期日期展示时区」：
-// DB 读回的时区不定（sqlite 按 UTC 文本读回），展示必须统一转服务器本地
-// 日历——UTC 2026-10-31 20:00 在东八区已是 11-01 04:00，裸 Format 会落
-// 前一天，与计费窗口（本地日历月）差一天。
+// TestExpireTextLocalCalendar covers codex deep review P2 "unified expiry display timezone":
+// the timezone read back from the DB is not fixed (sqlite reads back UTC text), so display must
+// convert to the server's local calendar uniformly — UTC 2026-10-31 20:00 is already 11-01 04:00
+// in UTC+8, and a bare Format would land on the previous day, one day off from the billing window (local calendar month).
 func TestExpireTextLocalCalendar(t *testing.T) {
 	old := time.Local
 	time.Local = time.FixedZone("exp-tz", 8*3600)
@@ -345,7 +345,7 @@ func TestExpireTextLocalCalendar(t *testing.T) {
 	if got := expireText(&u); got != "2026-11-01" {
 		t.Fatalf("utc 20:00 = %q, want 2026-11-01", got)
 	}
-	// 修复前（裸 Format 不转本地）会落前一天，用作反证。
+	// Before the fix (a bare Format without converting to local) it landed on the previous day; used here as the counter-proof.
 	if got := u.Format("2006-01-02"); got != "2026-10-31" {
 		t.Fatalf("pre-fix probe = %q, want 2026-10-31", got)
 	}
