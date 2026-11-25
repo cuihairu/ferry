@@ -2,10 +2,10 @@ package save
 
 import "gorm.io/gorm"
 
-// UserSavings 折算用户当月「已为你省下」（SAVE-8 panel 报表与 TOUCH-4 月账单
-// 亮点共用）：节点级节省计数（save_stats）出自 agent 出站计数，无用户身份，
-// 按该用户在节点当月记账流量占比折算（可复核的估算式）；节点当月无用户记账
-// 不摊派。窗口=monthStart（YYYY-MM-01 格式）起的自然月至今（UTC）。
+// UserSavings converts a user's "saved for you" for the current month (shared by the SAVE-8 panel report and
+// the TOUCH-4 monthly billing highlight): the node-level savings counters (save_stats) come from the agent's
+// outbound counting and carry no user identity, so they are prorated by the user's share of the billed traffic on
+// that node this month (a reviewable estimation formula); when a node has no billed user traffic for the month it is not apportioned. The window runs from monthStart (YYYY-MM-01 format) to the end of the current calendar month (UTC).
 func UserSavings(db *gorm.DB, userID uint, monthStart string) (direct, cacheHit, blocked int64, err error) {
 	var saves []struct {
 		NodeID   uint

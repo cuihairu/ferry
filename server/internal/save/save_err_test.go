@@ -15,10 +15,10 @@ import (
 	"gorm.io/gorm"
 )
 
-// 二十三批补口：save 各错误返回口径（水位读取/清空重建/流量查询/累加/水位
-// 回写）与循环内扫描失败日志。
+// Batch 23 gap fill: the error-return conventions of save (watermark read/clear-rebuild/traffic query/accumulation/watermark
+// write-back) and the in-loop scan-failure log.
 
-// syncBuf 线程安全日志缓冲（Loop 在独立 goroutine 写）。
+// syncBuf is a thread-safe log buffer (Loop writes it from a separate goroutine).
 type syncBuf struct {
 	mu sync.Mutex
 	b  bytes.Buffer
@@ -36,7 +36,7 @@ func (s *syncBuf) String() string {
 	return s.b.String()
 }
 
-// waitForLog 轮询等待日志出现期望串。
+// waitForLog polls until the expected string shows up in the log.
 func waitForLog(t *testing.T, want string, s *syncBuf) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
@@ -49,7 +49,7 @@ func waitForLog(t *testing.T, want string, s *syncBuf) {
 	t.Fatalf("log lacks %q: %s", want, s.String())
 }
 
-// drop 拆表：后续针对该表的语句报 no such table。
+// drop drops a table: later statements against that table report no such table.
 func drop(t *testing.T, db *gorm.DB, dest any) {
 	t.Helper()
 	if err := db.Migrator().DropTable(dest); err != nil {
@@ -57,7 +57,7 @@ func drop(t *testing.T, db *gorm.DB, dest any) {
 	}
 }
 
-// failSettingWrites 让水位设置键的写入失败（Save 可能走 update 或 create 链）。
+// failSettingWrites makes writes to the watermark setting key fail (Save may go through the update or the create chain).
 func failSettingWrites(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	f := func(tx *gorm.DB) {
@@ -69,7 +69,7 @@ func failSettingWrites(t *testing.T, db *gorm.DB) {
 	db.Callback().Create().Before("gorm:create").Register("test:fail_setting_create", f)
 }
 
-// setWatermark 预置水位键（跳过无水位清空重建分支）。
+// setWatermark pre-seeds the watermark key (skipping the no-watermark clear-and-rebuild branch).
 func setWatermark(t *testing.T, db *gorm.DB, v int64) {
 	t.Helper()
 	if err := storage.SetSetting(db, settingWatermark, strconv.FormatInt(v, 10)); err != nil {
@@ -84,31 +84,31 @@ func traffic1() storage.NodeTrafficLog {
 	}
 }
 
-// TestSweepDBErrors Sweep 五类库故障：水位读取失败、无水位清空失败、流量
-// 查询失败、累加失败、水位回写失败。
+// TestSweepDBErrors covers five kinds of database failure in Sweep: watermark read failure, clear failure when there is no watermark, traffic
+// query failure, accumulation failure, watermark write-back failure.
 func TestSweepDBErrors(t *testing.T) {
-	// 水位读取失败。
+	// Watermark read failure.
 	db := newTestDB(t)
 	drop(t, db, &storage.Setting{})
 	if _, err := Sweep(db); err == nil {
 		t.Fatal("want watermark read error")
 	}
 
-	// 无水位清空重建失败。
+	// Clear-rebuild failure when there is no watermark.
 	db = newTestDB(t)
 	drop(t, db, &storage.SaveStat{})
 	if _, err := Sweep(db); err == nil {
 		t.Fatal("want delete error")
 	}
 
-	// 流量查询失败。
+	// Traffic query failure.
 	db = newTestDB(t)
 	drop(t, db, &storage.NodeTrafficLog{})
 	if _, err := Sweep(db); err == nil {
 		t.Fatal("want traffic query error")
 	}
 
-	// 累加失败：水位已置（跳过清空），流量行已读，save_stats 缺失。
+	// Accumulation failure: the watermark is already set (skipping the clear) and the traffic rows are read, but save_stats is missing.
 	db = newTestDB(t)
 	setWatermark(t, db, 0)
 	seedTraffic(t, db, traffic1())
@@ -117,7 +117,7 @@ func TestSweepDBErrors(t *testing.T) {
 		t.Fatal("want add error")
 	}
 
-	// 水位回写失败。
+	// Watermark write-back failure.
 	db = newTestDB(t)
 	seedTraffic(t, db, traffic1())
 	failSettingWrites(t, db)
@@ -126,7 +126,7 @@ func TestSweepDBErrors(t *testing.T) {
 	}
 }
 
-// TestUserSavingsDBErrors 折算两条查询各自的失败口径。
+// TestUserSavingsDBErrors covers the failure convention of each of the two conversion queries.
 func TestUserSavingsDBErrors(t *testing.T) {
 	db := newTestDB(t)
 	drop(t, db, &storage.SaveStat{})
@@ -141,10 +141,10 @@ func TestUserSavingsDBErrors(t *testing.T) {
 	}
 }
 
-// TestLoopLogsSweepError 循环内扫描失败只记日志、不退出。
+// TestLoopLogsSweepError a scan failure inside the loop is only logged and does not exit.
 func TestLoopLogsSweepError(t *testing.T) {
 	db := newTestDB(t)
-	drop(t, db, &storage.SaveStat{}) // 无水位 + 表缺失：每轮清空重建失败
+	drop(t, db, &storage.SaveStat{}) // no watermark + missing table: clear-and-rebuild fails every round
 
 	buf := &syncBuf{}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -163,7 +163,7 @@ func TestLoopLogsSweepError(t *testing.T) {
 	}
 }
 
-// TestLoopDefaultsInterval interval<=0 回落 30s 缺省：首拍照常跑一轮。
+// TestLoopDefaultsInterval interval<=0 falls back to the 30s default: the first round still runs as usual.
 func TestLoopDefaultsInterval(t *testing.T) {
 	db := newTestDB(t)
 	seedTraffic(t, db, traffic1())

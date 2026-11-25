@@ -1,7 +1,7 @@
-// Package save 流量节省报表聚合（SAVE-7）：周期扫 node_traffic_logs 新增行
-// （自增 id 水位），按 (node_id, UTC 日) 增量累计进 save_stats；水位存
-// settings——无水位（首次/丢失）先清空 save_stats 全量重建，保证不重复
-// 累计。折算费用不入库：API 侧按节点流量单价现算（单价调整不回改历史）。
+// Package save aggregates the traffic-savings report (SAVE-7): it periodically scans new rows in
+// node_traffic_logs (by an auto-increment id watermark) and incrementally accumulates them into
+// save_stats keyed by (node_id, UTC day); the watermark is stored in settings -- with no watermark (first run/
+// loss) save_stats is cleared and rebuilt from scratch, guaranteeing no double counting. Converted costs are not stored: the API side computes them on the fly from the node's traffic unit price (a unit-price change does not rewrite history).
 package save
 
 import (
@@ -15,11 +15,11 @@ import (
 	"gorm.io/gorm"
 )
 
-// settingWatermark 已聚合到的 node_traffic_logs 最大 id（settings 键）。
+// settingWatermark is the greatest node_traffic_logs id aggregated so far (the settings key).
 const settingWatermark = "save_stats_watermark"
 
-// Sweep 聚合一次：把水位之后的流量行按日累计进 save_stats 并推进水位。
-// 返回本轮聚合的流量行数。
+// Sweep aggregates one round: it accumulates the traffic rows after the watermark into save_stats day by day
+// and advances the watermark. It returns the number of traffic rows aggregated this round.
 func Sweep(db *gorm.DB) (int, error) {
 	var wm int64
 	v, ok, err := storage.GetSetting(db, settingWatermark)
@@ -29,7 +29,7 @@ func Sweep(db *gorm.DB) (int, error) {
 	if ok {
 		wm, _ = strconv.ParseInt(v, 10, 64)
 	} else if err := db.Where("1=1").Delete(&storage.SaveStat{}).Error; err != nil {
-		return 0, err // 无水位：清空重建，防历史行重复累计
+		return 0, err // no watermark: clear and rebuild, so historical rows are not accumulated twice
 	}
 
 	var rows []storage.NodeTrafficLog
@@ -69,7 +69,7 @@ func Sweep(db *gorm.DB) (int, error) {
 	return len(rows), nil
 }
 
-// add 按日累计增量（行不存在先建；SQL 表达式累加防读改写竞态）。
+// add accumulates the daily delta (the row is created if absent; a SQL expression accumulation avoids a read-modify-write race).
 func add(db *gorm.DB, nodeID uint, day string, direct, blocked int64) error {
 	var row storage.SaveStat
 	err := db.Where("node_id=? AND day=?", nodeID, day).First(&row).Error
@@ -87,7 +87,7 @@ func add(db *gorm.DB, nodeID uint, day string, direct, blocked int64) error {
 	}).Error
 }
 
-// Loop 周期聚合直到 ctx 取消（对齐 quota.LinkLoop：启动即跑一轮）。
+// Loop aggregates periodically until ctx is cancelled (matching quota.LinkLoop: one round runs at startup).
 func Loop(ctx context.Context, db *gorm.DB, interval time.Duration, logger *log.Logger) {
 	if logger == nil {
 		logger = log.Default()

@@ -26,7 +26,7 @@ func newTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-// seedTraffic 直种流量行（按上报时刻分行）。
+// seedTraffic inserts traffic rows directly (one row per report timestamp).
 func seedTraffic(t *testing.T, db *gorm.DB, rows ...storage.NodeTrafficLog) {
 	t.Helper()
 	if err := db.Create(&rows).Error; err != nil {
@@ -43,8 +43,8 @@ func statRows(t *testing.T, db *gorm.DB) []storage.SaveStat {
 	return rows
 }
 
-// TestSweepAggregatesByDay 覆盖主通路：流量行按 (节点, UTC 日) 聚合落
-// save_stats，二轮同水位不重复累计，跨日分行。
+// TestSweepAggregatesByDay covers the main path: traffic rows are aggregated by (node, UTC day) into
+// save_stats, a second sweep at the same watermark does not double count, and crossing days splits into separate rows.
 func TestSweepAggregatesByDay(t *testing.T) {
 	db := newTestDB(t)
 	day1 := time.Date(2026, 10, 7, 23, 0, 0, 0, time.UTC)
@@ -63,7 +63,7 @@ func TestSweepAggregatesByDay(t *testing.T) {
 	if len(rows) != 3 {
 		t.Fatalf("save stats = %d rows, want 3 (2 节点×同日 + 1 跨日): %+v", len(rows), rows)
 	}
-	// 节点1 day1：两次上报求和；节点1 day2 独立一行
+	// node 1 day 1: the two reports are summed; node 1 day 2 is its own row
 	if rows[0].NodeID != 1 || rows[0].Day != "2026-10-07" || rows[0].DirectBytes != 150 || rows[0].BlockedBytes != 15 {
 		t.Fatalf("node1 day1 mismatch: %+v", rows[0])
 	}
@@ -74,7 +74,7 @@ func TestSweepAggregatesByDay(t *testing.T) {
 		t.Fatalf("node1 day2 mismatch: %+v", rows[2])
 	}
 
-	// 二轮：水位已推进，不重复累计
+	// Second sweep: the watermark has advanced, so nothing is counted twice
 	if n, err := Sweep(db); err != nil || n != 0 {
 		t.Fatalf("second sweep = %d, %v; want 0", n, err)
 	}
@@ -83,7 +83,7 @@ func TestSweepAggregatesByDay(t *testing.T) {
 		t.Fatalf("second sweep must not double count: %+v", rows[0])
 	}
 
-	// 增量到账：水位之后的新行只累计新增量
+	// Incremental accounting: new rows after the watermark only accumulate the new delta
 	seedTraffic(t, db,
 		storage.NodeTrafficLog{NodeID: 1, Proc: "xray", DirectBytes: 25, RecordedAt: day2},
 	)
@@ -96,8 +96,8 @@ func TestSweepAggregatesByDay(t *testing.T) {
 	}
 }
 
-// TestSweepRebuildsWithoutWatermark 覆盖水位丢失：清空 save_stats 全量
-// 重建，不与历史行叠加重复。
+// TestSweepRebuildsWithoutWatermark covers a lost watermark: save_stats is cleared and rebuilt in full,
+// without stacking on top of the historical rows.
 func TestSweepRebuildsWithoutWatermark(t *testing.T) {
 	db := newTestDB(t)
 	day := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
@@ -108,7 +108,7 @@ func TestSweepRebuildsWithoutWatermark(t *testing.T) {
 		t.Fatalf("sweep: %v", err)
 	}
 
-	// 模拟水位丢失但 save_stats 有历史行
+	// Simulate a lost watermark while save_stats still has historical rows
 	if err := db.Where("key=?", settingWatermark).Delete(&storage.Setting{}).Error; err != nil {
 		t.Fatalf("drop watermark: %v", err)
 	}
@@ -121,8 +121,8 @@ func TestSweepRebuildsWithoutWatermark(t *testing.T) {
 	}
 }
 
-// TestUserSavings 覆盖 SAVE-8 折算：节点节省按用户当月记账占比分摊，
-// 无记账用户占比为 0 不计、节点当月无记账不摊派、月窗前置数据剔除。
+// TestUserSavings covers the SAVE-8 conversion: node savings are apportioned by each user's share of the month's billed
+// traffic; a user with no billing gets a share of 0 and is not counted, a node with no billing for the month is not apportioned, and data before the month window is excluded.
 func TestUserSavings(t *testing.T) {
 	db := newTestDB(t)
 	users := []storage.User{
@@ -144,7 +144,7 @@ func TestUserSavings(t *testing.T) {
 		{NodeID: 1, Day: "2026-10-03", DirectBytes: 1000, CacheHitBytes: 200, BlockedBytes: 100},
 		{NodeID: 2, Day: "2026-10-04", DirectBytes: 500},
 		{NodeID: 3, Day: "2026-10-05", DirectBytes: 777},
-		{NodeID: 1, Day: "2026-09-28", DirectBytes: 9999}, // 月窗前置，不计
+		{NodeID: 1, Day: "2026-09-28", DirectBytes: 9999}, // before the month window, not counted
 	}
 	if err := db.Create(&stats).Error; err != nil {
 		t.Fatalf("seed save stats: %v", err)
@@ -154,10 +154,10 @@ func TestUserSavings(t *testing.T) {
 	monthStart := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	priorMonth := time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC)
 	logs := []storage.TrafficLog{
-		{UserID: &u1, NodeID: &n1, RxBytes: 300, TxBytes: 100, RecordedAt: monthStart}, // 节点1：本人 400
-		{UserID: &u2, NodeID: &n1, RxBytes: 600, TxBytes: 0, RecordedAt: monthStart},   // 节点1：他人 600
-		{UserID: &u2, NodeID: &n2, RxBytes: 600, TxBytes: 0, RecordedAt: monthStart},   // 节点2：仅他人记账
-		{UserID: &u1, NodeID: &n1, RxBytes: 5000, TxBytes: 0, RecordedAt: priorMonth},  // 月窗前置，不计
+		{UserID: &u1, NodeID: &n1, RxBytes: 300, TxBytes: 100, RecordedAt: monthStart}, // node 1: own 400
+		{UserID: &u2, NodeID: &n1, RxBytes: 600, TxBytes: 0, RecordedAt: monthStart},   // node 1: someone else's 600
+		{UserID: &u2, NodeID: &n2, RxBytes: 600, TxBytes: 0, RecordedAt: monthStart},   // node 2: only someone else's billing
+		{UserID: &u1, NodeID: &n1, RxBytes: 5000, TxBytes: 0, RecordedAt: priorMonth},  // before the month window, not counted
 	}
 	if err := db.Create(&logs).Error; err != nil {
 		t.Fatalf("seed traffic logs: %v", err)
@@ -167,15 +167,15 @@ func TestUserSavings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UserSavings: %v", err)
 	}
-	// 节点1：占比 400/1000=0.4 → 1000/200/100 各乘 0.4；
-	// 节点2 他人记账占比为 0 不计；节点3 无记账不摊派；9 月数据剔除。
+	// node 1: the share is 400/1000=0.4 -> 1000/200/100 are each multiplied by 0.4;
+	// node 2's someone-else share is 0 so it is not counted; node 3 has no billing so nothing is apportioned; September data is excluded.
 	if direct != 400 || cacheHit != 80 || blocked != 40 {
 		t.Fatalf("UserSavings = %d, %d, %d; want 400, 80, 40", direct, cacheHit, blocked)
 	}
 }
 
-// TestLoopSweepsAndStopsOnCancel 覆盖 Loop 启停：启动即跑一轮（timer 0），
-// ctx 取消后退出；nil logger 走默认 logger 兜底。
+// TestLoopSweepsAndStopsOnCancel covers Loop start/stop: one round runs right at startup (timer 0),
+// it exits after ctx is cancelled, and a nil logger falls back to the default logger.
 func TestLoopSweepsAndStopsOnCancel(t *testing.T) {
 	db := newTestDB(t)
 	seedTraffic(t, db,
@@ -185,7 +185,7 @@ func TestLoopSweepsAndStopsOnCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		Loop(ctx, db, 20*time.Millisecond, nil) // nil logger 兜底分支
+		Loop(ctx, db, 20*time.Millisecond, nil) // the nil-logger fallback branch
 		close(done)
 	}()
 
