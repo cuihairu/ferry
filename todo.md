@@ -2596,18 +2596,8 @@ P2 合并简列 14 项全部修复并推送，每项单 commit、英文简短、
 复跑）；每项提交前 `git pull --rebase origin main` 后推送，无 force push。
 
 ## Codex 深审发现（2026-11-13，luna profile 近5 commit 审核，0C/6M/4m，待修）
+- 去重留痕（2026-11-25）：本节原有 11 行与主清单逐字重复（8 条 BLOCKED＝微信/支付宝直连支付、TOUCH-7、costref、OSS 三候选、hy2 真机联调、VitePress 2、FERRY-002、FERRY-004；3 条观察项＝G1/G7/G3）已删除，主清单为准（BLOCKED 见「## 未开工项」段，G1/G7/G3 见其下观察项行），本节只留独有内容
 
-- [ ] [BLOCKED] 微信/支付宝直连支付：缺商户资质（appid、merchant_id、证书），收到后再开工
-- [ ] [BLOCKED] TOUCH-7 边缘探测结论复用：缺少用户明确授权扩 probe 面（新增 entry_domain target_kind 与 agent 探测实现）；既有手动标记方案维持
-- [ ] [BLOCKED] costref 接真实在线来源：缺真实商家 API 文档及 license 信息，无法选型核验
-- [ ] [BLOCKED] OSS 三候选（Xray proto/GeoIP 已代决收口）：支付 SDK 腿缺商户资质（appid、merchant_id、证书）
-- [ ] [BLOCKED] hy2 二进制真机联调：待用户提供 hysteria2 测试二进制、证书及可配置防火墙的服务器环境（服务器侧输入项，非三台 Windows 真机 openclaw/imac/.5 可替代）
-- [ ] [BLOCKED] 上游等待：VitePress 2 stable 尚未发布；npm latest 仍为 1.6.4（2026-10-19 复核 dist-tags.latest=1.6.4；2026-11-21 复核仍 1.6.4、next=2.0.0-alpha.21，stable 未发），待 stable 发布后验证再撤 override
-- [ ] [BLOCKED] FERRY-002 正式 Release 与 latest 安装流程：脚本侧已修（下载/校验链路回归已补，见状态行）；发版腿缺用户明确发版指令及指定版本号（本轮不 bump 版本）
-- [ ] [BLOCKED] FERRY-004 端到端部署与节点通信集成测试：仓内全链路已本地等价收口（e2e/compose/systemd/rollback 四腿进 CI 或 nightly），余一件=生产内核二进制（hysteria2 等）真机接入验收
-- [ ] G1 订阅格式补 mihomo/xray-json（报告 P2 观察项）：触发条件=出现 clash-meta 拒载或 xray-json 消费方的真实反馈
-- [ ] G7 OIDC/LDAP 登录（报告 P2 观察项）：触发条件=多管理员规模化且 P2-2 配额面被真实使用
-- [ ] G3 用户 LIMITED/EXPIRED 拆态（报告 P2 观察项）：触发条件=客服排障反复需要区分到期与超限来源
 - [x] 修复非法 UTF-8 截断退化为空串并补测试（`internal/audit/audit.go:104`）—— 审计快照不应因非合法 UTF-8 输入完全丢失（d7e0154）。
 - [x] 让退款回收显式匹配 `extend_days` 并补未知类型测试（`internal/payrecon/payrecon.go:260`）—— 避免未知权益类型被误当延期扣减（a838d47）。
 - [x] 为退款用户权益更新引入行锁或原子 SQL 并补并发测试（`internal/payrecon/payrecon.go:253`）—— 消除与 `applyGrant` 的丢更新竞态（a838d47）。
