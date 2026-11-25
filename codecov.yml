@@ -1,4 +1,4 @@
-# codecov 只报数不设卡：project/patch 状态全 informational，覆盖率波动不拖红门禁。
+# codecov reports only, no gate: project/patch statuses are all informational, so coverage swings do not turn the gate red.
 coverage:
   status:
     project:
