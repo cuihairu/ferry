@@ -24,11 +24,11 @@ func openTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-// seed 造一条探测结论存证。
+// seed stores one probe verdict.
 func seed(t *testing.T, db *gorm.DB, target *uint, kind, region, isp, verdict string, at time.Time) {
 	t.Helper()
 	r := storage.ProbeReport{
-		NodeID:       99, // 探测者
+		NodeID:       99, // the prober
 		TargetKind:   kind,
 		TargetNodeID: target,
 		Direction:    agentproto.DirectionOut,
@@ -46,13 +46,13 @@ func TestJudgeRegionAndISP(t *testing.T) {
 	db := openTestDB(t)
 	now := time.Now()
 
-	// 华东 4 节点：2 sick → 区域故障（异常数 ≥ 2）
+	// East China 4 nodes: 2 sick → region failure (sick count >= 2)
 	n1, n2, n3, n7 := uint(1), uint(2), uint(3), uint(7)
 	seed(t, db, &n1, agentproto.ProbeTargetTunnel, "华东", "电信", agentproto.ProbeVerdictHealthy, now.Add(-2*time.Minute))
 	seed(t, db, &n2, agentproto.ProbeTargetTunnel, "华东", "电信", agentproto.ProbeVerdictSick, now.Add(-2*time.Minute))
 	seed(t, db, &n3, agentproto.ProbeTargetTunnel, "华东", "联通", agentproto.ProbeVerdictSick, now.Add(-2*time.Minute))
 	seed(t, db, &n7, agentproto.ProbeTargetTunnel, "华东", "联通", agentproto.ProbeVerdictHealthy, now.Add(-2*time.Minute))
-	// 华北 3 节点：1 sick → 正常（1 < 2 且占比 1/3 < 50%）
+	// North China 3 nodes: 1 sick → healthy (1 < 2 and ratio 1/3 < 50%)
 	n4, n5, n6 := uint(4), uint(5), uint(6)
 	seed(t, db, &n4, agentproto.ProbeTargetTunnel, "华北", "电信", agentproto.ProbeVerdictHealthy, now.Add(-2*time.Minute))
 	seed(t, db, &n5, agentproto.ProbeTargetTunnel, "华北", "电信", agentproto.ProbeVerdictSick, now.Add(-2*time.Minute))
@@ -92,11 +92,11 @@ func TestJudgeWindowAndLatest(t *testing.T) {
 	now := time.Now()
 	var ten uint = 10
 
-	// 窗口外的 sick 不计入
+	// A sick verdict outside the window does not count
 	seed(t, db, &ten, agentproto.ProbeTargetTunnel, "华南", "电信", agentproto.ProbeVerdictSick, now.Add(-10*time.Minute))
-	// 出口基线（无目标节点）不参与聚合
+	// Exit baseline (no target node) does not take part in the aggregation
 	seed(t, db, nil, agentproto.ProbeTargetExit, "华南", "电信", agentproto.ProbeVerdictSick, now.Add(-1*time.Minute))
-	// 同一目标取最新结论：先 sick 后 healthy → 记为健康
+	// The same target takes the latest verdict: sick first, healthy after → recorded as healthy
 	seed(t, db, &ten, agentproto.ProbeTargetTunnel, "华南", "电信", agentproto.ProbeVerdictSick, now.Add(-2*time.Minute))
 	seed(t, db, &ten, agentproto.ProbeTargetTunnel, "华南", "电信", agentproto.ProbeVerdictHealthy, now.Add(-1*time.Minute))
 
@@ -104,7 +104,7 @@ func TestJudgeWindowAndLatest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("judge: %v", err)
 	}
-	if len(verdicts) != 2 { // region/华南 与 isp/电信 各一条
+	if len(verdicts) != 2 { // one each for region/South China and isp/Telecom
 		t.Fatalf("verdicts = %+v", verdicts)
 	}
 	for _, v := range verdicts {
