@@ -61,7 +61,11 @@ func TestPanelMe(t *testing.T) {
 		SubToken   string `json:"sub_token"`
 		Active     bool   `json:"active"`
 		OverQuota  bool   `json:"over_quota"`
-		ExpiresAt  any    `json:"expires_at"`
+		// Split gate state (G3): present alongside the legacy booleans.
+		Status    string `json:"status"`
+		Expired   bool   `json:"expired"`
+		Limited   bool   `json:"limited"`
+		ExpiresAt any    `json:"expires_at"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &me); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -71,6 +75,9 @@ func TestPanelMe(t *testing.T) {
 	}
 	if me.OverQuota || me.ExpiresAt != nil || me.SubToken != token {
 		t.Fatalf("me fields = %+v", me)
+	}
+	if me.Status != "active" || me.Expired || me.Limited {
+		t.Fatalf("split state = %+v", me)
 	}
 
 	// No credentials / unknown token: 404 (anti-enumeration, the same stance as /sub)

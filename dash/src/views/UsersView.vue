@@ -48,6 +48,33 @@ function cycleLabel(c: string): string {
   return cycleOptions.find((o) => o.value === c)?.label ?? c
 }
 
+// G3: the split state column (primary cause of an inactive user). An empty
+// status from an older server is treated as active.
+function stateLabel(s?: string): string {
+  switch (s) {
+    case 'expired':
+      return '已到期'
+    case 'limited':
+      return '已超限'
+    case 'disabled':
+      return '已停用'
+    default:
+      return '正常'
+  }
+}
+function stateType(s?: string): 'success' | 'warning' | 'info' | 'danger' {
+  switch (s) {
+    case 'expired':
+      return 'danger'
+    case 'limited':
+      return 'warning'
+    case 'disabled':
+      return 'info'
+    default:
+      return 'success'
+  }
+}
+
 function openCreate() {
   editing.value = null
   Object.assign(form, { username: '', quotaGb: 0, resetCycle: 'none', expires: null, enabled: true, hadExpiry: false, bwUp: 0, bwDown: 0, deviceLimit: 0, ipLimit: 0 })
@@ -256,6 +283,12 @@ async function onImportFile(ev: Event) {
       </el-table-column>
       <el-table-column label="到期" width="150">
         <template #default="{ row }">{{ formatDate(row.expires_at) }}</template>
+      </el-table-column>
+      <el-table-column label="状态" width="100">
+        <template #default="{ row }">
+          <!-- G3: show the primary cause of an inactive user separately from the date. -->
+          <el-tag :type="stateType(row.status)" size="small" effect="plain">{{ stateLabel(row.status) }}</el-tag>
+        </template>
       </el-table-column>
       <el-table-column label="启用" width="80">
         <template #default="{ row }">

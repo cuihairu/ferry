@@ -55,7 +55,11 @@ func (h *Handler) exportUsers(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
-	views := h.userViews(users)
+	views, err := h.userViews(users)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"users": views, "count": len(views)})
 }
 

@@ -94,6 +94,7 @@ func TestBotSummary(t *testing.T) {
 		UsedBytes  int64  `json:"used_bytes"`
 		QuotaBytes int64  `json:"quota_bytes"`
 		Active     bool   `json:"active"`
+		Status     string `json:"status"`
 		Stale      bool   `json:"stale"`
 		BuyURL     string `json:"buy_url"`
 		Orders     []struct {
@@ -105,6 +106,10 @@ func TestBotSummary(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 	if out.Username != "bot-user" || out.UsedBytes != 1500 || !out.Active || out.Stale {
+		t.Fatalf("unexpected summary: %+v", out)
+	}
+	if out.Status != "active" {
+		t.Fatalf("status = %q", out.Status)
 		t.Fatalf("unexpected summary: %+v", out)
 	}
 	if len(out.Orders) != 1 || out.Orders[0].OrderNo != "BO-1" || out.Orders[0].Status != "paid" {

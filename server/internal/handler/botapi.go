@@ -85,14 +85,17 @@ func (h *Handler) botSummary(c *gin.Context) {
 		})
 	}
 	used := usage.Rx + usage.Tx
+	st := sub.UserStateOf(&u, used, now)
 	c.JSON(http.StatusOK, gin.H{
 		"username":    u.Username,
 		"quota_bytes": u.QuotaBytes,
 		"used_bytes":  used,
 		"expires_at":  u.ExpiresAt,
-		"active":      sub.UserActive(&u, used, now),
-		"buy_url":     strings.TrimRight(h.cfg.BaseURL, "/") + "/panel",
-		"stale":       ct.Stale, // contact-stale flag: the bot side prompts a rebinding
-		"orders":      items,
+		"active":      st.Status == sub.StatusActive,
+		// Split gate state (G3): the primary cause of an inactive subscription.
+		"status":  st.Status,
+		"buy_url": strings.TrimRight(h.cfg.BaseURL, "/") + "/panel",
+		"stale":   ct.Stale, // contact-stale flag: the bot side prompts a rebinding
+		"orders":  items,
 	})
 }

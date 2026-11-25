@@ -26,6 +26,10 @@ func TestUserCRUD(t *testing.T) {
 	if len(token) < 40 {
 		t.Fatalf("sub_token too short: %q", token)
 	}
+	// Split gate state (G3): a fresh account with quota and future expiry is active.
+	if u["status"] != "active" || u["expired"] != false || u["limited"] != false {
+		t.Fatalf("created user state mismatch: %+v", u)
+	}
 	_ = u["id"].(float64) // the detail case uses the literal id
 
 	// Duplicate username rejected
@@ -57,6 +61,17 @@ func TestUserCRUD(t *testing.T) {
 	}
 	if fresh["expires_at"] != nil {
 		t.Fatalf("expires_at should be cleared: %v", fresh["expires_at"])
+	}
+	// Disabling is reported by its own status, not only by enabled=false.
+	// (the detail view carries the split state; the update response is the raw row)
+	got := doJSON(t, r, "GET", "/api/users/1", nil)
+	if got.Code != http.StatusOK {
+		t.Fatalf("get disabled user: %d", got.Code)
+	}
+	var view map[string]any
+	_ = json.Unmarshal(got.Body.Bytes(), &view)
+	if view["status"] != "disabled" || view["expired"] != false || view["limited"] != false {
+		t.Fatalf("disabled user state mismatch: %+v", view)
 	}
 
 	// Rename conflict and a successful rename

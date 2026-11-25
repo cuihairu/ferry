@@ -155,7 +155,8 @@ func (h *Handler) distBatchCodes(c *gin.Context) {
 }
 
 // distCustomerRow is a distributor customer row: redeemed key count plus
-// current usage/expiration (read-only).
+// current usage/expiration (read-only). Status/Expired/Limited are the split
+// gate state (G3); Active/OverQuota stay for the existing panel consumers.
 type distCustomerRow struct {
 	ID           uint       `json:"id"`
 	Username     string     `json:"username"`
@@ -165,6 +166,9 @@ type distCustomerRow struct {
 	ExpiresAt    *time.Time `json:"expires_at"`
 	Active       bool       `json:"active"`
 	OverQuota    bool       `json:"over_quota"`
+	Status       string     `json:"status"`
+	Expired      bool       `json:"expired"`
+	Limited      bool       `json:"limited"`
 	RedeemedLast *time.Time `json:"redeemed_last"` // time of the most recent redemption
 }
 
@@ -236,11 +240,15 @@ func (h *Handler) distCustomers(c *gin.Context) {
 			return
 		}
 		used := usage.Rx + usage.Tx
+		st := sub.UserStateOf(&u, used, now)
 		out = append(out, distCustomerRow{
 			ID: u.ID, Username: u.Username, RedeemedCnt: cnt[u.ID],
 			QuotaBytes: u.QuotaBytes, UsedBytes: used, ExpiresAt: u.ExpiresAt,
-			Active:       sub.UserActive(&u, used, now),
-			OverQuota:    u.QuotaBytes > 0 && used >= u.QuotaBytes,
+			Active:       st.Status == sub.StatusActive,
+			OverQuota:    st.Limited,
+			Status:       st.Status,
+			Expired:      st.Expired,
+			Limited:      st.Limited,
 			RedeemedLast: lastAt(last, u.ID),
 		})
 	}

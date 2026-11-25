@@ -89,15 +89,21 @@ func (h *Handler) panelMe(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
+	st := sub.UserStateOf(&u, used, time.Now())
 	c.JSON(http.StatusOK, gin.H{
-		"id":           u.ID,
-		"username":     u.Username,
-		"sub_token":    u.SubToken,
-		"quota_bytes":  u.QuotaBytes,
-		"used_bytes":   used,
-		"expires_at":   u.ExpiresAt,
-		"active":       sub.UserActive(&u, used, time.Now()),
-		"over_quota":   u.QuotaBytes > 0 && used >= u.QuotaBytes,
+		"id":          u.ID,
+		"username":    u.Username,
+		"sub_token":   u.SubToken,
+		"quota_bytes": u.QuotaBytes,
+		"used_bytes":  used,
+		"expires_at":  u.ExpiresAt,
+		"active":      st.Status == sub.StatusActive,
+		"over_quota":  st.Limited,
+		// Split gate state (G3): the primary cause plus the two independent
+		// judgments, so the portal can show why access is gone.
+		"status":       st.Status,
+		"expired":      st.Expired,
+		"limited":      st.Limited,
 		"created_at":   u.CreatedAt,
 		"bw_up_mbps":   u.BwUpMbps,
 		"bw_down_mbps": u.BwDownMbps,

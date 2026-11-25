@@ -10,6 +10,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/model"
 	"github.com/cuihairu/ferry/server/internal/quota"
 	"github.com/cuihairu/ferry/server/internal/storage"
+	"github.com/cuihairu/ferry/server/internal/sub"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -25,10 +26,17 @@ type userView struct {
 	storage.User
 	Online   bool   `json:"online"`
 	LastNode string `json:"last_node,omitempty"`
+	// Split gate state (G3): Status is the display-ready primary cause
+	// (active/expired/limited/disabled), while Expired/Limited keep the two
+	// independent judgments so support can tell an expired user from an
+	// exhausted one.
+	Status  string `json:"status"`
+	Expired bool   `json:"expired"`
+	Limited bool   `json:"limited"`
 }
 
 // userViews converts storage rows to views in bulk: one query fills in the most recent node names.
-func (h *Handler) userViews(users []storage.User) []userView {
+func (h *Handler) userViews(users []storage.User) ([]userView, error) {
 	out := make([]userView, 0, len(users))
 	// Collect the most recent node IDs and fetch the names with a single IN query.
 	ids := map[uint]bool{}
@@ -59,9 +67,26 @@ func (h *Handler) userViews(users []storage.User) []userView {
 		if u.LastNodeID != nil {
 			v.LastNode = names[*u.LastNodeID]
 		}
+		// G3 quota leg: the judgment needs the cycle usage, but only when a
+		// positive quota exists (quota==0 is unlimited and can never be
+		// limited). One usage query per quota-bearing user, the same shape as
+		// the distributor customer list; panel scale keeps that affordable.
+		var used int64
+		if u.QuotaBytes > 0 {
+			var agg struct{ Rx, Tx int64 }
+			if err := h.usageQuery(u.ID, u.ResetCycle, now).
+				Select("COALESCE(SUM(rx_bytes),0) AS rx, COALESCE(SUM(tx_bytes),0) AS tx").
+				Scan(&agg).Error; err != nil {
+				out = nil
+				return nil, err
+			}
+			used = agg.Rx + agg.Tx
+		}
+		st := sub.UserStateOf(&u, used, now)
+		v.Status, v.Expired, v.Limited = st.Status, st.Expired, st.Limited
 		out = append(out, v)
 	}
-	return out
+	return out, nil
 }
 
 func (h *Handler) listUsers(c *gin.Context) {
@@ -70,7 +95,12 @@ func (h *Handler) listUsers(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
-	c.JSON(http.StatusOK, h.userViews(out))
+	views, err := h.userViews(out)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, views)
 }
 
 func (h *Handler) getUser(c *gin.Context) {
@@ -79,7 +109,12 @@ func (h *Handler) getUser(c *gin.Context) {
 		replyFind(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, h.userViews([]storage.User{u})[0])
+	views, err := h.userViews([]storage.User{u})
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, views[0])
 }
 
 func (h *Handler) createUser(c *gin.Context) {
@@ -183,7 +218,12 @@ func (h *Handler) createUser(c *gin.Context) {
 		}
 		u.Enabled = false
 	}
-	c.JSON(http.StatusCreated, h.userViews([]storage.User{u})[0])
+	views, err := h.userViews([]storage.User{u})
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusCreated, views[0])
 }
 
 func (h *Handler) updateUser(c *gin.Context) {
@@ -368,7 +408,12 @@ func (h *Handler) resetSubToken(c *gin.Context) {
 		return
 	}
 	u.SubToken = token
-	c.JSON(http.StatusOK, h.userViews([]storage.User{u})[0])
+	views, err := h.userViews([]storage.User{u})
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, views[0])
 }
 
 func (h *Handler) findUser(id string) (storage.User, error) {

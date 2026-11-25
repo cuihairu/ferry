@@ -355,6 +355,10 @@ export interface User {
   last_node_id?: number | null
   last_node?: string
   last_seen_at?: string | null
+  // Split gate state (G3): primary cause plus the two independent judgments.
+  status?: 'active' | 'expired' | 'limited' | 'disabled'
+  expired?: boolean
+  limited?: boolean
 }
 
 /** NodeShare is a single-node share link (P1-9). */
