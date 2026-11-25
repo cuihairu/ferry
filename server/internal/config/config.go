@@ -1,4 +1,4 @@
-// Package config 提供服务运行参数的读取，默认值面向小内存 VPS 场景。
+// Package config reads the service runtime settings; defaults target a small-memory VPS.
 package config
 
 import (
@@ -10,147 +10,147 @@ import (
 	"github.com/cuihairu/ferry/server/internal/ratelimit"
 )
 
-// Config 汇总服务运行所需的全部参数。
+// Config aggregates all parameters needed to run the service.
 type Config struct {
-	// Addr 是 HTTP 监听地址，例如 ":8080"。
+	// Addr is the HTTP listen address, e.g. ":8080".
 	Addr string
-	// DBDriver 是数据库方言：sqlite（默认）/postgres/mysql。
+	// DBDriver is the database dialect: sqlite (default) / postgres / mysql.
 	DBDriver string
-	// DBDSN 是连接串：sqlite 为文件路径（默认 ferry.db），postgres/mysql 为连接串。
+	// DBDSN is the connection string: sqlite takes a file path (default ferry.db), postgres/mysql a connection string.
 	DBDSN string
-	// BaseURL 用于拼装对外展示的订阅链接，例如 "https://panel.example.com"。
+	// BaseURL assembles externally displayed subscription links, e.g. "https://panel.example.com".
 	BaseURL string
-	// HeartbeatIntervalSec 是约定的 agent 心跳周期，随 hello_ack 下发。
+	// HeartbeatIntervalSec is the agreed agent heartbeat period, delivered with hello_ack.
 	HeartbeatIntervalSec int
-	// MonitorIntervalSec 是区域/运营商聚合判定周期（秒）。
+	// MonitorIntervalSec is the region/ISP aggregation decision period (seconds).
 	MonitorIntervalSec int
-	// ReviewIntervalSec 是到期/超限用户停用扫表周期（秒）。
+	// ReviewIntervalSec is the expiry/over-quota user deactivation sweep period (seconds).
 	ReviewIntervalSec int
-	// PoolIntervalSec 是入口池摘挂判定周期（秒）。
+	// PoolIntervalSec is the entry-pool attach/detach decision period (seconds).
 	PoolIntervalSec int
-	// AllocIntervalSec 是落地自动分配判定周期（秒）。
+	// AllocIntervalSec is the landing auto-allocation decision period (seconds).
 	AllocIntervalSec int
-	// CostIntervalSec 是高成本告警检查周期（秒）。
+	// CostIntervalSec is the high-cost alert check period (seconds).
 	CostIntervalSec int
-	// RedeemLimiter 是兑换接口的 IP 限流选项（PAY-5）。
+	// RedeemLimiter is the IP rate-limit option of the redeem endpoint (PAY-5).
 	RedeemLimiter *ratelimit.Options `json:"-"`
-	// AdminSecret 是管理员 JWT 签名秘钥，默认 "ferry-admin-secret"，可通过 FERRY_ADMIN_SECRET 环境变量覆盖。
+	// AdminSecret is the admin JWT signing secret, default "ferry-admin-secret", overridable via the FERRY_ADMIN_SECRET env var.
 	AdminSecret string `json:"-"`
-	// ApiTokenSecret 是 API Token 签名秘钥，默认 "ferry-api-secret"，可通过 FERRY_API_SECRET 环境变量覆盖。
+	// ApiTokenSecret is the API token signing secret, default "ferry-api-secret", overridable via the FERRY_API_SECRET env var.
 	ApiTokenSecret string `json:"-"`
-	// AdminUser/AdminPassword 是管理员首启引导（安全设计 §1）：库内无管理员时
-	// 启动建号（FERRY_ADMIN_USER 缺省 admin），已有管理员则忽略不覆盖。
+	// AdminUser/AdminPassword bootstrap the first admin (security design §1): when the DB has no admin, one is
+	// created at startup (FERRY_ADMIN_USER defaults to admin); with an existing admin it is ignored, no overwrite.
 	AdminUser     string `json:"-"`
 	AdminPassword string `json:"-"`
-	// SecretKey 是机密加密主密钥（R24：不入库，部署环境变量/文件注入），
-	// 未配置时云凭证等机密不可录入。可通过 FERRY_SECRET_KEY 覆盖。
+	// SecretKey is the master key encrypting secrets (R24: never stored in the DB, injected via deploy env vars/files);
+	// without it, secrets such as cloud credentials cannot be entered. Overridable via FERRY_SECRET_KEY.
 	SecretKey string `json:"-"`
-	// Env 是运行环境口径（FERRY_ENV，FERRY-003）：production=生产，密钥门禁
-	// 硬校验（缺钥/弱钥/开发默认常量拒绝启动，见 keyinit）；空=开发，缺钥
-	// 回退历史开发缺省并告警。
+	// Env is the runtime environment mode (FERRY_ENV, FERRY-003): production=enforcing, key gate hard-checked
+	// (missing/weak key/development default constants refuse to start, see keyinit); empty=development, a missing key
+	// falls back to the historical development default with a warning.
 	Env string `json:"-"`
-	// KeyFile 是签名/加密密钥持久化文件（FERRY_KEYFILE，FERRY-003）：空=默认
-	// 取 sqlite 库文件同目录 ferry-keys.env（非 sqlite 且未配置=不持久化）。
+	// KeyFile is the signing/encryption key persistence file (FERRY_KEYFILE, FERRY-003): empty defaults to
+	// ferry-keys.env next to the sqlite DB file (non-sqlite and unset = no persistence).
 	KeyFile string `json:"-"`
-	// TofuBin 是 OpenTofu 可执行文件路径（供给引擎，OS-2）。
+	// TofuBin is the OpenTofu executable path (provisioning engine, OS-2).
 	TofuBin string `json:"-"`
-	// TofuWorkdir 是供给工作目录根（state 集中存面板侧，每模板一目录）。
+	// TofuWorkdir is the provisioning working-directory root (state lives centrally on the panel side, one directory per template).
 	TofuWorkdir string `json:"-"`
-	// AgentDownloadBase 是供给节点下载 ferry-agent 的基址（OS-3 cloud-init），
-	// 内网可指到自建文件服务。
+	// AgentDownloadBase is the base URL provisioned nodes download ferry-agent from (OS-3 cloud-init);
+	// on an intranet it may point at a self-hosted file server.
 	AgentDownloadBase string `json:"-"`
-	// AgentVersion 是供给节点安装的 agent 版本（对应 release tag vV）。
+	// AgentVersion is the agent version installed on provisioned nodes (matching release tag vV).
 	AgentVersion string `json:"-"`
-	// RecoveryIntervalSec 是封禁恢复流水线状态机的扫表周期（BR-1）。
+	// RecoveryIntervalSec is the block-recovery pipeline state machine sweep period (BR-1).
 	RecoveryIntervalSec int
-	// RecoveryTemplateID 是恢复 L3 一键开新机用的供给模板 ID（0=不启用 L3）。
+	// RecoveryTemplateID is the provisioning template ID used by recovery L3 one-click relaunch (0 = L3 disabled).
 	RecoveryTemplateID uint
-	// ReplenishIntervalSec 是池空保底开服的扫表周期（BR-3）。
+	// ReplenishIntervalSec is the empty-pool fallback launch sweep period (BR-3).
 	ReplenishIntervalSec int
-	// PoolTemplateID 是池空保底开服用的供给模板 ID（0=不启用，BR-3）。
+	// PoolTemplateID is the provisioning template ID used for empty-pool fallback launches (0 = disabled, BR-3).
 	PoolTemplateID uint
-	// AcmeBin/AcmeHome/AcmeWebroot 是证书编排的外部工具位口径（BR-4）：
-	// acme.sh 可执行路径、工作目录（state 集中面板侧）、http-01 webroot。
+	// AcmeBin/AcmeHome/AcmeWebroot are the external tool slots of certificate orchestration (BR-4):
+	// the acme.sh executable path, working directory (state lives on the panel side), and the http-01 webroot.
 	AcmeBin     string
 	AcmeHome    string
 	AcmeWebroot string
-	// CertIntervalSec 是证书到期/续期扫表周期（BR-4）。
+	// CertIntervalSec is the certificate expiry/renewal sweep period (BR-4).
 	CertIntervalSec int
-	// NotifyScanIntervalSec 是站内信到期/流量预警扫表周期（NT-2），去重按日，建议小时级。
+	// NotifyScanIntervalSec is the in-site expiry/traffic-warning notification sweep period (NT-2); dedup is per day, hourly is advised.
 	NotifyScanIntervalSec int
-	// PriceWatchIntervalSec 是价格关注扫描周期（秒，E-32）：从参考价表抓
-	// 关注键快照比对降价/到位，建议小时级（价格不分钟级变）。
+	// PriceWatchIntervalSec is the price-watch scan period (seconds, E-32): snapshots of watched keys are taken
+	// from the reference price table and compared for price drops / targets; hourly is advised (prices do not move by the minute).
 	PriceWatchIntervalSec int
-	// QuotaLinkIntervalSec 是配额联动判定周期（秒，SAVE-6）；降档状态在订阅
-	// 出口即时生效，周期只影响触发/释放留痕与通知的及时性。
+	// QuotaLinkIntervalSec is the quota-linkage decision period (seconds, SAVE-6); the downgrade state takes effect
+	// immediately at the subscription outlet, the period only affects the timeliness of trigger/release trails and notifications.
 	QuotaLinkIntervalSec int
-	// BotToken 是 TG bot 后端调只读对接面的服务级令牌（触达批 TOUCH-6，
-	// FERRY_BOT_TOKEN）；空=bot 对接面禁用（路由 404 防探测）。
+	// BotToken is the service-level token the TG bot backend uses against the read-only integration face (touch batch TOUCH-6,
+	// FERRY_BOT_TOKEN); empty = the bot integration face is disabled (routes 404, anti-probing).
 	BotToken string
-	// TouchDomainsDays 是域名例行邮件周期（天，触达批 TOUCH-4）；0=关。
+	// TouchDomainsDays is the domain routine-email period (days, touch batch TOUCH-4); 0 = off.
 	TouchDomainsDays int
-	// TouchIntervalSec 是例行触达调度周期（秒，TOUCH-4）；月账单有月闸门，
-	// 周期只影响发信时机精度。
+	// TouchIntervalSec is the routine-touch scheduling period (seconds, TOUCH-4); monthly bills have a monthly gate,
+	// the period only affects the precision of send timing.
 	TouchIntervalSec int
-	// SaveStatsIntervalSec 是节省报表聚合周期（秒，SAVE-7）；报表按日汇总，
-	// 周期只影响当日数字的及时性。
+	// SaveStatsIntervalSec is the savings-report aggregation period (seconds, SAVE-7); reports summarize by day,
+	// the period only affects the timeliness of the current day's numbers.
 	SaveStatsIntervalSec int
-	// EventFlushIntervalSec 是事件 outbox 投递周期（秒，HERALD-1）；未配置
-	// Herald 通道时事件只落库等投递。
+	// EventFlushIntervalSec is the event outbox delivery period (seconds, HERALD-1); without a configured
+	// Herald channel, events are only stored awaiting delivery.
 	EventFlushIntervalSec int
-	// HeraldURL/HeraldToken 是 Herald 投递基建的接入地址与 Bearer 令牌
-	//（HERALD-2）；URL 为空=未接 Herald，事件只落本地 outbox。
+	// HeraldURL/HeraldToken are the access address and bearer token of the Herald delivery infrastructure
+	// (HERALD-2); an empty URL = Herald not connected, events only land in the local outbox.
 	HeraldURL   string
 	HeraldToken string
-	// HeraldCallbackSecret 是 Herald 回调（§13.5 事件回调，HERALD-5）的
-	// HMAC-SHA256 验签密钥，对应 herald 侧 PUT /api/v1/apps/ferry/callback
-	// 设置的 32 字节 secret（FERRY_HERALD_CALLBACK_SECRET）；空=回执端点
-	// 拒绝全部回调（P2 默认必验签，防伪造回执被默认接收）——接 Herald 即
-	// 必须配置并与 herald 侧一致，否则回执留痕与触达联动静默失效。
+	// HeraldCallbackSecret is the HMAC-SHA256 verification secret of the Herald callback (§13.5 event callback, HERALD-5),
+	// matching the 32-byte secret configured on the herald side at PUT /api/v1/apps/ferry/callback (FERRY_HERALD_CALLBACK_SECRET);
+	// empty = the receipt endpoint rejects all callbacks (P2 requires verification by default, so forged receipts are not accepted) -
+	// connecting Herald requires configuring it and keeping it identical to the herald side, otherwise receipt trails and touch
+	// linkage silently fail.
 	HeraldCallbackSecret string
-	// SupportURL/SupportServiceKey 是外部客服服务（servify）的接入面：
-	// 面板客服入口的 base 地址与宿主后端 service API key（X-API-Key）。
-	// URL 为空=未接客服，/api/panel/support 恒报 enabled=false，面板不挂
-	// 任何组件（保持零依赖）；key 只在服务端使用，浏览器仅持短期访客 token。
+	// SupportURL/SupportServiceKey are the integration face of the external customer-service service (servify):
+	// the base address of the panel's support entry and the hosting backend's service API key (X-API-Key).
+	// An empty URL = support not connected, /api/panel/support always reports enabled=false, and the panel mounts
+	// no component (staying zero-dependency); the key is used only server-side, browsers only hold a short-lived visitor token.
 	SupportURL        string
 	SupportServiceKey string
-	// BackupDir/BackupCron/BackupKeep 是本地周期备份（面板可用性 §2，P1）：
-	// 落档目录、调度（cron 表达式或 "daily"/"HH:MM" 别名，缺省每日）、
-	// 本地滚动保留份数（含手动落档，超窗连文件带行删）。
+	// BackupDir/BackupCron/BackupKeep are local periodic backups (panel availability §2, P1): the archive
+	// directory, the schedule (a cron expression or the "daily"/"HH:MM" alias, defaulting to daily), and the local
+	// rolling retention count (manual archives included; out-of-window rows are deleted together with their files).
 	BackupDir  string
 	BackupCron string
 	BackupKeep int
 
-	// AuditRetentionDays 是操作审计（AU-3）保留天数：超窗行由清扫循环删除，
-	// 0=永久保留（不启动清扫）。
+	// AuditRetentionDays is the operation audit (AU-3) retention in days: out-of-window rows are deleted by the sweep loop,
+	// 0 = permanent retention (no sweep loop started).
 	AuditRetentionDays int
-	// BackupS3* 是备份外发位的配置面（FERRY_BACKUP_S3_*）：默认关闭，
-	// 显式 ENABLED=1 才视为开启并注入 S3 兼容端点外发（stdlib SigV4 PUT）；
-	// 未开启时行为与关闭态零变化（绝不主动开启，env-example 缺省不动）。
+	// BackupS3* is the config face of the backup outbound slot (FERRY_BACKUP_S3_*): off by default,
+	// only an explicit ENABLED=1 turns it on and injects the S3-compatible endpoint outbound (stdlib SigV4 PUT);
+	// while off, behavior is unchanged from the disabled state (never turned on proactively, env-example defaults untouched).
 	BackupS3Enabled   bool
 	BackupS3Endpoint  string
 	BackupS3Bucket    string
 	BackupS3AccessKey string
 	BackupS3SecretKey string `json:"-"`
 
-	// Standby* 是面板主从同步（P2-1）：主面板只需 FERRY_STANDBY_TOKEN
-	// 开放 /api/standby/snapshot 快照端点；standby 实例配 MasterURL 指向
-	// 主面板 + 同一 token，周期拉取加密快照原子替换本机库。Token 空 =
-	// 同步面整体关闭（主面板端点 403、standby 不启动），默认零变化。
+	// Standby* is panel primary/standby sync (P2-1): the primary panel only needs FERRY_STANDBY_TOKEN to
+	// expose the /api/standby/snapshot endpoint; a standby instance configures MasterURL pointing at the primary
+	// plus the same token, and periodically pulls the encrypted snapshot to atomically replace the local DB. Empty token =
+	// the whole sync face is off (the primary endpoint 403s, standby does not start), zero change by default.
 	StandbyMasterURL string
 	StandbyToken     string `json:"-"`
 	StandbySec       int
 
-	// TrustedProxies 是可信任的反向代理网段白名单（CIDR 或单 IP，逗号分隔
-	// 的 FERRY_TRUSTED_PROXIES）：仅这些来源的 X-Forwarded-For/X-Real-IP 参与
-	// ClientIP 判定。空（默认）= 不信任任何代理，ClientIP 恒取直连地址——
-	// 登录爆破锁定/订阅锁定/API 限流/审计日志的 IP 口径不可被请求头伪造。
-	// 部署在 Caddy/Nginx 反代后按反代实际网段显式配置（如 docker 网段）。
+	// TrustedProxies is the trusted reverse-proxy CIDR whitelist (CIDRs or single IPs, comma-separated
+	// FERRY_TRUSTED_PROXIES): only X-Forwarded-For/X-Real-IP from these sources participate in the ClientIP
+	// decision. Empty (default) = trust no proxy, ClientIP always takes the direct address - so the IP basis of
+	// login brute-force lockout / subscription locking / API rate limiting / audit logs cannot be forged via request headers.
+	// When deployed behind a Caddy/Nginx reverse proxy, configure its actual CIDRs explicitly (e.g. the docker network).
 	TrustedProxies []string
 }
 
-// Load 从环境变量读取配置，未设置的项回退到默认值。
-// FERRY_DB 仍可用作 sqlite 文件路径的兼容别名。
+// Load reads configuration from environment variables; unset items fall back to defaults.
+// FERRY_DB still works as a compatibility alias for the sqlite file path.
 func Load() Config {
 	return Config{
 		Addr:                 envOr("FERRY_ADDR", ":8080"),
@@ -189,8 +189,8 @@ func Load() Config {
 		QuotaLinkIntervalSec:  envIntOr("FERRY_QUOTA_LINK_SEC", 600),
 		SaveStatsIntervalSec:  envIntOr("FERRY_SAVE_STATS_SEC", 600),
 
-		// 本地周期备份（面板可用性 §2）：dir 落档目录，cron 缺省每日，
-		// keep 滚动保留份数；S3_* 为外发位（默认关闭，显式开启接 S3 端点）。
+		// Local periodic backups (panel availability §2): dir is the archive directory, cron defaults to daily,
+		// keep is the rolling retention count; S3_* is the outbound slot (off by default, an explicit toggle wires in the S3 endpoint).
 		BackupDir:             envOr("FERRY_BACKUP_DIR", "backups"),
 		BackupCron:            envOr("FERRY_BACKUP_CRON", "daily"),
 		BackupKeep:            envIntOr("FERRY_BACKUP_KEEP", 7),
@@ -216,7 +216,7 @@ func Load() Config {
 	}
 }
 
-// Default 返回测试与本地开发用的默认配置。
+// Default returns the default configuration for tests and local development.
 func Default() Config {
 	return Config{
 		Addr:                 ":8080",
@@ -273,7 +273,7 @@ func envIntOr(key string, fallback int) int {
 	return fallback
 }
 
-// csvEnv 读逗号分隔的环境变量，空串为 nil（未配置），空项跳过。
+// csvEnv reads a comma-separated env var; an empty string yields nil (unconfigured), empty items are skipped.
 func csvEnv(key string) []string {
 	v := strings.TrimSpace(os.Getenv(key))
 	if v == "" {
@@ -288,7 +288,7 @@ func csvEnv(key string) []string {
 	return out
 }
 
-// envBoolOr 读取布尔环境变量（"1"/"true"/"yes"/"on" 为真，不区分大小写）。
+// envBoolOr reads a boolean env var ("1"/"true"/"yes"/"on" are true, case-insensitive).
 func envBoolOr(key string, fallback bool) bool {
 	switch strings.ToLower(os.Getenv(key)) {
 	case "1", "true", "yes", "on":
