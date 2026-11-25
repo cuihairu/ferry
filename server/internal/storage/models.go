@@ -96,6 +96,55 @@ type Plan struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+// Path is one managed business access path (F-0105/F-0243): entry -> (optional
+// relay) -> landing with a transport label. Multiple paths may share one entry
+// or one landing (F-0248/F-0249); Enabled is the admin enable-disable state
+// (F-0250). The "tunnel" here is carried by Transport + the relay node link --
+// transport stays a label, not its own entity (agent-side it is the tunnel
+// plugin interface).
+type Path struct {
+	ID            uint      `gorm:"primaryKey" json:"id"`
+	Name          string    `gorm:"size:64;uniqueIndex" json:"name"`
+	EntryNodeID   uint      `gorm:"index;not null" json:"entry_node_id"`
+	LandingNodeID uint      `gorm:"index;not null" json:"landing_node_id"`
+	RelayNodeID   *uint     `gorm:"index" json:"relay_node_id"` // empty = direct tunnel (F-0247)
+	Transport     string    `gorm:"size:16;default:tls" json:"transport"`
+	Region        string    `gorm:"size:64" json:"region"`
+	Direction     string    `gorm:"size:8;not null;default:out" json:"direction"` // out/in
+	Enabled       bool      `gorm:"default:true" json:"enabled"`
+	Version       int       `json:"version"` // config version, bumped on every update (F-0252)
+	Note          string    `gorm:"size:255" json:"note"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// PathGroup (F-0261) is a named, ordered candidate set of paths organized by
+// direction/region/purpose; subscription policies pick a group and the group
+// resolves to one path (default first, then candidates by Position).
+type PathGroup struct {
+	ID            uint      `gorm:"primaryKey" json:"id"`
+	Name          string    `gorm:"size:64;uniqueIndex" json:"name"`
+	Direction     string    `gorm:"size:8;not null;default:out" json:"direction"` // out/in
+	Region        string    `gorm:"size:64" json:"region"`
+	Purpose       string    `gorm:"size:32" json:"purpose"`       // free label, e.g. streaming
+	DefaultPathID *uint     `gorm:"index" json:"default_path_id"` // must be a group member
+	Enabled       bool      `gorm:"default:true" json:"enabled"`
+	Note          string    `gorm:"size:255" json:"note"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// PathGroupMember is the ordered candidate list of a group. Position drives
+// fallback order (F-0265); Excluded marks a path manually ruled out (F-0267)
+// while keeping it in the list.
+type PathGroupMember struct {
+	ID       uint `gorm:"primaryKey" json:"id"`
+	GroupID  uint `gorm:"uniqueIndex:idx_path_group_member;not null" json:"group_id"`
+	PathID   uint `gorm:"uniqueIndex:idx_path_group_member;not null" json:"path_id"`
+	Position int  `gorm:"default:0" json:"position"`
+	Excluded bool `json:"excluded"`
+}
+
 // Node is one proxy node. Token is used for agent outbound connection authentication.
 type Node struct {
 	ID       uint   `gorm:"primaryKey" json:"id"`
