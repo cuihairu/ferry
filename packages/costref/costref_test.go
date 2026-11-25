@@ -23,7 +23,7 @@ func TestStaticLookup(t *testing.T) {
 	s := staticTestSource(t)
 	ctx := context.Background()
 
-	// 命中：大小写与首尾空白归一。
+	// Hit: case and surrounding whitespace normalized.
 	q, err := s.Lookup(ctx, Query{Provider: "vultr", Region: "TOKYO", Spec: "1c512m"})
 	if err != nil {
 		t.Fatalf("Lookup hit: %v", err)
@@ -35,13 +35,13 @@ func TestStaticLookup(t *testing.T) {
 		t.Fatalf("Name = %q", s.Name())
 	}
 
-	// 缺省币种回填后，未带币种的行原样透传 USD。
+	// After the default-currency backfill, the row carrying no currency passes USD through unchanged.
 	q, err = s.Lookup(ctx, Query{Provider: "VULTR", Region: "Tokyo", Spec: "2c1g"})
 	if err != nil || q.Currency != "USD" || q.MonthlyCents != 1200 {
 		t.Fatalf("second row: quote=%+v err=%v", q, err)
 	}
 
-	// 未命中。
+	// Miss.
 	if _, err := s.Lookup(ctx, Query{Provider: "vultr", Region: "LA", Spec: "1c512m"}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("miss err = %v", err)
 	}
@@ -69,41 +69,41 @@ func TestParseTableRejects(t *testing.T) {
 func TestCompare(t *testing.T) {
 	quote := Quote{MonthlyCents: 1000, Currency: "CNY"}
 
-	// 相等：零偏差不提示。
+	// Equal: zero deviation, no hint.
 	d, err := Compare(Manual{MonthlyCents: 1000, Currency: "CNY"}, quote, 30)
 	if err != nil || d.Pct != 0 || d.Off {
 		t.Fatalf("equal: dev=%+v err=%v", d, err)
 	}
-	// 手录贵 38%：超 30 容差提示，Pct 为正。
+	// Manual 38% pricier: beyond the 30 tolerance, hint given, Pct positive.
 	d, err = Compare(Manual{MonthlyCents: 1380, Currency: "CNY"}, quote, 30)
 	if err != nil || !d.Off || d.Pct != 38 {
 		t.Fatalf("pricier: dev=%+v err=%v", d, err)
 	}
-	// 手录便宜 20%：容差内不提示，Pct 为负。
+	// Manual 20% cheaper: inside tolerance, no hint, Pct negative.
 	d, err = Compare(Manual{MonthlyCents: 800, Currency: "CNY"}, quote, 30)
 	if err != nil || d.Off || d.Pct != -20 {
 		t.Fatalf("cheaper: dev=%+v err=%v", d, err)
 	}
-	// 便宜 50%：同样提示（便宜太多也复核，可能是套餐档对不上）。
+	// 50% cheaper: hinted as well (far too cheap also warrants a review, the plan tier may not line up).
 	d, err = Compare(Manual{MonthlyCents: 500, Currency: "CNY"}, quote, 30)
 	if err != nil || !d.Off || d.Pct != -50 {
 		t.Fatalf("too cheap: dev=%+v err=%v", d, err)
 	}
-	// 边界：恰在容差上不提示（>30 才 Off）。
+	// Boundary: exactly at the tolerance, no hint (Off only above 30).
 	d, err = Compare(Manual{MonthlyCents: 1300, Currency: "CNY"}, quote, 30)
 	if err != nil || d.Off || d.Pct != 30 {
 		t.Fatalf("boundary: dev=%+v err=%v", d, err)
 	}
 
-	// 货币不符拒比。
+	// Currency mismatch refuses to compare.
 	if _, err := Compare(Manual{MonthlyCents: 1000, Currency: "USD"}, quote, 30); !errors.Is(err, ErrCurrencyMismatch) {
 		t.Fatalf("currency err = %v", err)
 	}
-	// 手录未填。
+	// Manual price not filled in.
 	if _, err := Compare(Manual{MonthlyCents: 0, Currency: "CNY"}, quote, 30); !errors.Is(err, ErrNoManual) {
 		t.Fatalf("no manual err = %v", err)
 	}
-	// 牌价无效。
+	// Reference price invalid.
 	if _, err := Compare(Manual{MonthlyCents: 1000, Currency: "CNY"}, Quote{MonthlyCents: -1, Currency: "CNY"}, 30); !errors.Is(err, ErrNoQuote) {
 		t.Fatalf("no quote err = %v", err)
 	}

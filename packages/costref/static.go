@@ -8,28 +8,29 @@ import (
 	"time"
 )
 
-// Entry 是公开价格表里的一行：一个商家/区域/配置的牌价快照。
-// 面板以 JSON 数组导入维护（见 ParseTable），来源名随 NewStatic 固定。
+// Entry is one row of the public price table: a reference-price snapshot for one vendor/region/spec.
+// The panel maintains it via JSON array import (see ParseTable); the source name is fixed by NewStatic.
 type Entry struct {
-	Provider     string `json:"provider"`                // 云厂商/商家
-	Region       string `json:"region"`                  // 区域
-	Spec         string `json:"spec"`                    // 机型配置（来源内自管词表）
-	MonthlyCents int64  `json:"monthly_cents"`           // 月付牌价（分/月），必填
-	TrafficPrice int64  `json:"traffic_price,omitempty"` // 流量单价（分/GB），可空
-	Currency     string `json:"currency"`                // 币种，缺省 CNY
-	URL          string `json:"url,omitempty"`           // 价格页，可点开核对
+	Provider     string `json:"provider"`                // cloud vendor / merchant
+	Region       string `json:"region"`                  // region
+	Spec         string `json:"spec"`                    // machine spec (vocabulary managed within the source)
+	MonthlyCents int64  `json:"monthly_cents"`           // monthly reference price (cents/month), required
+	TrafficPrice int64  `json:"traffic_price,omitempty"` // traffic unit price (cents/GB), optional
+	Currency     string `json:"currency"`                // currency, defaults to CNY
+	URL          string `json:"url,omitempty"`           // pricing page, clickable for verification
 }
 
-// StaticSource 是数据驱动的公开价格表来源：横扩真实在线来源前，
-// 先用导入的价格表把偏差提示链路跑通（设计 §4.2「公开价格表」形态）。
-// At 是整表快照时刻，Lookup 回填 Quote.At（牌价是快照不是实时）。
+// StaticSource is a data-driven public price table source: before scaling out to real
+// online sources, first get the deviation-hint pipeline running with an imported price
+// table (design §4.2 "public price table" form).
+// At is the whole-table snapshot time; Lookup backfills Quote.At (a reference price is a snapshot, not live).
 type StaticSource struct {
 	name    string
 	at      time.Time
-	entries map[string]Entry // 归一化(provider|region|spec) → 行
+	entries map[string]Entry // normalized(provider|region|spec) → row
 }
 
-// NewStatic 以一组价格表行造来源；重复键后行覆盖前行。
+// NewStatic builds a source from a set of price table rows; on duplicate keys the later row wins.
 func NewStatic(name string, entries []Entry) *StaticSource {
 	s := &StaticSource{name: name, entries: make(map[string]Entry, len(entries))}
 	for _, e := range entries {
@@ -38,7 +39,7 @@ func NewStatic(name string, entries []Entry) *StaticSource {
 	return s
 }
 
-// Name 实现来源名（缺省 pricelist）。
+// Name returns the source name (default pricelist).
 func (s *StaticSource) Name() string {
 	if s.name == "" {
 		return "pricelist"
@@ -46,7 +47,7 @@ func (s *StaticSource) Name() string {
 	return s.name
 }
 
-// Lookup 精确匹配 provider+region+spec（大小写不敏感、去首尾空白）。
+// Lookup matches provider+region+spec exactly (case-insensitive, surrounding whitespace trimmed).
 func (s *StaticSource) Lookup(_ context.Context, q Query) (Quote, error) {
 	e, ok := s.entries[key(q.Provider, q.Region, q.Spec)]
 	if !ok {
@@ -71,9 +72,10 @@ func key(provider, region, spec string) string {
 		strings.ToLower(strings.TrimSpace(spec))
 }
 
-// ParseTable 把 JSON 价格表（[]Entry）解析成来源，快照时刻取当前时间；
-// 导入层校验：非法 JSON、缺 provider/spec、月价非正都拒——脏表进偏差
-// 提示就是脏提示。
+// ParseTable parses a JSON price table ([]Entry) into a source, with the snapshot
+// time taken as now; import-layer validation: invalid JSON, missing provider/spec,
+// and non-positive monthly prices are all rejected — a dirty table feeding deviation
+// hints means dirty hints.
 func ParseTable(data []byte) (*StaticSource, error) {
 	var entries []Entry
 	if err := json.Unmarshal(data, &entries); err != nil {

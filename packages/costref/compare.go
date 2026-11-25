@@ -2,33 +2,34 @@ package costref
 
 import "errors"
 
-// 偏差提示的边界条件：调用方按需把错误文案透给面板。
+// Boundary conditions for deviation hints: callers pass the error text to the panel as needed.
 var (
-	// ErrNoManual 是手录月固定成本未填（0）——无从比，不算偏差。
+	// ErrNoManual is the manually recorded monthly fixed cost being unset (0) — nothing to compare, so no deviation.
 	ErrNoManual = errors.New("costref: manual monthly cost not set")
-	// ErrNoQuote 是参考牌价无效（非正）——来源数据坏，无从比。
+	// ErrNoQuote is the reference price being invalid (non-positive) — bad source data, nothing to compare.
 	ErrNoQuote = errors.New("costref: reference price not usable")
-	// ErrCurrencyMismatch 是手录价与牌价币种不同——跨币种比百分比无意义，
-	// 调用方先归币种再比。
+	// ErrCurrencyMismatch is the manual price and the reference price being in different currencies —
+	// a cross-currency percentage comparison is meaningless, so callers normalize the currency first.
 	ErrCurrencyMismatch = errors.New("costref: currency mismatch between manual and quote")
 )
 
-// Manual 是手录侧价格（唯一权威，参考价永不回写）。
+// Manual is the manually recorded side price (the sole authority; a reference price is never written back).
 type Manual struct {
-	MonthlyCents int64  `json:"monthly_cents"` // 月固定成本（分/月）
-	Currency     string `json:"currency"`      // 币种，与 Quote.Currency 比对前必须一致
+	MonthlyCents int64  `json:"monthly_cents"` // monthly fixed cost (cents/month)
+	Currency     string `json:"currency"`      // currency, must match Quote.Currency before comparing
 }
 
-// Deviation 是一次手录价 vs 牌价的偏差结论。Pct 为手录相对牌价的偏差
-// 百分比（正=手录贵、负=手录便宜，整除向零截断）；Off 为 |Pct| 超出
-// 容忍度、该提示人工复核。
+// Deviation is one manual-price vs reference-price deviation verdict. Pct is the
+// deviation percentage of the manual price relative to the reference (positive = manual
+// pricier, negative = manual cheaper, integer division truncates toward zero); Off
+// marks |Pct| beyond the tolerance, meaning this warrants a manual review.
 type Deviation struct {
 	Pct int64 `json:"pct"`
 	Off bool  `json:"off"`
 }
 
-// Compare 比对手录月固定成本与参考牌价，只产提示不产动作（口径 §4.2）。
-// tolerancePct 为容忍度百分比，|偏差|>容忍度即 Off（如 30 = ±30% 外提示）。
+// Compare contrasts the manual monthly fixed cost with the reference price, producing only a hint and never an action (spec §4.2).
+// tolerancePct is the tolerance percentage; |deviation| above it sets Off (e.g. 30 = hint beyond ±30%).
 func Compare(m Manual, q Quote, tolerancePct int64) (Deviation, error) {
 	if m.MonthlyCents <= 0 {
 		return Deviation{}, ErrNoManual

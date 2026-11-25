@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestStaticSourceDefaultName 未命名来源回落 pricelist 缺省名。
+// TestStaticSourceDefaultName covers an unnamed source falling back to the pricelist default name.
 func TestStaticSourceDefaultName(t *testing.T) {
 	s := NewStatic("", []Entry{{Provider: "p", Region: "r", Spec: "s", MonthlyCents: 100}})
 	if got := s.Name(); got != "pricelist" {

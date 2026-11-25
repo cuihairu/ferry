@@ -1,15 +1,19 @@
-// Package costref 是成本参考库插件位（《套餐与成本设计》§4）：参考牌价
-// 来源的统一契约。口径三条——
+// Package costref is the cost-reference library plugin slot ("Plans and Cost Design" §4):
+// the shared contract for reference-price sources. Three points of the spec —
 //
-//  1. 手录成本唯一权威：nodes 上的单价/月固定成本是分配与看板的数据源，
-//     参考价只做提示，永不自动改手录价；
-//  2. 来源横扩 = 实现一个 Source：infracost 类开源价格库面向 AWS/GCP/Azure
-//     的 terraform 资源、没有 VPS/中转商家口径，故首形态不接库，走数据
-//     驱动的公开价格表（StaticSource，面板导入维护）；后续接库前先核
-//     license（开源优先令）；
-//  3. Compare 产偏差提示（手录价偏离牌价），不产动作——人工复核。
+//  1. Manual cost is the sole authority: the unit price / monthly fixed cost on
+//     nodes is the data source for allocation and dashboards, a reference price
+//     only hints and never rewrites the manual price;
+//  2. Scaling out sources = implementing one Source: infracost-style open-source
+//     price libraries target terraform resources on AWS/GCP/Azure and have no
+//     VPS / reseller vocabulary, so the first form does not wire in a library and
+//     instead uses a data-driven public price table (StaticSource, imported and
+//     maintained by the panel); before wiring a library in later, verify the
+//     license first (open-source-first directive);
+//  3. Compare produces deviation hints (manual price off from the reference),
+//     never actions — manual review decides.
 //
-// 本包只依赖标准库，server 与未来工具侧共用。
+// This package depends only on the standard library, shared by the server and future tooling.
 package costref
 
 import (
@@ -18,31 +22,31 @@ import (
 	"time"
 )
 
-// ErrNotFound 是来源里查不到对应牌价（调用方按未命中处理，不算错账）。
+// ErrNotFound is the reference price not being found in the source (callers treat it as a miss, not a bad account).
 var ErrNotFound = errors.New("costref: no reference price for query")
 
-// Source 是一家参考价来源的插件位（设计 §4.1）。
+// Source is the plugin slot for one reference-price source (design §4.1).
 type Source interface {
-	// Name 是来源名（infracost / pricelist / manual_watch …），随 Quote
-	// 与日志落痕。
+	// Name is the source name (infracost / pricelist / manual_watch …),
+	// recorded alongside the Quote and in logs.
 	Name() string
-	// Lookup 按机型/区域/配置查参考牌价（月付价与流量单价）。
-	// 查不到回 ErrNotFound。
+	// Lookup fetches the reference price by machine/region/spec (monthly price and traffic unit price).
+	// Returns ErrNotFound when nothing is found.
 	Lookup(ctx context.Context, q Query) (Quote, error)
 }
 
-// Query 是一次参考价查询的定位键。
+// Query is the locator key for one reference-price lookup.
 type Query struct {
-	Provider string `json:"provider"` // 云厂商/商家
+	Provider string `json:"provider"` // cloud vendor / merchant
 	Region   string `json:"region"`
-	Spec     string `json:"spec"` // 机型配置（CPU/内存/带宽/流量），来源内自管词表
+	Spec     string `json:"spec"` // machine spec (CPU/memory/bandwidth/traffic), vocabulary managed within the source
 }
 
-// Quote 是一条参考牌价。
+// Quote is one reference price.
 type Quote struct {
-	MonthlyCents int64     `json:"monthly_cents"` // 月付牌价（分/月）
-	TrafficPrice int64     `json:"traffic_price"` // 流量单价（分/GB），无则 0
-	Currency     string    `json:"currency"`      // 牌价币种
-	URL          string    `json:"url,omitempty"` // 价格页，可点开核对
-	At           time.Time `json:"at"`            // 快照时刻
+	MonthlyCents int64     `json:"monthly_cents"` // monthly reference price (cents/month)
+	TrafficPrice int64     `json:"traffic_price"` // traffic unit price (cents/GB), 0 when absent
+	Currency     string    `json:"currency"`      // currency of the reference price
+	URL          string    `json:"url,omitempty"` // pricing page, clickable for verification
+	At           time.Time `json:"at"`            // snapshot time
 }
