@@ -885,8 +885,8 @@ External Client
     - 备注（Task ID: F-0326 | Status: Done | Evidence: AccessKey AES-256-GCM 密文(providerapi.go:60,149-154)；唯一读取者 provision.DecryptKey(provision.go:214-218) 仅 runProvision/PrepareLaunch；API 层只回 has_access_key(providerapi.go:19-25) | Verification: TestProviderAPI+secret_test | Commit: acb0810）
 -   [x] `F-0327` Dash 不回显完整 Secret。
     - 备注（Task ID: F-0327 | Status: Done | Evidence: HasAccessKey 不回显；TestProviderAPI+TestListEnrollmentTokensMasksSecret | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0328` 支持测试账号连接。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0328 | 未满足原因：未满足：无 test-connection 端点；router 仅 GET/POST/PUT/DELETE /api/providers，无 handler 调服务商验证凭据。）
+-   [x] `F-0328` 支持测试账号连接。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0328 | Status: Done | Evidence: POST /api/providers/:id/test：先本地解密凭据（无明文回显），有 cloudprov.Adapter factory 时经 Client 共享策略探活厂商 Capabilities；结果 200+ok/mode/error_type（auth/unsupported 分型），禁用账号 409；cloudprov registry Register/Lookup/Unregister/NewAdapter 作为可插拔适配器入口 | Verification: TestProviderTestConnection（本地/适配器/认证失败/禁用 4 场景） | Commit: a80419d）
 -   [x] `F-0329` 支持凭据更新。
     - 备注（Task ID: F-0329 | Status: Done | Evidence: updateProvider access_key 非空换密；TestProviderAPI | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0330` 支持凭据轮换。（依赖：无；完成条件：需求落地+测试绿+证据行）
