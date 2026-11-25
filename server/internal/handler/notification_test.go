@@ -12,14 +12,15 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestNotificationCenter 覆盖 NT-1：公告扇出（禁用用户不收）、未读数、
-// 已读流转（单条幂等/他人 404/全部已读）、过滤与删除。
+// TestNotificationCenter covers NT-1: announcement fan-out (disabled users do
+// not receive it), unread counts, read transitions (single idempotent/others
+// 404/read-all), filtering and deletion.
 func TestNotificationCenter(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	u1 := panelToken(t, r, "notif-a")
 	u2 := panelToken(t, r, "notif-b")
 
-	// 公告扇出：两名启用用户各一行
+	// Announcement fan-out: one row per enabled user, two rows here
 	rec := doJSON(t, r, "POST", "/api/notifications/announcement", map[string]any{
 		"title": "维护通知", "body": "周日 02:00-03:00 升级",
 	})
@@ -35,7 +36,8 @@ func TestNotificationCenter(t *testing.T) {
 	if out.Created != 2 {
 		t.Fatalf("created = %d, want 2", out.Created)
 	}
-	// 站外事件（HERALD-4）：公告同批落 notice 事件，启用用户各一条
+	// Off-site event (HERALD-4): the announcement batch also emits notice events,
+	// one per enabled user
 	var evs []storage.Event
 	if err := db.Where("kind = ?", "notice").Find(&evs).Error; err != nil {
 		t.Fatal(err)
@@ -44,7 +46,7 @@ func TestNotificationCenter(t *testing.T) {
 		t.Fatalf("notice events = %+v", evs)
 	}
 
-	// 未读数
+	// Unread count
 	getCount := func(token string) int64 {
 		rec := doPanel(t, r, token, "GET", "/api/panel/notifications/unread-count", nil)
 		if rec.Code != http.StatusOK {
@@ -63,7 +65,7 @@ func TestNotificationCenter(t *testing.T) {
 		t.Fatalf("u2 unread = %d, want 1", c)
 	}
 
-	// 列表与已读流转
+	// List and read transitions
 	rec = doPanel(t, r, u1, "GET", "/api/panel/notifications", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list: %d %s", rec.Code, rec.Body)
@@ -77,13 +79,13 @@ func TestNotificationCenter(t *testing.T) {
 	}
 	mine := rows[0].ID
 
-	// 他人通知 404 防越权
+	// Another user's notification: 404 anti-privilege-escalation
 	rec = doPanel(t, r, u1, "POST", "/api/panel/notifications/999999/read", nil)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("mark missing: %d", rec.Code)
 	}
 
-	// 单条已读幂等
+	// Single mark-read is idempotent
 	for i := 0; i < 2; i++ {
 		rec = doPanel(t, r, u1, "POST", "/api/panel/notifications/"+strconv.FormatInt(mine, 10)+"/read", nil)
 		if rec.Code != http.StatusOK {
@@ -94,7 +96,8 @@ func TestNotificationCenter(t *testing.T) {
 		t.Fatalf("u1 unread after read = %d, want 0", c)
 	}
 
-	// 系统通知直落（NT-2 触发口径）：未读恢复为 1，read-all 清零
+	// System notification written directly (the NT-2 trigger path): unread goes
+	// back to 1, read-all clears it
 	if err := db.Create(&storage.Notification{
 		UserID: 1, Type: "system", Title: "节点恢复失败", CreatedAt: time.Now(),
 	}).Error; err != nil {
@@ -114,14 +117,14 @@ func TestNotificationCenter(t *testing.T) {
 	if ra.Updated != 1 {
 		t.Fatalf("read-all updated = %d, want 1", ra.Updated)
 	}
-	// unread=1 过滤：全读后为空
+	// unread=1 filter: empty once everything is read
 	rec = doPanel(t, r, u1, "GET", "/api/panel/notifications?unread=1", nil)
 	_ = json.Unmarshal(rec.Body.Bytes(), &rows)
 	if len(rows) != 0 {
 		t.Fatalf("unread filter = %d rows, want 0", len(rows))
 	}
 
-	// 禁用用户不收扇出
+	// Disabled users do not receive the fan-out
 	rec = doJSON(t, r, "POST", "/api/users", map[string]any{"username": "notif-off", "quota_bytes": 1 << 20})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create u3: %d %s", rec.Code, rec.Body)
@@ -137,14 +140,14 @@ func TestNotificationCenter(t *testing.T) {
 	if out.Created != 2 {
 		t.Fatalf("fanout with disabled = %d, want 2", out.Created)
 	}
-	// 禁用用户不落 notice 事件（第二轮 +2=4）
+	// Disabled users get no notice event (round 2 adds +2 = 4)
 	var n int64
 	db.Model(&storage.Event{}).Where("kind = ?", "notice").Count(&n)
 	if n != 4 {
 		t.Fatalf("notice events after round2 = %d, want 4", n)
 	}
 
-	// 管理端列表 type 过滤
+	// Admin-side list type filter
 	rec = doJSON(t, r, "GET", "/api/notifications?type=system", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("admin list: %d", rec.Code)
@@ -157,7 +160,7 @@ func TestNotificationCenter(t *testing.T) {
 		t.Fatalf("type filter = %+v", all)
 	}
 
-	// 删除
+	// Deletion
 	rec = doJSON(t, r, "DELETE", "/api/notifications/"+strconv.FormatInt(all[0].ID, 10), nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete: %d", rec.Code)
@@ -166,7 +169,7 @@ func TestNotificationCenter(t *testing.T) {
 		t.Fatalf("delete again: %d", rec.Code)
 	}
 
-	// 校验：标题空 400；无凭据 404
+	// Validation: empty title 400; no credentials 404
 	if rec := doJSON(t, r, "POST", "/api/notifications/announcement", map[string]any{"title": "  "}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("empty title: %d", rec.Code)
 	}
@@ -175,12 +178,13 @@ func TestNotificationCenter(t *testing.T) {
 	}
 }
 
-// TestNotifyPrefs 覆盖 NT-2 偏好：默认值读取、部分更新、阈值校验。
+// TestNotifyPrefs covers NT-2 preferences: reading defaults, partial updates,
+// and threshold validation.
 func TestNotifyPrefs(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	token := panelToken(t, r, "pref-u")
 
-	// 默认：开/开/80
+	// Defaults: on/on/80
 	rec := doPanel(t, r, token, "GET", "/api/panel/notify-prefs", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get prefs: %d %s", rec.Code, rec.Body)
@@ -197,7 +201,7 @@ func TestNotifyPrefs(t *testing.T) {
 		t.Fatalf("default prefs = %+v", prefs)
 	}
 
-	// 部分更新：只关到期提醒，其余不动
+	// Partial update: only turn off the expiry reminder, the rest stays
 	rec = doPanel(t, r, token, "PUT", "/api/panel/notify-prefs", map[string]any{"notify_expiry": false})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("put prefs: %d %s", rec.Code, rec.Body)
@@ -208,7 +212,7 @@ func TestNotifyPrefs(t *testing.T) {
 		t.Fatalf("prefs after partial update = %+v", prefs)
 	}
 
-	// 阈值越界 400；合法阈值生效
+	// Out-of-range threshold 400; a valid threshold takes effect
 	if rec := doPanel(t, r, token, "PUT", "/api/panel/notify-prefs", map[string]any{"traffic_warn_percent": 0}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("zero percent: %d", rec.Code)
 	}
@@ -226,8 +230,9 @@ func TestNotifyPrefs(t *testing.T) {
 	}
 }
 
-// TestGrantNotifiesUser 覆盖 NT-2 事件触发：兑换发放成功即落一条 system
-// 站内信（applyGrant 事务内），流量口径给人类可读量级。
+// TestGrantNotifiesUser covers the NT-2 event trigger: a successful redemption
+// writes one system in-app row (inside the applyGrant transaction), and the
+// traffic case gives a human-readable magnitude.
 func TestGrantNotifiesUser(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	token := panelToken(t, r, "grant-u")
@@ -265,7 +270,8 @@ func TestGrantNotifiesUser(t *testing.T) {
 	if notifs[0].Title != "流量已到账：+1 GB" {
 		t.Fatalf("title = %q", notifs[0].Title)
 	}
-	// 站外事件（HERALD-4）：同事务落 order 事件，target=user:<id> 带 order_no
+	// Off-site event (HERALD-4): an order event lands in the same transaction, with
+	// target=user:<id> carrying order_no
 	var evs []storage.Event
 	if err := db.Where("kind = ?", "order").Find(&evs).Error; err != nil {
 		t.Fatal(err)
@@ -276,7 +282,7 @@ func TestGrantNotifiesUser(t *testing.T) {
 	if !strings.Contains(evs[0].Meta, "order_no") || !strings.Contains(evs[0].Title, "1 GB") {
 		t.Fatalf("order event = %+v", evs[0])
 	}
-	// 未读数应计上
+	// The unread count should pick it up
 	rec = doPanel(t, r, token, "GET", "/api/panel/notifications/unread-count", nil)
 	var cnt struct {
 		Count int64 `json:"count"`

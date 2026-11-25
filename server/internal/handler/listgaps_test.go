@@ -1,8 +1,9 @@
 package handler
 
-// 管理端列表/辅助缝隙批：dns-providers、dns-fronts、probe-reports、
-// quota-link、rulelib 五个只读端点与 NormalizeAdminRoles/checkImportQuota
-// 两个纯函数此前零覆盖；写入路径（update/delete/create）已有各自用例。
+// Admin list/helper gap batch: the five read-only endpoints dns-providers,
+// dns-fronts, probe-reports, quota-link, rulelib and the two pure functions
+// NormalizeAdminRoles/checkImportQuota had zero coverage before; the write
+// paths (update/delete/create) already have their own cases.
 
 import (
 	"encoding/json"
@@ -14,8 +15,8 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestNormalizeAdminRoles 覆盖旧号归一：无角色管理员补 super，
-// 子管理员（operator）不受影响，幂等。
+// TestNormalizeAdminRoles covers legacy role normalization: a role-less admin
+// gets super, a sub-admin (operator) is left alone, and it is idempotent.
 func TestNormalizeAdminRoles(t *testing.T) {
 	_, db := newTestRouterWithDB(t)
 	users := []storage.User{
@@ -42,14 +43,14 @@ func TestNormalizeAdminRoles(t *testing.T) {
 	if op.AdminRole != "operator" {
 		t.Fatalf("operator role = %q; want untouched operator", op.AdminRole)
 	}
-	// 幂等：再跑不报错
+	// idempotent: a second run does not error
 	if err := NormalizeAdminRoles(db); err != nil {
 		t.Fatalf("second normalize: %v", err)
 	}
 }
 
-// TestCheckImportQuota 覆盖批量导入配额校验：操作人不存在、0=不限、
-// 未超额放行、超额整批拒绝。
+// TestCheckImportQuota covers batch import quota checks: missing operator,
+// 0 = unlimited, under quota passes, over quota rejects the whole batch.
 func TestCheckImportQuota(t *testing.T) {
 	_, db := newTestRouterWithDB(t)
 	if err := checkImportQuota(db, "ghost", 5); err == nil {
@@ -74,8 +75,8 @@ func TestCheckImportQuota(t *testing.T) {
 	}
 }
 
-// TestListDNSProviders 覆盖 DNS 商列表：按 id 升序、HasAPIKey 只报
-// 有无不回落凭证明文。
+// TestListDNSProviders covers the DNS provider list: ascending by id, and
+// HasAPIKey reports presence only, never exposing the credential itself.
 func TestListDNSProviders(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	providers := []storage.DNSProvider{
@@ -85,7 +86,7 @@ func TestListDNSProviders(t *testing.T) {
 	if err := db.Create(&providers).Error; err != nil {
 		t.Fatal(err)
 	}
-	// GORM default:true 吞零值：停用态建后显式改。
+	// GORM default:true swallows the zero value: flip it explicitly after create.
 	if err := db.Model(&storage.DNSProvider{}).Where("name=?", "dnspod").Update("enabled", false).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +115,8 @@ func TestListDNSProviders(t *testing.T) {
 	}
 }
 
-// TestListDNSFronts 覆盖 DNS 前置域名列表：按 id 升序回原行。
+// TestListDNSFronts covers the DNS front domain list: the original rows back
+// in ascending id order.
 func TestListDNSFronts(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	fronts := []storage.DNSFront{
@@ -142,8 +144,9 @@ func TestListDNSFronts(t *testing.T) {
 	}
 }
 
-// TestListProbeReports 覆盖探测结论存证列表：新结论在前、limit 钳制
-// （非法与越界 400）、空库回空数组。
+// TestListProbeReports covers the probe verdict evidence list: newest verdicts
+// first, limit clamping (illegal and out of range -> 400), and an empty DB
+// returning an empty array.
 func TestListProbeReports(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	rec := doJSON(t, r, "GET", "/api/probe-reports", nil)
@@ -176,8 +179,8 @@ func TestListProbeReports(t *testing.T) {
 	}
 }
 
-// TestListQuotaLink 覆盖配额联动列表：配置、降档留痕（生效中在前）与
-// 用户名映射。
+// TestListQuotaLink covers the quota linkage list: the setting, downgrade
+// traces (active ones first) and the username mapping.
 func TestListQuotaLink(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	user := storage.User{Username: "quota-u", SubToken: "tq"}
@@ -211,7 +214,7 @@ func TestListQuotaLink(t *testing.T) {
 	if len(out.Rows) != 2 {
 		t.Fatalf("rows = %+v", out)
 	}
-	// 生效中（released_at IS NULL）在前，且带用户名映射
+	// active rows (released_at IS NULL) come first, with the username mapping
 	if out.Rows[0].ReleasedAt != nil || out.Rows[1].ReleasedAt == nil {
 		t.Fatalf("order = %+v, want active first", out.Rows)
 	}
@@ -220,8 +223,8 @@ func TestListQuotaLink(t *testing.T) {
 	}
 }
 
-// TestListRuleLib 覆盖规则库版本史：按 id 倒序、只回 rulelib 快照、
-// 非法 id 与越界 limit 报错。
+// TestListRuleLib covers the rulelib version history: id DESC, only rulelib
+// snapshots, and errors on a bad id or out-of-range limit.
 func TestListRuleLib(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	node := storage.Node{Name: "rule-node", Token: "tok-rule", Role: "entry", Enabled: true}

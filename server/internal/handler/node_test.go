@@ -16,22 +16,24 @@ import (
 	"gorm.io/gorm"
 )
 
-// newTestRouter 建独立临时库的 gin 测试引擎。
+// newTestRouter builds a gin test engine on a private temporary database.
 func newTestRouter(t *testing.T) *gin.Engine {
 	t.Helper()
 	r, _ := newTestRouterWithDB(t)
 	return r
 }
 
-// newTestRouterWithDB 额外返回 db 句柄，供直接插入流量等关联数据的用例使用。
+// newTestRouterWithDB additionally returns the db handle, for cases that
+// insert related data such as traffic directly.
 func newTestRouterWithDB(t *testing.T) (*gin.Engine, *gorm.DB) {
 	t.Helper()
 	r, db := newTestRouterCfg(t, nil)
 	return r, db
 }
 
-// newTestRouterCfg 在默认配置上叠加用例定制（备份目录、主密钥等需要
-// 临时路径的项），其余口径与 newTestRouterWithDB 一致。
+// newTestRouterCfg layers case-specific customization onto the default config
+// (backup directory, master key and other items that need temporary paths);
+// everything else matches newTestRouterWithDB.
 func newTestRouterCfg(t *testing.T, mutate func(*config.Config)) (*gin.Engine, *gorm.DB) {
 	t.Helper()
 	db, err := storage.Open(storage.DriverSQLite, filepath.Join(t.TempDir(), "test.db"))
@@ -62,15 +64,17 @@ func doJSON(t *testing.T, r *gin.Engine, method, path string, body any) *httptes
 	}
 	req := httptest.NewRequest(method, path, &buf)
 	req.Header.Set("Content-Type", "application/json")
-	// 管理数据面自 2026-10-10 起挂 apiAuth（安全修复）：助手默认带管理员
-	// JWT，专测无凭据/坏凭据的用例用 doBare 或直建请求自带 Authorization。
+	// the admin data plane has sat behind apiAuth since 2026-10-10 (security fix):
+	// the helper attaches an admin JWT by default, and cases testing missing or
+	// invalid credentials use doBare or build the request with their own Authorization.
 	req.Header.Set("Authorization", "Bearer "+adminJWT(t))
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	return rec
 }
 
-// doBare 发不带凭据的请求：专测「无令牌应 401」等鉴权负例。
+// doBare sends a request with no credentials: for auth negative cases such as
+// "no token should give 401".
 func doBare(t *testing.T, r *gin.Engine, method, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, nil)
@@ -79,8 +83,9 @@ func doBare(t *testing.T, r *gin.Engine, method, path string) *httptest.Response
 	return rec
 }
 
-// doRaw 发原始字符串体（坏 JSON 负例用，doJSON 只能发合法 JSON）：
-// 其余口径与 doJSON 一致，默认带管理员 JWT。
+// doRaw sends a raw string body (for bad JSON negative cases, since doJSON
+// can only send valid JSON); everything else matches doJSON and an admin JWT
+// is attached by default.
 func doRaw(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -94,7 +99,7 @@ func doRaw(t *testing.T, r *gin.Engine, method, path, body string) *httptest.Res
 func TestNodeCRUD(t *testing.T) {
 	r := newTestRouter(t)
 
-	// 创建：返回 201，携带生成的接入令牌
+	// create: returns 201 carrying the generated agent token
 	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
 		"name": "hk-1", "address": "hk.example.com", "port": 443,
 		"protocol": "vless", "config": `{"uuid":"u1","tls":true}`,
@@ -114,7 +119,7 @@ func TestNodeCRUD(t *testing.T) {
 	}
 	id := created["id"].(float64)
 
-	// 列表与详情
+	// list and detail
 	if rec = doJSON(t, r, "GET", "/api/nodes", nil); rec.Code != http.StatusOK {
 		t.Fatalf("list status = %d", rec.Code)
 	}
@@ -123,7 +128,7 @@ func TestNodeCRUD(t *testing.T) {
 		t.Fatalf("list len=%d err=%v", len(list), err)
 	}
 
-	// 更新：部分字段，未传字段保持
+	// update: partial fields, unsent fields keep their values
 	rec = doJSON(t, r, "PUT", "/api/nodes/1", map[string]any{"port": 8443, "enabled": false})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("update status = %d body=%s", rec.Code, rec.Body)
@@ -135,7 +140,7 @@ func TestNodeCRUD(t *testing.T) {
 	}
 	_ = id
 
-	// 非法协议被拒
+	// illegal protocol rejected
 	rec = doJSON(t, r, "POST", "/api/nodes", map[string]any{
 		"name": "x", "address": "a", "port": 1, "protocol": "wireguard",
 	})
@@ -143,7 +148,7 @@ func TestNodeCRUD(t *testing.T) {
 		t.Fatalf("bad protocol status = %d", rec.Code)
 	}
 
-	// 非法 JSON 配置被拒
+	// invalid JSON config rejected
 	rec = doJSON(t, r, "POST", "/api/nodes", map[string]any{
 		"name": "x", "address": "a", "port": 1, "protocol": "vless", "config": "{bad",
 	})
@@ -151,7 +156,7 @@ func TestNodeCRUD(t *testing.T) {
 		t.Fatalf("bad config status = %d", rec.Code)
 	}
 
-	// 删除后再查 404
+	// fetching after delete gives 404
 	if rec = doJSON(t, r, "DELETE", "/api/nodes/1", nil); rec.Code != http.StatusNoContent {
 		t.Fatalf("delete status = %d", rec.Code)
 	}
@@ -163,7 +168,7 @@ func TestNodeCRUD(t *testing.T) {
 func TestNodeMetaInput(t *testing.T) {
 	r := newTestRouter(t)
 
-	// 创建带元数据：按请求落库（E-24 面板可改口径）
+	// create with metadata: stored as requested (E-24 panel-editable shape)
 	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
 		"name": "hk-entry", "address": "hk.example.com", "port": 443, "protocol": "vless",
 		"role": "entry", "direction": "out", "region": "香港", "isp": "HKT", "line_type": "cn2_gia",
@@ -181,7 +186,8 @@ func TestNodeMetaInput(t *testing.T) {
 		}
 	}
 
-	// 未提供元数据的创建：落库默认（订阅分组口径依赖非空）
+	// create without metadata: DB defaults land (subscription grouping relies on
+	// non-empty values)
 	rec = doJSON(t, r, "POST", "/api/nodes", map[string]any{
 		"name": "plain", "address": "a", "port": 1, "protocol": "vless",
 	})
@@ -190,7 +196,7 @@ func TestNodeMetaInput(t *testing.T) {
 		t.Fatalf("defaults = role:%v region:%v isp:%v", created["role"], created["region"], created["isp"])
 	}
 
-	// 更新：只改区域，其余元数据保持
+	// update: change only the region, the rest of the metadata stays
 	rec = doJSON(t, r, "PUT", "/api/nodes/1", map[string]any{"region": "圣何塞"})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("update meta status = %d body=%s", rec.Code, rec.Body)
@@ -201,7 +207,7 @@ func TestNodeMetaInput(t *testing.T) {
 		t.Fatalf("partial meta update lost fields: %v", updated)
 	}
 
-	// 非法枚举被拒
+	// illegal enum values rejected
 	for k, v := range map[string]string{"role": "boss", "direction": "up", "transport": "pigeon"} {
 		rec = doJSON(t, r, "PUT", "/api/nodes/1", map[string]any{k: v})
 		if rec.Code != http.StatusBadRequest {

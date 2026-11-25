@@ -10,15 +10,19 @@ import (
 	"gorm.io/gorm"
 )
 
-// 二十九批补口：节点 CRUD 各 400/404/500 口径——列表与单读取数失败、建号
-// 坏绑定/缺名/缺地址/端口越界/hysteria2 配置非对象、显式停用与补写失败、
-// 落库失败、更新库故障定位 500/坏绑定/回写失败/回落再查失败/全元数据回写、
-// 删除查无 404/落删失败、normalizeConfig 与 parseNodeConfig 直测边界。
-// 留白：RandomToken 的 crypto/rand 错误（正常流程不可达）与 normalizeConfig
-// 的 Marshal 防御分支（JSON 反解值再序列化恒可成功）不硬凑。
+// Batch 29 gap fill: the 400/404/500 shapes of node CRUD -- list and single
+// read fetch failures, create bad bind / missing name / missing address / port
+// out of range / non-object hysteria2 config, explicit disable and write-back
+// failure, persist failure, update locate 500 on DB fault / bad bind /
+// write-back failure / re-find failure / full metadata write-back, delete
+// missing 404 and delete failure, plus direct edge cases of normalizeConfig
+// and parseNodeConfig.
+// Left blank: the crypto/rand error of RandomToken (unreachable in normal flow)
+// and the defensive Marshal branch of normalizeConfig (re-serializing a JSON
+// decoded value always succeeds) are not forced.
 
-// failNodeQueriesAt 第 n 次（1 起）针对节点表的查询失败：更新后回落再查用
-// 次序定向。
+// failNodeQueriesAt makes the nth (1-based) query against the node table fail;
+// use the ordering to target the post-update re-find.
 func failNodeQueriesAt(t *testing.T, db *gorm.DB, n int) {
 	t.Helper()
 	seen := 0
@@ -33,7 +37,7 @@ func failNodeQueriesAt(t *testing.T, db *gorm.DB, n int) {
 	})
 }
 
-// failNodeCreates 让节点行创建失败。
+// failNodeCreates makes node row creation fail.
 func failNodeCreates(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	db.Callback().Create().Before("gorm:create").Register("test:node_create", func(tx *gorm.DB) {
@@ -43,7 +47,7 @@ func failNodeCreates(t *testing.T, db *gorm.DB) {
 	})
 }
 
-// failNodeDeletes 让节点行删除失败。
+// failNodeDeletes makes node row deletion fail.
 func failNodeDeletes(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	db.Callback().Delete().Before("gorm:delete").Register("test:node_delete", func(tx *gorm.DB) {
@@ -53,8 +57,9 @@ func failNodeDeletes(t *testing.T, db *gorm.DB) {
 	})
 }
 
-// TestListNodeErrors 列表与单读的取数失败口径（定位失败同 404 口径已在
-// 既有用例覆盖，此处补库故障 500）。
+// TestListNodeErrors covers the fetch-failure shapes of list and single read
+// (the locate failure mapping to 404 is already covered by an existing case;
+// this adds the 500 on DB fault).
 func TestListNodeErrors(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	closeSQL(t, db)
@@ -66,8 +71,9 @@ func TestListNodeErrors(t *testing.T) {
 	}
 }
 
-// TestCreateNodeErrors 建号：坏绑定与校验面、hysteria2 配置非对象、元数据
-// 接管、显式停用与补写失败、落库失败。
+// TestCreateNodeErrors create: bad bind and the validation facets, non-object
+// hysteria2 config, metadata takeover, explicit disable and write-back failure,
+// persist failure.
 func TestCreateNodeErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doJSON(t, r, http.MethodPost, "/api/nodes", "not json"); rec.Code != http.StatusBadRequest {
@@ -90,7 +96,7 @@ func TestCreateNodeErrors(t *testing.T) {
 		}
 	}
 
-	// 元数据齐带：MetaInit 接管 + 各字段落库。
+	// full metadata supplied: MetaInit takeover plus each field persisted.
 	r, db := newTestRouterWithDB(t)
 	rec := doJSON(t, r, http.MethodPost, "/api/nodes", map[string]any{
 		"name": "meta-full", "address": "m.example.com", "port": 443, "protocol": "vless",
@@ -110,20 +116,22 @@ func TestCreateNodeErrors(t *testing.T) {
 		t.Fatalf("meta not persisted: %+v", n)
 	}
 
-	// 显式停用入库（Enabled 带 default:true，需显式补写才落 false）。
+	// explicit disable persisted (Enabled carries default:true, so false only
+	// lands through the explicit write-back).
 	rec = doJSON(t, r, http.MethodPost, "/api/nodes", map[string]any{
 		"name": "off-n", "address": "o.example.com", "port": 443, "protocol": "vless", "enabled": false,
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("disabled create: %d %s", rec.Code, rec.Body)
 	}
-	// 注意用全新结构体查询：First 会把 dest 结构体既有的主键并进条件。
+	// query with a fresh struct: First folds any primary key already set on the
+	// dest struct into the conditions.
 	var off storage.Node
 	if err := db.Where("name = ?", "off-n").First(&off).Error; err != nil || off.Enabled {
 		t.Fatalf("not persisted disabled: %+v err=%v", off, err)
 	}
 
-	// 停用补写失败 500。
+	// disable write-back failure 500.
 	r, db = newTestRouterWithDB(t)
 	failNodeUpdates(t, db)
 	if rec := doJSON(t, r, http.MethodPost, "/api/nodes", map[string]any{
@@ -132,7 +140,7 @@ func TestCreateNodeErrors(t *testing.T) {
 		t.Fatalf("write-back: %d %s", rec.Code, rec.Body)
 	}
 
-	// 落库失败 500。
+	// persist failure 500.
 	r, db = newTestRouterWithDB(t)
 	failNodeCreates(t, db)
 	if rec := doJSON(t, r, http.MethodPost, "/api/nodes", map[string]any{
@@ -142,8 +150,9 @@ func TestCreateNodeErrors(t *testing.T) {
 	}
 }
 
-// TestUpdateNodeErrors 更新：库故障定位 500、坏绑定、全元数据回写、回写
-// 失败与回落再查失败、删除查无 404 与落删失败。
+// TestUpdateNodeErrors update: locate 500 on DB fault, bad bind, full
+// metadata write-back, write-back failure and re-find failure, delete missing
+// 404 and delete failure.
 func TestUpdateNodeErrors(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	seedNodeRow(t, db, "upd-n")
@@ -158,7 +167,7 @@ func TestUpdateNodeErrors(t *testing.T) {
 		t.Fatalf("bind: %d %s", rec.Code, rec.Body)
 	}
 
-	// 全元数据回写（metaUpdates 八分支）+ 基础字段。
+	// full metadata write-back (all eight metaUpdates branches) plus base fields.
 	r, db = newTestRouterWithDB(t)
 	seedNodeRow(t, db, "meta-n")
 	rec := doJSON(t, r, http.MethodPut, "/api/nodes/1", map[string]any{
@@ -178,7 +187,7 @@ func TestUpdateNodeErrors(t *testing.T) {
 		t.Fatalf("meta not updated: %+v", n)
 	}
 
-	// 回写失败 500。
+	// write-back failure 500.
 	r, db = newTestRouterWithDB(t)
 	seedNodeRow(t, db, "upd-fail")
 	failNodeUpdates(t, db)
@@ -186,7 +195,7 @@ func TestUpdateNodeErrors(t *testing.T) {
 		t.Fatalf("updates: %d %s", rec.Code, rec.Body)
 	}
 
-	// 回落再查失败 500（定位 1 → 更新 → 复查 2）。
+	// re-find failure 500 (locate is query 1 -> update -> re-find is query 2).
 	r, db = newTestRouterWithDB(t)
 	seedNodeRow(t, db, "upd-refind")
 	failNodeQueriesAt(t, db, 2)
@@ -194,7 +203,7 @@ func TestUpdateNodeErrors(t *testing.T) {
 		t.Fatalf("re-find: %d %s", rec.Code, rec.Body)
 	}
 
-	// 删除：查无 404 与落删失败 500。
+	// delete: missing 404 and delete failure 500.
 	r, db = newTestRouterWithDB(t)
 	seedNodeRow(t, db, "del-n")
 	if rec := doJSON(t, r, http.MethodDelete, "/api/nodes/9999", nil); rec.Code != http.StatusNotFound ||
@@ -207,7 +216,7 @@ func TestUpdateNodeErrors(t *testing.T) {
 	}
 }
 
-// seedNodeRow 直落一行节点。
+// seedNodeRow inserts one node row directly.
 func seedNodeRow(t *testing.T, db *gorm.DB, name string) uint {
 	t.Helper()
 	row := storage.Node{Name: name, Address: name + ".example.com", Port: 443,
@@ -218,8 +227,9 @@ func seedNodeRow(t *testing.T, db *gorm.DB, name string) uint {
 	return row.ID
 }
 
-// TestConfigNormalizers 配置归一与解析的直测边界：空值回 {}、非法 JSON
-// 原样保留（防御）、hysteria2 密码校验与坏 JSON 拦截。
+// TestConfigNormalizers direct edge cases of config normalization and parsing:
+// empty falls back to {}, invalid JSON is kept as-is (defensive), the
+// hysteria2 password check and bad JSON blocking.
 func TestConfigNormalizers(t *testing.T) {
 	if got := normalizeConfig(""); got != "{}" {
 		t.Fatalf("empty: %q", got)
@@ -234,7 +244,7 @@ func TestConfigNormalizers(t *testing.T) {
 		t.Fatalf("invalid passthrough: %q", got)
 	}
 
-	// parseNodeConfig：空与 {} 返回零值，非对象报错。
+	// parseNodeConfig: empty and {} return zero values, a non-object errors.
 	if out, err := parseNodeConfig(""); err != nil || out.Password != "" {
 		t.Fatalf("empty: %+v err=%v", out, err)
 	}
@@ -245,7 +255,8 @@ func TestConfigNormalizers(t *testing.T) {
 		t.Fatalf("array: err=%v", err)
 	}
 
-	// validateNodeConfig 的 hysteria2 分支：缺密码与非对象配置各自拦截。
+	// the hysteria2 branch of validateNodeConfig: missing password and non-object
+	// config are each blocked.
 	in := model.NodeInput{Protocol: model.ProtoHysteria2, Port: 443, Config: `{"password":"p"}`}
 	if err := validateNodeConfig(&in); err != nil {
 		t.Fatalf("valid hysteria2: %v", err)

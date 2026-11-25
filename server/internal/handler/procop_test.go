@@ -15,7 +15,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// fakeAgent 建立一条 agent WS 连接并完成 hello 握手，返回连接。
+// fakeAgent opens an agent WS connection, completes the hello handshake, and returns the connection.
 func fakeAgent(t *testing.T, srvURL, name, token string) *websocket.Conn {
 	t.Helper()
 	wsURL := "ws" + strings.TrimPrefix(srvURL, "http") + "/agent/ws"
@@ -36,7 +36,7 @@ func fakeAgent(t *testing.T, srvURL, name, token string) *websocket.Conn {
 	return c
 }
 
-// replyAck 给等待中的请求回一条同 ID 应答。
+// replyAck sends a same-ID ack reply to a pending request.
 func replyAck(t *testing.T, c *websocket.Conn, req agentproto.Envelope, msgType string, payload any) {
 	t.Helper()
 	env, err := agentproto.NewEnvelope(req.ID, msgType, payload)
@@ -61,18 +61,18 @@ func createNodeFor(t *testing.T, r *gin.Engine, name string) (uint, string) {
 	return uint(node["id"].(float64)), node["token"].(string)
 }
 
-// TestNodeProcOp 覆盖单节点进程操作（A-15 基础通路）：成功/agent 报错/
-// 离线/非法 action。
+// TestNodeProcOp covers single-node process operation (A-15 base path): success,
+// agent error, offline, invalid action.
 func TestNodeProcOp(t *testing.T) {
 	r := newTestRouter(t)
 	id, token := createNodeFor(t, r, "ctl-1")
 
-	// 离线 502
+	// Offline -> 502
 	rec := doJSON(t, r, "POST", fmt.Sprintf("/api/nodes/%d/proc", id), map[string]any{"action": "reload"})
 	if rec.Code != http.StatusBadGateway {
 		t.Fatalf("offline should 502: %d %s", rec.Code, rec.Body)
 	}
-	// 非法 action 400
+	// Invalid action -> 400
 	rec = doJSON(t, r, "POST", fmt.Sprintf("/api/nodes/%d/proc", id), map[string]any{"action": "dance"})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad action should 400: %d", rec.Code)
@@ -82,7 +82,7 @@ func TestNodeProcOp(t *testing.T) {
 	defer srv.Close()
 	c := fakeAgent(t, srv.URL, "ctl-1", token)
 
-	// 成功：agent 回 ok
+	// Success: agent replies ok
 	done := make(chan *httptest.ResponseRecorder, 1)
 	go func() {
 		done <- doJSON(t, r, "POST", fmt.Sprintf("/api/nodes/%d/proc", id), map[string]any{"action": "reload", "proc": "xray"})
@@ -113,7 +113,7 @@ func TestNodeProcOp(t *testing.T) {
 		t.Fatal("proc op timed out")
 	}
 
-	// agent 报错（未知 proc）→ 400
+	// Agent error (unknown proc) -> 400
 	go func() {
 		done <- doJSON(t, r, "POST", fmt.Sprintf("/api/nodes/%d/proc", id), map[string]any{"action": "start", "proc": "nope"})
 	}()
@@ -129,15 +129,15 @@ func TestNodeProcOp(t *testing.T) {
 	}
 }
 
-// TestBatchNodeProc 覆盖批量进程操作（A-15）：两在线节点并发成功 +
-// 离线节点逐节点回执 + 参数校验。
+// TestBatchNodeProc covers batch process operation (A-15): two online nodes
+// succeed concurrently + per-node replies for the offline node + param validation.
 func TestBatchNodeProc(t *testing.T) {
 	r := newTestRouter(t)
 	idA, tokenA := createNodeFor(t, r, "bat-a")
 	idB, tokenB := createNodeFor(t, r, "bat-b")
 	idOffline, _ := createNodeFor(t, r, "bat-off")
 
-	// 参数校验
+	// Param validation
 	rec := doJSON(t, r, "POST", "/api/nodes/batch/proc", map[string]any{"ids": []uint{}, "action": "stop"})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("empty ids should 400: %d", rec.Code)
@@ -159,7 +159,7 @@ func TestBatchNodeProc(t *testing.T) {
 		})
 	}()
 
-	// 两台在线 agent 各收到一条 proc_ctl，各自回 ack
+	// Both online agents each receive a proc_ctl and reply with an ack
 	for _, conn := range []*websocket.Conn{ca, cb} {
 		env := readEnv(t, conn)
 		if env.Type != agentproto.MsgProcCtl {
@@ -205,7 +205,7 @@ func TestBatchNodeProc(t *testing.T) {
 	}
 }
 
-// TestBatchNodeConfig 覆盖批量配置下发（A-15）：逐节点留痕 + 回执。
+// TestBatchNodeConfig covers batch config dispatch (A-15): per-node record + replies.
 func TestBatchNodeConfig(t *testing.T) {
 	r := newTestRouter(t)
 	idA, tokenA := createNodeFor(t, r, "bcfg-a")
@@ -258,7 +258,7 @@ func TestBatchNodeConfig(t *testing.T) {
 		t.Fatal("batch config timed out")
 	}
 
-	// 留痕：在线节点的 node_config 已落库
+	// Record: the online node's node_config is persisted in the DB
 	hrec := doJSON(t, r, "GET", fmt.Sprintf("/api/nodes/%d/configs", idA), nil)
 	if hrec.Code != http.StatusOK {
 		t.Fatalf("list configs: %d", hrec.Code)

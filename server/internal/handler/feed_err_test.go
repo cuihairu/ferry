@@ -7,7 +7,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestFeedXMLDBError 覆盖公告取数失败 500（公开订阅面无凭据）。
+// TestFeedXMLDBError covers the announcement fetch failure 500 (the public feed route needs no credential).
 func TestFeedXMLDBError(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	regQueryFail("t:feed_notif", db, (*[]storage.Notification)(nil))

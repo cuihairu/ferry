@@ -13,8 +13,9 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// TestAgentWSProcLogs 覆盖节点进程日志拉取（P1-11）：面板请求经 WS 到
-// agent、应答回传；离线 502、agent 报未知进程 400、参数本地校验 400。
+// TestAgentWSProcLogs covers node process log fetching (P1-11): the panel request
+// travels over WS to the agent and the reply is relayed back; offline -> 502,
+// agent reporting an unknown proc -> 400, local param validation -> 400.
 func TestAgentWSProcLogs(t *testing.T) {
 	r := newTestRouter(t)
 
@@ -29,11 +30,11 @@ func TestAgentWSProcLogs(t *testing.T) {
 	token := node["token"].(string)
 	id := int(node["id"].(float64))
 
-	// 离线：未连接 502
+	// Offline: not connected -> 502
 	if rec := doJSON(t, r, "GET", fmt.Sprintf("/api/nodes/%d/logs?proc=xray", id), nil); rec.Code != http.StatusBadGateway {
 		t.Fatalf("offline should 502: %d %s", rec.Code, rec.Body)
 	}
-	// 参数本地校验：缺 proc / 非法 limit
+	// Local param validation: missing proc / invalid limit
 	if rec := doJSON(t, r, "GET", fmt.Sprintf("/api/nodes/%d/logs", id), nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("missing proc should 400: %d", rec.Code)
 	}
@@ -41,7 +42,7 @@ func TestAgentWSProcLogs(t *testing.T) {
 		t.Fatalf("bad limit should 400: %d", rec.Code)
 	}
 
-	// 连上假 agent
+	// Connect the fake agent
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/agent/ws"
@@ -61,7 +62,7 @@ func TestAgentWSProcLogs(t *testing.T) {
 		t.Fatalf("expected hello_ack, got %s", env.Type)
 	}
 
-	// 正常拉取：请求阻塞等 ack，假 agent 回最近日志
+	// Normal fetch: the request blocks waiting for the ack, and the fake agent replies with recent logs
 	done := make(chan *httptest.ResponseRecorder, 1)
 	go func() {
 		done <- doJSON(t, r, "GET", fmt.Sprintf("/api/nodes/%d/logs?proc=xray&limit=50", id), nil)
@@ -102,7 +103,7 @@ func TestAgentWSProcLogs(t *testing.T) {
 		t.Fatal("logs request timed out")
 	}
 
-	// agent 报未知进程 → 400
+	// Agent reports an unknown proc -> 400
 	go func() {
 		done <- doJSON(t, r, "GET", fmt.Sprintf("/api/nodes/%d/logs?proc=nope", id), nil)
 	}()

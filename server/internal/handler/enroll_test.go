@@ -13,7 +13,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// enrollIssueToken 测试助手：管理员侧签发一次性注册凭据，返回凭据串与行 ID。
+// enrollIssueToken test helper: issues a one-time enrollment credential from the
+// admin side, returning the credential string and the row ID.
 func enrollIssueToken(t *testing.T, r *gin.Engine, body any) (token string, id uint) {
 	t.Helper()
 	rec := doJSON(t, r, "POST", "/api/enrollment-tokens", body)
@@ -33,7 +34,8 @@ func enrollIssueToken(t *testing.T, r *gin.Engine, body any) (token string, id u
 	return out.Token, out.ID
 }
 
-// doEnroll 发 /api/enroll 注册请求：Authorization 带注册凭据（不带管理 JWT）。
+// doEnroll sends an /api/enroll registration request: Authorization carries the
+// enrollment credential (not an admin JWT).
 func doEnroll(t *testing.T, r *gin.Engine, bearer string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	var buf bytes.Buffer
@@ -52,7 +54,7 @@ func doEnroll(t *testing.T, r *gin.Engine, bearer string, body any) *httptest.Re
 	return rec
 }
 
-// enrollValidNodeBody 合法节点注册载荷（与安装脚本发的同形状）。
+// enrollValidNodeBody a valid node registration payload (same shape the install script sends).
 func enrollValidNodeBody() map[string]any {
 	return map[string]any{
 		"name": "hk-1", "address": "hk.example.com", "port": 443, "protocol": "vless",
@@ -72,7 +74,7 @@ func countNodes(t *testing.T, r *gin.Engine) int {
 	return len(nodes)
 }
 
-// TestEnrollRejectsMissingOrBadCredential：无凭据/坏凭据一律 401，不建节点。
+// TestEnrollRejectsMissingOrBadCredential: no credential / bad credential is always 401, no node created.
 func TestEnrollRejectsMissingOrBadCredential(t *testing.T) {
 	r := newTestRouter(t)
 	for _, bearer := range []string{"", "not-a-real-token"} {
@@ -86,7 +88,8 @@ func TestEnrollRejectsMissingOrBadCredential(t *testing.T) {
 	}
 }
 
-// TestEnrollExchange：合法凭据换出节点令牌；一次性凭据重放被拒且不重复建节点。
+// TestEnrollExchange: a valid credential exchanges for a node token; replaying a
+// one-time credential is refused and no second node is created.
 func TestEnrollExchange(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	tok, _ := enrollIssueToken(t, r, map[string]any{"note": "hk1 首装"})
@@ -106,7 +109,7 @@ func TestEnrollExchange(t *testing.T) {
 		t.Fatalf("node name = %q", node.Name)
 	}
 
-	// 重放同一凭据：401 且不建第二个节点。
+	// Replaying the same credential: 401 and no second node created.
 	if rec := doEnroll(t, r, tok, enrollValidNodeBody()); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("replay enroll status = %d want 401", rec.Code)
 	}
@@ -114,7 +117,7 @@ func TestEnrollExchange(t *testing.T) {
 		t.Fatalf("nodes created = %d want 1", n)
 	}
 
-	// 凭据行已记消费痕迹（used_at/used_by 留档）。
+	// The credential row carries consumption traces (used_at/used_by kept on file).
 	var row storage.EnrollmentToken
 	if err := db.Where("token = ?", tok).First(&row).Error; err != nil {
 		t.Fatalf("load enrollment token row: %v", err)
@@ -124,7 +127,7 @@ func TestEnrollExchange(t *testing.T) {
 	}
 }
 
-// TestEnrollExpiredAndRevoked：过期与已吊销凭据均 401。
+// TestEnrollExpiredAndRevoked: expired and revoked credentials are both 401.
 func TestEnrollExpiredAndRevoked(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 
@@ -150,7 +153,7 @@ func TestEnrollExpiredAndRevoked(t *testing.T) {
 	}
 }
 
-// TestEnrollBadPayloadDoesNotConsume：载荷校验失败 400，凭据不被烧掉。
+// TestEnrollBadPayloadDoesNotConsume: payload validation failure is 400 and does not burn the credential.
 func TestEnrollBadPayloadDoesNotConsume(t *testing.T) {
 	r := newTestRouter(t)
 	tok, _ := enrollIssueToken(t, r, map[string]any{})
@@ -167,7 +170,7 @@ func TestEnrollBadPayloadDoesNotConsume(t *testing.T) {
 	}
 }
 
-// TestEnrollmentTokenAdminAPIAuth：签发/列表/吊销都在管理数据面，无凭据 401。
+// TestEnrollmentTokenAdminAPIAuth: issue/list/revoke all live on the admin data plane; no credential is 401.
 func TestEnrollmentTokenAdminAPIAuth(t *testing.T) {
 	r := newTestRouter(t)
 	if rec := doBare(t, r, "POST", "/api/enrollment-tokens"); rec.Code != http.StatusUnauthorized {
@@ -178,7 +181,7 @@ func TestEnrollmentTokenAdminAPIAuth(t *testing.T) {
 	}
 }
 
-// TestEnrollmentTokenTTLValidation：ttl_minutes 非法 400；缺省 60 分钟。
+// TestEnrollmentTokenTTLValidation: an invalid ttl_minutes is 400; the default is 60 minutes.
 func TestEnrollmentTokenTTLValidation(t *testing.T) {
 	r := newTestRouter(t)
 	for _, ttl := range []int{-1, 0, 1441} {
@@ -203,7 +206,7 @@ func TestEnrollmentTokenTTLValidation(t *testing.T) {
 	}
 }
 
-// TestRevokeUsedEnrollmentToken：已消费的凭据不可再吊销（409，消费态是终态）。
+// TestRevokeUsedEnrollmentToken: an already-consumed credential cannot be revoked again (409, consumption is a terminal state).
 func TestRevokeUsedEnrollmentToken(t *testing.T) {
 	r := newTestRouter(t)
 	tok, id := enrollIssueToken(t, r, map[string]any{})
@@ -216,7 +219,7 @@ func TestRevokeUsedEnrollmentToken(t *testing.T) {
 	}
 }
 
-// TestListEnrollmentTokensMasksSecret：列表不回带凭据明文（仅签发响应可见）。
+// TestListEnrollmentTokensMasksSecret: the listing does not carry credential plaintext (only the issue response does).
 func TestListEnrollmentTokensMasksSecret(t *testing.T) {
 	r := newTestRouter(t)
 	tok, _ := enrollIssueToken(t, r, map[string]any{"note": "secret-mask"})

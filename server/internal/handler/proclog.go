@@ -12,13 +12,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 节点进程运行日志（P1-11，对齐 Marzban 节点日志口径）：
-// 经面板→agent 的 proc_logs 请求应答拉取，agent 侧环形缓冲不落盘。
+// Node process runtime logs (P1-11, matching Marzban's node-log convention):
+// fetched over the panel->agent proc_logs request/response; the agent keeps a ring buffer and writes nothing to disk.
 
-// procLogsTimeout 是单次日志拉取的超时。
+// procLogsTimeout is the timeout for a single log fetch.
 const procLogsTimeout = 5 * time.Second
 
-// nodeProcLogs 拉取节点进程运行日志（GET /api/nodes/:id/logs?proc=xray&limit=200）。
+// nodeProcLogs fetches a node's process runtime logs (GET /api/nodes/:id/logs?proc=xray&limit=200).
 func (h *Handler) nodeProcLogs(c *gin.Context) {
 	n, err := h.findNode(c.Param("id"))
 	if err != nil {

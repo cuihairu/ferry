@@ -13,7 +13,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// doPanel 以订阅令牌为身份发请求（PAY-7）：token 为空则不带凭据。
+// doPanel sends a request with the subscription token as identity (PAY-7): an
+// empty token means no credentials are sent.
 func doPanel(t *testing.T, r *gin.Engine, token, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	var buf bytes.Buffer
@@ -32,7 +33,7 @@ func doPanel(t *testing.T, r *gin.Engine, token, method, path string, body any) 
 	return rec
 }
 
-// panelToken 建用户并取其订阅令牌。
+// panelToken creates a user and returns its subscription token.
 func panelToken(t *testing.T, r *gin.Engine, username string) string {
 	t.Helper()
 	rec := doJSON(t, r, "POST", "/api/users", map[string]any{"username": username, "quota_bytes": 1 << 30})
@@ -48,7 +49,7 @@ func TestPanelMe(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	token := panelToken(t, r, "carol")
 
-	// 令牌命中：返回身份与用量口径
+	// Token matches: identity and usage come back per the stated rules
 	rec := doPanel(t, r, token, "GET", "/api/panel/me", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("me: %d %s", rec.Code, rec.Body)
@@ -72,7 +73,7 @@ func TestPanelMe(t *testing.T) {
 		t.Fatalf("me fields = %+v", me)
 	}
 
-	// 无凭据 / 未知令牌：404（防枚举，与 /sub 口径一致）
+	// No credentials / unknown token: 404 (anti-enumeration, the same stance as /sub)
 	if rec := doPanel(t, r, "", "GET", "/api/panel/me", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("no token: %d", rec.Code)
 	}
@@ -80,7 +81,7 @@ func TestPanelMe(t *testing.T) {
 		t.Fatalf("unknown token: %d", rec.Code)
 	}
 
-	// 停用用户：令牌视同吊销，404
+	// Disabled user: the token counts as revoked, 404
 	if rec := doJSON(t, r, "PUT", "/api/users/1", map[string]any{"enabled": false}); rec.Code != http.StatusOK {
 		t.Fatalf("disable user: %d %s", rec.Code, rec.Body)
 	}
@@ -99,7 +100,8 @@ func TestPanelRedeem(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 兑换：身份取自令牌，载荷只带 code（user_id 不可传）
+	// Redemption: identity comes from the token, and the payload carries only the
+	// code (user_id cannot be passed)
 	rec := doPanel(t, r, u.SubToken, "POST", "/api/panel/redeem", map[string]any{"code": codes[0]})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("redeem: %d %s", rec.Code, rec.Body)
@@ -115,7 +117,8 @@ func TestPanelRedeem(t *testing.T) {
 		t.Fatalf("result = %+v", res)
 	}
 
-	// 同码复用：统一失败文案；X-Ferry-Token 头同样可作凭据
+	// Reusing the same code: the unified failure message; the X-Ferry-Token header
+	// also works as a credential
 	rec = doPanel(t, r, u.SubToken, "POST", "/api/panel/redeem", map[string]any{"code": codes[0]})
 	if rec.Code != http.StatusBadRequest || !bytes.Contains(rec.Body.Bytes(), []byte("兑换失败")) {
 		t.Fatalf("reuse: %d %s", rec.Code, rec.Body)
@@ -129,7 +132,7 @@ func TestPanelRedeem(t *testing.T) {
 		t.Fatalf("header token: %d %s", rec2.Code, rec2.Body)
 	}
 
-	// 无凭据：404，不落到兑换逻辑
+	// No credentials: 404, never reaching the redemption logic
 	if rec := doPanel(t, r, "", "POST", "/api/panel/redeem", map[string]any{"code": "ZZZZ-ZZZZ-ZZZZ"}); rec.Code != http.StatusNotFound {
 		t.Fatalf("no token: %d", rec.Code)
 	}
@@ -144,12 +147,12 @@ func TestPanelOrders(t *testing.T) {
 	if err := db.First(&u, userID).Error; err != nil {
 		t.Fatal(err)
 	}
-	// 真实兑换一笔，产生 order + grant
+	// Redeem for real once, producing an order + grant
 	if rec := doPanel(t, r, u.SubToken, "POST", "/api/panel/redeem", map[string]any{"code": codes[0]}); rec.Code != http.StatusOK {
 		t.Fatalf("redeem: %d %s", rec.Code, rec.Body)
 	}
 
-	// 订单中心：倒序，发放记录归并进单
+	// Order center: reverse order, grant records merged into the order
 	rec := doPanel(t, r, u.SubToken, "GET", "/api/panel/orders", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("orders: %d %s", rec.Code, rec.Body)
@@ -173,7 +176,7 @@ func TestPanelOrders(t *testing.T) {
 		t.Fatalf("grants = %+v", list[0].Grants)
 	}
 
-	// 隔离：别人的单看不见
+	// Isolation: someone else's order is not visible
 	otherID, _ := redeemCreate(t, r, "frank", map[string]any{
 		"grant_type": "add_quota", "grant_value": 1 << 30,
 	}, 1)
@@ -191,7 +194,7 @@ func TestPanelOrders(t *testing.T) {
 		t.Fatalf("leak other order: %+v", list2)
 	}
 
-	// 非法 limit 与无凭据
+	// Illegal limit and no credentials
 	if rec := doPanel(t, r, u.SubToken, "GET", "/api/panel/orders?limit=0", nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad limit: %d", rec.Code)
 	}
@@ -200,8 +203,10 @@ func TestPanelOrders(t *testing.T) {
 	}
 }
 
-// TestPanelSavings 覆盖用户侧「已为你省下」（SAVE-8）：节点节省按该用户
-// 当月记账流量占比折算，跨节点汇总；上月窗口外不计，无用户记账不摊派。
+// TestPanelSavings covers the user-side "saved for you" (SAVE-8): node savings
+// are prorated by the user's share of recorded traffic for the month and summed
+// across nodes; last month falls outside the window, and no allocation when a
+// node has no recorded user traffic.
 func TestPanelSavings(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	token := panelToken(t, r, "saver")
@@ -226,13 +231,16 @@ func TestPanelSavings(t *testing.T) {
 
 	now := time.Now().UTC()
 	seedSave := []storage.SaveStat{
-		// n1 本月：直连 1000 + 拦截 100；该用户占记账流量一半 → 折算 500/50
+		// n1 this month: 1000 direct + 100 blocked; this user is half the recorded
+		// traffic -> prorated 500/50
 		{NodeID: 1, Day: now.Format("2006-01-02"), DirectBytes: 1000, BlockedBytes: 100},
-		// n2 本月：直连 400；记账全为该用户 → 全额 400
+		// n2 this month: 400 direct; all recorded traffic is this user's -> the full
+		// 400
 		{NodeID: 2, Day: now.Format("2006-01-02"), DirectBytes: 400},
-		// n3 本月：直连 999；当月无任何用户记账 → 不摊派
+		// n3 this month: 999 direct; no user traffic recorded this month -> no
+		// allocation
 		{NodeID: 3, Day: now.Format("2006-01-02"), DirectBytes: 999},
-		// n1 上月：窗口外不计
+		// n1 last month: outside the window, not counted
 		{NodeID: 1, Day: now.AddDate(0, 0, -40).Format("2006-01-02"), DirectBytes: 88888},
 	}
 	if err := db.Create(&seedSave).Error; err != nil {
@@ -242,10 +250,10 @@ func TestPanelSavings(t *testing.T) {
 	sv, ot := saverID, otherID
 	seedTraffic := []storage.TrafficLog{
 		{UserID: &sv, NodeID: &n1, RxBytes: 600, RecordedAt: now},
-		// 他人同节点流量摊薄占比：saver 占 n1 一半
+		// Someone else's traffic on the same node dilutes the share: saver is half of n1
 		{UserID: &ot, NodeID: &n1, RxBytes: 600, RecordedAt: now},
 		{UserID: &sv, NodeID: &n2, RxBytes: 100, RecordedAt: now},
-		// 上月流量不进窗口
+		// Last month's traffic stays out of the window
 		{UserID: &sv, NodeID: &n1, RxBytes: 5000, RecordedAt: now.AddDate(0, 0, -40)},
 	}
 	if err := db.Create(&seedTraffic).Error; err != nil {
@@ -272,14 +280,15 @@ func TestPanelSavings(t *testing.T) {
 		t.Fatalf("window not current month: %s", out.Window)
 	}
 
-	// 无凭据 404（令牌视同吊销口径）
+	// No credentials 404 (the token-counts-as-revoked stance)
 	if rec := doPanel(t, r, "", "GET", "/api/panel/savings", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("no token: %d", rec.Code)
 	}
 }
 
-// TestPanelOrdersProviderFilter 覆盖来源筛选（运营设计 §记录范围）：
-// provider=card 只出卡密兑换、provider=epusdt 只出在线购买、缺省全量。
+// TestPanelOrdersProviderFilter covers the source filter (operations design
+// §record scope): provider=card returns only card-code redemptions,
+// provider=epusdt only online purchases, and the default returns the full set.
 func TestPanelOrdersProviderFilter(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	userID, codes := redeemCreate(t, r, "grace", map[string]any{

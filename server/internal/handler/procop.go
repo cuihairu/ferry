@@ -12,16 +12,19 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 节点进程操作与批量下发（A-15）：proc_ctl 走面板→agent 请求应答通路，
-// 批量对多节点并发下发、逐节点回执（离线/超时不拖慢整批）。
+// Node process operations and batch dispatch (A-15): proc_ctl travels the
+// panel->agent request/reply path; batch dispatches to many nodes concurrently
+// with a per-node reply (offline/timeout does not slow down the whole batch).
 
-// procCtlTimeout 覆盖 agent 侧指令落地（含 reload 拉起）的耗时。
+// procCtlTimeout covers the time for the agent to carry out the instruction
+// (including the process start triggered by reload).
 const procCtlTimeout = 15 * time.Second
 
-// maxBatchNodes 限制单批节点数，防误传超大批量。
+// maxBatchNodes caps the number of nodes per batch, guarding against an oversized batch.
 const maxBatchNodes = 50
 
-// defaultProcName 是未指定 proc 时的目标进程名（与配置下发、stats 采集一致）。
+// defaultProcName is the target process name when proc is unspecified
+// (consistent with config dispatch and stats collection).
 const defaultProcName = "xray"
 
 var procActions = map[string]bool{
@@ -30,7 +33,7 @@ var procActions = map[string]bool{
 	agentproto.ProcActionReload: true,
 }
 
-// procCtl 向单节点下发 proc_ctl 并等待应答。
+// procCtl dispatches proc_ctl to a single node and waits for the reply.
 func (h *Handler) procCtl(nodeID int64, proc, action string) (agentproto.ProcCtlAck, int, error) {
 	env, err := agentproto.NewEnvelope(
 		fmt.Sprintf("ctl-%d-%d", nodeID, time.Now().UnixNano()),
@@ -58,7 +61,7 @@ func (h *Handler) procCtl(nodeID int64, proc, action string) (agentproto.ProcCtl
 	return ack, 0, nil
 }
 
-// nodeProcOp 单节点进程操作（POST /api/nodes/:id/proc {action, proc?}）。
+// nodeProcOp single-node process operation (POST /api/nodes/:id/proc {action, proc?}).
 func (h *Handler) nodeProcOp(c *gin.Context) {
 	n, err := h.findNode(c.Param("id"))
 	if err != nil {
@@ -94,8 +97,8 @@ func (h *Handler) nodeProcOp(c *gin.Context) {
 	})
 }
 
-// batchNodeProc 批量进程操作（POST /api/nodes/batch/proc {ids, action, proc?}）：
-// 并发下发，逐节点回执。
+// batchNodeProc batch process operation (POST /api/nodes/batch/proc {ids, action, proc?}):
+// concurrent dispatch, per-node replies.
 func (h *Handler) batchNodeProc(c *gin.Context) {
 	var in struct {
 		IDs    []uint `json:"ids"`
@@ -142,8 +145,8 @@ func (h *Handler) batchNodeProc(c *gin.Context) {
 	c.JSON(http.StatusOK, results)
 }
 
-// batchNodeConfig 批量下发同一份配置（POST /api/nodes/batch/config）：
-// 并发下发，逐节点回执与落库留痕。
+// batchNodeConfig dispatches the same config to many nodes (POST /api/nodes/batch/config):
+// concurrent dispatch, per-node replies and a DB record of what was deployed.
 func (h *Handler) batchNodeConfig(c *gin.Context) {
 	var in struct {
 		IDs     []uint `json:"ids"`

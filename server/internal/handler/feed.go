@@ -10,11 +10,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// RSS 公告输出（触达批 TOUCH-2，用户触达设计 §1）：GET /feed.xml 公开订阅，
-// 数据源为公告扇出时落的站级锚点行（user_id=0），断联容灾的历史公告可见。
-// 无凭据（RSS 阅读器带不了令牌），内容仅公告——不含任何用户维度数据。
+// RSS announcement feed (touch batch TOUCH-2, "User Touch Design" §1): GET /feed.xml is a public subscription,
+// sourced from the site-level anchor rows (user_id=0) written when an announcement fans out, so past announcements stay
+// visible as a disconnected-ops fallback. No credential (RSS readers cannot carry a token), and the content is announcements only — no user-scoped data at all.
 
-// feedItems 是单次输出的公告条数上限。
+// feedItems is the cap on announcements per output.
 const feedItems = 50
 
 type rssFeed struct {
@@ -37,9 +37,9 @@ type rssItem struct {
 	PubDate     string `xml:"pubDate"`
 }
 
-// feedXML 渲染公告 RSS（GET /feed.xml）。窗口口径（P2-5）：未到点且未扇出
-// （starts_at 未来、fanout_at 空）与已撤下（ends_at 过去）的公告不出；
-// 存量行三字段为空，不受影响；已扇出的定时公告到点后照常出。
+// feedXML renders the announcement RSS (GET /feed.xml). Window rule (P2-5): announcements that have not come due and not
+// fanned out (starts_at in the future, fanout_at empty) and those already withdrawn (ends_at in the past) are not shown;
+// legacy rows with all three fields empty are unaffected; a scheduled announcement already fanned out still shows once due.
 func (h *Handler) feedXML(c *gin.Context) {
 	now := time.Now()
 	var rows []storage.Notification

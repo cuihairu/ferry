@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// loginAs 发一次管理员登录请求（登录端点无鉴权）。
+// loginAs sends one admin login request (the login endpoint has no auth).
 func loginAs(t *testing.T, r *gin.Engine, body map[string]any) (int, map[string]any) {
 	t.Helper()
 	rec := doPanel(t, r, "", "POST", "/admin/login", body)
@@ -20,10 +20,11 @@ func loginAs(t *testing.T, r *gin.Engine, body map[string]any) (int, map[string]
 	return rec.Code, out
 }
 
-// TestLoginAuditErrors 覆盖登录审计错误分支：审计落库失败、连续失败计数
-// 失败、告警去重计数失败、告警事件落库失败——登录响应不受影响。
+// TestLoginAuditErrors covers the login audit error branches: audit persist
+// failure, consecutive-failure count failure, alert dedup count failure, and
+// alert event persist failure -- the login response is unaffected.
 func TestLoginAuditErrors(t *testing.T) {
-	// 审计落库失败 → 401 照常，无审计行。
+	// audit persist failure -> 401 as usual, no audit row.
 	r, db := newTestRouterWithDB(t)
 	db.Callback().Create().Before("gorm:create").Register("t:llcreate", func(tx *gorm.DB) {
 		if _, ok := tx.Statement.Dest.(*storage.LoginLog); ok {
@@ -39,14 +40,14 @@ func TestLoginAuditErrors(t *testing.T) {
 		t.Fatalf("audit wrote %d rows", n)
 	}
 
-	// 连续失败计数失败 → 静默跳过，401 照常。
+	// consecutive-failure count failure -> skipped silently, 401 as usual.
 	r2, db2 := newTestRouterWithDB(t)
 	failNthCount("t:llcount", db2, 1)
 	if code, _ := loginAs(t, r2, map[string]any{"username": "ghost", "password": "x"}); code != http.StatusUnauthorized {
 		t.Fatalf("count fail: %d", code)
 	}
 
-	// 第五次失败触发告警：去重计数失败 → 静默不落事件。
+	// the fifth failure triggers the alert: dedup count failure -> silently emit no event.
 	r3, db3 := newTestRouterWithDB(t)
 	db3.Callback().Query().Before("gorm:query").Register("t:llevcount", func(tx *gorm.DB) {
 		if _, ok := tx.Statement.Model.(*storage.Event); ok {
@@ -66,7 +67,7 @@ func TestLoginAuditErrors(t *testing.T) {
 		t.Fatalf("dedup count fail wrote %d events", ev)
 	}
 
-	// 第五次失败触发告警：事件落库失败 → 静默。
+	// the fifth failure triggers the alert: event persist failure -> silent.
 	r4, db4 := newTestRouterWithDB(t)
 	db4.Callback().Create().Before("gorm:create").Register("t:llevcreate", func(tx *gorm.DB) {
 		if _, ok := tx.Statement.Dest.(*storage.Event); ok {
@@ -85,9 +86,10 @@ func TestLoginAuditErrors(t *testing.T) {
 	}
 }
 
-// TestLoginLogsAPIErrors 覆盖登录审计分页参数夹取与取数失败 500。
+// TestLoginLogsAPIErrors covers login audit paging parameter clamping and
+// 500 on fetch failure.
 func TestLoginLogsAPIErrors(t *testing.T) {
-	// 页码/页大小越界回落缺省。
+	// out-of-range page/page_size fall back to the defaults.
 	r, db := newTestRouterWithDB(t)
 	seedAdminForJWT(t, db)
 	for _, q := range []string{"page=0", "page_size=0", "page_size=500"} {
@@ -105,7 +107,7 @@ func TestLoginLogsAPIErrors(t *testing.T) {
 		}
 	}
 
-	// 总数计数失败 → 500。
+	// total count failure -> 500.
 	r2, db2 := newTestRouterWithDB(t)
 	seedAdminForJWT(t, db2)
 	failNthCount("t:lltotal", db2, 1)
@@ -113,7 +115,7 @@ func TestLoginLogsAPIErrors(t *testing.T) {
 		t.Fatalf("total: %d %s", rec.Code, rec.Body)
 	}
 
-	// 明细取数失败 → 500（计数先放行）。
+	// row fetch failure -> 500 (the count passes first).
 	r3, db3 := newTestRouterWithDB(t)
 	seedAdminForJWT(t, db3)
 	regQueryFail("t:llrows", db3, (*[]storage.LoginLog)(nil))

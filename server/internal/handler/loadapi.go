@@ -8,22 +8,23 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 节点负载快照（E-25）：连接数与实测吞吐（最近采样差分），
-// 对套餐带宽得利用率，超 80% 由 dash 预警。P0 口径：连接数+带宽两项。
+// Node load snapshots (E-25): connection count and measured throughput (diff
+// of the latest samples) yielding utilization against the plan bandwidth; dash
+// warns above 80%. P0 scope: the two metrics connections plus bandwidth.
 
-// loadFresh 是负载采样的时限，超龄视为无采样。
+// loadFresh is the sample freshness window; older samples count as absent.
 const loadFresh = 30 * time.Minute
 
-// NodeLoad 是一个节点的负载视图。
+// NodeLoad is the load view of a single node.
 type NodeLoad struct {
 	NodeID       uint    `json:"node_id"`
-	Conns        int     `json:"conns"`         // 最新采样在线连接数（各进程求和）
-	Mbps         float64 `json:"mbps"`          // 最近两条采样差分的实测吞吐
-	CapacityMbps int     `json:"capacity_mbps"` // 实测校准 > 套餐下行 > 上行 > 100 兜底
-	UtilPct      int     `json:"util_pct"`      // 利用率百分比，-1=无采样不可算
+	Conns        int     `json:"conns"`         // online connections in the latest sample (summed across procs)
+	Mbps         float64 `json:"mbps"`          // measured throughput from diffing the two latest samples
+	CapacityMbps int     `json:"capacity_mbps"` // measured calibration > plan downlink > uplink > 100 fallback
+	UtilPct      int     `json:"util_pct"`      // utilization percent; -1 = no sample, not computable
 }
 
-// listLoad 返回全部节点的负载快照（GET /api/load）。
+// listLoad returns the load snapshot of every node (GET /api/load).
 func (h *Handler) listLoad(c *gin.Context) {
 	var nodes []storage.Node
 	if err := h.db.Find(&nodes).Error; err != nil {
@@ -38,12 +39,13 @@ func (h *Handler) listLoad(c *gin.Context) {
 		return
 	}
 
-	// 每节点每进程取最新两条：末条出连接数，两条差分出吞吐。
+	// Keep the two latest samples per node per proc: the last one gives the
+	// connection count, the pair diffs into throughput.
 	type sample struct {
 		rx, tx, conns int64
 		at            time.Time
 	}
-	latest := map[uint]map[string][2]sample{} // node → proc → 最近两条
+	latest := map[uint]map[string][2]sample{} // node -> proc -> two latest
 	for _, l := range logs {
 		if latest[l.NodeID] == nil {
 			latest[l.NodeID] = map[string][2]sample{}
@@ -71,7 +73,7 @@ func (h *Handler) listLoad(c *gin.Context) {
 			row.Conns += int(pair[1].conns)
 			dt := pair[1].at.Sub(pair[0].at).Seconds()
 			if dt < 10 || pair[0].at.IsZero() {
-				continue // 采样过密或只有一条，差分不可信
+				continue // samples too close together or only one of them; diff unreliable
 			}
 			mbps += float64(pair[1].rx-pair[0].rx+pair[1].tx-pair[0].tx) * 8 / dt / 1e6
 		}

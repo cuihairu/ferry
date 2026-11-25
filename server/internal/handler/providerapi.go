@@ -11,11 +11,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 供给配置（OS-1）：云提供商凭证与机型模板。
-// 凭证机密走 secret 统一入口 AES-256-GCM 加密落库（R24 口径）：
-// 主密钥未配置时拒绝录入；接口层只回 has_access_key，不回显明文。
+// Provisioning configuration (OS-1): cloud provider credentials and instance templates.
+// Credential secrets go through the single secret entry point and are stored
+// encrypted with AES-256-GCM (R24 wording): entry is rejected while the master
+// key is unconfigured; the API layer only returns has_access_key and never echoes
+// the plaintext.
 
-// providerView 是提供商的对外视图：机密字段以掩码口径呈现。
+// providerView is a provider's outward view: secret fields are presented in masked form.
 type providerView struct {
 	ID           uint   `json:"id"`
 	Name         string `json:"name"`
@@ -27,7 +29,7 @@ type providerView struct {
 type providerInput struct {
 	Name      string `json:"name"`
 	Type      string `json:"type"`
-	AccessKey string `json:"access_key"` // 明文仅出现在录入/更换请求里
+	AccessKey string `json:"access_key"` // plaintext only ever appears in create/replace requests
 	Enabled   *bool  `json:"enabled,omitempty"`
 }
 
@@ -72,8 +74,10 @@ func (h *Handler) createProvider(c *gin.Context) {
 		return
 	}
 	if !enabled {
-		// Enabled 带 default:true，零值 false 会被 GORM 略过落库默认值，需显式补写。
-		// Create 后结构体被库缺省 true 回填（RETURNING），按入参判定。
+		// Enabled carries default:true, so the zero value false is skipped by GORM and
+		// the DB default wins; it has to be written explicitly.
+		// After Create the struct is back-filled with the DB default true
+		// (RETURNING), so the decision is based on the request input.
 		if err := h.db.Model(&storage.Provider{}).Where("id=?", row.ID).Update("enabled", false).Error; err != nil {
 			fail(c, http.StatusInternalServerError, err)
 			return
@@ -84,7 +88,7 @@ func (h *Handler) createProvider(c *gin.Context) {
 		Enabled: row.Enabled, HasAccessKey: true})
 }
 
-// updateProvider 更新提供商：access_key 非空表示更换机密，空表示保留原值。
+// updateProvider updates a provider: a non-empty access_key replaces the secret, empty keeps the current value.
 func (h *Handler) updateProvider(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -145,7 +149,7 @@ func (h *Handler) deleteProvider(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// sealSecret 加密机密；主密钥未配置时给出可操作的错误信息。
+// sealSecret encrypts a secret; it returns an actionable error when the master key is not configured.
 func (h *Handler) sealSecret(plain string) (string, error) {
 	if !h.secrets.Enabled() {
 		return "", errors.New("secret master key not configured (set FERRY_SECRET_KEY)")
@@ -153,7 +157,7 @@ func (h *Handler) sealSecret(plain string) (string, error) {
 	return h.secrets.Encrypt(plain)
 }
 
-// ---- 机型模板（OS-1）----
+// ---- instance templates (OS-1) ----
 
 type templateInput struct {
 	Name              string `json:"name"`
@@ -168,7 +172,7 @@ type templateInput struct {
 	LineType          string `json:"line_type"`
 	Role              string `json:"role"`
 	Transport         string `json:"transport"`
-	Config            string `json:"config"` // 协议配置模板 JSON，可选（OS-4 随开服落到节点行）
+	Config            string `json:"config"` // protocol config template JSON, optional (OS-4 writes it to the node row at provisioning)
 }
 
 func validateTemplate(in templateInput) error {

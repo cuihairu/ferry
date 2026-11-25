@@ -10,13 +10,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 入口域名数据面（触达批 TOUCH-3，用户触达设计 §5/§6）：域名例行邮件与
-// 断联容灾（订阅备用信息、推新入口）的共同数据源。管理侧 CRUD，dash 侧
-// 断联态页展示与维护（TOUCH-7）。
+// Entry-domain data plane (touch batch TOUCH-3, user-reach design §5/§6): the
+// common data source for domain routine email and disconnection disaster
+// recovery (subscription backup info, pushing new entry points). CRUD on the
+// admin side, display and maintenance on the dash-side disconnection page
+// (TOUCH-7).
 
 var errEntryDomainRole = errors.New("role must be primary/backup")
 
-// listEntryDomains 入口域名清单（GET /api/entry-domains）。
+// listEntryDomains entry-domain listing (GET /api/entry-domains).
 func (h *Handler) listEntryDomains(c *gin.Context) {
 	var rows []storage.EntryDomain
 	if err := h.db.Order("id ASC").Find(&rows).Error; err != nil {
@@ -26,7 +28,7 @@ func (h *Handler) listEntryDomains(c *gin.Context) {
 	c.JSON(http.StatusOK, rows)
 }
 
-// createEntryDomain 新增（POST /api/entry-domains）：{domain, role, region?}。
+// createEntryDomain create one (POST /api/entry-domains): {domain, role, region?}.
 func (h *Handler) createEntryDomain(c *gin.Context) {
 	var in struct {
 		Domain string `json:"domain"`
@@ -58,7 +60,7 @@ func (h *Handler) createEntryDomain(c *gin.Context) {
 	c.JSON(http.StatusCreated, row)
 }
 
-// updateEntryDomain 调整（PUT /api/entry-domains/:id）：部分更新，传啥改啥。
+// updateEntryDomain adjust (PUT /api/entry-domains/:id): partial update, pass what you change.
 func (h *Handler) updateEntryDomain(c *gin.Context) {
 	var row storage.EntryDomain
 	if err := h.db.First(&row, c.Param("id")).Error; err != nil {
@@ -104,7 +106,7 @@ func (h *Handler) updateEntryDomain(c *gin.Context) {
 	c.JSON(http.StatusOK, row)
 }
 
-// deleteEntryDomain 删除（DELETE /api/entry-domains/:id）。
+// deleteEntryDomain delete (DELETE /api/entry-domains/:id).
 func (h *Handler) deleteEntryDomain(c *gin.Context) {
 	res := h.db.Delete(&storage.EntryDomain{}, c.Param("id"))
 	if res.Error != nil {

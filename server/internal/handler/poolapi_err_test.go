@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// poolEntryNode 建一个在池入口节点，返回路由、库与节点行。
+// poolEntryNode creates an in-pool entry node, returning the router, the database, and the node row.
 func poolEntryNode(t *testing.T, name string) (*gin.Engine, *gorm.DB, storage.Node) {
 	t.Helper()
 	r, db := newTestRouterWithDB(t)
@@ -26,17 +26,18 @@ func poolEntryNode(t *testing.T, name string) (*gin.Engine, *gorm.DB, storage.No
 	return r, db, n
 }
 
-// TestPoolListErrors 覆盖池列表取数失败：入口查询失败 500、单节点窗口内
-// 最新结论查询失败（非查无）500。
+// TestPoolListErrors covers pool-list read failures: a failed entry query
+// returns 500, and a failed latest-verdict query for one node (not a
+// record-not-found) returns 500.
 func TestPoolListErrors(t *testing.T) {
-	// 入口查询失败 → 500。
+	// Entry query failure -> 500.
 	r, db, _ := poolEntryNode(t, "pl-a")
 	regQueryFail("t:poolnodes", db, (*[]storage.Node)(nil))
 	if rec := doJSON(t, r, "GET", "/api/pool", nil); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("nodes query fail: %d %s", rec.Code, rec.Body)
 	}
 
-	// 最新结论查询失败 → 500（有节点行才会进逐节点回查）。
+	// Latest-verdict query failure -> 500 (node rows must exist to reach the per-node re-query).
 	r2, db2, _ := poolEntryNode(t, "pl-b")
 	regQueryFail("t:poolprobe", db2, (*storage.ProbeReport)(nil))
 	if rec := doJSON(t, r2, "GET", "/api/pool", nil); rec.Code != http.StatusInternalServerError {
@@ -44,8 +45,9 @@ func TestPoolListErrors(t *testing.T) {
 	}
 }
 
-// TestPoolActionGuards 覆盖摘除/复位/预备的坏 id 404、预备查无 404、
-// 复位定位失败（非查无）500。
+// TestPoolActionGuards covers a bad id 404 for suspend/resume/standby, a
+// missing node 404 for standby, and a resume lookup failure (not
+// record-not-found) 500.
 func TestPoolActionGuards(t *testing.T) {
 	r, db, n := poolEntryNode(t, "pg-a")
 	for _, p := range []string{"suspend", "resume", "standby"} {
@@ -57,15 +59,16 @@ func TestPoolActionGuards(t *testing.T) {
 		t.Fatalf("standby missing: %d", rec.Code)
 	}
 
-	// 复位定位失败 → default 500（注错只拦查询，First 非查无错误）。
+	// Resume lookup failure -> the default 500 (the injection only blocks queries, and First gets a non-not-found error).
 	regQueryFail("t:poolresume", db, (*storage.Node)(nil))
 	if rec := doJSON(t, r, "POST", "/api/pool/"+strconv.FormatUint(uint64(n.ID), 10)+"/resume", nil); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("resume query fail: %d %s", rec.Code, rec.Body)
 	}
 }
 
-// TestPoolOnChangeHook 覆盖摘除/复位/预备成功时分地域对账钩子（E-27）
-// 被触发各一次；测试池钩子是包级变量，用后恢复。
+// TestPoolOnChangeHook covers the per-region reconciliation hook (E-27)
+// firing once each on a successful suspend/resume/standby; the test pool hook
+// is a package-level variable, so restore it afterwards.
 func TestPoolOnChangeHook(t *testing.T) {
 	old := pool.OnChange
 	var mu sync.Mutex
@@ -85,7 +88,7 @@ func TestPoolOnChangeHook(t *testing.T) {
 		if rec := doJSON(t, r, "POST", path+"/"+p, nil); rec.Code != http.StatusOK {
 			t.Fatalf("%s: %d %s", p, rec.Code, rec.Body)
 		}
-		// 钩子在 goroutine 里跑，轮询等计数到位。
+		// The hook runs in a goroutine, so poll until the counter catches up.
 		deadline := time.Now().Add(5 * time.Second)
 		for {
 			mu.Lock()

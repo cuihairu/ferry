@@ -15,13 +15,14 @@ import (
 	"gorm.io/gorm"
 )
 
-// 三十五批补口：事件 outbox（HERALD-1）错误口径——列表合法 limit 生效/
-// 通道过滤/取数失败/状态计数失败、重投坏 id 与落库失败、回执读体失败/
-// 两种形状的坏 JSON/落库失败、看板坏 limit 两种与合法 limit/取数失败/
-// 聚合失败/降级健康标记、自检落库失败、样例取类失败与单类取数失败跳过。
-// 留白：无。
+// Batch-thirty-five gap coverage: event outbox (HERALD-1) error semantics — list with a legal limit taking
+// effect / channel filter / fetch failure / status-count failure, retry with a bad id and with a persistence
+// failure, receipt body-read failure / bad JSON in both shapes / persistence failure, dashboard bad limit in
+// two forms plus a legal limit / fetch failure / aggregation failure / degraded health mark, self-test
+// persistence failure, sample kind-list failure and skipping a kind whose fetch fails.
+// Gaps left: none.
 
-// isEventModel 判断语句是否落在事件 outbox 表上。
+// isEventModel reports whether the statement lands on the event outbox table.
 func isEventModel(v any) bool {
 	switch v.(type) {
 	case *storage.Event, []storage.Event, *[]storage.Event:
@@ -30,7 +31,7 @@ func isEventModel(v any) bool {
 	return false
 }
 
-// isEventDeliveryModel 判断语句是否落在通道回执表上。
+// isEventDeliveryModel reports whether the statement lands on the channel receipt table.
 func isEventDeliveryModel(v any) bool {
 	switch v.(type) {
 	case *storage.EventDelivery, []storage.EventDelivery, *[]storage.EventDelivery:
@@ -39,7 +40,7 @@ func isEventDeliveryModel(v any) bool {
 	return false
 }
 
-// seedEventRow 直落一行事件，返回其 ID。
+// seedEventRow writes one event row directly and returns its ID.
 func seedEventRow(t *testing.T, db *gorm.DB, kind, status string) int64 {
 	t.Helper()
 	row := storage.Event{Kind: kind, Severity: "info", Title: "t", Body: "b", Status: status}
@@ -49,8 +50,8 @@ func seedEventRow(t *testing.T, db *gorm.DB, kind, status string) int64 {
 	return row.ID
 }
 
-// doRawBody 发原始字节体请求（不做 JSON 编码、不带凭据）：回执口挂开放
-// 组，且坏 JSON 不能被编码器洗成合法形态。
+// doRawBody sends a request with a raw byte body (no JSON encoding, no credentials): the receipt
+// endpoint sits in the open group, and bad JSON must not be washed into a legal shape by an encoder.
 func doRawBody(t *testing.T, r *gin.Engine, method, path string, body io.Reader) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, body)
@@ -60,13 +61,13 @@ func doRawBody(t *testing.T, r *gin.Engine, method, path string, body io.Reader)
 	return rec
 }
 
-// errReader 读即报错：专测读体失败分支。
+// errReader errors on every read: dedicated to the body-read failure branch.
 type errReader struct{}
 
 func (errReader) Read([]byte) (int, error) { return 0, errors.New("read fail") }
 
-// TestListEventsErrors 列表：合法 limit 生效、通道过滤、取数失败与状态计
-// 数失败。
+// TestListEventsErrors list: a legal limit takes effect, channel filter, fetch failure and status
+// count failure.
 func TestListEventsErrors(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	seedEventRow(t, db, "l-k", herald.StatusPending)
@@ -77,14 +78,14 @@ func TestListEventsErrors(t *testing.T) {
 		t.Fatalf("kind filter: %d %s", rec.Code, rec.Body)
 	}
 
-	// 列表取数失败（Find 走 gorm:query）。
+	// List fetch failure (Find goes through gorm:query).
 	r, db = newTestRouterWithDB(t)
 	failQueryOn(t, db, "test:event_find", isEventModel)
 	if rec := doJSON(t, r, http.MethodGet, "/api/events", nil); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("find: %d %s", rec.Code, rec.Body)
 	}
 
-	// 状态计数失败（Count 是聚合 Scan，走 gorm:row）。
+	// Status count failure (Count is an aggregation Scan, goes through gorm:row).
 	r, db = newTestRouterWithDB(t)
 	seedEventRow(t, db, "c-k", herald.StatusSent)
 	failRowOn(t, db, "test:event_count", isEventModel)
@@ -93,7 +94,7 @@ func TestListEventsErrors(t *testing.T) {
 	}
 }
 
-// TestRetryEventErrors 重投：坏 id 与落库失败。
+// TestRetryEventErrors retry: bad id and persistence failure.
 func TestRetryEventErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doJSON(t, r, http.MethodPost, "/api/events/abc/retry", nil); rec.Code != http.StatusNotFound {
@@ -108,29 +109,29 @@ func TestRetryEventErrors(t *testing.T) {
 	}
 }
 
-// TestEventResultErrors 回执：读体失败与两种形状的坏 JSON、落库失败。
+// TestEventResultErrors receipt: body-read failure and bad JSON in both shapes, persistence failure.
 func TestEventResultErrors(t *testing.T) {
 	r, _ := newSecretRouter(t)
 	if rec := doRawBody(t, r, http.MethodPost, "/api/internal/event-results", errReader{}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("read body: %d %s", rec.Code, rec.Body)
 	}
-	// 整体坏 JSON：形状探测段即失败（签名通过后落到 JSON 解析失败）。
+	// Entirely bad JSON: the shape-probe stage fails right away (after signature passes, it lands on JSON parse failure).
 	if rec := doSignedRawBody(t, r, "/api/internal/event-results",
 		[]byte("{not json")); rec.Code != http.StatusBadRequest {
 		t.Fatalf("probe json: %d %s", rec.Code, rec.Body)
 	}
-	// 旧形状（数字 event_id）字段类型不符：探测段过、二次解包失败。
+	// Legacy shape (numeric event_id) with a mismatched field type: probe stage passes, the second unwrap fails.
 	if rec := doSignedRawBody(t, r, "/api/internal/event-results",
 		[]byte(`{"event_id":1.5}`)); rec.Code != http.StatusBadRequest {
 		t.Fatalf("legacy json: %d %s", rec.Code, rec.Body)
 	}
-	// 回调形状（字符串 event_id）字段类型不符：回调解包失败。
+	// Callback shape (string event_id) with a mismatched field type: the callback unwrap fails.
 	if rec := doSignedRawBody(t, r, "/api/internal/event-results",
 		[]byte(`{"event_id":"x","kind":5}`)); rec.Code != http.StatusBadRequest {
 		t.Fatalf("callback json: %d %s", rec.Code, rec.Body)
 	}
 
-	// 回执落库失败（事件存在、回执表注错）。
+	// Receipt persistence failure (the event exists, the receipt table is fault-injected).
 	r, db := newSecretRouter(t)
 	id := seedEventRow(t, db, "d-k", herald.StatusPending)
 	failCreateOn(t, db, "test:delivery_create", isEventDeliveryModel)
@@ -140,8 +141,8 @@ func TestEventResultErrors(t *testing.T) {
 	}
 }
 
-// TestListEventDeliveriesErrors 看板：坏 limit 两种、合法 limit、取数失
-// 败、聚合失败与降级健康标记。
+// TestListEventDeliveriesErrors dashboard: bad limit in two forms, a legal limit, fetch failure,
+// aggregation failure and the degraded health mark.
 func TestListEventDeliveriesErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	for _, q := range []string{"?limit=abc", "?limit=0", "?limit=201"} {
@@ -153,21 +154,21 @@ func TestListEventDeliveriesErrors(t *testing.T) {
 		t.Fatalf("valid limit: %d %s", rec.Code, rec.Body)
 	}
 
-	// 回执行取数失败（Find 走 gorm:query）。
+	// Receipt-row fetch failure (Find goes through gorm:query).
 	r, db := newTestRouterWithDB(t)
 	failQueryOn(t, db, "test:delivery_find", isEventDeliveryModel)
 	if rec := doJSON(t, r, http.MethodGet, "/api/events/deliveries", nil); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("find: %d %s", rec.Code, rec.Body)
 	}
 
-	// 通道聚合失败（GROUP BY Scan 走 gorm:row）。
+	// Channel aggregation failure (GROUP BY Scan goes through gorm:row).
 	r, db = newTestRouterWithDB(t)
 	failRowOn(t, db, "test:delivery_agg", isEventDeliveryModel)
 	if rec := doJSON(t, r, http.MethodGet, "/api/events/deliveries", nil); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("agg: %d %s", rec.Code, rec.Body)
 	}
 
-	// 降级健康：同通道既有 sent 又有 failed → degraded 且回最近失败明细。
+	// Degraded health: one channel with both sent and failed → degraded, and it returns the latest failure detail.
 	r, db = newTestRouterWithDB(t)
 	for _, st := range []string{herald.StatusSent, herald.StatusFailed} {
 		if err := db.Create(&storage.EventDelivery{EventID: 1, Channel: "mail", Status: st,
@@ -182,7 +183,7 @@ func TestListEventDeliveriesErrors(t *testing.T) {
 	}
 }
 
-// TestTestEventError 通道自检落库失败 500。
+// TestTestEventError channel self-test persistence failure 500.
 func TestTestEventError(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	failCreateOn(t, db, "test:event_emit", isEventModel)
@@ -191,8 +192,8 @@ func TestTestEventError(t *testing.T) {
 	}
 }
 
-// TestListEventSamplesErrors 样例：取类失败与单类取数失败跳过（不下发半
-// 个样例列表）。
+// TestListEventSamplesErrors samples: kind-list failure and skipping a kind whose fetch fails (no
+// half-finished sample list is served).
 func TestListEventSamplesErrors(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	failQueryOn(t, db, "test:event_pluck", isEventModel)
@@ -200,7 +201,7 @@ func TestListEventSamplesErrors(t *testing.T) {
 		t.Fatalf("pluck: %d %s", rec.Code, rec.Body)
 	}
 
-	// 取类（第 1 查）放行、取样例（第 2 查）注错 → continue 跳过。
+	// The kind list (query 1) is allowed through; the sample fetch (query 2) is fault-injected → continue skips it.
 	r, db = newTestRouterWithDB(t)
 	seedEventRow(t, db, "s-k", herald.StatusSent)
 	seen := 0

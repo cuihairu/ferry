@@ -10,13 +10,15 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestDNSAPI 覆盖域名前置管理端（BR-2）：凭证录入加密落库、未知类型拒
-// （不冒称支持）、前置记录校验、切离中拒删、有记录的凭证拒删。
+// TestDNSAPI covers the domain-front admin plane (BR-2): credential entry with
+// encrypted storage, unknown types rejected (no claiming support), front record
+// validation, switched-off fronts refused deletion, and providers with fronts
+// refusing deletion.
 func TestDNSAPI(t *testing.T) {
 	r, db := newTestRouterWithMasterKey(t)
 	store := secret.NewStore("test-master-key")
 
-	// 未知类型录入即拒。
+	// Unknown type rejected at entry.
 	rec := doJSON(t, r, "POST", "/api/dns-providers", map[string]any{
 		"name": "ali", "type": "alidns", "api_key": "k",
 	})
@@ -24,7 +26,7 @@ func TestDNSAPI(t *testing.T) {
 		t.Fatalf("unknown kind status = %d body=%s", rec.Code, rec.Body)
 	}
 
-	// 凭证录入：库中无明文，列表只回 has_api_key。
+	// Credential entry: no plaintext in the DB; the list only reports has_api_key.
 	rec = doJSON(t, r, "POST", "/api/dns-providers", map[string]any{
 		"name": "cf-main", "type": "cloudflare", "api_key": "cf-token-secret",
 	})
@@ -49,7 +51,7 @@ func TestDNSAPI(t *testing.T) {
 		t.Fatalf("decrypt = %q err=%v", plain, err)
 	}
 
-	// 前置记录：backup_ips 非 JSON 数组拒。
+	// Front record: non-JSON-array backup_ips is rejected.
 	rec = doJSON(t, r, "POST", "/api/dns-fronts", map[string]any{
 		"name": "主入口", "domain": "edge.example.com", "provider_id": pv.ID,
 		"primary_ip": "10.0.0.1", "backup_ips": "10.0.0.2",
@@ -69,13 +71,13 @@ func TestDNSAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 有前置记录的凭证拒删。
+	// Provider with fronts refuses deletion.
 	rec = doJSON(t, r, "DELETE", "/api/dns-providers/"+strconv.FormatUint(uint64(pv.ID), 10), nil)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("delete provider with fronts status = %d", rec.Code)
 	}
 
-	// 切离中的前置记录拒删（先等回切/人工恢复）。
+	// Switched-off front refused deletion (wait for failback / manual restore first).
 	if err := db.Model(&storage.DNSFront{}).Where("id = ?", fv.ID).
 		Update("switched", true).Error; err != nil {
 		t.Fatal(err)
@@ -94,9 +96,10 @@ func TestDNSAPI(t *testing.T) {
 	}
 }
 
-// TestGeoSync 覆盖分地域对账补偿入口（E-27）：无启用 DNS 商 no-op 回
-// changed=0；停用商名下前置不参与对账（通道行为由 geodns 包假通道覆盖，
-// 这里不外呼）。
+// TestGeoSync covers the geo reconciliation compensation entry (E-27): with no
+// enabled DNS provider it is a no-op returning changed=0; fronts under a
+// disabled provider do not join reconciliation (channel behavior is covered by
+// the geodns package's fake channel, no real callout here).
 func TestGeoSync(t *testing.T) {
 	r, db := newTestRouterWithMasterKey(t)
 
@@ -111,7 +114,7 @@ func TestGeoSync(t *testing.T) {
 		t.Fatalf("body=%s err=%v", rec.Body, err)
 	}
 
-	// 停用商 + 归属前置：不参与对账，仍 no-op。
+	// Disabled provider plus its front: not in reconciliation, still a no-op.
 	store := secret.NewStore("test-master-key")
 	sealed, err := store.Encrypt("tok-x")
 	if err != nil {

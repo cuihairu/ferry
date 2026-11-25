@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// seedPayOrder 落付款用户与待支付订单，返回与订单匹配的回调。
+// seedPayOrder creates the paying user and a pending order, returning the callback that matches the order.
 func seedPayOrder(t *testing.T, db *gorm.DB, orderNo string) payment.Callback {
 	t.Helper()
 	u := storage.User{Username: "p-" + orderNo, SubToken: "sub-" + orderNo,
@@ -32,11 +32,14 @@ func seedPayOrder(t *testing.T, db *gorm.DB, orderNo string) payment.Callback {
 	}
 }
 
-// TestEpusdtNotifyDBErrors 覆盖回调结算事务内的取数与落库失败：对单
-// 定位、重复回调计数、流水建档、订单置 paid、付款用户定位、权益发放
-// 各自注错统一 400，事务整体回滚订单保持 pending。
-// 留白：渠道未注册 503——payment 注册表无撤销入口，跨用例与 -count=2
-// 重跑间状态不定，不硬凑。
+// TestEpusdtNotifyDBErrors covers read and write failures inside the
+// callback settle transaction: order lookup, duplicate-callback count,
+// transaction insert, marking the order paid, payer lookup, and grant
+// emission. Each injected failure yields a uniform 400, the whole
+// transaction rolls back, and the order stays pending.
+// Deliberately not covered: unregistered channel 503 -- the payment
+// registry has no unregister hook, and state drifts across cases and
+// -count=2 reruns, so it is not worth forcing.
 func TestEpusdtNotifyDBErrors(t *testing.T) {
 	scenario := func(name string, inject func(db *gorm.DB)) {
 		t.Run(name, func(t *testing.T) {
@@ -47,7 +50,8 @@ func TestEpusdtNotifyDBErrors(t *testing.T) {
 			if rec := doJSON(t, r, "POST", "/api/pay/epusdt/notify", nil); rec.Code != http.StatusBadRequest {
 				t.Fatalf("%s: %d %s", name, rec.Code, rec.Body)
 			}
-			// 回读走 Raw+Scan（Row 链不吃 Query 注错），事务应回滚。
+			// Read back via Raw+Scan (the Row chain does not honor Query
+			// injection); the transaction must have rolled back.
 			var status string
 			if err := db.Raw("SELECT status FROM payment_orders WHERE order_no = ?", cb.OrderNo).
 				Scan(&status).Error; err != nil {
@@ -90,8 +94,9 @@ func TestEpusdtNotifyDBErrors(t *testing.T) {
 	})
 }
 
-// TestEpusdtNotifyNoGrant 覆盖到账无发放口径（GrantType 空）分支：结算
-// 成功置 paid 但不发放、不落 Grant 行。
+// TestEpusdtNotifyNoGrant covers the no-grant-spec branch on receipt
+// (GrantType empty): the settle succeeds and marks paid, but grants
+// nothing and writes no Grant row.
 func TestEpusdtNotifyNoGrant(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	cb := seedPayOrder(t, db, "pn-nogrant")

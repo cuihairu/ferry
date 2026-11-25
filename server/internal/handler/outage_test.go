@@ -11,23 +11,27 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestOutage 覆盖断联容灾（TOUCH-7）：断联态开关缺省常态、缺 enabled 400、
-// 订阅注释常附备用公告地址与启用域名清单（主备标注，停用不泄）、
-// 断联态打开后 v2ray 解码文本与 clash YAML 注释都带警告行、关闭即撤。
+// TestOutage covers outage resilience (TOUCH-7): the outage flag defaults to
+// normal, missing enabled 400, subscription notes always carrying the backup
+// announcement address and the enabled domain list (primary/backup marked,
+// disabled ones never leaked), the v2ray decoded text and the clash YAML notes
+// both picking up the warning line once outage mode is on, and it clearing on
+// turn-off.
 func TestOutage(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 
-	// 缺省常态
+	// Normal by default
 	rec := doJSON(t, r, "GET", "/api/outage", nil)
 	if rec.Code != http.StatusOK || rec.Body.String() != `{"enabled":false}` {
 		t.Fatalf("default outage: %d %s", rec.Code, rec.Body)
 	}
-	// 缺 enabled 400
+	// Missing enabled 400
 	if rec := doJSON(t, r, "PUT", "/api/outage", map[string]any{}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("missing enabled: %d", rec.Code)
 	}
 
-	// 备用域名入库：主/备/停用各一（停用不进注释）
+	// Backup domains seeded: one each of primary/spare/disabled (the disabled one
+	// must not enter the notes)
 	for _, d := range []storage.EntryDomain{
 		{Domain: "main.example.com", Role: "primary", Enabled: true, UpdatedAt: time.Now()},
 		{Domain: "spare.example.com", Role: "backup", Enabled: true, UpdatedAt: time.Now()},
@@ -38,7 +42,8 @@ func TestOutage(t *testing.T) {
 		}
 	}
 
-	// 订阅用户（无节点也行：备注照附，逃生通道在断联前就得进客户端缓存）
+	// Subscription user (no nodes is fine: the notes are still attached, since the
+	// escape hatch must reach the client cache before the outage)
 	rec = doJSON(t, r, "POST", "/api/users", map[string]any{"username": "outage-user"})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create user: %d %s", rec.Code, rec.Body)
@@ -47,7 +52,8 @@ func TestOutage(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &u)
 	tok := u["sub_token"].(string)
 
-	// 常态：注释带公告地址与域名清单，无警告
+	// Normal state: the notes carry the announcement address and the domain list,
+	// no warning
 	raw, err := base64.StdEncoding.DecodeString(getSub(t, r, "/sub/"+tok+"?target=v2ray", "curl/8.0").Body.String())
 	if err != nil {
 		t.Fatalf("v2ray body not base64: %v", err)
@@ -67,7 +73,7 @@ func TestOutage(t *testing.T) {
 		t.Fatalf("clash notes missing:\n%s", clashBody)
 	}
 
-	// 断联态打开：警告行进两种订阅文本
+	// Outage mode on: the warning line enters both subscription texts
 	if rec := doJSON(t, r, "PUT", "/api/outage", map[string]any{"enabled": true}); rec.Code != http.StatusOK {
 		t.Fatalf("put outage: %d %s", rec.Code, rec.Body)
 	}
@@ -83,7 +89,7 @@ func TestOutage(t *testing.T) {
 		t.Fatalf("clash warning missing:\n%s", clashBody)
 	}
 
-	// 关闭即撤
+	// Turning it off clears it right away
 	if rec := doJSON(t, r, "PUT", "/api/outage", map[string]any{"enabled": false}); rec.Code != http.StatusOK {
 		t.Fatalf("put outage off: %d", rec.Code)
 	}

@@ -9,8 +9,9 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestLoadAPIEdges 覆盖容量口径（实测校准 > 套餐下行 > 上行 > 100 兜底）
-// 与单样本差分不可信（util_pct=-1）。
+// TestLoadAPIEdges covers the capacity precedence (measured calibration >
+// plan downlink > uplink > 100 fallback) and untrusted single-sample diffs
+// (util_pct=-1).
 func TestLoadAPIEdges(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	measured := storage.Node{Name: "m", Token: "tok-m", Role: "landing", Enabled: true}
@@ -25,7 +26,7 @@ func TestLoadAPIEdges(t *testing.T) {
 		Update("speed_measured_mbps", 300).Error; err != nil {
 		t.Fatal(err)
 	}
-	// 只有一条采样：差分不可信 → 利用率 -1。
+	// only one sample: the diff is untrusted -> utilization -1.
 	if err := db.Create(&storage.NodeTrafficLog{NodeID: measured.ID, Proc: "relay",
 		RxBytes: 1e6, RecordedAt: time.Now()}).Error; err != nil {
 		t.Fatal(err)
@@ -57,7 +58,7 @@ func TestLoadAPIEdges(t *testing.T) {
 	}
 }
 
-// TestLoadAPIDBErrors 覆盖节点表与流量采样表取数失败 500。
+// TestLoadAPIDBErrors covers 500 on node table and traffic sample fetch failures.
 func TestLoadAPIDBErrors(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	regQueryFail("t:loadnodes", db, (*[]storage.Node)(nil))

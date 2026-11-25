@@ -14,16 +14,19 @@ import (
 	"gorm.io/gorm"
 )
 
-// fmtOrphanAmount 是游离流水的摘要文案。
+// fmtOrphanAmount is the summary text for an orphan transaction.
 func fmtOrphanAmount(cents int64) string {
 	return fmt.Sprintf("%d 分", cents)
 }
 
-// 三账对账（PAY-9）：订单/流水/发放按订单分组返回，标出缺失环节，
-// 另附游离记录（无对应订单）与总额小计，供 dash 对账视图。
+// Three-ledger reconciliation (PAY-9): orders / transactions / grants are
+// grouped by order and returned with the missing legs flagged, plus orphan
+// records (no matching order) and running totals, for the dash
+// reconciliation view.
 
-// reconcileRow 是一个订单的三账视图：挂在 order 上聚合其流水与发放，
-// missing 列出对不上的环节文案。
+// reconcileRow is the three-ledger view of one order: it hangs the order's
+// transactions and grants off the order, and missing lists the wording of
+// the legs that do not add up.
 type reconcileRow struct {
 	storage.PaymentOrder
 	Transactions []storage.PaymentTransaction `json:"transactions"`
@@ -31,7 +34,7 @@ type reconcileRow struct {
 	Missing      []string                     `json:"missing"`
 }
 
-// reconcileOrphan 是游离记录：有流水/发放却找不到订单。
+// reconcileOrphan is an orphan record: a transaction or grant whose order cannot be found.
 type reconcileOrphan struct {
 	Kind     string `json:"kind"` // transaction / grant
 	OrderNo  string `json:"order_no"`
@@ -39,7 +42,7 @@ type reconcileOrphan struct {
 	Detail   string `json:"detail"`
 }
 
-// listReconcile 返回三账对账数据（GET /api/payments/reconcile?limit=）。
+// listReconcile returns three-ledger reconciliation data (GET /api/payments/reconcile?limit=).
 func (h *Handler) listReconcile(c *gin.Context) {
 	limit := 200
 	if v := c.Query("limit"); v != "" {
@@ -83,8 +86,10 @@ func (h *Handler) listReconcile(c *gin.Context) {
 			}
 		}
 	}
-	// 缺失环节：paid/refunded 无流水、paid 带发放口径无发放、pending 却有流水。
-	// 三账完整性检查与 paid 同口径（退过款的订单更应有流水与发放可查）。
+	// Missing legs: paid/refunded with no transaction, paid with a grant spec
+	// but no grant, pending yet carrying a transaction.
+	// The three-ledger completeness check uses the same rule for paid
+	// (refunded orders should have transaction and grant records to show).
 	rows := make([]reconcileRow, 0, len(orders))
 	for _, o := range orders {
 		row := byNo[o.OrderNo]
@@ -106,7 +111,8 @@ func (h *Handler) listReconcile(c *gin.Context) {
 		rows = append(rows, *row)
 	}
 
-	// 游离记录：流水/发放指向的订单不存在（对账硬伤，单独列出）。
+	// Orphans: the order a transaction or grant points at does not exist
+	// (a hard reconciliation fault, listed separately).
 	var orphans []reconcileOrphan
 	var orphanTxns []storage.PaymentTransaction
 	if err := h.db.Where("order_no NOT IN (?)", h.db.Model(&storage.PaymentOrder{}).Select("order_no")).
@@ -133,9 +139,12 @@ func (h *Handler) listReconcile(c *gin.Context) {
 		})
 	}
 
-	// 小计全库口径（P2：原实现把小计累加在当前页 limit 条上，dash 把它当
-	// 总营收展示——订单超过一页后小计静默缩水）。页内行仍按 limit 返回，
-	// 小计改由全表聚合：实收/退款按状态分桶，流水与发放为全表合计。
+	// Totals are computed over the whole database (P2: the old implementation
+	// summed only the current page's limit rows, and the dash displayed them
+	// as gross revenue -- once orders outgrew one page the totals silently
+	// shrank). Rows within the page are still returned per limit, but the
+	// totals now aggregate the full table: receipts and refunds bucketed by
+	// status, transactions and grants as full-table sums.
 	var sum struct {
 		PaidOrders     int64
 		PaidCents      int64
@@ -179,7 +188,7 @@ func (h *Handler) listReconcile(c *gin.Context) {
 	})
 }
 
-// adminOrderDetail 单笔订单三账详情（GET /api/payments/orders/:order_no，OD-2）。
+// adminOrderDetail is the three-ledger detail for a single order (GET /api/payments/orders/:order_no, OD-2).
 func (h *Handler) adminOrderDetail(c *gin.Context) {
 	row, ok := h.loadReconcileRow(c.Param("order_no"))
 	if !ok {
@@ -189,20 +198,24 @@ func (h *Handler) adminOrderDetail(c *gin.Context) {
 	c.JSON(http.StatusOK, row)
 }
 
-// errRefundNotPaid 是退款前置不满足的哨兵：仅 paid 可退。
+// errRefundNotPaid is the sentinel for an unmet refund precondition: only paid orders are refundable.
 var errRefundNotPaid = errors.New("order not paid")
 
-// refundOrder 退款流转（POST /api/payments/orders/:order_no/refund，OD-2）：
-// 仅 paid → refunded（未付/失败/过期无款可退，已退款不可再退，409）；
-// 面板只做状态流转与留痕，钱款退回经渠道后台操作（note 记退款单号/原因）。
-// 权益随退款回收（P2：refund 不回收权益修复）——订单发放过的配额/时长在
-// 同一事务内扣回，回收失败整体回滚退款（refunded 态蕴含权益已收）。
+// refundOrder is the refund transition (POST /api/payments/orders/:order_no/refund, OD-2):
+// only paid -> refunded (unpaid/failed/expired have no money to return, and an
+// already-refunded order cannot be refunded again, 409); the panel only does
+// the state transition and leaves a trace, the actual money goes back via the
+// channel's back office (note records the refund number/reason).
+// Entitlements are clawed back with the refund (P2: fix for refund not
+// recovering entitlements) -- the quota/duration the order granted is deducted
+// inside the same transaction, and a failed clawback rolls back the whole
+// refund (the refunded state implies entitlements have been reclaimed).
 func (h *Handler) refundOrder(c *gin.Context) {
 	var body struct {
 		Note string `json:"note"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil && !errors.Is(err, io.EOF) {
-		// note 选填，允许空请求体
+		// note is optional, an empty request body is allowed
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
@@ -238,15 +251,24 @@ func (h *Handler) refundOrder(c *gin.Context) {
 	c.JSON(http.StatusOK, row)
 }
 
-// revokeOrderGrants 回收订单发放过的权益（与退款状态流转同事务）：
-// 仅 add_quota/extend_days 两类有回收口径，显式匹配——未知类型跳过不扣
-// （旧实现 else 兜底把任何非 add_quota 类型都当延长到期扣回）。
-// add_quota 从当前余额扣回（下限 0——流量可能已消耗，不记负数）；extend_days
-// 从当前到期扣回天数（扣后落在过去即过期态；当前无到期无从扣回，不动）。
-// 写回带乐观守卫（WHERE 按读时值比对），与并发 applyGrant 的读改写交错时
-// 重读重算至多三轮，防丢更新（codex 深审 P2）。用户行已删的发放无从回收，
-// 跳过（发放记录无外键不随用户删除）。回收落一条站内信告知用户（每用户
-// 至多一条）。
+// revokeOrderGrants reclaims the entitlements an order granted (in the same
+// transaction as the refund state transition):
+// only the add_quota/extend_days kinds have a reclamation rule, matched
+// explicitly -- unknown kinds are skipped without deduction (the old
+// implementation's else fallback treated any non-add_quota kind as a
+// expiry extension to claw back).
+// add_quota deducts from the current balance (floored at 0 -- traffic may
+// already have been consumed, no negative balance recorded); extend_days
+// deducts the days from the current expiry (landing in the past means the
+// expired state; with no current expiry there is nothing to deduct, left
+// alone).
+// The write-back carries an optimistic guard (WHERE compared against the
+// read values); when it interleaves with a concurrent applyGrant
+// read-modify-write, it re-reads and recomputes for at most three rounds to
+// avoid lost updates (codex deep review P2). Grants whose user row is already
+// deleted cannot be reclaimed and are skipped (grant rows have no foreign key
+// and do not cascade on user deletion). A site notification informs the user
+// of the reclamation (at most one per user).
 func revokeOrderGrants(tx *gorm.DB, orderNo string, now time.Time) error {
 	var grants []storage.Grant
 	if err := tx.Where("order_no = ?", orderNo).Find(&grants).Error; err != nil {
@@ -257,7 +279,7 @@ func revokeOrderGrants(tx *gorm.DB, orderNo string, now time.Time) error {
 		var u storage.User
 		if err := tx.First(&u, g.UserID).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				continue // 用户已删：无从回收
+				continue // user already deleted: nothing to reclaim
 			}
 			return err
 		}
@@ -277,10 +299,14 @@ func revokeOrderGrants(tx *gorm.DB, orderNo string, now time.Time) error {
 	return nil
 }
 
-// revokeOneGrant 回收单条发放。无从回收（未知类型/无到期）返回 nil 跳过；
-// 写回按读时值做乐观守卫，守卫落空（他方并发改行，如同时刻 applyGrant）
-// 则重读重算再试，三轮仍失守报错回滚整个退款事务——refunded 态蕴含权益
-// 已收，宁可退款失败不可静默漏收。
+// revokeOneGrant reclaims a single grant. Nothing to reclaim (unknown kind /
+// no expiry) returns nil and skips; the write-back is guarded optimistically
+// against the read values, and if the guard misses (someone else updated the
+// row concurrently, e.g. an applyGrant at the same moment) it re-reads,
+// recomputes, and retries -- if all three rounds still fail it errors and
+// rolls back the whole refund transaction: the refunded state implies the
+// entitlements were reclaimed, so a failed refund is better than silently
+// under-collecting.
 func revokeOneGrant(tx *gorm.DB, g storage.Grant, u *storage.User) error {
 	for attempt := 0; attempt < 3; attempt++ {
 		updates, ok := revokeUpdates(g, u)
@@ -304,7 +330,8 @@ func revokeOneGrant(tx *gorm.DB, g storage.Grant, u *storage.User) error {
 		if attempt == 2 {
 			return errors.New("revoke grant: concurrent user update contention")
 		}
-		// 守卫失守：他方并发改行，重读后按新值重算再试。
+		// Guard missed: someone else updated the row concurrently; re-read and
+		// recompute from the new values, then retry.
 		if err := tx.First(u, u.ID).Error; err != nil {
 			return err
 		}
@@ -312,8 +339,9 @@ func revokeOneGrant(tx *gorm.DB, g storage.Grant, u *storage.User) error {
 	return nil
 }
 
-// revokeUpdates 按发放类型算回收写集：ok=false 表示无从回收（未知类型/
-// 无到期）。算式只依赖读到的用户行，重试时随重读重算。
+// revokeUpdates computes the reclamation write set per grant kind: ok=false
+// means nothing to reclaim (unknown kind / no expiry). The formula depends
+// only on the user row read, so it is recomputed on each retry's re-read.
 func revokeUpdates(g storage.Grant, u *storage.User) (map[string]any, bool) {
 	switch g.GrantType {
 	case "add_quota":
@@ -333,7 +361,7 @@ func revokeUpdates(g storage.Grant, u *storage.User) (map[string]any, bool) {
 	}
 }
 
-// loadReconcileRow 组装一单的三账视图；订单不存在返回 (nil, false)。
+// loadReconcileRow assembles the three-ledger view of one order; it returns (nil, false) when the order does not exist.
 func (h *Handler) loadReconcileRow(orderNo string) (*reconcileRow, bool) {
 	var order storage.PaymentOrder
 	if err := h.db.Where("order_no = ?", orderNo).First(&order).Error; err != nil {

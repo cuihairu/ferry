@@ -15,19 +15,25 @@ import (
 	"gorm.io/gorm"
 )
 
-// 站内信通知中心（NT-1/NT-2）：四类通知逐用户落行（小用户量扇出成本可忽略），
-// 已读态挂在行上。面板侧读与已读流转、偏好设置；dash 侧公告扇出与全量列表。
-// 到期/流量预警的定时扫描在 internal/notifyscan；公告扇出/窗口/重发共用
-// internal/announce（P2-5）；发放到账的事件触发在 applyGrant。
+// In-app notification center (NT-1/NT-2): the four notification kinds write one
+// row per user (fan-out cost is negligible at this user scale), and read state
+// lives on the row. The panel side reads and drives read transitions plus
+// preferences; the dash side drives announcement fan-out and the full listing.
+// Scheduled expiry/traffic-warning scans live in internal/notifyscan;
+// announcement fan-out/window/resend is shared via internal/announce (P2-5);
+// grant-credit event triggers happen in applyGrant.
 
-// panelVisible 是 panel 侧可见面过滤（P2-5 撤下口径）：窗口结束（ends_at
-// 到点）的通知不再出现在用户列表与未读数里（行保留，dash 全量列表仍可见）。
+// panelVisible is the panel-side visibility filter (P2-5 teardown rule): a
+// notification whose window has ended (ends_at reached) no longer appears in the
+// user's list or unread count (the row is kept; the dash full listing still
+// sees it).
 const panelVisible = "(ends_at IS NULL OR ends_at > ?)"
 
-// createAnnouncement 发布公告（POST /api/notifications/announcement，OD 无关，NT-1）：
-// 标题必填，正文选填；starts_at/ends_at 选填（RFC3339，P2-5 窗口）——starts_at
-// 在未来=定时发布（先落站级锚点行，到点由 notifyscan 扇出），立即发布则
-// 扇出给全部启用用户。
+// createAnnouncement publishes an announcement (POST /api/notifications/announcement,
+// OD-unrelated, NT-1): the title is required, the body optional; starts_at/ends_at
+// are optional (RFC3339, the P2-5 window) - a future starts_at means scheduled
+// publish (the site-level anchor row is written first and notifyscan fans it out
+// when due), while an immediate publish fans out to every enabled user.
 func (h *Handler) createAnnouncement(c *gin.Context) {
 	var body struct {
 		Title    string     `json:"title"`
@@ -79,8 +85,9 @@ func (h *Handler) createAnnouncement(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"created": n, "scheduled": scheduled})
 }
 
-// listAnnouncements 公告触达列表（GET /api/notifications/announcements，P2-5 ②）：
-// 锚点行 + 每条的扇出数/已读数（发 n/读 m），按 AnchorID 关联用户行统计。
+// listAnnouncements is the announcement reach list (GET /api/notifications/announcements,
+// P2-5 item 2): anchor rows plus per-announcement fan-out/read counts
+// (n sent / m read), aggregated over the user rows joined via AnchorID.
 func (h *Handler) listAnnouncements(c *gin.Context) {
 	limit := 50
 	if v := c.Query("limit"); v != "" {
@@ -122,9 +129,11 @@ func (h *Handler) listAnnouncements(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
-// resendAnnouncement 外通道重发（POST /api/notifications/announcements/:id/resend，
-// P2-5 ③）：对已发布公告补一轮 notice 事件（Herald 分发 TG/邮件），不重落
-// 站内信行；限频 6h/公告（429），窗口已结束不重发（400）。
+// resendAnnouncement re-emits via the external channel (POST
+// /api/notifications/announcements/:id/resend, P2-5 item 3): it sends another
+// round of notice events for a published announcement (Herald delivers via
+// TG/email) without writing new in-app rows; rate-limited to 6h per
+// announcement (429); no resend once the window has closed (400).
 func (h *Handler) resendAnnouncement(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -150,7 +159,8 @@ func (h *Handler) resendAnnouncement(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"emitted": n})
 }
 
-// listNotifications 全量通知列表（GET /api/notifications?limit=&type=&user_id=，dash 排障用）。
+// listNotifications is the full notification list (GET
+// /api/notifications?limit=&type=&user_id=, for dash troubleshooting).
 func (h *Handler) listNotifications(c *gin.Context) {
 	limit := 200
 	if v := c.Query("limit"); v != "" {
@@ -178,11 +188,13 @@ func (h *Handler) listNotifications(c *gin.Context) {
 	c.JSON(http.StatusOK, rows)
 }
 
-// deleteNotification 删除一条通知（DELETE /api/notifications/:id）。
-// deleteNotification 删通知（DELETE /api/notifications/:id）：普通行删单行；
-// 锚点行（公告，user_id=0）级联撤回——扇出的用户行一并删除（公告从各用户
-// 列表与未读数消失），同事务保证不留半撤状态；ends_at 定时撤下只是不可见，
-// 此处是立即移除。
+// deleteNotification deletes one notification (DELETE /api/notifications/:id).
+// deleteNotification removes a notification (DELETE /api/notifications/:id): a
+// normal row deletes itself; an anchor row (announcement, user_id=0) cascades
+// the withdrawal - its fanned-out user rows are deleted too (the announcement
+// disappears from each user's list and unread count), and one transaction
+// guarantees no half-withdrawn state; an ends_at scheduled teardown is only
+// invisibility, whereas this is immediate removal.
 func (h *Handler) deleteNotification(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -214,7 +226,8 @@ func (h *Handler) deleteNotification(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// panelNotifications 当前用户的通知列表（GET /api/panel/notifications?limit=&unread=1）。
+// panelNotifications is the current user's notification list (GET
+// /api/panel/notifications?limit=&unread=1).
 func (h *Handler) panelNotifications(c *gin.Context) {
 	u, ok := h.panelUser(c)
 	if !ok {
@@ -241,7 +254,8 @@ func (h *Handler) panelNotifications(c *gin.Context) {
 	c.JSON(http.StatusOK, rows)
 }
 
-// panelUnreadCount 当前用户未读数（GET /api/panel/notifications/unread-count）。
+// panelUnreadCount is the current user's unread count (GET
+// /api/panel/notifications/unread-count).
 func (h *Handler) panelUnreadCount(c *gin.Context) {
 	u, ok := h.panelUser(c)
 	if !ok {
@@ -257,8 +271,9 @@ func (h *Handler) panelUnreadCount(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"count": count})
 }
 
-// panelMarkRead 标记单条已读（POST /api/panel/notifications/:id/read）：
-// 他人通知 404 防越权；已读重复标记幂等 200。
+// panelMarkRead marks one notification read (POST /api/panel/notifications/:id/read):
+// someone else's notification yields 404 to prevent privilege escalation;
+// re-marking an already-read row is idempotent 200.
 func (h *Handler) panelMarkRead(c *gin.Context) {
 	u, ok := h.panelUser(c)
 	if !ok {
@@ -284,7 +299,7 @@ func (h *Handler) panelMarkRead(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// panelMarkAllRead 全部已读（POST /api/panel/notifications/read-all）。
+// panelMarkAllRead marks everything read (POST /api/panel/notifications/read-all).
 func (h *Handler) panelMarkAllRead(c *gin.Context) {
 	u, ok := h.panelUser(c)
 	if !ok {
@@ -300,9 +315,9 @@ func (h *Handler) panelMarkAllRead(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"updated": res.RowsAffected})
 }
 
-// ---- 通知偏好（NT-2）----
+// ---- notification preferences (NT-2) ----
 
-// panelNotifyPrefs 当前用户的通知偏好（GET /api/panel/notify-prefs）。
+// panelNotifyPrefs is the current user's notification preferences (GET /api/panel/notify-prefs).
 func (h *Handler) panelNotifyPrefs(c *gin.Context) {
 	u, ok := h.panelUser(c)
 	if !ok {
@@ -315,7 +330,7 @@ func (h *Handler) panelNotifyPrefs(c *gin.Context) {
 	})
 }
 
-// panelUpdateNotifyPrefs 更新通知偏好（PUT /api/panel/notify-prefs）。
+// panelUpdateNotifyPrefs updates notification preferences (PUT /api/panel/notify-prefs).
 func (h *Handler) panelUpdateNotifyPrefs(c *gin.Context) {
 	u, ok := h.panelUser(c)
 	if !ok {
@@ -355,7 +370,8 @@ func (h *Handler) panelUpdateNotifyPrefs(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// effectiveWarnPercent 归一阈值：未设/越界回落默认 80（历史行与扫描共用口径）。
+// effectiveWarnPercent normalizes the threshold: unset/out-of-range falls back
+// to the default 80 (the shared rule used by legacy rows and the scan).
 func effectiveWarnPercent(v int) int {
 	if v <= 0 || v > 100 {
 		return 80

@@ -12,11 +12,11 @@ import (
 	"gorm.io/gorm"
 )
 
-// 手动落地分配（E-20，P0 手动档）：
-// dash 为入口节点（或区域整体）指定落地与权重，落库留痕；释放不删行（分配史可回放）。
-// 经 config.push 下发入口落地列表的生效链路随 agent relay 配置化接入（E-5）。
+// Manual landing assignment (E-20, P0 manual lane):
+// dash assigns a landing and weight for an entry node (or a whole region) and persists it as a record; release does not delete the row (the assignment history stays replayable).
+// The effective chain that pushes the entry landing list via config.push follows the agent relay config integration (E-5).
 
-// landingInput 是创建分配的载荷：入口级（entry_node_id）与区域级（region）二选一。
+// landingInput is the payload for creating an assignment: entry-level (entry_node_id) or region-level (region), exactly one of the two.
 type landingInput struct {
 	EntryNodeID   *uint  `json:"entry_node_id"`
 	Region        string `json:"region"`
@@ -108,7 +108,7 @@ func (h *Handler) createLanding(c *gin.Context) {
 	c.JSON(http.StatusCreated, row)
 }
 
-// updateLanding 仅允许调整权重（改动走新分配 + 释放旧分配以留痕）。
+// updateLanding only allows adjusting the weight (other changes go through a new assignment + releasing the old one for the record).
 func (h *Handler) updateLanding(c *gin.Context) {
 	row, ok := h.findActiveLanding(c)
 	if !ok {
@@ -134,7 +134,7 @@ func (h *Handler) updateLanding(c *gin.Context) {
 	c.JSON(http.StatusOK, row)
 }
 
-// releaseLanding 释放分配：置 released_at 留痕，不物理删除。
+// releaseLanding releases an assignment: sets released_at for the record, no physical delete.
 func (h *Handler) releaseLanding(c *gin.Context) {
 	row, ok := h.findActiveLanding(c)
 	if !ok {

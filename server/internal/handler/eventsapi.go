@@ -17,10 +17,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 事件 outbox（HERALD-1）管理端：列表与状态计数。事件由后台任务与
-// HERALD-3 起的告警接入生产，这里只读——通道故障以 failed 计数标红。
+// Admin side of the event outbox (HERALD-1): list and status counts. Events are produced
+// by background tasks and the alerting integrations since HERALD-3; this side is read-only — channel failures show red via the failed count.
 
-// listEvents 返回事件 outbox（新在前）与各状态计数。
+// listEvents returns the event outbox (newest first) and per-status counts.
 func (h *Handler) listEvents(c *gin.Context) {
 	limit := 200
 	if v := c.Query("limit"); v != "" {
@@ -56,8 +56,8 @@ func (h *Handler) listEvents(c *gin.Context) {
 	})
 }
 
-// retryEvent 把一条 failed 死信复位为 pending 立即重投（通道修复后的
-// 人工补投口；pending/sent 不适用）。
+// retryEvent resets a failed dead letter back to pending for immediate redelivery (a manual
+// re-delivery hatch after the channel is fixed; not applicable to pending/sent).
 func (h *Handler) retryEvent(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -78,8 +78,8 @@ func (h *Handler) retryEvent(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// eventResultInput 是 Herald 异步回投的通道分发回执（《告警通道设计》§3）：
-// event_id 为投递载荷里的 ferry outbox id。
+// eventResultInput is the channel-dispatch receipt that Herald posts back asynchronously ("Alert Channel Design" §3):
+// event_id is the ferry outbox id from the delivery payload.
 type eventResultInput struct {
 	EventID int64  `json:"event_id"`
 	Channel string `json:"channel"`
@@ -87,10 +87,10 @@ type eventResultInput struct {
 	Detail  string `json:"detail"`
 }
 
-// heraldCallback 是 herald §13.5 事件回调载荷（HERALD-5 原生解析）：外层
-// event_id 是回调事件自身的 UUID，delivery.event_id 才回带 ferry outbox
-// 主键（字符串数字）；kind=delivery_result 带投递结果，unsubscribe 等其他
-// kind 无 delivery 对象（ferry 无对应消费面，ack 掉防 herald 重试刷）。
+// heraldCallback is the herald §13.5 event callback payload (native parsing per HERALD-5): the outer
+// event_id is the callback event's own UUID; only delivery.event_id carries the ferry outbox
+// primary key back (as a numeric string); kind=delivery_result carries the delivery result, while
+// other kinds such as unsubscribe have no delivery object (ferry has no consumer for them — ack to stop herald's retry storm).
 type heraldCallback struct {
 	EventID  string `json:"event_id"`
 	App      string `json:"app"`
@@ -106,11 +106,11 @@ type heraldCallback struct {
 	} `json:"delivery"`
 }
 
-// verifyHeraldSignature 校验 X-Herald-Signature（herald 侧 `sha256=<hex>`
-// HMAC-SHA256，签名覆盖原始请求体，密钥=配置的 HeraldCallbackSecret）。
-// 未配置密钥=拒绝（P2：默认不验签是缺陷——回执端点是 open 组公开路由，
-// 无密钥即无法确认真伪，伪造回执会被默认接收，改默认必验签）。配置后走
-// HMAC 验签，缺前缀或不匹配统一 401。
+// verifyHeraldSignature validates X-Herald-Signature (herald sends `sha256=<hex>`
+// HMAC-SHA256; the signature covers the raw request body, key = the configured HeraldCallbackSecret).
+// Missing key = reject (P2: not verifying by default is a flaw — the receipt endpoint is a public route in the open group,
+// without a key there is no way to confirm authenticity, forged receipts would be accepted by default; changed to always require verification). Once configured it
+// does HMAC verification; a missing prefix or a mismatch uniformly returns 401.
 func (h *Handler) verifyHeraldSignature(c *gin.Context, body []byte) bool {
 	if h.cfg.HeraldCallbackSecret == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "callback secret not configured"})
@@ -132,10 +132,10 @@ func (h *Handler) verifyHeraldSignature(c *gin.Context, body []byte) bool {
 	return true
 }
 
-// eventResult 落一条通道维度投递回执；事件本体状态不动（ferry→Herald 腿
-// 2xx 即已置 sent，通道分发与重试由 Herald 管，回执只做留痕）。双形状
-// 判别解析（HERALD-5）：event_id 是 JSON 数字=HERALD-2 旧形状（线上既有
-// 通道），是字符串=herald §13.5 事件回调（delivery 内层回带 outbox id）。
+// eventResult records one per-channel delivery receipt; the event itself does not change status (the ferry→Herald leg
+// already marks it sent on 2xx — channel dispatch and retries are Herald's job, the receipt is for the record only). Dual-shape
+// discriminating parse (HERALD-5): event_id as a JSON number = the legacy HERALD-2 shape (existing
+// production channel); as a string = the herald §13.5 event callback (the inner delivery carries the outbox id back).
 func (h *Handler) eventResult(c *gin.Context) {
 	body, err := c.GetRawData()
 	if err != nil {
@@ -165,9 +165,9 @@ func (h *Handler) eventResult(c *gin.Context) {
 	h.recordEventResult(c, in.EventID, in.Channel, in.Status, in.Detail)
 }
 
-// eventResultCallback 解析 §13.5 回调：delivery.success→sent、failed→
-// failed（原因落 detail）；delivery 缺失（unsubscribe 等非投递回调）ack
-// 忽略；delivery.event_id 非数字或缺 channel/status 归 400。
+// eventResultCallback parses the §13.5 callback: delivery.success→sent, failed→
+// failed (reason lands in detail); a missing delivery (non-delivery callbacks such as unsubscribe) is acked
+// and ignored; a non-numeric delivery.event_id or a missing channel/status maps to 400.
 func (h *Handler) eventResultCallback(c *gin.Context, body []byte) {
 	var cb heraldCallback
 	if err := json.Unmarshal(body, &cb); err != nil {
@@ -196,8 +196,8 @@ func (h *Handler) eventResultCallback(c *gin.Context, body []byte) {
 	h.recordEventResult(c, id, cb.Delivery.Channel, status, cb.Delivery.Error)
 }
 
-// recordEventResult 是两种形状共用的落库尾：校验事件存在、落
-// event_deliveries、联动触达任务（TOUCH-5）。
+// recordEventResult is the shared persistence tail for both shapes: checks the event exists, writes
+// event_deliveries, and links the touch tasks (TOUCH-5).
 func (h *Handler) recordEventResult(c *gin.Context, eventID int64, channel, status, detail string) {
 	if eventID <= 0 {
 		fail(c, http.StatusBadRequest, errors.New("event_id is required"))
@@ -224,15 +224,15 @@ func (h *Handler) recordEventResult(c *gin.Context, eventID int64, channel, stat
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
-	h.touchResult(eventID, status, detail) // 触达任务联动（TOUCH-5）
+	h.touchResult(eventID, status, detail) // touch-task linkage (TOUCH-5)
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// ---- 通道投递看板与自检（HC-1/HC-2/HC-3，告警通道设计 §6 P2 行）----
+// ---- Channel delivery dashboard and self-test (HC-1/HC-2/HC-3, "Alert Channel Design" §6 P2 rows) ----
 
-// listEventDeliveries 投递回执看板（GET /api/events/deliveries）：最近回实行
-// （新在前）+ 按通道聚合（sent/failed 计数、最近一次失败明细）——通道故障
-// 自检的被动面，修通道前后对比有据。
+// listEventDeliveries is the delivery receipt dashboard (GET /api/events/deliveries): recent receipt rows
+// (newest first) + per-channel aggregation (sent/failed counts, latest failure detail) — the passive side of
+// channel-fault self-diagnosis, giving before/after evidence when fixing a channel.
 func (h *Handler) listEventDeliveries(c *gin.Context) {
 	limit := 100
 	if v := c.Query("limit"); v != "" {
@@ -252,7 +252,7 @@ func (h *Handler) listEventDeliveries(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
-	// 按通道全量聚合（回执行规模小，直接 GROUP BY）。
+	// Full per-channel aggregation (receipt rows are small in volume, plain GROUP BY).
 	var agg []struct {
 		Channel string
 		Sent    int64
@@ -273,7 +273,7 @@ func (h *Handler) listEventDeliveries(c *gin.Context) {
 			health = "degraded"
 		}
 		item := gin.H{"channel": a.Channel, "sent": a.Sent, "failed": a.Failed, "health": health}
-		// 最近一次失败明细（每通道一查，通道数个位数）。
+		// Latest failure detail (one query per channel; the channel count is single-digit).
 		var last storage.EventDelivery
 		if err := h.db.Where("channel = ? AND status = ?", a.Channel, herald.StatusFailed).
 			Order("id DESC").First(&last).Error; err == nil {
@@ -285,9 +285,9 @@ func (h *Handler) listEventDeliveries(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"rows": rows, "channels": channels})
 }
 
-// testEvent 通道自检（POST /api/events/test）：落一条 system_test 事件走
-// 完整 outbox→Herald→回执链路（复用退避重试与死信口径，不注入 Sender）。
-// 投递结果稍后出现在回执看板与 outbox——自检的「主动面」。
+// testEvent is the channel self-test (POST /api/events/test): emits one system_test event through the
+// full outbox→Herald→receipt chain (reusing the backoff-retry and dead-letter semantics, without injecting a Sender).
+// The delivery result shows up shortly after in the receipt dashboard and the outbox — the "active side" of self-testing.
 func (h *Handler) testEvent(c *gin.Context) {
 	ev, err := herald.Emit(h.db, herald.EmitInput{
 		Kind: "system_test", Severity: "info", Target: "admin",
@@ -301,9 +301,9 @@ func (h *Handler) testEvent(c *gin.Context) {
 	c.JSON(http.StatusCreated, ev)
 }
 
-// listEventSamples 通知样例预览（GET /api/events/samples）：每 kind 取最近
-// 一条实际落库事件作样例——零漂移（真实出站的标题/正文形态，非模板副本），
-// 管理员发测试前可先看各类告警长什么样。
+// listEventSamples is the notification sample preview (GET /api/events/samples): for each kind it takes the most
+// recent actually-persisted event as the sample — zero drift (real outbound title/body shapes, not template copies),
+// so admins can see what each alert kind looks like before sending a test.
 func (h *Handler) listEventSamples(c *gin.Context) {
 	var kinds []string
 	if err := h.db.Model(&storage.Event{}).Distinct().Order("kind").Pluck("kind", &kinds).Error; err != nil {

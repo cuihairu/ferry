@@ -11,10 +11,12 @@ import (
 	"gorm.io/gorm"
 )
 
-// TestSaveProcStatusesEdges 覆盖落库函数三条边界：空进程名整条跳过不落行；
-// 既有进程查询的非 NotFound 失败原样返回；既有行更新失败原样返回。
+// TestSaveProcStatusesEdges covers three edges of the persistence function: an empty
+// proc name is skipped as a whole and writes no row; a non-NotFound failure from the
+// existing-process lookup is returned as-is; an update failure on an existing row is
+// returned as-is.
 func TestSaveProcStatusesEdges(t *testing.T) {
-	// 空进程名跳过：不返回错误也不落行。
+	// Empty proc name is skipped: no error returned and no row written.
 	r, db := newTestRouterWithDB(t)
 	h := &Handler{db: db}
 	if err := h.saveProcStatuses(1, []agentproto.ProcStatus{{Name: "", State: "running"}}); err != nil {
@@ -28,7 +30,7 @@ func TestSaveProcStatusesEdges(t *testing.T) {
 		t.Fatalf("proc rows = %d, want 0", n)
 	}
 
-	// 既有进程查询的非 NotFound 失败 → 返回错误（与未落行区分）。
+	// A non-NotFound failure from the existing-process lookup -> error returned (distinct from "no row written").
 	r, db = newTestRouterWithDB(t)
 	h = &Handler{db: db}
 	regQueryFail("t:ps_first", db, (*storage.NodeProcStatus)(nil))
@@ -37,7 +39,7 @@ func TestSaveProcStatusesEdges(t *testing.T) {
 	}
 	_ = r
 
-	// 既有行更新失败 → 返回错误。
+	// Update failure on an existing row -> error returned.
 	r, db = newTestRouterWithDB(t)
 	h = &Handler{db: db}
 	if err := db.Create(&storage.NodeProcStatus{NodeID: 1, Proc: "cache", State: "running"}).Error; err != nil {
@@ -54,7 +56,7 @@ func TestSaveProcStatusesEdges(t *testing.T) {
 	_ = r
 }
 
-// TestNodeProcsDBErrors 覆盖 GET /api/nodes/:id/procs 取数失败 500。
+// TestNodeProcsDBErrors covers GET /api/nodes/:id/procs data fetch failure -> 500.
 func TestNodeProcsDBErrors(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	id, _ := createNodeFor(t, r, "ps-api")

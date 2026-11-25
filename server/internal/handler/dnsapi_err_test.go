@@ -10,15 +10,20 @@ import (
 	"gorm.io/gorm"
 )
 
-// 二十八批补口：域名前置（BR-2）各 400/404/500 口径——DNS 商校验缺名缺型、
-// 列表取数失败、录入坏绑定/缺 api_key/无主密钥/显式停用/落库失败、更新坏
-// id/查无/库故障 404/坏绑定/未知类型/无主密钥换密/保存失败、删除坏 id/
-// 无引用成功/落删失败、前置校验七规则直测、列表取数失败、建档坏绑定/
-// 查无 DNS 商/落库失败、改档坏 id/查无/坏绑定/校验/查无 DNS 商/保存失败、
-// 删档坏 id/查无/落删失败、geo-sync 对账库故障 500。
-// 留白：无——通道行为外呼由 geodns 包假通道覆盖，不在本批范围。
+// Batch 28 gap-fill: domain front (BR-2) 400/404/500 contracts -- DNS provider
+// validation with missing name/type, list query failure, entry with bad binding
+// / missing api_key / no master key / explicit disable / create failure, update
+// bad id / missing / db-down 404, bad binding / unknown type / master-key-less
+// rotate / save failure, delete bad id, unreferenced-success / delete failure,
+// front validation seven rules direct-tested, list query failure, front create
+// bad binding / missing provider / create failure, front update bad id / missing
+// / bad binding / validation / missing provider / save failure, front delete bad
+// id / missing / delete failure, geo-sync reconciliation db-down 500.
+// Blank spots: none -- channel-behavior callouts are covered by the geodns
+// package fake channel, out of scope for this batch.
 
-// isDNSProviderModel 判断语句是否落在 DNS 商表上（Find 链 Model 是切片指针）。
+// isDNSProviderModel tells whether the statement lands on the DNS provider table
+// (the Model of a Find chain is a slice pointer).
 func isDNSProviderModel(v any) bool {
 	switch v.(type) {
 	case *storage.DNSProvider, []storage.DNSProvider, *[]storage.DNSProvider:
@@ -27,7 +32,7 @@ func isDNSProviderModel(v any) bool {
 	return false
 }
 
-// isDNSFrontModel 判断语句是否落在前置记录表上。
+// isDNSFrontModel tells whether the statement lands on the front record table.
 func isDNSFrontModel(v any) bool {
 	switch v.(type) {
 	case *storage.DNSFront, []storage.DNSFront, *[]storage.DNSFront:
@@ -36,8 +41,8 @@ func isDNSFrontModel(v any) bool {
 	return false
 }
 
-// failDNSProviderCreates / failDNSProviderUpdates / failDNSProviderDeletes 让
-// DNS 商行的建/改/删语句失败。
+// failDNSProviderCreates / failDNSProviderUpdates / failDNSProviderDeletes make
+// the create/update/delete statements of DNS provider rows fail.
 func failDNSProviderCreates(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	db.Callback().Create().Before("gorm:create").Register("test:dnsprov_create", func(tx *gorm.DB) {
@@ -65,8 +70,8 @@ func failDNSProviderDeletes(t *testing.T, db *gorm.DB) {
 	})
 }
 
-// failDNSFrontCreates / failDNSFrontUpdates / failDNSFrontDeletes 让前置行的
-// 建/改/删语句失败。
+// failDNSFrontCreates / failDNSFrontUpdates / failDNSFrontDeletes make the
+// create/update/delete statements of front rows fail.
 func failDNSFrontCreates(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	db.Callback().Create().Before("gorm:create").Register("test:dnsfront_create", func(tx *gorm.DB) {
@@ -94,7 +99,7 @@ func failDNSFrontDeletes(t *testing.T, db *gorm.DB) {
 	})
 }
 
-// seedDNSProvider 直落一行 DNS 商（密文字段塞占位）。
+// seedDNSProvider inserts one DNS provider row directly (ciphertext fields hold a placeholder).
 func seedDNSProvider(t *testing.T, db *gorm.DB, name string) uint {
 	t.Helper()
 	row := storage.DNSProvider{Name: name, Type: "cloudflare", APIKey: "sealed", Enabled: true}
@@ -104,7 +109,7 @@ func seedDNSProvider(t *testing.T, db *gorm.DB, name string) uint {
 	return row.ID
 }
 
-// seedDNSFront 直落一行前置记录。
+// seedDNSFront inserts one front record row directly.
 func seedDNSFront(t *testing.T, db *gorm.DB, providerID uint, name string) uint {
 	t.Helper()
 	row := storage.DNSFront{Name: name, Domain: name + ".example.com", ProviderID: providerID,
@@ -115,7 +120,7 @@ func seedDNSFront(t *testing.T, db *gorm.DB, providerID uint, name string) uint 
 	return row.ID
 }
 
-// TestListDNSProvidersFindFail DNS 商列表取数失败冒 500。
+// TestListDNSProvidersFindFail DNS provider list query failure surfaces 500.
 func TestListDNSProvidersFindFail(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	closeSQL(t, db)
@@ -124,8 +129,8 @@ func TestListDNSProvidersFindFail(t *testing.T) {
 	}
 }
 
-// TestCreateDNSProviderErrors 录入：坏绑定、缺名缺型、缺 api_key、无主密钥、
-// 显式停用与落库失败。
+// TestCreateDNSProviderErrors entry: bad binding, missing name/type, missing
+// api_key, no master key, explicit disable and create failure.
 func TestCreateDNSProviderErrors(t *testing.T) {
 	r, _ := newTestRouterWithMasterKey(t)
 	if rec := doJSON(t, r, http.MethodPost, "/api/dns-providers", "not json"); rec.Code != http.StatusBadRequest {
@@ -139,7 +144,7 @@ func TestCreateDNSProviderErrors(t *testing.T) {
 		t.Fatalf("missing fields: %d %s", rec.Code, rec.Body)
 	}
 
-	// api_key 缺失（校验过名与型后才轮到）。
+	// api_key missing (only reached after name/type validation passed).
 	r, db := newTestRouterWithMasterKey(t)
 	if rec := doJSON(t, r, http.MethodPost, "/api/dns-providers",
 		map[string]any{"name": "cf", "type": "cloudflare"}); rec.Code != http.StatusBadRequest ||
@@ -147,14 +152,15 @@ func TestCreateDNSProviderErrors(t *testing.T) {
 		t.Fatalf("api_key: %d %s", rec.Code, rec.Body)
 	}
 
-	// 无主密钥 500（禁止明文落库）。
+	// no master key 500 (plaintext storage forbidden).
 	r2, _ := newTestRouterWithDB(t)
 	if rec := doJSON(t, r2, http.MethodPost, "/api/dns-providers",
 		map[string]any{"name": "cf", "type": "cloudflare", "api_key": "k"}); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("no master key: %d %s", rec.Code, rec.Body)
 	}
 
-	// 显式停用入库（Enabled 带 default:true，需显式补写才落 false）。
+	// explicit disable persisted (Enabled carries default:true, so it needs an
+	// explicit write-back to land false).
 	if rec := doJSON(t, r, http.MethodPost, "/api/dns-providers", map[string]any{
 		"name": "cf-off", "type": "cloudflare", "api_key": "k", "enabled": false,
 	}); rec.Code != http.StatusOK {
@@ -165,7 +171,7 @@ func TestCreateDNSProviderErrors(t *testing.T) {
 		t.Fatalf("not persisted disabled: %+v err=%v", row, err)
 	}
 
-	// 停用补写失败 500。
+	// disable write-back failure 500.
 	r, db = newTestRouterWithMasterKey(t)
 	failDNSProviderUpdates(t, db)
 	if rec := doJSON(t, r, http.MethodPost, "/api/dns-providers", map[string]any{
@@ -174,7 +180,7 @@ func TestCreateDNSProviderErrors(t *testing.T) {
 		t.Fatalf("write-back: %d %s", rec.Code, rec.Body)
 	}
 
-	// 落库失败 500。
+	// create failure 500.
 	r, db = newTestRouterWithMasterKey(t)
 	failDNSProviderCreates(t, db)
 	if rec := doJSON(t, r, http.MethodPost, "/api/dns-providers",
@@ -183,8 +189,9 @@ func TestCreateDNSProviderErrors(t *testing.T) {
 	}
 }
 
-// TestUpdateDNSProviderErrors 更新：定位 404（坏 id/查无/库故障同口径）、
-// 坏绑定、未知类型、无主密钥换密 500、保存失败 500。
+// TestUpdateDNSProviderErrors update: locate 404 (bad id / missing / db-down in
+// the same contract), bad binding, unknown type, master-key-less rotate 500,
+// save failure 500.
 func TestUpdateDNSProviderErrors(t *testing.T) {
 	r, db := newTestRouterWithMasterKey(t)
 	id := seedDNSProvider(t, db, "upd-dp")
@@ -193,7 +200,7 @@ func TestUpdateDNSProviderErrors(t *testing.T) {
 		t.Fatalf("bad id: %d %s", rec.Code, rec.Body)
 	}
 
-	// 查无与库故障同口径 404。
+	// missing and db-down share the same 404 contract.
 	r, _ = newTestRouterWithMasterKey(t)
 	if rec := doJSON(t, r, http.MethodPut, "/api/dns-providers/9999", map[string]any{"name": "x"}); rec.Code != http.StatusNotFound {
 		t.Fatalf("missing: %d %s", rec.Code, rec.Body)
@@ -205,7 +212,7 @@ func TestUpdateDNSProviderErrors(t *testing.T) {
 		t.Fatalf("db down: %d %s", rec.Code, rec.Body)
 	}
 
-	// 坏绑定与未知类型 400。
+	// bad binding and unknown type 400.
 	r, db = newTestRouterWithMasterKey(t)
 	id = seedDNSProvider(t, db, "upd-bind")
 	if rec := doJSON(t, r, http.MethodPut, "/api/dns-providers/"+itoaUint(uint64(id)), "not json"); rec.Code != http.StatusBadRequest {
@@ -216,7 +223,7 @@ func TestUpdateDNSProviderErrors(t *testing.T) {
 		t.Fatalf("validate: %d %s", rec.Code, rec.Body)
 	}
 
-	// 无主密钥换密 500（校验先过：名与型必带）。
+	// master-key-less secret rotate 500 (validation passed first: name and type must be present).
 	r2, db2 := newTestRouterWithDB(t)
 	pid := seedDNSProvider(t, db2, "noseal")
 	if rec := doJSON(t, r2, http.MethodPut, "/api/dns-providers/"+itoaUint(uint64(pid)),
@@ -224,7 +231,7 @@ func TestUpdateDNSProviderErrors(t *testing.T) {
 		t.Fatalf("seal: %d %s", rec.Code, rec.Body)
 	}
 
-	// 保存失败 500。
+	// save failure 500.
 	r, db = newTestRouterWithMasterKey(t)
 	id = seedDNSProvider(t, db, "upd-save")
 	failDNSProviderUpdates(t, db)
@@ -234,15 +241,16 @@ func TestUpdateDNSProviderErrors(t *testing.T) {
 	}
 }
 
-// TestDeleteDNSProviderErrors 删除：坏 id 404、无引用成功与落删失败 500
-// （有前置记录拒删的 409 已在既有 TestDNSAPI 覆盖）。
+// TestDeleteDNSProviderErrors delete: bad id 404, unreferenced success and
+// delete failure 500 (the 409 for providers with fronts is already covered by
+// the existing TestDNSAPI).
 func TestDeleteDNSProviderErrors(t *testing.T) {
 	r, _ := newTestRouterWithMasterKey(t)
 	if rec := doJSON(t, r, http.MethodDelete, "/api/dns-providers/abc", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("bad id: %d %s", rec.Code, rec.Body)
 	}
 
-	// 无引用成功删除。
+	// unreferenced provider deletes successfully.
 	r, db := newTestRouterWithMasterKey(t)
 	id := seedDNSProvider(t, db, "del-ok")
 	if rec := doJSON(t, r, http.MethodDelete, "/api/dns-providers/"+itoaUint(uint64(id)), nil); rec.Code != http.StatusOK ||
@@ -255,7 +263,7 @@ func TestDeleteDNSProviderErrors(t *testing.T) {
 		t.Fatalf("providers left: %d", n)
 	}
 
-	// 落删失败 500。
+	// delete failure 500.
 	r, db = newTestRouterWithMasterKey(t)
 	id = seedDNSProvider(t, db, "del-fail")
 	failDNSProviderDeletes(t, db)
@@ -264,8 +272,9 @@ func TestDeleteDNSProviderErrors(t *testing.T) {
 	}
 }
 
-// TestValidateDNSFrontRules 前置校验七规则逐分支直测（每用例重建入参防
-// 共享指针写穿）。
+// TestValidateDNSFrontRules front validation's seven rules direct-tested branch
+// by branch (each case rebuilds the input to avoid a shared pointer being
+// written through).
 func TestValidateDNSFrontRules(t *testing.T) {
 	fresh := func() dnsFrontInput {
 		pid := uint(1)
@@ -297,7 +306,7 @@ func TestValidateDNSFrontRules(t *testing.T) {
 	}
 }
 
-// TestListDNSFrontsFindFail 前置列表取数失败冒 500。
+// TestListDNSFrontsFindFail front list query failure surfaces 500.
 func TestListDNSFrontsFindFail(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	closeSQL(t, db)
@@ -306,14 +315,14 @@ func TestListDNSFrontsFindFail(t *testing.T) {
 	}
 }
 
-// TestCreateDNSFrontErrors 建档：坏绑定、查无 DNS 商与落库失败。
+// TestCreateDNSFrontErrors create: bad binding, missing DNS provider and create failure.
 func TestCreateDNSFrontErrors(t *testing.T) {
 	r, db := newTestRouterWithMasterKey(t)
 	if rec := doJSON(t, r, http.MethodPost, "/api/dns-fronts", "not json"); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bind: %d %s", rec.Code, rec.Body)
 	}
 
-	// 查无 DNS 商（校验已过才落定位）。
+	// DNS provider not found (location lookup only runs after validation passed).
 	if rec := doJSON(t, r, http.MethodPost, "/api/dns-fronts", map[string]any{
 		"name": "n", "domain": "edge.example.com", "provider_id": 9999,
 		"primary_ip": "10.0.0.1", "backup_ips": `["10.0.0.2"]`,
@@ -322,7 +331,7 @@ func TestCreateDNSFrontErrors(t *testing.T) {
 		t.Fatalf("provider: %d %s", rec.Code, rec.Body)
 	}
 
-	// 落库失败 500。
+	// create failure 500.
 	pid := seedDNSProvider(t, db, "cf-create")
 	failDNSFrontCreates(t, db)
 	if rec := doJSON(t, r, http.MethodPost, "/api/dns-fronts", map[string]any{
@@ -333,8 +342,8 @@ func TestCreateDNSFrontErrors(t *testing.T) {
 	}
 }
 
-// TestUpdateDNSFrontErrors 改档：定位 404、坏绑定、校验失败、查无 DNS 商
-// 与保存失败。
+// TestUpdateDNSFrontErrors update: locate 404, bad binding, validation failure,
+// missing DNS provider and save failure.
 func TestUpdateDNSFrontErrors(t *testing.T) {
 	r, db := newTestRouterWithMasterKey(t)
 	pid := seedDNSProvider(t, db, "cf-upd")
@@ -344,13 +353,13 @@ func TestUpdateDNSFrontErrors(t *testing.T) {
 		t.Fatalf("bad id: %d %s", rec.Code, rec.Body)
 	}
 
-	// 查无 404。
+	// missing 404.
 	r, _ = newTestRouterWithMasterKey(t)
 	if rec := doJSON(t, r, http.MethodPut, "/api/dns-fronts/9999", map[string]any{"name": "x"}); rec.Code != http.StatusNotFound {
 		t.Fatalf("missing: %d %s", rec.Code, rec.Body)
 	}
 
-	// 坏绑定、校验失败与查无 DNS 商 400。
+	// bad binding, validation failure and missing DNS provider 400.
 	r, db = newTestRouterWithMasterKey(t)
 	pid = seedDNSProvider(t, db, "cf-upd2")
 	fid = seedDNSFront(t, db, pid, "upd-f2")
@@ -373,7 +382,7 @@ func TestUpdateDNSFrontErrors(t *testing.T) {
 		t.Fatalf("provider: %d %s", rec.Code, rec.Body)
 	}
 
-	// 保存失败 500。
+	// save failure 500.
 	r, db = newTestRouterWithMasterKey(t)
 	pid = seedDNSProvider(t, db, "cf-upd3")
 	fid = seedDNSFront(t, db, pid, "upd-f3")
@@ -383,8 +392,8 @@ func TestUpdateDNSFrontErrors(t *testing.T) {
 	}
 }
 
-// TestDeleteDNSFrontErrors 删档：坏 id 与查无 404、落删失败 500（切离中
-// 拒删的 409 已在既有 TestDNSAPI 覆盖）。
+// TestDeleteDNSFrontErrors delete: bad id and missing 404, delete failure 500
+// (the 409 for switched-off fronts is already covered by the existing TestDNSAPI).
 func TestDeleteDNSFrontErrors(t *testing.T) {
 	r, db := newTestRouterWithMasterKey(t)
 	pid := seedDNSProvider(t, db, "cf-del")
@@ -394,13 +403,13 @@ func TestDeleteDNSFrontErrors(t *testing.T) {
 		t.Fatalf("bad id: %d %s", rec.Code, rec.Body)
 	}
 
-	// 查无 404。
+	// missing 404.
 	r, _ = newTestRouterWithMasterKey(t)
 	if rec := doJSON(t, r, http.MethodDelete, "/api/dns-fronts/9999", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("missing: %d %s", rec.Code, rec.Body)
 	}
 
-	// 落删失败 500。
+	// delete failure 500.
 	r, db = newTestRouterWithMasterKey(t)
 	pid = seedDNSProvider(t, db, "cf-del2")
 	fid = seedDNSFront(t, db, pid, "del-f2")
@@ -410,7 +419,7 @@ func TestDeleteDNSFrontErrors(t *testing.T) {
 	}
 }
 
-// TestGeoSyncDBError 手动对账的库故障：首段查询失败即冒 500。
+// TestGeoSyncDBError db-down during manual reconciliation: the first query failing surfaces 500.
 func TestGeoSyncDBError(t *testing.T) {
 	r, db := newTestRouterWithMasterKey(t)
 	closeSQL(t, db)

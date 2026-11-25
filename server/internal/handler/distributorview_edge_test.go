@@ -15,11 +15,13 @@ import (
 	"gorm.io/gorm"
 )
 
-// 二十一批补口：代理自面边沿口径——中间件未走到的 401 分支（无头/Bearer 空白/
-// ID 非数字）、lastAt 零值、limit 夹取、以及各端点库故障 500 分支（拆表与
-// 查询计数注入，均在中间件回库校验成功之后注入）。
+// Batch 21 gap-fill: distributor self-plane edge contracts -- the 401 branches the
+// middleware misses (no header / blank bearer / non-numeric ID), the lastAt zero
+// value, limit clamping, and the per-endpoint db-down 500 branches (dropped-table
+// and query-count injection, both after the middleware's DB re-validation has
+// succeeded).
 
-// signDistToken 签 role=distributor 的 JWT（ID 可控，供边沿分支注入）。
+// signDistToken signs a role=distributor JWT (ID controllable, for injecting edge branches).
 func signDistToken(t *testing.T, id string) string {
 	t.Helper()
 	claims := distributorClaims{
@@ -36,7 +38,7 @@ func signDistToken(t *testing.T, id string) string {
 	return ss
 }
 
-// doDistRaw 带指定 Authorization 原文发请求（空串=不带头）。
+// doDistRaw sends a request with the given raw Authorization value (empty string = no header).
 func doDistRaw(t *testing.T, r *gin.Engine, auth, method, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, nil)
@@ -48,8 +50,9 @@ func doDistRaw(t *testing.T, r *gin.Engine, auth, method, path string) *httptest
 	return w
 }
 
-// TestDistAuthEdgeBranches 中间件未走到的 401 分支：无头与 Bearer 空白
-// （tokenStr==""）、签名合法但 ID 非数字（ParseUint 失败）。
+// TestDistAuthEdgeBranches the 401 branches the middleware misses: no header and
+// blank bearer (tokenStr==""), plus a validly signed token with a non-numeric ID
+// (ParseUint failure).
 func TestDistAuthEdgeBranches(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	for _, auth := range []string{"", "Bearer "} {
@@ -64,8 +67,8 @@ func TestDistAuthEdgeBranches(t *testing.T) {
 	}
 }
 
-// TestLastAtBranches lastAt 三分支：命中非零时间回指针、未命中回 nil、零值
-// 时间视同未命中。
+// TestLastAtBranches lastAt's three branches: a non-zero hit returns a pointer, a
+// miss returns nil, and a zero time counts as a miss.
 func TestLastAtBranches(t *testing.T) {
 	now := time.Now()
 	if got := lastAt(map[uint]time.Time{7: now}, 7); got == nil || !got.Equal(now) {
@@ -79,7 +82,8 @@ func TestLastAtBranches(t *testing.T) {
 	}
 }
 
-// distEdgeSetup 建代理 d1 + 名下批次，返回引擎、库句柄、代理令牌、d1 与批次 id。
+// distEdgeSetup creates distributor d1 plus one of its batches, returning the engine,
+// DB handle, distributor token, d1's ID and the batch ID.
 func distEdgeSetup(t *testing.T) (*gin.Engine, *gorm.DB, string, uint, uint) {
 	t.Helper()
 	r, db := newTestRouterWithDB(t)
@@ -99,8 +103,9 @@ func distEdgeSetup(t *testing.T) (*gin.Engine, *gorm.DB, string, uint, uint) {
 	return r, db, distLogin(t, r, "d1", "secret123"), d1, batchID
 }
 
-// TestDistViewEmptyScopes 空数据口径：有批次无兑换（redeemed 空）、无批次
-// （batchIDs 空）——两种早退都回空列表，不报错。
+// TestDistViewEmptyScopes empty-data contracts: batches without redemptions
+// (redeemed empty) and no batches at all (batchIDs empty) -- both early exits
+// return empty lists, not errors.
 func TestDistViewEmptyScopes(t *testing.T) {
 	r, _, tok, _, _ := distEdgeSetup(t)
 	rec := doDist(t, r, tok, http.MethodGet, "/distributor/api/customers")
@@ -111,7 +116,7 @@ func TestDistViewEmptyScopes(t *testing.T) {
 		t.Fatalf("customers not empty: %s", rec.Body)
 	}
 
-	// 第二个代理：无批次。
+	// Second distributor: no batches.
 	rec = doJSON(t, r, "POST", "/api/distributors", map[string]any{"username": "d2", "password": "secret123"})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create d2: %d %s", rec.Code, rec.Body)
@@ -132,8 +137,9 @@ func TestDistViewEmptyScopes(t *testing.T) {
 	}
 }
 
-// TestDistViewLimitClamps orders/ledger 的 limit 夹取：正常解析、<1 夹 1、
-// >200 夹 200（直插账目行与代理订单）。
+// TestDistViewLimitClamps limit clamping for orders/ledger: parses normally, <1
+// clamps to 1, >200 clamps to 200 (ledger rows and distributor orders inserted
+// directly).
 func TestDistViewLimitClamps(t *testing.T) {
 	r, db, tok, d1, _ := distEdgeSetup(t)
 	for i, kind := range []string{"sale", "commission", "adjust"} {
@@ -189,8 +195,9 @@ func TestDistViewLimitClamps(t *testing.T) {
 	}
 }
 
-// TestDistViewDBFailures 各端点库故障 500 分支：拆表定向破坏首查/次查，
-// 查询计数注入破坏中间查询（中间件回库校验已通过）。
+// TestDistViewDBFailures the per-endpoint db-down 500 branches: dropped tables
+// target the first/second query, query-count injection targets middle queries
+// (the middleware's DB re-validation has already passed).
 func TestDistViewDBFailures(t *testing.T) {
 	want500 := func(t *testing.T, rec *httptest.ResponseRecorder, what string) {
 		t.Helper()
@@ -206,7 +213,7 @@ func TestDistViewDBFailures(t *testing.T) {
 	})
 	t.Run("me reread fail", func(t *testing.T) {
 		r, db, tok, _, _ := distEdgeSetup(t)
-		// 中间件 First 成功、端点 First 失败：第二次 *storage.Distributor 查询注入。
+		// middleware First succeeds, endpoint First fails: inject on the second *storage.Distributor query.
 		var reads int
 		db.Callback().Query().Before("gorm:query").Register("test:dist_reads", func(tx *gorm.DB) {
 			if _, ok := tx.Statement.Dest.(*storage.Distributor); ok {
@@ -290,8 +297,9 @@ func TestDistViewDBFailures(t *testing.T) {
 	})
 	t.Run("ledger totals fail", func(t *testing.T) {
 		r, db, tok, _, _ := distEdgeSetup(t)
-		// rows 走 Find（gorm:query 链）、totals 走 Scan（gorm:row 链）——同一计数
-		// 器挂两条链：第二次 distributor_ledgers 语句注入失败。
+		// rows go through Find (gorm:query chain), totals through Scan (gorm:row
+		// chain) -- hook one counter onto both chains: inject failure on the second
+		// distributor_ledgers statement.
 		var reads int
 		count := func(tx *gorm.DB) {
 			_, byModel := tx.Statement.Model.(*storage.DistributorLedger)
@@ -309,7 +317,7 @@ func TestDistViewDBFailures(t *testing.T) {
 	})
 }
 
-// distEdgeRedeem 造用户并兑换批次里的一张卡（客户侧聚合入口）。
+// distEdgeRedeem creates a user and redeems one card from the batch (the customer-side aggregation entry).
 func distEdgeRedeem(t *testing.T, r *gin.Engine, db *gorm.DB, batchID uint) {
 	t.Helper()
 	rec := doJSON(t, r, http.MethodPost, "/api/users", map[string]any{"username": "alice", "quota_bytes": 1000})

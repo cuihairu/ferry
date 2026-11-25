@@ -13,17 +13,22 @@ import (
 	"gorm.io/gorm"
 )
 
-// 在线支付回调（PAY-8）：Provider 验签 → 事务化三账 → 到账自动发放。
-// 回调鉴权靠验签（epusdt 回调密钥），不走管理端中间件。
+// Online payment callback (PAY-8): provider signature check -> three
+// transactional ledger writes -> automatic grant on receipt.
+// Callback authentication relies on signature verification (the epusdt
+// callback key) and bypasses the admin middleware.
 
-// epusdtNotify 是 epusdt 异步回调入口（POST /api/pay/epusdt/notify）。
-// 验签失败不落任何账；结算失败 400 供网关重试；结算成功（含幂等重放）
-// 回字面 ok 体——网关按响应体而非状态码判定回调结果，非 "ok" 一律视为
-// 失败并不停重试（assimon/epusdt v1 callback_queue.go 口径）。
+// epusdtNotify is the epusdt async callback entry (POST /api/pay/epusdt/notify).
+// A failed signature check writes nothing to the ledger; a failed settle
+// answers 400 so the gateway retries; a successful settle (including an
+// idempotent replay) answers the literal body ok -- the gateway decides
+// callback success from the response body, not the status code, and treats
+// anything but "ok" as a failure, retrying indefinitely (assimon/epusdt
+// v1 callback_queue.go convention).
 func (h *Handler) epusdtNotify(c *gin.Context) {
 	p, err := payment.Get("epusdt")
 	if err != nil {
-		fail(c, http.StatusServiceUnavailable, err) // 渠道未启用
+		fail(c, http.StatusServiceUnavailable, err) // channel not enabled
 		return
 	}
 	raw, err := io.ReadAll(io.LimitReader(c.Request.Body, 1<<20))
@@ -43,9 +48,11 @@ func (h *Handler) epusdtNotify(c *gin.Context) {
 	c.String(http.StatusOK, "ok")
 }
 
-// settlePayment 回调结算（单事务）：对单校验（渠道/金额）→ 流水（同
-// trade_id 重复回调幂等返回）→ 订单置 paid → 按订单发放口径执行权益
-// （与卡密兑换共用 applyGrant）。provider 为回调入口对应的渠道名。
+// settlePayment settles a callback (single transaction): order validation
+// (channel/amount) -> transaction record (replays with the same trade_id
+// return idempotently) -> mark the order paid -> grant entitlements per the
+// order's grant spec (shared with code redemption via applyGrant).
+// provider is the channel name matching the callback entry point.
 func (h *Handler) settlePayment(provider string, cb payment.Callback) (gin.H, error) {
 	var out gin.H
 	now := time.Now()
@@ -63,7 +70,8 @@ func (h *Handler) settlePayment(provider string, cb payment.Callback) (gin.H, er
 		if cb.AmountCents != order.AmountCents {
 			return fmt.Errorf("回调金额 %d 分与订单 %d 分不符", cb.AmountCents, order.AmountCents)
 		}
-		// 幂等：同 (provider, external_id) 流水已在，或订单已 paid，直接成功返回
+		// Idempotency: a transaction row for the same (provider, external_id)
+		// already exists, or the order is already paid -> return success as-is
 		var dup int64
 		if err := tx.Model(&storage.PaymentTransaction{}).
 			Where("provider = ? AND external_id = ?", provider, cb.ExternalID).
@@ -82,10 +90,13 @@ func (h *Handler) settlePayment(provider string, cb payment.Callback) (gin.H, er
 		if err := tx.Create(&txn).Error; err != nil {
 			return err
 		}
-		// 订单置 paid 走条件更新（仅 pending 可结算）：并发回调（不同
-		// external_id）可能同时通过上面的幂等检查，只有一方能翻转状态；
-		// 输家 RowsAffected=0，流水保留（钱确已到账，对账口径）但不再发放，
-		// 防止额度双发。过期/取消订单同样在此被拦下。
+		// Marking the order paid is a conditional update (only pending can be
+		// settled): concurrent callbacks with different external_ids may both
+		// clear the idempotency check above, but only one flips the status.
+		// The loser sees RowsAffected=0 and keeps the transaction row (the
+		// money really did arrive, per the reconciliation rule) while skipping
+		// the grant, which prevents double-quota. Expired or cancelled orders
+		// are stopped here as well.
 		res := tx.Model(&storage.PaymentOrder{}).
 			Where("id = ? AND status = ?", order.ID, "pending").
 			Updates(map[string]any{"status": "paid", "paid_at": cb.PaidAt})
@@ -96,7 +107,8 @@ func (h *Handler) settlePayment(provider string, cb payment.Callback) (gin.H, er
 			out = gin.H{"status": "ok", "idempotent": true}
 			return nil
 		}
-		// 到账发放：订单带发放口径才执行（空=不自动发放，走人工/对账）
+		// Grant on receipt: only when the order carries a grant spec (empty
+		// means no automatic grant, leaving it to manual work or reconciliation)
 		if order.GrantType == "" {
 			out = gin.H{"status": "ok"}
 			return nil

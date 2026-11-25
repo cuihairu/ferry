@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// distLogin 走登录端点取代理令牌。
+// distLogin hits the login endpoint to obtain a distributor token.
 func distLogin(t *testing.T, r *gin.Engine, username, password string) string {
 	t.Helper()
 	rec := doJSON(t, r, "POST", "/distributor/login", map[string]any{"username": username, "password": password})
@@ -20,7 +20,7 @@ func distLogin(t *testing.T, r *gin.Engine, username, password string) string {
 	return mustJSON(t, rec)["token"].(string)
 }
 
-// doDist 带代理令牌发请求（自面端点均为 GET 只读）。
+// doDist sends a request carrying the distributor token (all self-plane endpoints are read-only GETs).
 func doDist(t *testing.T, r *gin.Engine, token, method, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, nil)
@@ -35,7 +35,7 @@ func TestDistributorSelfView(t *testing.T) {
 	userID, _ := redeemCreate(t, r, "alice", map[string]any{"grant_type": "add_quota", "grant_value": 1000}, 1)
 	_, selfCodes := redeemCreate(t, r, "bob", map[string]any{"grant_type": "add_quota", "grant_value": 1000, "price_cents": 800}, 1)
 
-	// 两代理 + 各自批次（d1 佣金 30、d2 佣金 10）。
+	// Two distributors plus their own batches (d1 discount 30, d2 discount 10).
 	rec := doJSON(t, r, "POST", "/api/distributors", map[string]any{"username": "d1", "password": "secret123", "discount_percent": 30})
 	d1 := uint(mustJSON(t, rec)["distributor"].(map[string]any)["id"].(float64))
 	rec = doJSON(t, r, "POST", "/api/distributors", map[string]any{"username": "d2", "password": "secret123", "discount_percent": 10})
@@ -58,10 +58,10 @@ func TestDistributorSelfView(t *testing.T) {
 		return out
 	}
 	b1 := mkBatch("d1 批次", d1, 3)
-	b2 := mkBatch("d2 批次", 0, 1) // 先建一个自营批次占位
+	b2 := mkBatch("d2 批次", 0, 1) // create a self-operated batch first as a placeholder
 	_ = b2
 
-	// 无令牌/乱令牌 401。
+	// No token / garbage token -> 401.
 	rec = doJSON(t, r, "GET", "/distributor/api/me", nil)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("no token: %d %s", rec.Code, rec.Body)
@@ -76,7 +76,7 @@ func TestDistributorSelfView(t *testing.T) {
 
 	token := distLogin(t, r, "d1", "secret123")
 
-	// me：资料+四元组。
+	// me: profile plus the four counters.
 	rec = doDist(t, r, token, "GET", "/distributor/api/me")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("me: %d %s", rec.Code, rec.Body)
@@ -86,7 +86,7 @@ func TestDistributorSelfView(t *testing.T) {
 		t.Fatalf("me wrong: %s", rec.Body)
 	}
 
-	// batches：只回自有批次。
+	// batches: only own batches are returned.
 	rec = doDist(t, r, token, "GET", "/distributor/api/batches")
 	var batches []map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &batches)
@@ -95,7 +95,7 @@ func TestDistributorSelfView(t *testing.T) {
 	}
 	b1ID := uint(batches[0]["id"].(float64))
 
-	// codes：自有批次回卡密；他人/自营批次 404（互不可见）。
+	// codes: own batches return card codes; others' and self-operated batches 404 (mutually invisible).
 	rec = doDist(t, r, token, "GET", "/distributor/api/batches/"+utoa(b1ID)+"/codes")
 	var codes []map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &codes)
@@ -107,7 +107,7 @@ func TestDistributorSelfView(t *testing.T) {
 		t.Fatalf("ghost batch: %d %s", rec.Code, rec.Body)
 	}
 
-	// 兑换一张：d1 批次归 alice、自营批次归 bob。
+	// Redeem one card: the d1 batch goes to alice, the self-operated batch to bob.
 	rec = doJSON(t, r, "POST", "/api/redeem", map[string]any{"code": b1[0], "user_id": userID})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("redeem d1: %d %s", rec.Code, rec.Body)
@@ -117,7 +117,7 @@ func TestDistributorSelfView(t *testing.T) {
 		t.Fatalf("redeem self: %d %s", rec.Code, rec.Body)
 	}
 
-	// customers：只含兑换过自有卡的用户（alice， redeemed_cnt=1）。
+	// customers: only users who redeemed own cards (alice, redeemed_cnt=1).
 	rec = doDist(t, r, token, "GET", "/distributor/api/customers")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("customers: %d %s", rec.Code, rec.Body)
@@ -133,7 +133,7 @@ func TestDistributorSelfView(t *testing.T) {
 		t.Fatalf("customer row: %s", rec.Body)
 	}
 
-	// orders：只有归属自己的 card 单，带用户名。
+	// orders: only card orders attributed to this distributor, carrying the username.
 	rec = doDist(t, r, token, "GET", "/distributor/api/orders")
 	var ord struct {
 		Orders []map[string]any `json:"orders"`
@@ -143,7 +143,7 @@ func TestDistributorSelfView(t *testing.T) {
 		t.Fatalf("orders: %s", rec.Body)
 	}
 
-	// ledger：sale+commission 两行、余额=300。
+	// ledger: two rows, sale + commission, balance=300.
 	rec = doDist(t, r, token, "GET", "/distributor/api/ledger")
 	var led struct {
 		Ledger       []map[string]any `json:"ledger"`
@@ -154,14 +154,14 @@ func TestDistributorSelfView(t *testing.T) {
 		t.Fatalf("ledger: %s", rec.Body)
 	}
 
-	// me 四元组更新：sale=1000/commission=300。
+	// me four-counter update: sale=1000/commission=300.
 	rec = doDist(t, r, token, "GET", "/distributor/api/me")
 	me = mustJSON(t, rec)
 	if me["sale_cents"].(float64) != 1000 || me["commission_cents"].(float64) != 300 || me["balance_cents"].(float64) != 300 {
 		t.Fatalf("me totals: %s", rec.Body)
 	}
 
-	// 停用即踢：token 立即失效（中间件回库校验）。
+	// Disabling kicks out: the token becomes invalid immediately (middleware re-validates against the DB).
 	if err := db.Model(&storage.Distributor{}).Where("id = ?", d1).Update("enabled", false).Error; err != nil {
 		t.Fatalf("disable: %v", err)
 	}

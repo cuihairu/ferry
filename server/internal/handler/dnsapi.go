@@ -13,9 +13,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 域名前置（BR-2）管理端：DNS 商凭证与前置记录。
-// 凭证机密走 R24 加密面口径（同云提供商），接口只回 has_api_key；
-// 类型经 dns.KnownKind 校验，未知类型录入即拒（不冒称支持）。
+// Domain front (BR-2) admin plane: DNS provider credentials and front records.
+// Credential secrets follow the R24 encryption-plane contract (same as cloud
+// providers), so the API only reports has_api_key; the type is checked by
+// dns.KnownKind and unknown types are rejected at entry (no claiming support).
 
 type dnsProviderView struct {
 	ID        uint   `json:"id"`
@@ -28,7 +29,7 @@ type dnsProviderView struct {
 type dnsProviderInput struct {
 	Name    string `json:"name"`
 	Type    string `json:"type"`
-	APIKey  string `json:"api_key"` // 明文仅出现在录入/更换请求里
+	APIKey  string `json:"api_key"` // plaintext appears only in create/rotate requests
 	Enabled *bool  `json:"enabled,omitempty"`
 }
 
@@ -85,8 +86,9 @@ func (h *Handler) createDNSProvider(c *gin.Context) {
 		return
 	}
 	if !enabled {
-		// Enabled 带 default:true，零值 false 会被 GORM 略过落库默认值，需显式补写。
-		// Create 后结构体被库缺省 true 回填（RETURNING），按入参判定。
+		// Enabled carries default:true, so the zero value false is skipped by GORM
+		// in favor of the DB default; write it explicitly. After Create the struct is
+		// refilled with the DB default true (RETURNING), so decide by the input arg.
 		if err := h.db.Model(&storage.DNSProvider{}).Where("id=?", row.ID).Update("enabled", false).Error; err != nil {
 			fail(c, http.StatusInternalServerError, err)
 			return
@@ -97,7 +99,8 @@ func (h *Handler) createDNSProvider(c *gin.Context) {
 		Enabled: row.Enabled, HasAPIKey: true})
 }
 
-// updateDNSProvider 更新凭证：api_key 非空表示更换机密，空表示保留原值。
+// updateDNSProvider updates the credential: a non-empty api_key means rotating the
+// secret, an empty one keeps the current value.
 func (h *Handler) updateDNSProvider(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -162,14 +165,14 @@ func (h *Handler) deleteDNSProvider(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// ---- 前置记录 ----
+// ---- front records ----
 
 type dnsFrontInput struct {
 	Name       string `json:"name"`
 	Domain     string `json:"domain"`
 	ProviderID *uint  `json:"provider_id"`
 	PrimaryIP  string `json:"primary_ip"`
-	BackupIPs  string `json:"backup_ips"` // JSON 字符串数组
+	BackupIPs  string `json:"backup_ips"` // JSON string array
 }
 
 func validateDNSFront(in dnsFrontInput) error {
@@ -275,8 +278,9 @@ func (h *Handler) updateDNSFront(c *gin.Context) {
 	c.JSON(http.StatusOK, row)
 }
 
-// deleteDNSFront 删除前置记录；切离中（switched）拒绝——先等回切或人工恢复，
-// 避免删掉后域名悬在备用 IP 上无人回切。
+// deleteDNSFront deletes a front record; a switched-off one (switched) is refused
+// -- wait for the failback or manual restore first, so the domain is not left
+// stranded on backup IPs with nobody to fail it back.
 func (h *Handler) deleteDNSFront(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -299,9 +303,11 @@ func (h *Handler) deleteDNSFront(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// geoSync 手动分地域对账（POST /api/dns-fronts/geo-sync，E-27 设计 §C.7
-// 补偿入口）：事件驱动同步的兜底——自动钩子（池摘挂）失败或人工改库后，
-// 管理员可在此补一轮对齐；changed 为本次实际变更记录数。
+// geoSync manual geo reconciliation (POST /api/dns-fronts/geo-sync, E-27 design
+// §C.7 compensation entry): the backstop for event-driven sync -- when the
+// automatic hook (pool detach/attach) fails or after a manual DB edit, an admin
+// can run a round of alignment here; changed is the number of records actually
+// modified this round.
 func (h *Handler) geoSync(c *gin.Context) {
 	s := &geodns.Syncer{DB: h.db, Store: h.secrets}
 	n, err := s.Sync(c.Request.Context())

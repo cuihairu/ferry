@@ -1,9 +1,11 @@
 package handler
 
-// 管理员登录审计（安全设计 §1，P1）：每次登录尝试落 login_logs（时间/IP/
-// UA/结果，对齐设计 DDL），dash 分页可查；连续失败与新网段成功登录经
-// Herald login_alert 告警——未配 Herald 时事件落本地 outbox（dash 事件页
-// 与站内信可见），不静默、不自建通道。
+// Admin login audit (security design section 1, P1): every login attempt is
+// written to login_logs (time/IP/UA/result, matching the design DDL) and is
+// pageable in the dash; consecutive failures and successful logins from a new
+// subnet raise a Herald login_alert -- with Herald unconfigured the event
+// lands in the local outbox (visible on the dash event page and as an in-app
+// message), never silenced and never routed through a self-built channel.
 
 import (
 	"fmt"
@@ -19,17 +21,19 @@ import (
 	"gorm.io/gorm"
 )
 
-// 连续失败判定窗口与阈值，对齐登录限速口径（15 分钟失败 5 次锁定）。
+// Consecutive-failure window and threshold, aligned with the login rate limit
+// (5 failures within 15 minutes locks out).
 const (
 	loginBruteWindow = 15 * time.Minute
 	loginBruteFailN  = 5
 	loginLogUALimit  = 255
 )
 
-// writeLoginLog 落一行登录审计；失败只记日志，不阻断登录响应。
+// writeLoginLog appends one login audit row; a failure only logs and never
+// blocks the login response.
 func (h *Handler) writeLoginLog(username, ip, ua string, ok bool) storage.LoginLog {
-	// UA 截断按字符边界（UA 可含非 ASCII 名称，字节硬切会把多字节字符
-	// 截半落库成非法 UTF-8）。
+	// UA truncation cuts on character boundaries (a UA may carry non-ASCII names,
+	// and a hard byte cut would split a multibyte char and store invalid UTF-8).
 	ua = truncate(ua, loginLogUALimit)
 	row := storage.LoginLog{Username: username, IP: ip, UA: ua, OK: ok, CreatedAt: time.Now()}
 	if err := h.db.Create(&row).Error; err != nil {
@@ -38,8 +42,9 @@ func (h *Handler) writeLoginLog(username, ip, ua string, ok bool) storage.LoginL
 	return row
 }
 
-// alertLoginBrute 连续失败告警：同 IP 窗口内失败达阈值发 login_alert，
-// dedup 按 IP+日（同日重复爆发不刷屏）。
+// alertLoginBrute fires the consecutive-failure alert: once failures from the
+// same IP reach the threshold inside the window, emit login_alert. Dedup is
+// by IP+day so repeated bursts on the same day do not spam.
 func (h *Handler) alertLoginBrute(ip string) {
 	var n int64
 	if err := h.db.Model(&storage.LoginLog{}).
@@ -56,9 +61,11 @@ func (h *Handler) alertLoginBrute(ip string) {
 		"brute:"+ip+":"+time.Now().Format("2006-01-02"))
 }
 
-// alertLoginNewIP 新网段成功登录告警：与该账号上次成功登录 IP 不同网段
-// （v4 /24、v6 /64 粒度）时提示；首次成功登录无基线不判异地。afterID 是本次
-// 成功行 ID（排除自身取上一条）。dedup 按用户+日。
+// alertLoginNewIP fires the new-subnet success alert: a successful login from a
+// subnet other than the account's last successful one (v4 /24, v6 /64
+// granularity) raises it; the very first success has no baseline, so nothing is
+// flagged. afterID is this success row's ID (exclude itself, take the
+// previous one). Dedup is by user+day.
 func (h *Handler) alertLoginNewIP(username, ip string, afterID uint) {
 	var last storage.LoginLog
 	if err := h.db.Where("username = ? AND ok = ? AND id < ?", username, true, afterID).
@@ -74,8 +81,9 @@ func (h *Handler) alertLoginNewIP(username, ip string, afterID uint) {
 		"newip:"+username+":"+time.Now().Format("2006-01-02"))
 }
 
-// sameNetwork 判定两 IP 是否同网段（「异地」粒度：IPv4 /24、IPv6 /64）；
-// 解析失败回退整串比对。
+// sameNetwork decides whether two IPs share a subnet ("remote" granularity:
+// IPv4 /24, IPv6 /64); on a parse failure it falls back to comparing the
+// whole strings.
 func sameNetwork(a, b string) bool {
 	ia, err1 := netip.ParseAddr(a)
 	ib, err2 := netip.ParseAddr(b)
@@ -92,9 +100,11 @@ func sameNetwork(a, b string) bool {
 	return pa.IsValid() && pb.IsValid() && pa == pb
 }
 
-// emitLoginAlert 落 login_alert 事件（warning/admin）：本地按 dedup_key
-// 自查重（同键当日至多一条——Emit 只透传不做本地去重），dedup_key 再供
-// Herald 侧窗口合并；未配 Herald 时事件落本地 outbox 站内可见。
+// emitLoginAlert lands a login_alert event (warning/admin): dedup is checked
+// locally by dedup_key (at most one per key per day -- Emit only passes
+// through and does no local dedup), and the dedup_key also feeds Herald-side
+// window merging; with Herald unconfigured the event lands in the local outbox
+// and stays visible in-app.
 func emitLoginAlert(db *gorm.DB, title, body, dedup string) {
 	key := "login_alert:" + dedup
 	var n int64
@@ -118,7 +128,8 @@ func emitLoginAlert(db *gorm.DB, title, body, dedup string) {
 	}
 }
 
-// loginLogs 管理端分页查询登录审计（GET /admin/login-logs?page=&page_size=）。
+// loginLogs pages the login audit for the admin side
+// (GET /admin/login-logs?page=&page_size=).
 func (h *Handler) loginLogs(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	size, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))

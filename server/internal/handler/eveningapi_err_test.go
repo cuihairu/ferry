@@ -9,7 +9,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestEveningValidDays 覆盖显式 days 生效（默认 7 之外的合法值落桶）。
+// TestEveningValidDays covers an explicit days value taking effect (a legal value other than the default 7 lands in the bucket).
 func TestEveningValidDays(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	rec := doJSON(t, r, http.MethodGet, "/api/evening?days=3", nil)
@@ -27,7 +27,7 @@ func TestEveningValidDays(t *testing.T) {
 	}
 }
 
-// TestEveningDBError 覆盖探测结论取数失败 500。
+// TestEveningDBError covers the probe-verdict fetch failure 500.
 func TestEveningDBError(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	regQueryFail("t:evening_rows", db, (*[]storage.ProbeReport)(nil))
@@ -36,8 +36,8 @@ func TestEveningDBError(t *testing.T) {
 	}
 }
 
-// TestEveningAllUnreachable 覆盖有样本但无可达样本的钟点段：平均延迟走
-// 零值分支（不计平均），可用率为 0。
+// TestEveningAllUnreachable covers an hour bucket that has samples but no reachable ones: average latency
+// takes the zero-value branch (not counted in the average), availability is 0.
 func TestEveningAllUnreachable(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	atHour := func(hour int) time.Time {

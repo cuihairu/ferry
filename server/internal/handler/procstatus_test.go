@@ -12,9 +12,10 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestAgentWSProcStatus 覆盖心跳进程快照落库（SAVE-3）：心跳携带
-// ProcStatus（含指标）→ upsert 进 node_proc_statuses → 重复心跳刷新
-// 不重行 → GET /api/nodes/:id/procs 回读（metrics 列解析回数字对象）。
+// TestAgentWSProcStatus covers heartbeat process snapshot persistence (SAVE-3):
+// the heartbeat carries ProcStatus (with metrics) -> upserted into
+// node_proc_statuses -> repeated heartbeats refresh without duplicating rows ->
+// GET /api/nodes/:id/procs reads it back (metrics column parsed back to a numeric object).
 func TestAgentWSProcStatus(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	id, token := createNodeFor(t, r, "pstat-1")
@@ -35,7 +36,7 @@ func TestAgentWSProcStatus(t *testing.T) {
 		}
 	}
 
-	// 首轮心跳：cache 进程带命中统计指标
+	// First heartbeat: the cache process carries hit-counter metrics
 	sendHB([]agentproto.ProcStatus{{
 		Name: "cache", State: "running", PID: 4321, Restarts: 1, Since: time.Now(),
 		Metrics: map[string]uint64{"hits": 12, "misses": 3},
@@ -56,7 +57,7 @@ func TestAgentWSProcStatus(t *testing.T) {
 		t.Fatalf("proc row mismatch: %+v metrics=%v", rows[0], got)
 	}
 
-	// 二轮心跳：同进程刷新不重行（指标更新），新进程另起一行
+	// Second heartbeat: refreshing the same process does not duplicate the row (metrics updated), a new process gets its own row
 	sendHB([]agentproto.ProcStatus{
 		{Name: "cache", State: "running", PID: 4321, Restarts: 1, Since: time.Now(),
 			Metrics: map[string]uint64{"hits": 99, "misses": 1}},
@@ -76,7 +77,7 @@ func TestAgentWSProcStatus(t *testing.T) {
 		t.Fatalf("cache metrics not refreshed: %v", got)
 	}
 
-	// GET 回读：metrics 解析回数字对象，无指标的进程省略该字段
+	// GET read-back: metrics parsed back to a numeric object, the field omitted for processes without metrics
 	rec := doJSON(t, r, "GET", fmt.Sprintf("/api/nodes/%d/procs", id), nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get node procs: %d %s", rec.Code, rec.Body)
@@ -99,7 +100,7 @@ func TestAgentWSProcStatus(t *testing.T) {
 		t.Fatalf("cache pid in api: %v", list[0]["pid"])
 	}
 
-	// 不存在的节点 404
+	// Nonexistent node -> 404
 	if rec := doJSON(t, r, "GET", "/api/nodes/9999/procs", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("missing node should 404: %d", rec.Code)
 	}

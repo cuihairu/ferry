@@ -13,16 +13,17 @@ import (
 	"gorm.io/gorm"
 )
 
-// TestReconcile 覆盖三账对账（PAY-9）：按订单分组、缺失环节标注
-// （paid 缺流水 / paid 缺发放 / pending 有流水）、游离记录、总额小计。
+// TestReconcile covers three-ledger reconciliation (PAY-9): grouping by order,
+// flagging missing legs (paid with no transaction / paid with no grant /
+// pending with a transaction), orphan records, and running totals.
 func TestReconcile(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	now := time.Now()
 
-	// o1：三账齐全（paid+流水+发放）→ 无缺失
-	// o2：paid 无流水 →「缺支付流水」
-	// o3：paid 带发放口径但无发放 →「缺发放」
-	// o4：pending 却有流水 →「有流水未结算」
+	// o1: all three ledgers present (paid + transaction + grant) -> nothing missing
+	// o2: paid with no transaction -> the missing-payment-transaction note
+	// o3: paid with a grant spec but no grant -> the missing-grant note
+	// o4: pending yet carrying a transaction -> the unsettled-transaction note
 	seed := []storage.PaymentOrder{
 		{OrderNo: "r-o1", UserID: 1, Provider: "epusdt", AmountCents: 1000, Product: "p1", Status: "paid", PaidAt: &now, GrantType: "add_quota", GrantValue: 1},
 		{OrderNo: "r-o2", UserID: 1, Provider: "epusdt", AmountCents: 2000, Product: "p2", Status: "paid", PaidAt: &now},
@@ -38,7 +39,7 @@ func TestReconcile(t *testing.T) {
 	rows := []storage.PaymentTransaction{
 		{OrderNo: "r-o1", Provider: "epusdt", ExternalID: "t1", AmountCents: 1000, OccurredAt: now},
 		{OrderNo: "r-o4", Provider: "epusdt", ExternalID: "t4", AmountCents: 4000, OccurredAt: now},
-		// 游离流水：订单不存在
+		// orphan transaction: the order does not exist
 		{OrderNo: "r-ghost", Provider: "epusdt", ExternalID: "tg", AmountCents: 999, OccurredAt: now},
 	}
 	for i := range rows {
@@ -48,7 +49,7 @@ func TestReconcile(t *testing.T) {
 	}
 	grants := []storage.Grant{
 		{OrderNo: "r-o1", UserID: 1, GrantType: "add_quota", GrantValue: 1},
-		// 游离发放：订单不存在
+		// orphan grant: the order does not exist
 		{OrderNo: "r-ghost2", UserID: 1, GrantType: "extend_days", GrantValue: 7},
 	}
 	for i := range grants {
@@ -115,16 +116,16 @@ func TestReconcile(t *testing.T) {
 	if m := get("r-o4").Missing; len(m) != 1 || m[0] != "有流水未结算" {
 		t.Fatalf("r-o4 missing=%v", get("r-o4").Missing)
 	}
-	// card 类无发放口径不标缺发放，但 paid 无流水仍标缺流水
+	// A card kind has no grant spec, so no missing-grant flag; but paid with no transaction is still flagged
 	if m := get("r-o5").Missing; len(m) != 1 || m[0] != "缺支付流水" {
 		t.Fatalf("r-o5 missing=%v, want 缺支付流水", get("r-o5").Missing)
 	}
-	// 游离记录两条都报
+	// Both orphan records are reported
 	if len(out.Orphans) != 2 {
 		t.Fatalf("orphans = %d, want 2: %+v", len(out.Orphans), out.Orphans)
 	}
-	// 小计：paid 4 笔（o1/o2/o3/o5），金额 1000+2000+3000+0=6000；流水与发放
-	// 全表口径（P2 修复后含游离记录）：流水 1000+4000+999=5999、发放 2 笔。
+	// Totals: 4 paid orders (o1/o2/o3/o5), amount 1000+2000+3000+0=6000; transactions and grants are
+	// full-table scoped (including orphans since the P2 fix): transactions 1000+4000+999=5999, grants 2.
 	if out.Summary.PaidOrders != 4 {
 		t.Fatalf("paid_orders = %d", out.Summary.PaidOrders)
 	}
@@ -133,18 +134,20 @@ func TestReconcile(t *testing.T) {
 	}
 }
 
-// mapoke 是测试里只看条数的泛型行。
+// mapoke is the generic row used by tests that only care about counts.
 type mapoke = map[string]any
 
-// TestOrderRefundAndDetail 覆盖 OD-2：退款流转（仅 paid→refunded，409 否则）、
-// 三账详情接口、reconcile 退款小计与「已退款但缺支付流水」缺失检查。
+// TestOrderRefundAndDetail covers OD-2: the refund transition (only
+// paid->refunded, 409 otherwise), the three-ledger detail endpoint, and the
+// reconcile refund totals plus the refunded-but-missing-transaction note check.
 func TestOrderRefundAndDetail(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	now := time.Now()
 
-	// d-o1：paid，三账齐全（待退）；
-	// d-o2：pending（不可退）；
-	// d-o3：paid 无流水（退后应标「已退款但缺支付流水」）。
+	// d-o1: paid, all three ledgers present (awaiting refund);
+	// d-o2: pending (not refundable);
+	// d-o3: paid with no transaction (after refund it should carry the
+	// refunded-but-missing-transaction note).
 	seed := []storage.PaymentOrder{
 		{OrderNo: "d-o1", UserID: 1, Provider: "epusdt", AmountCents: 1000, Product: "p1", Status: "paid", PaidAt: &now, GrantType: "add_quota", GrantValue: 1},
 		{OrderNo: "d-o2", UserID: 1, Provider: "epusdt", AmountCents: 2000, Product: "p2", Status: "pending"},
@@ -162,7 +165,7 @@ func TestOrderRefundAndDetail(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 详情：三账齐全
+	// Detail: all three ledgers present
 	rec := doJSON(t, r, "GET", "/api/payments/orders/d-o1", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("detail d-o1: %d %s", rec.Code, rec.Body)
@@ -179,12 +182,12 @@ func TestOrderRefundAndDetail(t *testing.T) {
 	if row.OrderNo != "d-o1" || row.Status != "paid" || len(row.Transactions) != 1 || len(row.Grants) != 1 {
 		t.Fatalf("detail = %+v", row)
 	}
-	// 详情：订单不存在 → 404
+	// Detail: order not found -> 404
 	if rec := doJSON(t, r, "GET", "/api/payments/orders/nope", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("detail missing: %d", rec.Code)
 	}
 
-	// 退款：paid → refunded，回写退款留痕
+	// Refund: paid -> refunded, with the refund trace written back
 	rec = doJSON(t, r, "POST", "/api/payments/orders/d-o1/refund", map[string]any{"note": "C-20261008-001"})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("refund d-o1: %d %s", rec.Code, rec.Body)
@@ -197,7 +200,7 @@ func TestOrderRefundAndDetail(t *testing.T) {
 		t.Fatalf("d-o1 after refund = %s/%v/%q", order.Status, order.RefundAt, order.RefundNote)
 	}
 
-	// 二次退款 → 409；pending 退款 → 409；订单不存在 → 404
+	// Refund again -> 409; refund pending -> 409; order not found -> 404
 	if rec := doJSON(t, r, "POST", "/api/payments/orders/d-o1/refund", map[string]any{"note": "again"}); rec.Code != http.StatusConflict {
 		t.Fatalf("refund again: %d", rec.Code)
 	}
@@ -208,7 +211,8 @@ func TestOrderRefundAndDetail(t *testing.T) {
 		t.Fatalf("refund missing: %d", rec.Code)
 	}
 
-	// d-o3 也退掉（无流水），reconcile 应出退款小计与「已退款但缺支付流水」
+	// Refund d-o3 too (no transaction); reconcile should show the refund totals
+	// and the refunded-but-missing-transaction note
 	if rec := doJSON(t, r, "POST", "/api/payments/orders/d-o3/refund", nil); rec.Code != http.StatusOK {
 		t.Fatalf("refund d-o3: %d %s", rec.Code, rec.Body)
 	}
@@ -248,7 +252,7 @@ func TestOrderRefundAndDetail(t *testing.T) {
 	if m := byNo["d-o3"].Missing; len(m) != 1 || m[0] != "已退款但缺支付流水" {
 		t.Fatalf("d-o3 missing = %v", byNo["d-o3"].Missing)
 	}
-	// 小计：退款 2 笔（1000+3000=4000）；paid 归零（d-o2 还是 pending）
+	// Totals: 2 refunds (1000+3000=4000); paid drops to zero (d-o2 is still pending)
 	if out.Summary.RefundedOrder != 2 || out.Summary.RefundedCents != 4000 {
 		t.Fatalf("summary = %+v", out.Summary)
 	}
@@ -257,7 +261,7 @@ func TestOrderRefundAndDetail(t *testing.T) {
 	}
 }
 
-// TestReconcileGuards 覆盖对账 limit 负例/合法值与退款坏体 400。
+// TestReconcileGuards covers the reconciliation limit negative/valid values and a bad refund body 400.
 func TestReconcileGuards(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	for _, q := range []string{"?limit=abc", "?limit=0", "?limit=501"} {
@@ -268,19 +272,21 @@ func TestReconcileGuards(t *testing.T) {
 	if rec := doJSON(t, r, "GET", "/api/payments/reconcile?limit=5", nil); rec.Code != http.StatusOK {
 		t.Fatalf("limit=5: %d %s", rec.Code, rec.Body)
 	}
-	// 退款坏体 400（note 选填但 JSON 解析失败仍拒）。
+	// Bad refund body 400 (note is optional, but a JSON parse failure is still rejected).
 	if rec := doRaw(t, r, "POST", "/api/payments/orders/x/refund", "{bad"); rec.Code != http.StatusBadRequest {
 		t.Fatalf("refund bad json: %d", rec.Code)
 	}
 }
 
-// TestReconcileDBErrors 覆盖对账与退款取数/落账失败 → 500（gorm 回调注错，
-// 对齐既有口径）：订单/流水/发放取数、空库游离记录取数、退款状态流转。
+// TestReconcileDBErrors covers reconciliation and refund read/write failures
+// -> 500 (gorm callback injection, matching the existing convention): order /
+// transaction / grant reads, orphan-record reads on an empty database, and
+// the refund state transition.
 func TestReconcileDBErrors(t *testing.T) {
 	scenarios := []struct {
 		name   string
-		seed   bool // 预置一笔 paid 订单（空库走游离记录分支）
-		refund bool // 打退款而非对账
+		seed   bool // pre-seed one paid order (an empty database exercises the orphan-record branch)
+		refund bool // hit the refund path instead of reconciliation
 		reg    func(db *gorm.DB)
 	}{
 		{"orders query", true, false, func(db *gorm.DB) {
@@ -351,8 +357,10 @@ func TestReconcileDBErrors(t *testing.T) {
 	}
 }
 
-// TestRefundRowLoadFail 覆盖退款成功后三账视图读不到订单的兜底分支（注错
-// 只拦读取不拦更新）：200 且 {"ok":true}，即状态流转确已落库。
+// TestRefundRowLoadFail covers the fallback branch where the three-ledger
+// view cannot read the order after a successful refund (the injection
+// blocks reads only, not updates): 200 with {"ok":true}, meaning the state
+// transition really did reach the database.
 func TestRefundRowLoadFail(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	if err := db.Create(&storage.PaymentOrder{
@@ -372,15 +380,19 @@ func TestRefundRowLoadFail(t *testing.T) {
 	}
 }
 
-// TestRefundRevokesGrants 覆盖 P2「refund 不回收权益」修复：退款在同一事务
-// 内扣回订单发放过的权益——add_quota 从当前余额扣回（下限 0 不记负数）、
-// extend_days 从当前到期扣回天数；发放记录留档不变，并按用户落一条站内信。
-// 二次退款 409 后权益不再变动（paid 前置挡住重复回收）。
+// TestRefundRevokesGrants covers the P2 "refund does not revoke entitlements"
+// fix: the refund deducts, in the same transaction, the entitlements the order
+// granted -- add_quota from the current balance (floored at 0, no negative
+// balance) and extend_days from the current expiry; the grant records stay
+// archived unchanged, and one site notification is written per user.
+// After the second refund returns 409 the entitlements no longer change (the
+// paid precondition blocks repeated revocation).
 func TestRefundRevokesGrants(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	now := time.Now()
-	// 三名用户：u1 配额充足（5GiB 发 2GiB）、u2 有到期（+40 天发 30 天）、
-	// u3 配额不足（1GiB 发 2GiB，扣到 0 不记负）。
+	// Three users: u1 has ample quota (5GiB, granted 2GiB), u2 has an expiry
+	// (+40 days, granted 30 days), u3 has insufficient quota (1GiB, granted
+	// 2GiB, floored at 0 with no negative balance).
 	for i, name := range []string{"rev-quota", "rev-days", "rev-floor"} {
 		u := storage.User{Username: name, SubToken: name + "-sub", QuotaBytes: int64(5-i*2) << 30, Enabled: true}
 		if err := db.Create(&u).Error; err != nil {
@@ -422,7 +434,7 @@ func TestRefundRevokesGrants(t *testing.T) {
 		}
 	}
 
-	// 配额扣回：5GiB-2GiB=3GiB、1GiB-2GiB 下限 0；时长扣回：40 天-30 天≈10 天。
+	// Quota clawback: 5GiB-2GiB=3GiB, 1GiB-2GiB floored at 0; duration clawback: 40 days-30 days≈10 days.
 	var after1, after2, after3 storage.User
 	db.First(&after1, u1.ID)
 	db.First(&after2, u2.ID)
@@ -440,20 +452,20 @@ func TestRefundRevokesGrants(t *testing.T) {
 		t.Fatalf("expires_at until = %v, want ~10d", d)
 	}
 
-	// 发放记录留档不变（回收不改三账发放行）。
+	// Grant records stay archived unchanged (reclamation does not touch the grant ledger rows).
 	var grantRows int64
 	db.Model(&storage.Grant{}).Where("order_no IN ?", []string{"rv-o1", "rv-o2", "rv-o3"}).Count(&grantRows)
 	if grantRows != 3 {
 		t.Fatalf("grant rows = %d, want 3", grantRows)
 	}
-	// 每用户一条回收站内信。
+	// One reclamation site notification per user.
 	var notes int64
 	db.Model(&storage.Notification{}).Where("title = ?", "订单已退款，对应权益已回收").Count(&notes)
 	if notes != 3 {
 		t.Fatalf("notifications = %d, want 3", notes)
 	}
 
-	// 二次退款 409：权益不再扣（paid 前置挡住重复回收）。
+	// Second refund 409: entitlements are no longer deducted (the paid precondition blocks repeated revocation).
 	if rec := doJSON(t, r, "POST", "/api/payments/orders/rv-o1/refund", map[string]any{"note": "again"}); rec.Code != http.StatusConflict {
 		t.Fatalf("refund again: %d", rec.Code)
 	}
@@ -464,13 +476,15 @@ func TestRefundRevokesGrants(t *testing.T) {
 	}
 }
 
-// TestReconcileSummaryWholeLedger 覆盖 P2「reconcile 统计口径错」修复：小计
-// 不再随 limit 页截断——订单超过一页时 summary 仍按全表聚合（实收/退款按
-// 状态分桶、流水与发放全表合计），页内行数照常按 limit 返回。
+// TestReconcileSummaryWholeLedger covers the P2 "reconcile totals computed on
+// the wrong scope" fix: totals are no longer truncated to the limit page --
+// when orders outgrow one page the summary still aggregates the whole table
+// (receipts/refunds bucketed by status, transactions and grants as full-table
+// sums), while in-page rows are returned per limit as usual.
 func TestReconcileSummaryWholeLedger(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	now := time.Now()
-	// 250 单：200 paid @100 分 + 50 refunded @200 分，各带一笔流水与发放。
+	// 250 orders: 200 paid @100 cents + 50 refunded @200 cents, each with one transaction and one grant.
 	const total = 250
 	orders := make([]storage.PaymentOrder, 0, total)
 	txns := make([]storage.PaymentTransaction, 0, total)
@@ -495,7 +509,8 @@ func TestReconcileSummaryWholeLedger(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// limit=100：页内 100 行，summary 覆盖全表 250 单（修复前只统计页内）。
+	// limit=100: 100 in-page rows, the summary covers all 250 orders in the
+	// table (before the fix only the page was counted).
 	rec := doJSON(t, r, "GET", "/api/payments/reconcile?limit=100", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("reconcile: %d %s", rec.Code, rec.Body)

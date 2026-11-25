@@ -14,7 +14,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// subEntries 取回订阅体并解码 base64（v2ray 格式），便于断言入口列表。
+// subEntries fetches the subscription body and decodes base64 (v2ray format) to make the entry list assertable.
 func subEntries(t *testing.T, body string) string {
 	t.Helper()
 	dec, err := base64.StdEncoding.DecodeString(strings.TrimSpace(body))
@@ -24,13 +24,14 @@ func subEntries(t *testing.T, body string) string {
 	return string(dec)
 }
 
-// TestPoolAPI 覆盖入口池接口（E-16）：池列表只含 entry/both 且带最新探测
-// 结论；手动复位仅摘除态可用（active 409、不存在 404）；
-// 摘除节点从订阅入口列表消失，复位后回来。
+// TestPoolAPI covers the entry pool API (E-16): the pool list only holds
+// entry/both rows plus the latest probe verdict; manual reset only works on
+// the suspended state (active 409, missing 404); a suspended node disappears
+// from the subscription entry list and comes back after resume.
 func TestPoolAPI(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 
-	// 订阅用户 + 两个入口（in-pool / suspended）+ 一个落地（不进池）
+	// Subscription user + two entries (in-pool / suspended) + one landing (not in the pool)
 	if rec := doJSON(t, r, "POST", "/api/users", map[string]any{"username": "alice", "quota_bytes": 1000}); rec.Code != http.StatusCreated {
 		t.Fatalf("create user: %d %s", rec.Code, rec.Body)
 	}
@@ -55,7 +56,7 @@ func TestPoolAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// ---- 池列表：不含 landing，us-entry 带最新 sick 结论 ----
+	// ---- Pool list: no landing, us-entry carries the latest sick verdict ----
 	rec := doJSON(t, r, "GET", "/api/pool", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list pool: %d %s", rec.Code, rec.Body)
@@ -78,7 +79,7 @@ func TestPoolAPI(t *testing.T) {
 		t.Fatalf("hk-entry row = %+v", v)
 	}
 
-	// ---- 订阅：两个入口都在 ----
+	// ---- Subscription: both entries present ----
 	rec = getSub(t, r, "/sub/"+u.SubToken, "v2rayN/1.0")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("sub: %d %s", rec.Code, rec.Body)
@@ -87,12 +88,12 @@ func TestPoolAPI(t *testing.T) {
 		t.Fatalf("sub should list us-entry before suspend: %s", rec.Body.String())
 	}
 
-	// ---- active 态手动复位 → 409 ----
+	// ---- Manual reset on the active state -> 409 ----
 	if rec := doJSON(t, r, "POST", "/api/pool/"+strconv.FormatUint(uint64(target), 10)+"/resume", nil); rec.Code != http.StatusConflict {
 		t.Fatalf("resume active should 409, got %d %s", rec.Code, rec.Body)
 	}
 
-	// ---- 摘除 us-entry → 订阅消失 ----
+	// ---- Suspend us-entry -> gone from the subscription ----
 	if err := db.Model(&storage.Node{}).Where("id = ?", target).
 		Updates(map[string]any{"pool_state": pool.StateSuspended, "pool_reason": "连续 3 次探测 sick"}).Error; err != nil {
 		t.Fatal(err)
@@ -102,7 +103,7 @@ func TestPoolAPI(t *testing.T) {
 		t.Fatalf("suspended entry must be dropped from subscription: %s", rec.Body.String())
 	}
 
-	// ---- 手动复位 → 订阅恢复；不存在 404 ----
+	// ---- Manual reset -> subscription recovers; missing -> 404 ----
 	if rec := doJSON(t, r, "POST", "/api/pool/"+strconv.FormatUint(uint64(target), 10)+"/resume", nil); rec.Code != http.StatusOK {
 		t.Fatalf("resume: %d %s", rec.Code, rec.Body)
 	}
@@ -120,8 +121,9 @@ func TestPoolAPI(t *testing.T) {
 	}
 }
 
-// TestPoolStandbyAPI 覆盖预备标记（BR-3）：在池入口标记预备、重复标记 409、
-// 预备态经 resume 回池、非入口节点 400。
+// TestPoolStandbyAPI covers standby marking (BR-3): marking an in-pool entry
+// standby, a repeat mark 409, standby returning to the pool via resume, and a
+// non-entry node rejected 400.
 func TestPoolStandbyAPI(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	if err := db.Create(&storage.Node{Name: "sb-entry", Token: "tok-sb", Role: "entry",
@@ -143,7 +145,7 @@ func TestPoolStandbyAPI(t *testing.T) {
 	if rec := doJSON(t, r, "POST", "/api/pool/"+id+"/standby", nil); rec.Code != http.StatusConflict {
 		t.Fatalf("repeat standby: %d", rec.Code)
 	}
-	// 预备态回池。
+	// Standby returns to the pool.
 	if rec := doJSON(t, r, "POST", "/api/pool/"+id+"/resume", nil); rec.Code != http.StatusOK {
 		t.Fatalf("resume standby: %d %s", rec.Code, rec.Body)
 	}
@@ -151,7 +153,7 @@ func TestPoolStandbyAPI(t *testing.T) {
 	if after.PoolState != pool.StateActive || after.PoolReason != "预备回池" {
 		t.Fatalf("after resume = %+v", after)
 	}
-	// 非入口节点不可标记预备。
+	// A non-entry node cannot be marked standby.
 	landing := storage.Node{Name: "ld", Token: "tok-ld", Role: "landing", Enabled: true}
 	if err := db.Create(&landing).Error; err != nil {
 		t.Fatal(err)

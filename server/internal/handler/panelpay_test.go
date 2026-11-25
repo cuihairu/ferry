@@ -13,7 +13,8 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// stubGateway 是下单可用的假网关：收银台与交易号按订单号拼出。
+// stubGateway is a fake gateway that can place orders: its checkout URL and
+// transaction number are built from the order number.
 type stubGateway struct{}
 
 func (stubGateway) Name() string { return "epusdt" }
@@ -24,12 +25,15 @@ func (stubGateway) CreateOrder(_ context.Context, o payment.Order) (payment.Rece
 	}, nil
 }
 func (stubGateway) Verify(context.Context, []byte) (payment.Callback, error) {
-	return payment.Callback{}, nil // 下单测试不验回调，结算走 stubEpusdt 覆盖注册
+	return payment.Callback{}, nil // order-placement tests skip callback verification; settlement is covered via stubEpusdt registration
 }
 
-// TestPanelOrderFlow 覆盖门户在线下单闭环（PAY-11）：商品可见性
-// （设价上架，免费/过期/售罄/不存在不可售）、渠道不可用、上游失败 502
-// 不落订单、成功下单落 pending 锚点、回调结算后状态查询为 paid 且发放到位。
+// TestPanelOrderFlow covers the portal online-ordering loop (PAY-11):
+// product visibility (listed with a price; free / expired / sold-out /
+// missing are unsellable), an unavailable channel, upstream failure 502
+// with no order persisted, a successful order persisting a pending anchor,
+// and status queries showing paid with the grant in place after callback
+// settlement.
 func TestPanelOrderFlow(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	for _, name := range []string{"buyer", "other"} {
@@ -55,7 +59,7 @@ func TestPanelOrderFlow(t *testing.T) {
 		{BatchID: batches[0].ID, Code: "P11-SELL-1", Status: "unused"},
 		{BatchID: batches[1].ID, Code: "P11-FREE-1", Status: "unused"},
 		{BatchID: batches[2].ID, Code: "P11-EXP-1", Status: "unused"},
-		// batches[3] 无码 → 售罄
+		// batches[3] has no codes -> sold out
 	}
 	for i := range codes {
 		if err := db.Create(&codes[i]).Error; err != nil {
@@ -68,7 +72,7 @@ func TestPanelOrderFlow(t *testing.T) {
 		return &rec.Code
 	}
 
-	// ---- 商品列表：只下发设价、未过期、有余量的批次 ----
+	// ---- Product list: only batches that are priced, unexpired, and have stock ----
 	payment.Register(stubGateway{})
 	rec := doPanel(t, r, "buyer-sub", "GET", "/api/panel/products", nil)
 	if rec.Code != http.StatusOK {
@@ -82,7 +86,7 @@ func TestPanelOrderFlow(t *testing.T) {
 		t.Fatalf("products = %+v, want only batch %d", products, sell.ID)
 	}
 
-	// ---- 下单前置校验 ----
+	// ---- Pre-order validation ----
 	if got := *post("/api/panel/orders", map[string]any{"batch_id": batches[3].ID, "provider": "epusdt"}); got != http.StatusBadRequest {
 		t.Fatalf("sold-out should 400: %d", got)
 	}
@@ -99,7 +103,7 @@ func TestPanelOrderFlow(t *testing.T) {
 		t.Fatalf("unknown provider should 400: %d", got)
 	}
 
-	// ---- 上游网关失败 → 502，不落订单 ----
+	// ---- Upstream gateway failure -> 502, no order persisted ----
 	payment.Register(stubEpusdt{err: errors.New("网关不可用")})
 	if got := *post("/api/panel/orders", map[string]any{"batch_id": sell.ID, "provider": "epusdt"}); got != http.StatusBadGateway {
 		t.Fatalf("upstream failure should 502: %d", got)
@@ -110,7 +114,7 @@ func TestPanelOrderFlow(t *testing.T) {
 		t.Fatalf("failed order persisted: %d", orderCount)
 	}
 
-	// ---- 成功下单：pending 锚点 + 收银台 ----
+	// ---- Successful order: pending anchor + checkout URL ----
 	payment.Register(stubGateway{})
 	rec = doPanel(t, r, "buyer-sub", "POST", "/api/panel/orders",
 		map[string]any{"batch_id": sell.ID, "provider": "epusdt"})
@@ -135,13 +139,13 @@ func TestPanelOrderFlow(t *testing.T) {
 		t.Fatalf("pending order = %+v", order)
 	}
 
-	// ---- 结算前状态查询：pending ----
+	// ---- Status query before settlement: pending ----
 	rec = doPanel(t, r, "buyer-sub", "GET", "/api/panel/orders/"+created.OrderNo, nil)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"status":"pending"`) {
 		t.Fatalf("status before pay: %d %s", rec.Code, rec.Body)
 	}
 
-	// ---- 回调结算 → paid + 自动发放 ----
+	// ---- Callback settlement -> paid + automatic grant ----
 	payment.Register(stubEpusdt{cb: payment.Callback{
 		OrderNo: created.OrderNo, ExternalID: "tx-p11", AmountCents: 1000,
 		PaidAt: time.Now(), Raw: []byte("order_id=" + created.OrderNo + "&status=2"),
@@ -155,7 +159,7 @@ func TestPanelOrderFlow(t *testing.T) {
 		t.Fatalf("quota = %d, want +50GB", u.QuotaBytes)
 	}
 
-	// ---- 结算后状态查询：paid + 发放明细 ----
+	// ---- Status query after settlement: paid + grant detail ----
 	rec = doPanel(t, r, "buyer-sub", "GET", "/api/panel/orders/"+created.OrderNo, nil)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"status":"paid"`) {
 		t.Fatalf("status after pay: %d %s", rec.Code, rec.Body)
@@ -170,7 +174,7 @@ func TestPanelOrderFlow(t *testing.T) {
 		t.Fatalf("grants = %+v", detail.Grants)
 	}
 
-	// ---- 越权与不存在：他人令牌/任意订单号统一 404 ----
+	// ---- Privilege escalation and missing orders: another user's token or an arbitrary order number is uniformly 404 ----
 	if rec := doPanel(t, r, "other-sub", "GET", "/api/panel/orders/"+created.OrderNo, nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("other user's order should 404: %d", rec.Code)
 	}
@@ -179,8 +183,10 @@ func TestPanelOrderFlow(t *testing.T) {
 	}
 }
 
-// TestPanelChannels 覆盖渠道注册态查询（SHOP-1）：真实现记 enabled、
-// 占位渠道（NewDisabled）记 disabled，面板据此渲染渠道选择置灰。
+// TestPanelChannels covers the channel registration-state query (SHOP-1):
+// real implementations are recorded as enabled and placeholder channels
+// (NewDisabled) as disabled, which the panel uses to grey out the channel
+// picker.
 func TestPanelChannels(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	if err := db.Create(&storage.User{

@@ -50,9 +50,11 @@ func (h *Handler) createNode(c *gin.Context) {
 	c.JSON(http.StatusCreated, n)
 }
 
-// newPersistedNode 由注册载荷建节点并落库：签发接入令牌→元数据初值→
-// Enabled=false 显式补写。管理面建节点与 FERRY-001 凭据换节点共用此口径，
-// 两路建出的节点形状完全一致。
+// newPersistedNode builds a node from the registration payload and persists
+// it: issue the agent token -> metadata initial values -> an explicit
+// Enabled=false write-back. Admin-side node creation and the FERRY-001
+// credential exchange share this path, so nodes created either way have the
+// exact same shape.
 func newPersistedNode(db *gorm.DB, in *model.NodeInput) (*storage.Node, error) {
 	token, err := RandomToken()
 	if err != nil {
@@ -72,13 +74,15 @@ func newPersistedNode(db *gorm.DB, in *model.NodeInput) (*storage.Node, error) {
 		Token:    token,
 		Status:   "unknown",
 	}
-	// 元数据：非空覆盖库默认值，任一出现即 MetaInit（面板接管，注册不再覆盖）。
+	// metadata: non-empty values override the DB defaults, and any one present
+	// sets MetaInit (panel takeover, registration no longer overrides).
 	applyMetaInput(&n, in)
 	if err := db.Create(&n).Error; err != nil {
 		return nil, err
 	}
 	if !enabled {
-		// Enabled 带 default:true，零值 false 会被 GORM 略过落库默认值，需显式补写。
+		// Enabled carries default:true, so the zero value false would be skipped in
+		// favor of the DB default; an explicit write-back is needed.
 		if err := db.Model(&storage.Node{}).Where("id=?", n.ID).Update("enabled", false).Error; err != nil {
 			return nil, err
 		}
@@ -98,7 +102,7 @@ func (h *Handler) updateNode(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	// 未提供的字段保持原值，整体校验后回写。
+	// fields left out keep their current values; validate the whole input, then write back.
 	if in.Name == "" {
 		in.Name = n.Name
 	}
@@ -130,14 +134,15 @@ func (h *Handler) updateNode(c *gin.Context) {
 		"config":   normalizeConfig(in.Config),
 		"enabled":  enabled,
 	}
-	// 元数据未提供保持原值（与基础字段同口径），提供则校验后回写。
+	// metadata left out keeps its current value (same rule as the base fields);
+	// provided values are written back after validation.
 	metaProvided := false
 	for k, v := range metaUpdates(&in) {
 		updates[k] = v
 		metaProvided = true
 	}
 	if metaProvided {
-		// 面板改过元数据后，注册上报不再覆盖。
+		// once the panel has edited metadata, registration reports no longer override it.
 		updates["meta_init"] = true
 	}
 	if err := h.db.Model(&storage.Node{}).Where("id=?", n.ID).Updates(updates).Error; err != nil {
@@ -239,7 +244,8 @@ type nodeTokenRevokeInput struct {
 	Token string `json:"token"`
 }
 
-// findNode 按主键查节点，不存在返回 errNotFound（非法 id 同样视为不存在）。
+// findNode looks a node up by primary key; a missing node returns errNotFound
+// (an illegal id counts as missing too).
 func (h *Handler) findNode(id string) (*storage.Node, error) {
 	uid, err := strconv.ParseUint(id, 10, 32)
 	if err != nil {
@@ -255,7 +261,8 @@ func (h *Handler) findNode(id string) (*storage.Node, error) {
 	return &n, nil
 }
 
-// normalizeConfig 保证模板存的是紧凑 JSON 文本；空对象输入回退为 {}。
+// normalizeConfig guarantees the template is stored as compact JSON text; an
+// empty-object input falls back to {}.
 func normalizeConfig(cfg string) string {
 	trimmed := strings.TrimSpace(cfg)
 	if trimmed == "" {
@@ -263,7 +270,7 @@ func normalizeConfig(cfg string) string {
 	}
 	var v any
 	if json.Unmarshal([]byte(trimmed), &v) != nil {
-		return trimmed // validateNodeInput 已确保合法，这里仅防御
+		return trimmed // validateNodeInput already guarantees validity; defensive here
 	}
 	compact, err := json.Marshal(v)
 	if err != nil {
@@ -272,14 +279,16 @@ func normalizeConfig(cfg string) string {
 	return string(compact)
 }
 
-// nodeConfigFields 是协议配置模板里面板读取的共享字段（与订阅侧 sub
-// 包的 nodeConfig 同形，只取校验需要的子集）。
+// nodeConfigFields holds the shared fields the panel reads out of the protocol
+// config template (same shape as nodeConfig in the sub package on the
+// subscription side, restricted to the subset validation needs).
 type nodeConfigFields struct {
 	Password string `json:"password"`
 }
 
-// parseNodeConfig 从配置模板取共享字段；空/{} 返回零值，非法 JSON 报错
-// （validateNodeInput 已先行校验，这里针对 update 缺 config 的路径兜底）。
+// parseNodeConfig pulls the shared fields out of the config template; empty or
+// {} returns zero values, and invalid JSON errors (validateNodeInput already
+// checked up front; this covers the update path where config is absent).
 func parseNodeConfig(cfg string) (nodeConfigFields, error) {
 	var out nodeConfigFields
 	trimmed := strings.TrimSpace(cfg)
@@ -292,7 +301,8 @@ func parseNodeConfig(cfg string) (nodeConfigFields, error) {
 	return out, nil
 }
 
-// metaUpdates 把 NodeInput 里非空的元数据字段转成列更新；空串表示保持原值。
+// metaUpdates turns the non-empty metadata fields of NodeInput into column
+// updates; an empty string means keep the current value.
 func metaUpdates(in *model.NodeInput) map[string]any {
 	out := map[string]any{}
 	if in.Role != "" {
@@ -322,7 +332,8 @@ func metaUpdates(in *model.NodeInput) map[string]any {
 	return out
 }
 
-// applyMetaInput 建节点时按请求落元数据；任一元数据出现即视为面板接管。
+// applyMetaInput stores metadata from the request at node creation; any
+// metadata present counts as a panel takeover.
 func applyMetaInput(n *storage.Node, in *model.NodeInput) {
 	provided := false
 	set := func(dst *string, v string) {
@@ -383,9 +394,12 @@ func validateNodeInput(in *model.NodeInput, creating bool) error {
 	return nil
 }
 
-// validateNodeConfig 按协议校验配置模板的必填字段（与订阅侧同口径：
-// 缺字段在订阅/分享链接生成时才报错，这里在建/改节点时提前拦）。
-// 其余协议（vless/vmess/trojan/ss）的必填字段由订阅侧校验，此处不重复。
+// validateNodeConfig checks the required fields of the config template per
+// protocol (same rule as the subscription side: a missing field only errors
+// when a subscription/share link is generated, so this catches it early at
+// node create/update). The remaining protocols (vless/vmess/trojan/ss) have
+// their required fields checked on the subscription side and are not repeated
+// here.
 func validateNodeConfig(in *model.NodeInput) error {
 	if in.Protocol != model.ProtoHysteria2 {
 		return nil
@@ -400,10 +414,11 @@ func validateNodeConfig(in *model.NodeInput) error {
 	return nil
 }
 
-// fail 输出统一错误结构；内部错误只记日志不外泄细节。
+// fail emits the uniform error structure; internal errors are only logged and
+// never leak details.
 func fail(c *gin.Context, status int, err error) {
 	if status >= 500 {
-		c.Error(err) // gin 日志记录
+		c.Error(err) // gin logging
 		c.JSON(status, gin.H{"error": "internal error"})
 		return
 	}

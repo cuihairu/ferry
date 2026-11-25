@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// provNode 建一个带配置模板的 provisioning 节点（流水线输入）。
+// provNode creates a provisioning node carrying a config template (pipeline input).
 func provNode(t *testing.T, db *gorm.DB, name, token string) storage.Node {
 	t.Helper()
 	node := storage.Node{Name: name, Port: 443, Protocol: "vless", Enabled: true,
@@ -24,7 +24,7 @@ func provNode(t *testing.T, db *gorm.DB, name, token string) storage.Node {
 	return node
 }
 
-// waitForNote 轮询注记（流水线由 goroutine 推进，给足宽限）。
+// waitForNote polls the provision note (the pipeline advances in a goroutine, so allow generous slack).
 func waitForNote(t *testing.T, db *gorm.DB, id uint, want string) storage.Node {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -43,8 +43,9 @@ func waitForNote(t *testing.T, db *gorm.DB, id uint, want string) storage.Node {
 	}
 }
 
-// TestPipelineDeployAlreadyApplied 覆盖已有 applied 快照时直接返回：不新推
-// 配置、不写注记（重连不重推）。
+// TestPipelineDeployAlreadyApplied covers returning immediately when an
+// applied snapshot already exists: no new config push, no note written
+// (a reconnect does not re-push).
 func TestPipelineDeployAlreadyApplied(t *testing.T) {
 	_, db := newTestRouterWithDB(t)
 	node := provNode(t, db, "auto-applied", "tok-applied")
@@ -71,9 +72,10 @@ func TestPipelineDeployAlreadyApplied(t *testing.T) {
 	}
 }
 
-// TestPipelineDeployAgentOffline 覆盖推送失败留注记：无 agent 在线时
-// hub.Request 立即 ErrOffline，note 记「配置下发失败」，快照行置 failed，
-// 节点保持 provisioning。
+// TestPipelineDeployAgentOffline covers leaving a note on a failed push:
+// with no agent online hub.Request returns ErrOffline immediately, the note
+// records the config-push-failure marker, the snapshot row is marked failed,
+// and the node stays provisioning.
 func TestPipelineDeployAgentOffline(t *testing.T) {
 	_, db := newTestRouterWithDB(t)
 	node := provNode(t, db, "auto-offline", "tok-offline")
@@ -94,8 +96,10 @@ func TestPipelineDeployAgentOffline(t *testing.T) {
 	}
 }
 
-// TestPipelineDeployAckNotApplied 覆盖 agent 回 OK=false：配置未生效，note 记
-// 「配置下发未生效」并带上 agent 错误原文，快照行置 failed。
+// TestPipelineDeployAckNotApplied covers the agent replying OK=false: the
+// config did not take effect, the note records the push-not-applied marker
+// along with the agent's error text verbatim, and the snapshot row is marked
+// failed.
 func TestPipelineDeployAckNotApplied(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	node := provNode(t, db, "auto-badcfg", "tok-badcfg")

@@ -9,12 +9,12 @@ import (
 	"github.com/cuihairu/ferry/packages/payment"
 )
 
-// boomBody 是一读即断的请求体（网关回调中途断流）。
+// boomBody is a request body that fails on the first read (a gateway callback that drops mid-stream).
 type boomBody struct{}
 
 func (boomBody) Read([]byte) (int, error) { return 0, errors.New("body gone") }
 
-// TestEpusdtNotifyBodyReadError 回调体读不出来：400 且未验签未落账。
+// TestEpusdtNotifyBodyReadError the callback body cannot be read: 400, with no signature check and no ledger entry.
 func TestEpusdtNotifyBodyReadError(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	payment.Register(stubEpusdt{})

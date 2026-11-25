@@ -16,12 +16,17 @@ import (
 	"gorm.io/gorm"
 )
 
-// 用户门户（PAY-7）：以订阅令牌作凭据的无状态身份。
-// P0 口径——不引入密码与服务端会话（《安全设计》的用户名密码+2FA 对齐 P1-1，
-// 届时收紧为登录会话，本组接口的身份来源随之替换，路由载荷不变）。
+// User portal (PAY-7): stateless identity with the subscription token as
+// credential.
+// P0 stance - no passwords and no server-side sessions (the username/password+2FA
+// in "Security Design" is aligned with P1-1; at that point this tightens to a
+// login session, and the identity source of this endpoint group is swapped in
+// while the route payloads stay unchanged).
 
-// panelUser 解析请求身份：Authorization: Bearer <sub_token>，缺省回落 X-Ferry-Token。
-// 令牌缺失、未匹配、未启用统一 404（令牌视同吊销，防枚举口径与 /sub/:token 一致）。
+// panelUser resolves the request identity: Authorization: Bearer <sub_token>,
+// falling back to X-Ferry-Token. A missing, unmatched, or disabled token is
+// uniformly 404 (the token is treated as revoked, the same anti-enumeration
+// stance as /sub/:token).
 func (h *Handler) panelUser(c *gin.Context) (storage.User, bool) {
 	auth := c.GetHeader("Authorization")
 	token := ""
@@ -51,8 +56,9 @@ func (h *Handler) panelUser(c *gin.Context) (storage.User, bool) {
 	return u, true
 }
 
-// panelMe 返回当前用户的用量与状态（GET /api/panel/me）。
-// used_bytes 为 traffic_logs 累计，active 复用订阅侧口径（到期/超限一致判定）。
+// panelMe returns the current user's usage and status (GET /api/panel/me).
+// used_bytes is accumulated from traffic_logs; active reuses the subscription-side
+// rule (consistent expiry/over-quota judgment).
 func (h *Handler) panelMe(c *gin.Context) {
 	u, ok := h.panelUser(c)
 	if !ok {
@@ -66,8 +72,10 @@ func (h *Handler) panelMe(c *gin.Context) {
 		return
 	}
 	used := usage.Rx + usage.Tx
-	// 设备面用量（P2-4 可见性闭环）：订阅请求超限 403 时用户在面板能看到
-	// 在册数与上限——设备=hwid 在册数（客户端上报才计），IP=24h 窗口内在册数。
+	// Device-side usage (P2-4 visibility closure): when a subscription request
+	// gets 403 over the limit, the user can see the registered counts and the
+	// caps in the panel - devices = registered hwid count (only counted when the
+	// client reports), ips = count registered within the 24h window.
 	var devices, ips int64
 	if err := h.db.Model(&storage.SubDevice{}).
 		Where("user_id = ? AND kind = ?", u.ID, "hwid").
@@ -100,8 +108,10 @@ func (h *Handler) panelMe(c *gin.Context) {
 	})
 }
 
-// panelRedeem 卡密兑换（POST /api/panel/redeem）：身份取自令牌，user_id 不可传。
-// 限速与统一失败文案复用 dash 侧兑换口径（《支付设计》§3.3）。
+// panelRedeem redeems a card code (POST /api/panel/redeem): identity comes from
+// the token, user_id cannot be passed.
+// Rate limiting and the unified failure message reuse the dash-side redeem
+// stance ("Payment Design" §3.3).
 func (h *Handler) panelRedeem(c *gin.Context) {
 	u, ok := h.panelUser(c)
 	if !ok {
@@ -140,8 +150,10 @@ func (h *Handler) panelRedeem(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
-// panelOrders 订单中心（GET /api/panel/orders，OD-1）：当前用户的订单按时间倒序，
-// 每单归并其发放记录（provider=card 归并；epusdt 等上线后同形返回，product/金额原样透出）。
+// panelOrders is the order center (GET /api/panel/orders, OD-1): the current
+// user's orders in reverse chronological order, each order merged with its
+// grant records (provider=card merges; once epusdt and others are live the
+// shape is the same, with product/amount passed through verbatim).
 func (h *Handler) panelOrders(c *gin.Context) {
 	u, ok := h.panelUser(c)
 	if !ok {
@@ -158,8 +170,9 @@ func (h *Handler) panelOrders(c *gin.Context) {
 	}
 	var orders []storage.PaymentOrder
 	q := h.db.Where("user_id = ?", u.ID)
-	// 按来源筛选（运营设计 §记录范围）：provider=card 即卡密兑换记录；
-	// 缺省全量，与「同一列表展示」并存。
+	// Filter by source (operations design §record scope): provider=card
+	// means card-code redemptions; the default is the full set, coexisting with
+	// the "single list display".
 	if v := c.Query("provider"); v != "" {
 		q = q.Where("provider = ?", v)
 	}
@@ -196,10 +209,11 @@ func (h *Handler) panelOrders(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
-// ---- 在线下单（PAY-11，对 epusdt 段）----
+// ---- online checkout (PAY-11, the epusdt leg) ----
 
-// panelProduct 是门户可售商品行：来自卡密批次，设了价（price_cents>0）
-// 且未过期、仍有剩余卡密的批次视为上架。
+// panelProduct is a portal sellable product row: it comes from a card-code
+// batch, and a batch counts as listed when it has a price (price_cents>0), is
+// not expired, and still has remaining codes.
 type panelProduct struct {
 	ID         uint   `json:"id"`
 	Name       string `json:"name"`
@@ -209,8 +223,9 @@ type panelProduct struct {
 	Remaining  int64  `json:"remaining"`
 }
 
-// panelChannels 可用收款渠道（GET /api/panel/channels）：按注册态渲染
-// 渠道选择，占位渠道（NewDisabled，等商户资质）记 disabled（SHOP-1）。
+// panelChannels lists the available payment channels (GET /api/panel/channels):
+// the channel picker renders from registration state, and a placeholder channel
+// (NewDisabled, awaiting merchant credentials) is marked disabled (SHOP-1).
 func (h *Handler) panelChannels(c *gin.Context) {
 	if _, ok := h.panelUser(c); !ok {
 		return
@@ -222,7 +237,7 @@ func (h *Handler) panelChannels(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
-// panelProducts 可售商品列表（GET /api/panel/products）。
+// panelProducts is the sellable product list (GET /api/panel/products).
 func (h *Handler) panelProducts(c *gin.Context) {
 	if _, ok := h.panelUser(c); !ok {
 		return
@@ -260,9 +275,11 @@ func (h *Handler) panelProducts(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
-// panelCreateOrder 门户下单（POST /api/panel/orders）：{batch_id, provider}。
-// 定价取批次 price_cents，客户端不可传金额；订单先落 pending 作三账锚点，
-// 回调结算（settlePayment）照 PAY-8 路径置 paid 并按批次口径自动发放。
+// panelCreateOrder places a portal order (POST /api/panel/orders): {batch_id, provider}.
+// Pricing comes from the batch price_cents, the client cannot pass an amount;
+// the order is first written as pending to anchor the three ledgers, then
+// callback settlement (settlePayment) sets it paid along the PAY-8 path and
+// auto-grants per the batch rule.
 func (h *Handler) panelCreateOrder(c *gin.Context) {
 	u, ok := h.panelUser(c)
 	if !ok {
@@ -277,7 +294,8 @@ func (h *Handler) panelCreateOrder(c *gin.Context) {
 		fail(c, http.StatusBadRequest, errors.New("batch_id 与 provider 必填"))
 		return
 	}
-	// 下单会打到上游网关，按 IP 限速兜底（只限频不记失败）。
+	// Placing an order hits the upstream gateway, so IP rate limiting is a safety
+	// net (only throttles, does not record failures).
 	ip := c.ClientIP()
 	if !h.orderLimiter.Allow(ip) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "下单过于频繁，请稍后再试"})
@@ -314,10 +332,13 @@ func (h *Handler) panelCreateOrder(c *gin.Context) {
 		return
 	}
 	orderNo := fmt.Sprintf("%s-%d-%d", in.Provider, u.ID, now.UnixNano())
-	// 取优（DS §3.3）：一单一优惠源——码与活动候选各自算惠，择大者落单；
-	// 落选的码不核销（无副作用）。码先只读校验（窗口/门槛/范围/限次，
-	// 失败即回业务文案），网关下单成功后「核销+订单行」同事务落库——
-	// 核销条件 UPDATE 防并发超发。
+	// Best-discount pick (DS §3.3): a single order has one discount source - the
+	// code and campaign candidates each compute their discount and the larger
+	// one is carried into the order; a losing code is not redeemed (no side
+	// effects). The code is first read-only validated (window/threshold/scope/
+	// usage cap, failing straight to the business message), and after the
+	// gateway order succeeds, "redeem + order row" land in the same transaction -
+	// a conditional UPDATE on redemption prevents concurrent over-issue.
 	paid := batch.PriceCents
 	code := strings.ToUpper(strings.TrimSpace(in.CouponCode))
 	var cp *storage.Coupon
@@ -337,17 +358,17 @@ func (h *Handler) panelCreateOrder(c *gin.Context) {
 		return
 	}
 	if camp != nil && campPaid < paid {
-		cp = nil // 活动胜出：码不核销
+		cp = nil // campaign wins: the code is not redeemed
 		paid = campPaid
 	} else {
-		camp = nil // 码胜出或无活动
+		camp = nil // the code wins, or there is no campaign
 	}
 	rcpt, err := provider.CreateOrder(c.Request.Context(), payment.Order{
 		OrderNo: orderNo, UserID: int64(u.ID), AmountCents: paid,
 		Product: batch.Name, CreatedAt: now,
 	})
 	if err != nil {
-		fail(c, http.StatusBadGateway, err) // 上游网关失败
+		fail(c, http.StatusBadGateway, err) // upstream gateway failure
 		return
 	}
 	order := storage.PaymentOrder{
@@ -360,7 +381,8 @@ func (h *Handler) panelCreateOrder(c *gin.Context) {
 		if cp != nil {
 			burnPaid, burned, err2 := applyCouponTx(tx, code, &u, &batch, batch.PriceCents, now)
 			if err2 != nil {
-				// 预检已过仍失败只可能是并发限次竞态，整单回滚（含码）。
+				// A failure after pre-check passed can only be a concurrent usage-cap race;
+				// roll back the whole order (code included).
 				return err2
 			}
 			order.PromoCode = burned.Code
@@ -374,7 +396,8 @@ func (h *Handler) panelCreateOrder(c *gin.Context) {
 		}
 		return tx.Create(&order).Error
 	}); err != nil {
-		// 网关单已建而本地未落：用户无 pay_url 不受影响，网关单自然过期。
+		// The gateway order exists but the local one did not land: the user simply has
+		// no pay_url and the gateway order expires on its own.
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
@@ -389,8 +412,9 @@ func (h *Handler) panelCreateOrder(c *gin.Context) {
 	})
 }
 
-// panelOrderStatus 单笔订单状态（GET /api/panel/orders/:order_no）：
-// 仅本人可见（他人订单号统一 404，防枚举），归并发放记录。
+// panelOrderStatus is a single order's status (GET /api/panel/orders/:order_no):
+// visible only to its owner (anyone else's order number is uniformly 404,
+// anti-enumeration), merged with its grant records.
 func (h *Handler) panelOrderStatus(c *gin.Context) {
 	u, ok := h.panelUser(c)
 	if !ok {
@@ -433,12 +457,16 @@ func (h *Handler) panelOrderStatus(c *gin.Context) {
 	})
 }
 
-// panelSavings 用户侧「已为你省下」汇总（GET /api/panel/savings，SAVE-8）。
-// 节点级节省计数（save_stats）出自 agent 出站计数，无用户身份，按用户在该
-// 节点当月记账流量占比折算（可复核的估算式；节点当月无用户记账则不摊派）。
-// 窗口=自然月至今（UTC 月起点，与 save_stats 的 UTC 日聚合键同管道自洽；
-// 计费/流量判定窗口走服务器本地时区，见 quota 与 toucher）。缓存命中列随
-// SAVE-3 metrics 汇入后自动进返回，现先行预留。
+// panelSavings is the user-side "saved for you" summary (GET /api/panel/savings, SAVE-8).
+// Node-level savings counters (save_stats) come from agent egress counting and
+// carry no user identity, so they are prorated by the user's share of recorded
+// traffic on that node for the month (a reviewable estimate; a node with no
+// recorded user traffic this month is not allocated).
+// Window = calendar month to date (UTC month start, consistent with save_stats'
+// UTC day aggregation key in the same pipeline; billing/traffic judgment windows
+// use the server's local timezone, see quota and toucher). The cache-hit column
+// will enter the response automatically once SAVE-3 metrics feed in; reserved
+// for now.
 func (h *Handler) panelSavings(c *gin.Context) {
 	u, ok := h.panelUser(c)
 	if !ok {

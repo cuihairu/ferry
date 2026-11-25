@@ -10,8 +10,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// failNthSetting 让第 n 次 settings 读取（First 目标 *storage.Setting）失败，
-// 区分同一请求内多个键的读取顺序。
+// failNthSetting makes the n-th settings read (First targets *storage.Setting)
+// fail, distinguishing the read order of multiple keys in one request.
 func failNthSetting(name string, db *gorm.DB, n int) {
 	calls := 0
 	db.Callback().Query().Before("gorm:query").Register(name, func(tx *gorm.DB) {
@@ -24,8 +24,8 @@ func failNthSetting(name string, db *gorm.DB, n int) {
 	})
 }
 
-// failNthSettingSave 让第 n 次 settings 保存（Save 走 Update 链，Model
-// *storage.Setting）失败，区分 url 与 secret 两步落库。
+// failNthSettingSave makes the n-th settings save (Save runs the Update chain,
+// Model *storage.Setting) fail, distinguishing the two-step url/secret writes.
 func failNthSettingSave(name string, db *gorm.DB, n int) {
 	calls := 0
 	db.Callback().Update().Before("gorm:update").Register(name, func(tx *gorm.DB) {
@@ -38,10 +38,11 @@ func failNthSettingSave(name string, db *gorm.DB, n int) {
 	})
 }
 
-// TestNotifyErrors 覆盖通知渠道管理错误面：两处键读取失败 500、坏载荷 400、
-// url 与 secret 两步保存各自失败 500、测试外发对端报错 502。
+// TestNotifyErrors covers the notification channel management error surface:
+// both key reads failing 500, bad payload 400, the url and secret save steps
+// each failing 500, and the test-send peer erroring 502.
 func TestNotifyErrors(t *testing.T) {
-	// url 键读取失败 → 500。
+	// url key read fails -> 500.
 	r, db := newTestRouterWithDB(t)
 	seedAdminForJWT(t, db)
 	failNthSetting("t:nfyurl", db, 1)
@@ -49,7 +50,7 @@ func TestNotifyErrors(t *testing.T) {
 		t.Fatalf("url read: %d %s", rec.Code, rec.Body)
 	}
 
-	// secret 键读取失败 → 500（url 读取先放行）。
+	// secret key read fails -> 500 (the url read is let through first).
 	r2, db2 := newTestRouterWithDB(t)
 	seedAdminForJWT(t, db2)
 	failNthSetting("t:nfysecret", db2, 2)
@@ -57,12 +58,12 @@ func TestNotifyErrors(t *testing.T) {
 		t.Fatalf("secret read: %d %s", rec.Code, rec.Body)
 	}
 
-	// 坏载荷 → 400。
+	// Bad payload -> 400.
 	if rec := doAdmin(t, r2, "PUT", "/admin/notify", []byte("{bad")); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad json: %d", rec.Code)
 	}
 
-	// url 保存失败 → 500。
+	// url save fails -> 500.
 	r3, db3 := newTestRouterWithDB(t)
 	seedAdminForJWT(t, db3)
 	failNthSettingSave("t:nfyurls", db3, 1)
@@ -70,7 +71,7 @@ func TestNotifyErrors(t *testing.T) {
 		t.Fatalf("url save: %d %s", rec.Code, rec.Body)
 	}
 
-	// secret 保存失败 → 500（url 保存先放行）。
+	// secret save fails -> 500 (the url save is let through first).
 	r4, db4 := newTestRouterWithDB(t)
 	seedAdminForJWT(t, db4)
 	failNthSettingSave("t:nfysecrets", db4, 2)
@@ -78,7 +79,7 @@ func TestNotifyErrors(t *testing.T) {
 		t.Fatalf("secret save: %d %s", rec.Code, rec.Body)
 	}
 
-	// 测试外发：对端回 5xx → 502。
+	// Test-send: the peer returns 5xx -> 502.
 	r5, db5 := newTestRouterWithDB(t)
 	seedAdminForJWT(t, db5)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

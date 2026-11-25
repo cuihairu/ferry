@@ -9,8 +9,8 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestEveningAPI 覆盖晚高峰回程报表（E-29）：direction=in 按小时分桶，
-// 延迟只计可达样本，晚高峰 [19,23) 与平峰分开汇总，窗口外与出方向不计。
+// TestEveningAPI covers the evening-peak return-trip report (E-29): direction=in bucketed by hour,
+// latency counts reachable samples only, the evening peak [19,23) is aggregated separately from off-peak, and out-of-window or outbound samples are ignored.
 func TestEveningAPI(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 
@@ -24,17 +24,17 @@ func TestEveningAPI(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// 今天 20 点与 21 点：可达，RTT 200/100 → 晚高峰平均 150。
+	// Today 20:00 and 21:00: reachable, RTT 200/100 → evening-peak average 150.
 	today := time.Now()
 	atHour := func(hour, min int) time.Time {
 		return time.Date(today.Year(), today.Month(), today.Day(), hour, min, 0, 0, time.Local)
 	}
 	seed("in", atHour(20, 0), 200, 0, true)
 	seed("in", atHour(21, 30), 100, 0, true)
-	// 今天 3 点：一可达一不可达 → 平峰可用率 50%，平均延迟 50（只计可达）。
+	// Today 3:00: one reachable, one unreachable → off-peak availability 50%, average latency 50 (reachable only).
 	seed("in", atHour(3, 0), 50, 0, true)
 	seed("in", atHour(3, 30), 0, 100, false)
-	// 出方向与窗口外样本不计。
+	// Outbound and out-of-window samples are ignored.
 	seed("out", atHour(20, 15), 1, 0, true)
 	seed("in", today.AddDate(0, 0, -40), 999, 0, true)
 
@@ -88,7 +88,7 @@ func TestEveningAPI(t *testing.T) {
 		t.Fatalf("offpeak = %+v", rep.OffPeak)
 	}
 
-	// 窗口参数：非法拒绝，扩窗到 30 天后计入 40 天前的样本仍不计（40>30）。
+	// Window parameter: invalid values rejected; even with the window widened to 30 days, the sample from 40 days ago is still ignored (40>30).
 	if rec := doJSON(t, r, "GET", "/api/evening?days=0", nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("days=0 status = %d", rec.Code)
 	}

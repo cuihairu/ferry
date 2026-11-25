@@ -14,11 +14,15 @@ import (
 	"gorm.io/gorm"
 )
 
-// 二十四批补口：通知中心各 400/500 与面板未鉴权口径——校验失败（坏绑定/
-// 超长/limit 越界/缺字段/非数字 id）、库故障（关句柄与回调注错定向各表）、
-// 统计回流二次查询失败、以及阈值归一的历史坏行回落。
+// Batch-24 gap fill: the notification center's various 400/500 paths and the
+// panel's unauthenticated stance - validation failures (bad binding/too
+// long/out-of-range limit/missing field/non-numeric id), DB faults (closed
+// handle and callback error injection targeted per table), the follow-up
+// queries in the counting pass failing, and the threshold normalization's
+// fallback for legacy bad rows.
 
-// notifUserID 取建库用户行 id（面板端点按 id 校验归属）。
+// notifUserID fetches the seeded user row's id (panel endpoints check
+// ownership by id).
 func notifUserID(t *testing.T, db *gorm.DB, username string) uint {
 	t.Helper()
 	var u storage.User
@@ -28,7 +32,7 @@ func notifUserID(t *testing.T, db *gorm.DB, username string) uint {
 	return u.ID
 }
 
-// notifRow 落一条普通通知，返回行 id。
+// notifRow writes one normal notification and returns its row id.
 func notifRow(t *testing.T, db *gorm.DB, uid uint, title string) int64 {
 	t.Helper()
 	row := storage.Notification{UserID: int64(uid), Type: storage.NotifSystem,
@@ -39,7 +43,8 @@ func notifRow(t *testing.T, db *gorm.DB, uid uint, title string) int64 {
 	return row.ID
 }
 
-// notifAnchor 落公告锚点行（user_id=0）并挂一条用户行，供公告列表统计回流。
+// notifAnchor writes an announcement anchor row (user_id=0) plus one attached
+// user row, to feed the announcement list's counting pass.
 func notifAnchor(t *testing.T, db *gorm.DB, uid uint) int64 {
 	t.Helper()
 	a := storage.Notification{UserID: 0, Type: storage.NotifAnnouncement,
@@ -55,7 +60,7 @@ func notifAnchor(t *testing.T, db *gorm.DB, uid uint) int64 {
 	return a.ID
 }
 
-// closeSQL 关掉底层连接：之后任何库操作一律报错。
+// closeSQL closes the underlying connection: every later DB operation errors.
 func closeSQL(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	sqlDB, err := db.DB()
@@ -67,8 +72,9 @@ func closeSQL(t *testing.T, db *gorm.DB) {
 	}
 }
 
-// isNotifModel 判断语句是否落在通知表上：Find 链的 Model 是切片指针，
-// Count/First 链是单元素指针，两个形态都要认。
+// isNotifModel tells whether a statement targets the notification table: the
+// Find chain's Model is a slice pointer, Count/First chains use a single-element
+// pointer - recognize both shapes.
 func isNotifModel(v any) bool {
 	switch v.(type) {
 	case *storage.Notification, []storage.Notification, *[]storage.Notification:
@@ -77,8 +83,9 @@ func isNotifModel(v any) bool {
 	return false
 }
 
-// failNotifQueryAt 第 n 次（1 起）针对通知表的查询失败：统计回流里锚点列表
-// 之后是两次 COUNT，用次序定向。
+// failNotifQueryAt fails the n-th (1-based) query against the notification
+// table: in the counting pass the anchor list is followed by two COUNTs, so
+// order is used to aim.
 func failNotifQueryAt(t *testing.T, db *gorm.DB, n int) {
 	t.Helper()
 	seen := 0
@@ -93,7 +100,7 @@ func failNotifQueryAt(t *testing.T, db *gorm.DB, n int) {
 	})
 }
 
-// failNotifUpdates 让通知行的更新失败（标已读/全部已读）。
+// failNotifUpdates makes notification-row updates fail (mark-read/read-all).
 func failNotifUpdates(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	db.Callback().Update().Before("gorm:update").Register("test:notif_update", func(tx *gorm.DB) {
@@ -103,7 +110,8 @@ func failNotifUpdates(t *testing.T, db *gorm.DB) {
 	})
 }
 
-// failNotifDeletes 让通知行删除失败（事务内，级联撤回一并失败）。
+// failNotifDeletes makes notification-row deletes fail (inside the
+// transaction, so the cascade withdrawal fails too).
 func failNotifDeletes(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	db.Callback().Delete().Before("gorm:delete").Register("test:notif_delete", func(tx *gorm.DB) {
@@ -113,7 +121,7 @@ func failNotifDeletes(t *testing.T, db *gorm.DB) {
 	})
 }
 
-// failUserUpdates 让用户行更新失败（通知偏好回写）。
+// failUserUpdates makes user-row updates fail (notification preference writeback).
 func failUserUpdates(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	db.Callback().Update().Before("gorm:update").Register("test:user_update", func(tx *gorm.DB) {
@@ -123,7 +131,8 @@ func failUserUpdates(t *testing.T, db *gorm.DB) {
 	})
 }
 
-// setWarnPercent 直接写库改阈值（PUT 面校验 1-100，历史坏行只能从库侧造）。
+// setWarnPercent writes the threshold straight to the DB (the PUT surface
+// validates 1-100, so legacy bad rows can only be made from the DB side).
 func setWarnPercent(t *testing.T, db *gorm.DB, uid uint, v int) {
 	t.Helper()
 	if err := db.Model(&storage.User{}).Where("id = ?", uid).
@@ -132,7 +141,8 @@ func setWarnPercent(t *testing.T, db *gorm.DB, uid uint, v int) {
 	}
 }
 
-// TestCreateAnnouncementErrors 发布公告的校验与扇出失败口径。
+// TestCreateAnnouncementErrors covers announcement creation validation and
+// fan-out failure paths.
 func TestCreateAnnouncementErrors(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -155,7 +165,7 @@ func TestCreateAnnouncementErrors(t *testing.T) {
 		})
 	}
 
-	// 扇出库故障：内部错误不外泄细节。
+	// Fan-out DB fault: internal errors do not leak details.
 	r, db := newTestRouterWithDB(t)
 	closeSQL(t, db)
 	rec := doJSON(t, r, http.MethodPost, "/api/notifications/announcement",
@@ -166,9 +176,11 @@ func TestCreateAnnouncementErrors(t *testing.T) {
 	}
 }
 
-// TestListAnnouncementsErrors 公告列表 limit 校验与三次查询各自失败。
+// TestListAnnouncementsErrors covers announcement list limit validation and each
+// of the three queries failing on its own.
 func TestListAnnouncementsErrors(t *testing.T) {
-	// limit 越界（缺省 50 不越界，合法值走夹取分支）。
+	// Out-of-range limit (the default 50 is in range; valid values take the
+	// clamping branch).
 	r, _ := newTestRouterWithDB(t)
 	for _, limit := range []string{"abc", "0", "201"} {
 		rec := doJSON(t, r, http.MethodGet, "/api/notifications/announcements?limit="+limit, nil)
@@ -180,7 +192,7 @@ func TestListAnnouncementsErrors(t *testing.T) {
 		t.Fatalf("limit=1: %d %s", rec.Code, rec.Body)
 	}
 
-	// 锚点列表查询失败。
+	// Anchor list query fails.
 	r, db := newTestRouterWithDB(t)
 	panelToken(t, r, "anon-a")
 	notifAnchor(t, db, notifUserID(t, db, "anon-a"))
@@ -189,7 +201,7 @@ func TestListAnnouncementsErrors(t *testing.T) {
 		t.Fatalf("anchors: %d %s", rec.Code, rec.Body)
 	}
 
-	// 发送数统计失败（第 2 次查询）。
+	// Sent-count query fails (the 2nd query).
 	r, db = newTestRouterWithDB(t)
 	panelToken(t, r, "anon-b")
 	notifAnchor(t, db, notifUserID(t, db, "anon-b"))
@@ -198,7 +210,7 @@ func TestListAnnouncementsErrors(t *testing.T) {
 		t.Fatalf("sent count: %d %s", rec.Code, rec.Body)
 	}
 
-	// 已读数统计失败（第 3 次查询）。
+	// Read-count query fails (the 3rd query).
 	r, db = newTestRouterWithDB(t)
 	_ = panelToken(t, r, "anon-c")
 	notifAnchor(t, db, notifUserID(t, db, "anon-c"))
@@ -208,7 +220,7 @@ func TestListAnnouncementsErrors(t *testing.T) {
 	}
 }
 
-// TestResendAnnouncementErrors 重发的 id 校验与非冲突类库故障。
+// TestResendAnnouncementErrors covers resend id validation and non-conflict DB faults.
 func TestResendAnnouncementErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	for _, id := range []string{"abc", ""} {
@@ -226,7 +238,7 @@ func TestResendAnnouncementErrors(t *testing.T) {
 	}
 }
 
-// TestListNotificationsErrors 全量列表 limit/过滤口径与查询失败。
+// TestListNotificationsErrors covers the full listing's limit/filter rules and query failures.
 func TestListNotificationsErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	for _, limit := range []string{"abc", "0", "501"} {
@@ -236,7 +248,7 @@ func TestListNotificationsErrors(t *testing.T) {
 		}
 	}
 
-	// 合法 limit 与 user_id 过滤。
+	// Valid limit and user_id filter.
 	r, db := newTestRouterWithDB(t)
 	panelToken(t, r, "list-u")
 	notifRow(t, db, notifUserID(t, db, "list-u"), "通知")
@@ -250,7 +262,7 @@ func TestListNotificationsErrors(t *testing.T) {
 		t.Fatalf("rows = %d err=%v", len(rows), err)
 	}
 
-	// 查询失败。
+	// Query fails.
 	r, db = newTestRouterWithDB(t)
 	closeSQL(t, db)
 	if rec := doJSON(t, r, http.MethodGet, "/api/notifications", nil); rec.Code != http.StatusInternalServerError {
@@ -258,7 +270,8 @@ func TestListNotificationsErrors(t *testing.T) {
 	}
 }
 
-// TestDeleteNotificationErrors 删除的 id 校验、定位失败与事务内删除失败。
+// TestDeleteNotificationErrors covers deletion id validation, lookup failure, and
+// delete failure inside the transaction.
 func TestDeleteNotificationErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	rec := doJSON(t, r, http.MethodDelete, "/api/notifications/abc", nil)
@@ -273,7 +286,8 @@ func TestDeleteNotificationErrors(t *testing.T) {
 		t.Fatalf("first: %d %s", rec.Code, rec.Body)
 	}
 
-	// 事务内删除失败：定位成功但级联撤回报错。
+	// Delete fails inside the transaction: the lookup succeeds but the cascade
+	// withdrawal errors.
 	r, db = newTestRouterWithDB(t)
 	panelToken(t, r, "del-u")
 	notifAnchor(t, db, notifUserID(t, db, "del-u"))
@@ -284,11 +298,12 @@ func TestDeleteNotificationErrors(t *testing.T) {
 	}
 }
 
-// TestPanelNotificationErrors 面板侧未鉴权 404、limit 校验、查询与更新失败。
+// TestPanelNotificationErrors covers the panel side's unauthenticated 404, limit
+// validation, and query/update failures.
 func TestPanelNotificationErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 
-	// 无令牌：六个读/写端点一律 not found。
+	// No token: all six read/write endpoints return not-found.
 	for _, tc := range []struct {
 		method, path string
 	}{
@@ -305,7 +320,7 @@ func TestPanelNotificationErrors(t *testing.T) {
 		}
 	}
 
-	// limit 越界与合法夹取；列表与未读数查询失败。
+	// Out-of-range limit and valid clamping; list and unread-count queries fail.
 	tok := panelToken(t, r, "pnl-limit")
 	if rec := doPanel(t, r, tok, http.MethodGet,
 		"/api/panel/notifications?limit=abc", nil); rec.Code != http.StatusBadRequest {
@@ -329,7 +344,7 @@ func TestPanelNotificationErrors(t *testing.T) {
 		t.Fatalf("unread: %d %s", rec.Code, rec.Body)
 	}
 
-	// 标已读：id 非数字 400；更新失败 500。
+	// Mark-read: non-numeric id 400; update failure 500.
 	r, db = newTestRouterWithDB(t)
 	tok = panelToken(t, r, "pnl-read")
 	if rec := doPanel(t, r, tok, http.MethodPost,
@@ -342,7 +357,7 @@ func TestPanelNotificationErrors(t *testing.T) {
 		t.Fatalf("read update: %d %s", rec.Code, rec.Body)
 	}
 
-	// 全部已读：更新失败。
+	// Read-all: update failure.
 	r, db = newTestRouterWithDB(t)
 	tok = panelToken(t, r, "pnl-all")
 	failNotifUpdates(t, db)
@@ -351,9 +366,11 @@ func TestPanelNotificationErrors(t *testing.T) {
 	}
 }
 
-// TestPanelNotifyPrefsErrors 偏好：缺字段、更新失败与历史坏行阈值回落。
+// TestPanelNotifyPrefsErrors covers preferences: missing field, update failure,
+// and the threshold fallback for legacy bad rows.
 func TestPanelNotifyPrefsErrors(t *testing.T) {
-	// 缺字段 400（无可更新字段）；双布尔更新走通（notify_traffic 字段分支）。
+	// Missing field 400 (nothing updatable); both booleans update through (the
+	// notify_traffic field branch).
 	r, db := newTestRouterWithDB(t)
 	tok := panelToken(t, r, "pref-err")
 	rec := doPanel(t, r, tok, http.MethodPut, "/api/panel/notify-prefs", map[string]any{})
@@ -366,7 +383,7 @@ func TestPanelNotifyPrefsErrors(t *testing.T) {
 		t.Fatalf("put two: %d %s", rec.Code, rec.Body)
 	}
 
-	// 坏绑定 400。
+	// Bad binding 400.
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPut, "/api/panel/notify-prefs", strings.NewReader("not json"))
 	req.Header.Set("Content-Type", "application/json")
@@ -376,8 +393,10 @@ func TestPanelNotifyPrefsErrors(t *testing.T) {
 		t.Fatalf("bind: %d %s", w.Code, w.Body)
 	}
 
-	// 历史坏行阈值回落 80（库侧写入越界值，API 校验拦不住的存量数据）。
-	// 须在注错前做：注入的更新失败会挡掉这一步的直接写库。
+	// Legacy bad-row threshold falls back to 80 (out-of-range values written
+	// from the DB side, legacy data the API validation cannot catch).
+	// Must run before error injection: the injected update failure would
+	// block this step's direct DB write.
 	uid := notifUserID(t, db, "pref-err")
 	for _, v := range []int{0, 200} {
 		setWarnPercent(t, db, uid, v)
@@ -396,7 +415,7 @@ func TestPanelNotifyPrefsErrors(t *testing.T) {
 		}
 	}
 
-	// 更新失败 500。
+	// Update failure 500.
 	failUserUpdates(t, db)
 	rec = doPanel(t, r, tok, http.MethodPut, "/api/panel/notify-prefs",
 		map[string]any{"notify_expiry": false})

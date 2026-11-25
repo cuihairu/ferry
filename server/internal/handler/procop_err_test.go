@@ -11,7 +11,8 @@ import (
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
 
-// TestNodeProcOpGuards 覆盖单节点进程操作的坏 id（节点不存在/非法）与坏载荷 400。
+// TestNodeProcOpGuards covers single-node process operation guards: bad id
+// (node missing/invalid) and bad payload -> 400.
 func TestNodeProcOpGuards(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	for _, id := range []string{"abc", "999"} {
@@ -20,15 +21,15 @@ func TestNodeProcOpGuards(t *testing.T) {
 			t.Fatalf("node %s: %d, want 404", id, rec.Code)
 		}
 	}
-	// 坏载荷在节点定位之后校验：先落一个节点再发坏 JSON。
+	// Payload validation happens after node lookup: create a node first, then send bad JSON.
 	id, _ := createNodeFor(t, r, "ctl-json")
 	if rec := doRaw(t, r, "POST", fmt.Sprintf("/api/nodes/%d/proc", id), "{bad"); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad json: %d", rec.Code)
 	}
 }
 
-// TestBatchProcGuards 覆盖批量进程操作与批量配置下发的坏载荷、空 ids、
-// 缺必填项 400 分支。
+// TestBatchProcGuards covers the batch process operation and batch config dispatch
+// 400 branches: bad payload, empty ids, missing required fields.
 func TestBatchProcGuards(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doRaw(t, r, "POST", "/api/nodes/batch/proc", "{bad"); rec.Code != http.StatusBadRequest {
@@ -54,13 +55,13 @@ func TestBatchProcGuards(t *testing.T) {
 	}
 }
 
-// TestProcOpTimeout 覆盖 agent 在线但不回执 → 504（hub 等待超时分支）。
+// TestProcOpTimeout covers the agent being online but never acknowledging -> 504 (hub wait timeout branch).
 func TestProcOpTimeout(t *testing.T) {
 	r := newTestRouter(t)
 	id, token := createNodeFor(t, r, "ctl-to")
 	srv := httptest.NewServer(r)
 	defer srv.Close()
-	fakeAgent(t, srv.URL, "ctl-to", token) // 握手后不应答
+	fakeAgent(t, srv.URL, "ctl-to", token) // handshake done but no reply
 
 	rec := doJSON(t, r, "POST", fmt.Sprintf("/api/nodes/%d/proc", id),
 		map[string]any{"action": "reload"})
@@ -69,7 +70,7 @@ func TestProcOpTimeout(t *testing.T) {
 	}
 }
 
-// TestProcOpBadAck 覆盖 agent 回执载荷无法解码 → 502。
+// TestProcOpBadAck covers an undecodable agent ack payload -> 502.
 func TestProcOpBadAck(t *testing.T) {
 	r := newTestRouter(t)
 	id, token := createNodeFor(t, r, "ctl-bad")
@@ -83,7 +84,7 @@ func TestProcOpBadAck(t *testing.T) {
 			map[string]any{"action": "reload"})
 	}()
 	env := readEnv(t, c)
-	// 同 ID 应答，载荷合法 JSON 但类型无法解进 ProcCtlAck。
+	// Reply with the same ID; payload is valid JSON but its type cannot decode into ProcCtlAck.
 	bad := agentproto.Envelope{V: env.V, ID: env.ID, Type: agentproto.MsgProcCtlAck,
 		Payload: []byte(`"not-an-object"`)}
 	if err := c.WriteJSON(bad); err != nil {
@@ -99,8 +100,8 @@ func TestProcOpBadAck(t *testing.T) {
 	}
 }
 
-// TestBatchProcAckError 覆盖批量进程中在线节点回执带错的分支（逐节点回执
-// error，整体仍 200）。
+// TestBatchProcAckError covers the batch process case where an online node's ack
+// carries an error (per-node error reply, overall status still 200).
 func TestBatchProcAckError(t *testing.T) {
 	r := newTestRouter(t)
 	idA, tokenA := createNodeFor(t, r, "bpe-a")

@@ -6,12 +6,13 @@ import (
 	"testing"
 )
 
-// TestEntryDomainsCRUD 覆盖入口域名数据面（TOUCH-3）：建（协议前缀剥离、
-// role 校验）、改（部分更新含停用）、列、删、404。
+// TestEntryDomainsCRUD covers the entry-domain data plane (TOUCH-3): create
+// (protocol-prefix stripping, role validation), update (partial update
+// including disable), list, delete, and 404.
 func TestEntryDomainsCRUD(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 
-	// 非法 role 400、空 domain 400
+	// invalid role 400, empty domain 400
 	if rec := doJSON(t, r, "POST", "/api/entry-domains", map[string]any{"domain": "a.com", "role": "x"}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad role: %d", rec.Code)
 	}
@@ -19,7 +20,7 @@ func TestEntryDomainsCRUD(t *testing.T) {
 		t.Fatalf("empty domain: %d", rec.Code)
 	}
 
-	// 建：https 前缀与尾部斜杠剥离
+	// create: https prefix and trailing slash stripped
 	rec := doJSON(t, r, "POST", "/api/entry-domains", map[string]any{"domain": "https://panel.example.com/", "role": "primary", "region": "cn"})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create: %d %s", rec.Code, rec.Body)
@@ -29,7 +30,7 @@ func TestEntryDomainsCRUD(t *testing.T) {
 		t.Fatalf("create backup: %d %s", rec.Code, rec.Body)
 	}
 
-	// 列：两条按 id 升序
+	// list: two rows in ascending id order
 	rec = doJSON(t, r, "GET", "/api/entry-domains", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list: %d", rec.Code)
@@ -42,7 +43,7 @@ func TestEntryDomainsCRUD(t *testing.T) {
 		t.Fatalf("unexpected rows: %+v", rows)
 	}
 
-	// 改：停用 + 换角色
+	// update: disable + change role
 	if rec := doJSON(t, r, "PUT", "/api/entry-domains/1", map[string]any{"enabled": false, "role": "backup"}); rec.Code != http.StatusOK {
 		t.Fatalf("update: %d %s", rec.Code, rec.Body)
 	}
@@ -51,22 +52,22 @@ func TestEntryDomainsCRUD(t *testing.T) {
 	if rows[0]["enabled"] != false || rows[0]["role"] != "backup" {
 		t.Fatalf("update leaked: %+v", rows[0])
 	}
-	// 非法 role 改动 400
+	// invalid role update 400
 	if rec := doJSON(t, r, "PUT", "/api/entry-domains/1", map[string]any{"role": "x"}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad update role: %d", rec.Code)
 	}
-	// 坏载荷 400（建与改）
+	// bad payload 400 (create and update)
 	if rec := doRaw(t, r, "POST", "/api/entry-domains", "{bad"); rec.Code != http.StatusBadRequest {
 		t.Fatalf("create bad json: %d", rec.Code)
 	}
 	if rec := doRaw(t, r, "PUT", "/api/entry-domains/1", "{bad"); rec.Code != http.StatusBadRequest {
 		t.Fatalf("update bad json: %d", rec.Code)
 	}
-	// 改：域名置空 400
+	// update: blanked-out domain 400
 	if rec := doJSON(t, r, "PUT", "/api/entry-domains/1", map[string]any{"domain": "  "}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("empty update domain: %d", rec.Code)
 	}
-	// 改：域名归一（剥协议与尾斜杠）与区域去首尾空白
+	// update: domain normalization (strip scheme and trailing slash) and region trimmed of surrounding whitespace
 	rec = doJSON(t, r, "PUT", "/api/entry-domains/1", map[string]any{"domain": "https://new.example.com/", "region": " us "})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("update domain: %d %s", rec.Code, rec.Body)
@@ -79,7 +80,7 @@ func TestEntryDomainsCRUD(t *testing.T) {
 		t.Fatalf("normalized row = %+v", one)
 	}
 
-	// 删：删除后列表一条，再删/再改 404
+	// delete: one row left after delete, re-delete / re-update 404
 	if rec := doJSON(t, r, "DELETE", "/api/entry-domains/2", nil); rec.Code != http.StatusOK {
 		t.Fatalf("delete: %d", rec.Code)
 	}

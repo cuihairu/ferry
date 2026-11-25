@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// stubEpusdt 是受控的假 epusdt Provider：Verify 返回预设结论。
+// stubEpusdt is a controllable fake epusdt provider: Verify returns a preset verdict.
 type stubEpusdt struct {
 	cb  payment.Callback
 	err error
@@ -27,8 +27,10 @@ func (s stubEpusdt) Verify(context.Context, []byte) (payment.Callback, error) {
 	return s.cb, s.err
 }
 
-// TestEpusdtNotify 覆盖回调结算（PAY-8）：验签失败 400、对单校验
-// （不存在/金额不符/渠道不符）、成功结算三账+发放、重复回调幂等。
+// TestEpusdtNotify covers callback settlement (PAY-8): failed signature
+// check 400, order validation (missing / amount mismatch / channel
+// mismatch), a successful three-ledger settle plus grant, and idempotent
+// replay of a duplicate callback.
 func TestEpusdtNotify(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	if err := db.Create(&storage.User{
@@ -50,19 +52,19 @@ func TestEpusdtNotify(t *testing.T) {
 		PaidAt: paidAt, Raw: []byte("amount=10.00&order_id=epusdt-o-1&status=2"),
 	}
 
-	// 验签失败 → 400，不落账
+	// Failed signature check -> 400, nothing written to the ledger
 	payment.Register(stubEpusdt{err: errors.New("签名不符")})
 	if rec := doJSON(t, r, "POST", "/api/pay/epusdt/notify", nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad signature should 400: %d %s", rec.Code, rec.Body)
 	}
 
-	// 订单不存在 → 400
+	// Order not found -> 400
 	payment.Register(stubEpusdt{cb: payment.Callback{OrderNo: "no-such", ExternalID: "tx-x", AmountCents: 1000}})
 	if rec := doJSON(t, r, "POST", "/api/pay/epusdt/notify", nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("missing order should 400: %d %s", rec.Code, rec.Body)
 	}
 
-	// 金额不符 → 400，订单保持 pending
+	// Amount mismatch -> 400, order stays pending
 	misCb := okCb
 	misCb.AmountCents = 1
 	payment.Register(stubEpusdt{cb: misCb})
@@ -70,7 +72,7 @@ func TestEpusdtNotify(t *testing.T) {
 		t.Fatalf("amount mismatch should 400: %d %s", rec.Code, rec.Body)
 	}
 
-	// 渠道不符 → 400
+	// Channel mismatch -> 400
 	if err := db.Create(&storage.PaymentOrder{
 		OrderNo: "card-o-2", UserID: 1, Provider: "card", Status: "pending",
 	}).Error; err != nil {
@@ -83,8 +85,9 @@ func TestEpusdtNotify(t *testing.T) {
 		t.Fatalf("provider mismatch should 400: %d %s", rec.Code, rec.Body)
 	}
 
-	// 成功结算：流水+订单 paid+发放；响应体是字面 ok（网关按体判定，
-	// JSON 会被它当作失败不停重试）。
+	// Successful settle: transaction row + order paid + grant. The response
+	// body is the literal ok (the gateway judges by body, and would treat
+	// JSON as a failure and retry forever).
 	payment.Register(stubEpusdt{cb: okCb})
 	rec := doJSON(t, r, "POST", "/api/pay/epusdt/notify", nil)
 	if rec.Code != http.StatusOK || rec.Body.String() != "ok" {
@@ -118,7 +121,8 @@ func TestEpusdtNotify(t *testing.T) {
 		t.Fatalf("snapshot missing trade_id: %v", snap)
 	}
 
-	// 重复回调（同 trade_id）→ 200 幂等回字面 ok（停住网关重试），不重复落账
+	// Duplicate callback (same trade_id) -> 200 with the literal ok body
+	// (which stops the gateway from retrying), with no duplicate ledger rows
 	if rec := doJSON(t, r, "POST", "/api/pay/epusdt/notify", nil); rec.Code != http.StatusOK || rec.Body.String() != "ok" {
 		t.Fatalf("replay should 200 ok: %d %q", rec.Code, rec.Body)
 	}
@@ -134,10 +138,13 @@ func TestEpusdtNotify(t *testing.T) {
 	}
 }
 
-// TestEpusdtNotifyConcurrentSettle 覆盖并发结算竞态（P1-3）：不同 external_id
-// 的两个回调都可能通过幂等检查（订单首读时还是 pending），条件更新保证只有
-// 一方置 paid 并发放；输家流水保留（钱确已到账，对账口径）但拿幂等结果，
-// 额度不双发。
+// TestEpusdtNotifyConcurrentSettle covers the concurrent settle race
+// (P1-3): two callbacks with different external_ids can both clear the
+// idempotency check (the order still reads pending on first load); the
+// conditional update ensures only one marks it paid and grants. The loser
+// keeps its transaction row (the money really did arrive, per the
+// reconciliation rule) but gets the idempotent result, so quota is not
+// granted twice.
 func TestEpusdtNotifyConcurrentSettle(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	if err := db.Create(&storage.User{
@@ -151,8 +158,10 @@ func TestEpusdtNotifyConcurrentSettle(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
-	// 模拟插队：幂等 Count 执行前另一回调已把订单置 paid（订单首读发生在
-	// 此前，看到的仍是 pending）。注错挂在 Count（Dest *int64）上，首读不拦。
+	// Simulate queue-jumping: before the idempotency Count runs, another
+	// callback has already marked the order paid (the order's first read
+	// happens earlier and still sees pending). The injection hangs on the
+	// Count (Dest *int64), so the first read is not intercepted.
 	db.Callback().Query().Before("gorm:query").Register("t:payrace", func(tx *gorm.DB) {
 		if _, ok := tx.Statement.Model.(*storage.PaymentTransaction); ok {
 			if _, ok := tx.Statement.Dest.(*int64); ok {
@@ -167,7 +176,7 @@ func TestEpusdtNotifyConcurrentSettle(t *testing.T) {
 	if rec.Code != http.StatusOK || rec.Body.String() != "ok" {
 		t.Fatalf("lose race: %d %q", rec.Code, rec.Body)
 	}
-	// 流水保留，但不发放。
+	// The transaction row is kept, but no grant happens.
 	var txnCount, grantCount int64
 	db.Model(&storage.PaymentTransaction{}).Count(&txnCount)
 	db.Model(&storage.Grant{}).Count(&grantCount)

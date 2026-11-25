@@ -10,42 +10,45 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 晚高峰回程报表（E-29）：按小时分段的回程质量（direction=in 探测结论聚合），
-// 晚高峰（19–23 时）单独汇总与平峰对比。平均延迟只计可达样本，可用率即可达比例。
+// Evening peak return-traffic report (E-29): inbound return-traffic quality
+// (aggregated direction=in probe verdicts) bucketed by hour, with the evening
+// peak (19-23h) summarized separately and compared against off-peak. Average
+// latency counts only reachable samples; availability is the reachable ratio.
 
 const (
 	eveningDefaultDays = 7
 	eveningMaxDays     = 30
-	eveningPeakStart   = 19 // [19,23) 左闭右开，与低峰再平衡窗口同口径
+	eveningPeakStart   = 19 // [19,23) half-open, same convention as the low-peak rebalance window
 	eveningPeakEnd     = 23
 )
 
-// EveningHour 是一个钟点段的回程质量。
+// EveningHour is the inbound return-traffic quality of one clock hour.
 type EveningHour struct {
 	Hour            int     `json:"hour"`
 	Samples         int     `json:"samples"`
-	AvgRttMs        float64 `json:"avg_rtt_ms"`       // 可达样本的平均延迟
-	AvgLossPct      float64 `json:"avg_loss_pct"`     // 全部样本的平均丢包
-	AvailabilityPct float64 `json:"availability_pct"` // -1=无样本
+	AvgRttMs        float64 `json:"avg_rtt_ms"`       // avg latency over reachable samples
+	AvgLossPct      float64 `json:"avg_loss_pct"`     // avg packet loss over all samples
+	AvailabilityPct float64 `json:"availability_pct"` // -1=no samples
 }
 
-// EveningWindow 是晚高峰/平峰的汇总对比块。
+// EveningWindow is the summary comparison block for evening peak / off-peak.
 type EveningWindow struct {
 	Samples         int     `json:"samples"`
 	AvgRttMs        float64 `json:"avg_rtt_ms"`
 	AvgLossPct      float64 `json:"avg_loss_pct"`
-	AvailabilityPct float64 `json:"availability_pct"` // -1=无样本
+	AvailabilityPct float64 `json:"availability_pct"` // -1=no samples
 }
 
-// EveningReport 是晚高峰回程报表：24 小时明细 + 晚高峰/平峰汇总。
+// EveningReport is the evening peak return-traffic report: 24 hour rows plus
+// the evening-peak / off-peak summaries.
 type EveningReport struct {
 	Days    int           `json:"days"`
 	Hours   []EveningHour `json:"hours"`
-	Peak    EveningWindow `json:"peak"`    // 19–23 时
-	OffPeak EveningWindow `json:"offpeak"` // 其余时段
+	Peak    EveningWindow `json:"peak"`    // 19-23h
+	OffPeak EveningWindow `json:"offpeak"` // the remaining hours
 }
 
-// getEvening 返回晚高峰回程报表（GET /api/evening?days=7）。
+// getEvening returns the evening peak return-traffic report (GET /api/evening?days=7).
 func (h *Handler) getEvening(c *gin.Context) {
 	days := eveningDefaultDays
 	if v := c.Query("days"); v != "" {
@@ -66,7 +69,7 @@ func (h *Handler) getEvening(c *gin.Context) {
 	c.JSON(http.StatusOK, buildEvening(days, rows))
 }
 
-// eveningAcc 聚合累加器：样本数、可达样本延迟和、丢包和。
+// eveningAcc aggregation accumulator: sample count, reachable-sample latency sum, loss sum.
 type eveningAcc struct {
 	n       int
 	rttN    int
@@ -83,7 +86,7 @@ func (a *eveningAcc) add(r storage.ProbeReport) {
 	}
 }
 
-// buildEvening 把探测结论按本地时区钟点分桶，晚高峰与平峰各汇总一份。
+// buildEvening buckets probe verdicts by local-time-zone hour and summarizes the evening peak and off-peak separately.
 func buildEvening(days int, rows []storage.ProbeReport) EveningReport {
 	hours := [24]eveningAcc{}
 	peak, offpeak := eveningAcc{}, eveningAcc{}

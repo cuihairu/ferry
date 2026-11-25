@@ -13,12 +13,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// TestEventsAPI 覆盖 outbox 管理端：列表带计数、status 过滤、死信重投与
-// 非死信冲突。
+// TestEventsAPI covers the outbox admin side: list with counts, status filter, dead-letter retry and
+// non-dead-letter conflict.
 func TestEventsAPI(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 
-	// 三状态各一：sent / pending / failed（死信）
+	// One row per status: sent / pending / failed (dead letter)
 	now := time.Now()
 	rows := []storage.Event{
 		{Kind: "region_fault", Severity: herald.SeverityCritical, Title: "华东不可达", Target: "admin", Status: herald.StatusSent, Attempts: 1, OccurredAt: now, CreatedAt: now},
@@ -30,7 +30,7 @@ func TestEventsAPI(t *testing.T) {
 	}
 	failedID := rows[2].ID
 
-	// 全量列表 + 计数（pending 2 = pending 1 + failed 1? 否——计数按状态分列）
+	// Full list + counts (pending 2 = pending 1 + failed 1? no — counts are listed per status)
 	rec := doJSON(t, r, "GET", "/api/events", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list: %d %s", rec.Code, rec.Body)
@@ -53,7 +53,7 @@ func TestEventsAPI(t *testing.T) {
 		t.Fatalf("counts = %+v", out.Counts)
 	}
 
-	// status 过滤
+	// status filter
 	rec = doJSON(t, r, "GET", "/api/events?status=failed", nil)
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
@@ -62,12 +62,12 @@ func TestEventsAPI(t *testing.T) {
 		t.Fatalf("failed filter = %+v", out.Rows)
 	}
 
-	// limit 越界 400
+	// limit out of range → 400
 	if rec := doJSON(t, r, "GET", "/api/events?limit=0", nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("limit=0: %d", rec.Code)
 	}
 
-	// 死信重投 → 回 pending 清下次投递时刻
+	// Dead-letter retry → back to pending, clearing the next delivery time
 	if rec := doJSON(t, r, "POST", "/api/events/"+strconv.FormatInt(failedID, 10)+"/retry", nil); rec.Code != http.StatusOK {
 		t.Fatalf("retry: %d %s", rec.Code, rec.Body)
 	}
@@ -76,7 +76,7 @@ func TestEventsAPI(t *testing.T) {
 		t.Fatalf("after retry = %+v err=%v", got, err)
 	}
 
-	// 二次重投冲突（已是 pending）；不存在 409
+	// A second retry conflicts (already pending); a missing event is also 409
 	if rec := doJSON(t, r, "POST", "/api/events/"+strconv.FormatInt(failedID, 10)+"/retry", nil); rec.Code != http.StatusConflict {
 		t.Fatalf("retry pending should 409: %d", rec.Code)
 	}
@@ -85,8 +85,8 @@ func TestEventsAPI(t *testing.T) {
 	}
 }
 
-// TestEventResultAPI 覆盖 Herald 通道分发回执（HERALD-2）：回执落
-// EventDelivery 留痕、事件本体状态不动、参数校验与未知事件 404。
+// TestEventResultAPI covers the Herald channel-dispatch receipt (HERALD-2): the receipt is
+// persisted to EventDelivery as a record, the event's own status is untouched, plus parameter validation and unknown-event 404.
 func TestEventResultAPI(t *testing.T) {
 	r, db := newSecretRouter(t)
 
@@ -100,7 +100,7 @@ func TestEventResultAPI(t *testing.T) {
 		return doSignedJSON(t, r, "/api/internal/event-results", body)
 	}
 
-	// 正常回执：sent + failed 各一条留痕，事件状态不动
+	// Normal receipts: one sent and one failed record, event status unchanged
 	if rec := post(gin.H{"event_id": ev.ID, "channel": "tg", "status": "sent", "detail": "msg_id 123"}); rec.Code != http.StatusOK {
 		t.Fatalf("result sent: %d %s", rec.Code, rec.Body)
 	}
@@ -122,7 +122,7 @@ func TestEventResultAPI(t *testing.T) {
 		t.Fatalf("delivery[1] = %+v", dls[1])
 	}
 
-	// 校验：缺 event_id / 缺 channel / 非法 status → 400
+	// Validation: missing event_id / missing channel / invalid status → 400
 	if rec := post(gin.H{"channel": "tg", "status": "sent"}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("no event_id: %d", rec.Code)
 	}
@@ -132,7 +132,7 @@ func TestEventResultAPI(t *testing.T) {
 	if rec := post(gin.H{"event_id": ev.ID, "channel": "tg", "status": "pending"}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad status: %d", rec.Code)
 	}
-	// 未知事件 404
+	// Unknown event → 404
 	if rec := post(gin.H{"event_id": 424242, "channel": "tg", "status": "sent"}); rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown event: %d", rec.Code)
 	}

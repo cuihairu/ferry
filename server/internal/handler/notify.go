@@ -10,10 +10,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 通知渠道管理（P1-10）：Webhook 地址与共享密钥存 settings KV，
-// 改动即时生效（每次外发现读），无需重启。
+// Notification channel management (P1-10): the Webhook URL and shared secret
+// are stored in the settings KV, changes take effect immediately (read on
+// every outbound send), with no restart required.
 
-// getNotify 查看通知渠道（GET /admin/notify）；密钥只回是否已配置。
+// getNotify reads the notification channel (GET /admin/notify); the secret is
+// reported only as configured-or-not.
 func (h *Handler) getNotify(c *gin.Context) {
 	url, ok, err := storage.GetSetting(h.db, notify.KeyURL)
 	if err != nil {
@@ -41,8 +43,8 @@ func urlIfConfigured(url string, ok bool) string {
 	return url
 }
 
-// putNotify 保存通知渠道（PUT /admin/notify）：url 空串表示停用；
-// secret 空串表示清除。
+// putNotify saves the notification channel (PUT /admin/notify): an empty url
+// means disabled; an empty secret means clear it.
 func (h *Handler) putNotify(c *gin.Context) {
 	var in struct {
 		URL    string `json:"url"`
@@ -68,8 +70,9 @@ func (h *Handler) putNotify(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"saved": true, "enabled": in.URL != ""})
 }
 
-// testNotify 发送测试事件（POST /admin/notify/test）：走与真实事件相同的
-// 外发管线，接收端可达性与密钥配置当场验证。
+// testNotify sends a test event (POST /admin/notify/test): it goes through the
+// same outbound pipeline as real events, verifying receiver reachability and
+// secret configuration on the spot.
 func (h *Handler) testNotify(c *gin.Context) {
 	n := notify.FromDB(h.db)
 	if !n.Enabled() {

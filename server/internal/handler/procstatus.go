@@ -12,12 +12,14 @@ import (
 	"gorm.io/gorm"
 )
 
-// 被管进程状态落库与查询（SAVE-3）：心跳携带的 ProcStatus 逐节点逐进程
-// upsert（nginx cache/Squid 等入口缓存进程的命中统计随之落库），dash 经
-// GET /api/nodes/:id/procs 回读。
+// Managed process status persistence and queries (SAVE-3): the ProcStatus list
+// carried in heartbeats is upserted per node per process (hit counters for entry
+// cache processes like nginx cache/Squid are persisted along with it), and the
+// dash reads them back via GET /api/nodes/:id/procs.
 
-// saveProcStatuses 把心跳里的进程快照 upsert 进 node_proc_statuses。
-// 失败返回错误由调用方记日志，不阻断心跳应答。
+// saveProcStatuses upserts the process snapshot from a heartbeat into
+// node_proc_statuses. On failure it returns the error for the caller to log;
+// it does not block the heartbeat reply.
 func (h *Handler) saveProcStatuses(nodeID int64, procs []agentproto.ProcStatus) error {
 	for _, ps := range procs {
 		if ps.Name == "" {
@@ -55,7 +57,8 @@ func (h *Handler) saveProcStatuses(nodeID int64, procs []agentproto.ProcStatus) 
 	return nil
 }
 
-// nodeProcRow 是 API 返回行：metrics 列解析回数字对象（坏 JSON 省略）。
+// nodeProcRow is one API response row: the metrics column is parsed back into
+// a numeric map (skipped when the JSON is bad).
 type nodeProcRow struct {
 	Proc      string            `json:"proc"`
 	State     string            `json:"state"`
@@ -65,7 +68,7 @@ type nodeProcRow struct {
 	UpdatedAt time.Time         `json:"updated_at"`
 }
 
-// nodeProcs 节点被管进程状态（GET /api/nodes/:id/procs）。
+// nodeProcs returns a node's managed process statuses (GET /api/nodes/:id/procs).
 func (h *Handler) nodeProcs(c *gin.Context) {
 	n, err := h.findNode(c.Param("id"))
 	if err != nil {

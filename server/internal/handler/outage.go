@@ -10,17 +10,22 @@ import (
 	"gorm.io/gorm"
 )
 
-// 断联容灾（触达批 TOUCH-7，用户触达设计 §4）：面板域名被封或面板不可达时
-// 用户仍能找到我们。判定源=管理员手动标记断联态（「复用边缘探测结论」不可
-// 执行：ProbeReport 只测隧道/出口/节点自身，没有面板入口域名的探测面）。
-// 逃生通道=订阅文本注释里带备用公告地址与备用域名清单——客户端缓存的订阅
-// 里自带，断联前就已下发；推新入口走既有公告扇出（站内信+notice 事件经
-// Herald 分发），不另起机制。
+// Outage resilience (reachability batch TOUCH-7, user-reachability design §4):
+// when the panel domain is blocked or the panel is unreachable, users can still
+// find us. The decision source is an admin-set outage flag ("reuse edge probe
+// results" is not executable: ProbeReport only probes the tunnel/egress/node
+// itself and has no probe surface for the panel entry domain).
+// The escape hatch = subscription text notes carrying the backup announcement
+// address and the backup domain list - they come bundled in the subscription the
+// client caches, delivered before the outage; pushing a new entry point reuses
+// the existing announcement fan-out (in-app message + notice event via
+// Herald), no separate mechanism.
 
-// outageSettingKey 断联态开关的设置键：缺省常态，"1" 断联。
+// outageSettingKey is the setting key for the outage flag: normal state by
+// default, "1" means outage.
 const outageSettingKey = "outage_mode"
 
-// outageMode 读断联态标记；未设置按常态。
+// outageMode reads the outage flag; unset counts as normal state.
 func outageMode(db *gorm.DB) bool {
 	v, ok, err := storage.GetSetting(db, outageSettingKey)
 	if err != nil || !ok {
@@ -29,13 +34,15 @@ func outageMode(db *gorm.DB) bool {
 	return v == "1" || v == "true"
 }
 
-// getOutage 断联态回读（GET /api/outage）。
+// getOutage reads back the outage flag (GET /api/outage).
 func (h *Handler) getOutage(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"enabled": outageMode(h.db)})
 }
 
-// putOutage 断联态标记（PUT /api/outage {enabled}）：面板域名被封或人工
-// 确认不可达时由管理员打开；订阅注释随之加警告行，恢复后关闭。
+// putOutage sets the outage flag (PUT /api/outage {enabled}): the admin turns
+// it on when the panel domain is blocked or reachability is manually confirmed
+// lost; a warning line is added to the subscription notes and it is turned off
+// again on recovery.
 func (h *Handler) putOutage(c *gin.Context) {
 	var in struct {
 		Enabled *bool `json:"enabled"`
@@ -55,12 +62,16 @@ func (h *Handler) putOutage(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"enabled": *in.Enabled})
 }
 
-// outageNotesCap 备用域名注释的条数上限，防域名清单过长撑爆订阅文本。
+// outageNotesCap is the cap on the number of backup domain notes, to stop an
+// overlong domain list from bloating the subscription text.
 const outageNotesCap = 8
 
-// outageNotes 组装订阅响应的备用信息注释（TOUCH-7）：公告订阅地址（断联后
-// 从阅读器拿新入口）+ 启用的入口域名清单（主备标注）+ 断联态警告。常附——
-// 逃生通道要在断联前就进客户端缓存，只有警告行由断联态开关控制。
+// outageNotes assembles the backup info notes for the subscription response
+// (TOUCH-7): the announcement subscription address (where to fetch a new entry
+// point after the outage) + the enabled entry domain list (primary/backup
+// marks) + the outage warning. It is always attached - the escape hatch must
+// land in the client cache before the outage, only the warning line is
+// controlled by the outage flag.
 func (h *Handler) outageNotes() []string {
 	var notes []string
 	if base := strings.TrimRight(h.cfg.BaseURL, "/"); base != "" {

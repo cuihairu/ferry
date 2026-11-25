@@ -9,15 +9,15 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// Herald 通道看板批（HC-1/2/3）测试：回执看板聚合与健康徽标、自检测试
-// 事件入 outbox、样例预览按 kind 取最近实单。
+// Tests for the Herald channel dashboard batch (HC-1/2/3): receipt dashboard aggregation and health
+// badges, self-test events landing in the outbox, and the sample preview taking the most recent real event per kind.
 
-// TestEventDeliveriesBoard 覆盖回执看板：行列表（新在前）、通道过滤、
-// 按通道聚合 sent/failed 与健康徽标、最近失败明细。
+// TestEventDeliveriesBoard covers the receipt dashboard: row list (newest first), channel filter,
+// per-channel sent/failed aggregation with health badges, and the latest failure detail.
 func TestEventDeliveriesBoard(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	now := time.Now()
-	// 两事件三回执：tg 全成功、email 单败（带明细）。
+	// Two events, three receipts: tg all sent, email one failure (with detail).
 	for _, ev := range []storage.Event{
 		{Kind: "node_blocked", Severity: "critical", Title: "t1", Target: "admin", Status: "sent", OccurredAt: now, CreatedAt: now},
 		{Kind: "cert_expiring", Severity: "warning", Title: "t2", Target: "admin", Status: "sent", OccurredAt: now, CreatedAt: now},
@@ -79,7 +79,7 @@ func TestEventDeliveriesBoard(t *testing.T) {
 		t.Fatalf("email = %+v", byName["email"])
 	}
 
-	// 通道过滤
+	// Channel filter
 	rec = doJSON(t, r, "GET", "/api/events/deliveries?channel=email", nil)
 	var filtered struct {
 		Rows []storage.EventDelivery `json:"rows"`
@@ -90,8 +90,8 @@ func TestEventDeliveriesBoard(t *testing.T) {
 	}
 }
 
-// TestEventSelfCheck 覆盖自检测试事件：落 outbox（system_test/pending/admin），
-// 连发多条不合并（自检要的是每次独立回执）。
+// TestEventSelfCheck covers the self-test event: it lands in the outbox (system_test/pending/admin),
+// and consecutive sends are not merged (self-testing wants an independent receipt each time).
 func TestEventSelfCheck(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	rec := doJSON(t, r, "POST", "/api/events/test", nil)
@@ -115,8 +115,8 @@ func TestEventSelfCheck(t *testing.T) {
 	}
 }
 
-// TestEventSamplesPreview 覆盖样例预览：每 kind 取最近一条（同 kind 多条取
-// 新），空仓返回空数组。
+// TestEventSamplesPreview covers the sample preview: the most recent row per kind (with multiple rows of
+// the same kind, the newest wins), and an empty store returns an empty array.
 func TestEventSamplesPreview(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	now := time.Now()

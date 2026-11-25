@@ -9,16 +9,17 @@ import (
 	"gorm.io/gorm"
 )
 
-// TestEntryDomainsDBErrors 覆盖清单取数失败与建/改/删三处落库失败均 500。
+// TestEntryDomainsDBErrors covers the 500 paths: listing query failure and
+// create/update/delete DB failures.
 func TestEntryDomainsDBErrors(t *testing.T) {
-	// 清单查询失败 → 500。
+	// listing query failure -> 500.
 	r, db := newTestRouterWithDB(t)
 	regQueryFail("t:ed_list", db, (*[]storage.EntryDomain)(nil))
 	if rec := doJSON(t, r, http.MethodGet, "/api/entry-domains", nil); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("list: %d %s", rec.Code, rec.Body)
 	}
 
-	// 建库落库失败 → 500。
+	// create DB failure -> 500.
 	r, db = newTestRouterWithDB(t)
 	db.Callback().Create().Before("gorm:create").Register("t:ed_create", func(tx *gorm.DB) {
 		if _, ok := tx.Statement.Dest.(*storage.EntryDomain); ok {
@@ -31,7 +32,7 @@ func TestEntryDomainsDBErrors(t *testing.T) {
 		t.Fatalf("create: %d %s", rec.Code, rec.Body)
 	}
 
-	// 改库保存失败（Save 走 Update 链）→ 500。
+	// update save failure (Save goes through the Update chain) -> 500.
 	r, db = newTestRouterWithDB(t)
 	if rec := doJSON(t, r, http.MethodPost, "/api/entry-domains", map[string]any{
 		"domain": "b.com", "role": "primary",
@@ -47,7 +48,7 @@ func TestEntryDomainsDBErrors(t *testing.T) {
 		t.Fatalf("update: %d %s", rec.Code, rec.Body)
 	}
 
-	// 删库删除失败 → 500（与 404 区分）。
+	// delete failure -> 500 (distinct from 404).
 	r, db = newTestRouterWithDB(t)
 	if rec := doJSON(t, r, http.MethodPost, "/api/entry-domains", map[string]any{
 		"domain": "c.com", "role": "backup",

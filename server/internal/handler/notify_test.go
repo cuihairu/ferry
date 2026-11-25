@@ -7,13 +7,14 @@ import (
 	"testing"
 )
 
-// TestNotifyChannel 覆盖通知渠道管理（P1-10）：查看默认、保存、校验、
-// 测试外发端到端、未配置时测试 400、无令牌 401。
+// TestNotifyChannel covers notification channel management (P1-10): reading
+// defaults, saving, validation, end-to-end test send, test 400 when unconfigured,
+// and 401 without a token.
 func TestNotifyChannel(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	seedAdminForJWT(t, db)
 
-	// 默认未启用
+	// Disabled by default
 	w := doAdmin(t, r, "GET", "/admin/notify", nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("get notify: %d %s", w.Code, w.Body)
@@ -30,7 +31,7 @@ func TestNotifyChannel(t *testing.T) {
 		t.Fatalf("default notify state mismatch: %+v", st)
 	}
 
-	// 测试外发端到端：接收端用 httptest
+	// Test send end to end: the receiver is an httptest server
 	var hits int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits++
@@ -50,7 +51,7 @@ func TestNotifyChannel(t *testing.T) {
 		t.Fatalf("saved notify state mismatch: %+v", st)
 	}
 
-	// POST /admin/notify/test 真发一条
+	// POST /admin/notify/test really sends one
 	if w = doAdmin(t, r, "POST", "/admin/notify/test", nil); w.Code != http.StatusOK {
 		t.Fatalf("test notify: %d %s", w.Code, w.Body)
 	}
@@ -58,12 +59,12 @@ func TestNotifyChannel(t *testing.T) {
 		t.Fatalf("webhook hits = %d, want 1", hits)
 	}
 
-	// 非法 URL 400
+	// Illegal URL 400
 	if w = doAdmin(t, r, "PUT", "/admin/notify", []byte(`{"url":"ftp://x"}`)); w.Code != http.StatusBadRequest {
 		t.Fatalf("bad url should 400: %d %s", w.Code, w.Body)
 	}
 
-	// 未配置时测试 400：清空 url 即停用
+	// Test 400 when unconfigured: clearing the url disables it
 	if w = doAdmin(t, r, "PUT", "/admin/notify", []byte(`{"url":""}`)); w.Code != http.StatusOK {
 		t.Fatalf("disable notify: %d %s", w.Code, w.Body)
 	}
@@ -71,7 +72,7 @@ func TestNotifyChannel(t *testing.T) {
 		t.Fatalf("test without webhook should 400: %d %s", w.Code, w.Body)
 	}
 
-	// 无令牌 401
+	// Without a token 401
 	if w := doBare(t, r, "GET", "/admin/notify"); w.Code != http.StatusUnauthorized {
 		t.Fatalf("without token should 401: %d", w.Code)
 	}

@@ -12,17 +12,18 @@ import (
 	"gorm.io/gorm"
 )
 
-// 入口池查看与手动复位（E-16）：摘挂判定在 internal/pool 周期执行，
-// 这里给 dash 池视角与探测源全挂时的人工摘回。
+// Entry pool viewing and manual reset (E-16): suspend/attach decisions run
+// periodically in internal/pool; this gives the dash its pool view and the
+// manual re-attach when every probe source is down.
 
-// poolView 是入口池一行：节点本体 + 窗口内最新探测结论概要。
+// poolView is one row of the entry pool: the node itself plus a summary of the latest probe verdict within the window.
 type poolView struct {
 	storage.Node
-	LastVerdict string     `json:"last_verdict"` // healthy/sick，空=窗口内无结论
+	LastVerdict string     `json:"last_verdict"` // healthy/sick; empty = no verdict within the window
 	LastProbed  *time.Time `json:"last_probed"`
 }
 
-// listPool 入口池列表（GET /api/pool）：entry/both 且 enabled 的节点。
+// listPool is the entry pool list (GET /api/pool): nodes with role entry/both that are enabled.
 func (h *Handler) listPool(c *gin.Context) {
 	var nodes []storage.Node
 	if err := h.db.Where("enabled = ? AND role IN (?, ?)", true, "entry", "both").
@@ -39,7 +40,7 @@ func (h *Handler) listPool(c *gin.Context) {
 			Order("probed_at DESC, id DESC").First(&r).Error
 		switch {
 		case errors.Is(err, gorm.ErrRecordNotFound):
-			// 窗口内无结论，留空
+			// no verdict within the window, leave blank
 		case err != nil:
 			fail(c, http.StatusInternalServerError, err)
 			return
@@ -52,8 +53,9 @@ func (h *Handler) listPool(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
-// suspendPoolNode 手动摘除（POST /api/pool/:id/suspend）：立即出池留痕，
-// 订阅入口池即时消失；重复摘除 409，非入口节点 400。
+// suspendPoolNode suspends manually (POST /api/pool/:id/suspend): it leaves
+// the pool immediately with a trace, and the subscription entry pool drops it
+// right away; re-suspending is 409, non-entry nodes 400.
 func (h *Handler) suspendPoolNode(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -64,7 +66,7 @@ func (h *Handler) suspendPoolNode(c *gin.Context) {
 	switch {
 	case err == nil:
 		if pool.OnChange != nil {
-			go pool.OnChange(h.db) // E-27 分地域对账：池态迁移即对账
+			go pool.OnChange(h.db) // E-27 per-region reconciliation: any pool state transition triggers reconciliation
 		}
 		c.JSON(http.StatusOK, node)
 	case errors.Is(err, pool.ErrAlreadySuspended):
@@ -76,8 +78,9 @@ func (h *Handler) suspendPoolNode(c *gin.Context) {
 	}
 }
 
-// resumePoolNode 手动复位（POST /api/pool/:id/resume）：摘除态摘回、
-// 预备态回池，其余口径（404/409）与防枚举一致。
+// resumePoolNode resumes manually (POST /api/pool/:id/resume): a suspended
+// node is re-attached and a standby node returns to the pool; the other
+// codes (404/409) match the enumeration-protection convention.
 func (h *Handler) resumePoolNode(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -88,7 +91,7 @@ func (h *Handler) resumePoolNode(c *gin.Context) {
 	switch {
 	case err == nil:
 		if pool.OnChange != nil {
-			go pool.OnChange(h.db) // E-27 分地域对账：池态迁移即对账
+			go pool.OnChange(h.db) // E-27 per-region reconciliation: any pool state transition triggers reconciliation
 		}
 		c.JSON(http.StatusOK, node)
 	case errors.Is(err, pool.ErrNotSuspended):
@@ -100,8 +103,9 @@ func (h *Handler) resumePoolNode(c *gin.Context) {
 	}
 }
 
-// standbyPoolNode 标记预备（POST /api/pool/:id/standby，BR-3）：在池入口
-// 转入待命——出订阅但保持在线，恢复流水线 L2 补位时升回池；重复标记 409。
+// standbyPoolNode marks standby (POST /api/pool/:id/standby, BR-3): an in-pool
+// entry goes to standby -- out of subscriptions but still online -- and is
+// promoted back when the pipeline L2 backfill resumes; re-marking is 409.
 func (h *Handler) standbyPoolNode(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -112,7 +116,7 @@ func (h *Handler) standbyPoolNode(c *gin.Context) {
 	switch {
 	case err == nil:
 		if pool.OnChange != nil {
-			go pool.OnChange(h.db) // E-27 分地域对账：池态迁移即对账
+			go pool.OnChange(h.db) // E-27 per-region reconciliation: any pool state transition triggers reconciliation
 		}
 		c.JSON(http.StatusOK, node)
 	case errors.Is(err, pool.ErrNotActive):

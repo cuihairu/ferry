@@ -5,7 +5,8 @@ import (
 	"testing"
 )
 
-// TestNodeTokenEndpointsNotFound 删除/轮换/吊销都查无此节点：404 统一口径。
+// TestNodeTokenEndpointsNotFound delete/rotate/revoke all see no such node:
+// one uniform 404 shape.
 func TestNodeTokenEndpointsNotFound(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	cases := []struct{ method, path string }{

@@ -7,12 +7,12 @@ import (
 	"testing"
 )
 
-// TestFeedXML 覆盖公告 RSS（TOUCH-2）：扇出后 /feed.xml 取锚点行渲染
-// RSS 2.0、XML 转义合法、无公告输出合法空 feed。
+// TestFeedXML covers the announcement RSS (TOUCH-2): after fanout, /feed.xml pulls the anchor rows and renders
+// RSS 2.0, the XML escaping is well-formed, and with no announcements it emits a legal empty feed.
 func TestFeedXML(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 
-	// 发布公告：标题带 XML 特殊字符验转义
+	// Publish an announcement: the title carries XML special characters to exercise escaping
 	rec := doJSON(t, r, "POST", "/api/notifications/announcement", map[string]any{
 		"title": "维护通知 A&B<x>", "body": "周日凌晨升级",
 	})
@@ -51,7 +51,7 @@ func TestFeedXML(t *testing.T) {
 	}
 }
 
-// TestFeedXMLEmpty 空公告时输出合法空 feed（不 500）。
+// TestFeedXMLEmpty emits a legal empty feed when there are no announcements (no 500).
 func TestFeedXMLEmpty(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	rec := doJSON(t, r, "GET", "/feed.xml", nil)

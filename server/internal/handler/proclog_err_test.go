@@ -10,7 +10,7 @@ import (
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
 
-// TestNodeProcLogsGuards 覆盖日志拉取的坏 id 404 与缺 proc 400。
+// TestNodeProcLogsGuards covers log fetch guards: bad id -> 404 and missing proc -> 400.
 func TestNodeProcLogsGuards(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doJSON(t, r, "GET", "/api/nodes/abc/logs?proc=xray", nil); rec.Code != http.StatusNotFound {
@@ -22,13 +22,13 @@ func TestNodeProcLogsGuards(t *testing.T) {
 	}
 }
 
-// TestNodeProcLogsTimeout 覆盖 agent 在线但不回执 → 504（5s 超时分支）。
+// TestNodeProcLogsTimeout covers the agent being online but never acknowledging -> 504 (5s timeout branch).
 func TestNodeProcLogsTimeout(t *testing.T) {
 	r := newTestRouter(t)
 	id, token := createNodeFor(t, r, "pl-to")
 	srv := httptest.NewServer(r)
 	defer srv.Close()
-	fakeAgent(t, srv.URL, "pl-to", token) // 握手后不应答
+	fakeAgent(t, srv.URL, "pl-to", token) // handshake done but no reply
 
 	rec := doJSON(t, r, "GET", fmt.Sprintf("/api/nodes/%d/logs?proc=xray", id), nil)
 	if rec.Code != http.StatusGatewayTimeout {
@@ -36,7 +36,7 @@ func TestNodeProcLogsTimeout(t *testing.T) {
 	}
 }
 
-// TestNodeProcLogsBadAck 覆盖回执载荷无法解码 → 500。
+// TestNodeProcLogsBadAck covers an undecodable ack payload -> 500.
 func TestNodeProcLogsBadAck(t *testing.T) {
 	r := newTestRouter(t)
 	id, token := createNodeFor(t, r, "pl-bad")
@@ -49,7 +49,7 @@ func TestNodeProcLogsBadAck(t *testing.T) {
 		done <- doJSON(t, r, "GET", fmt.Sprintf("/api/nodes/%d/logs?proc=xray", id), nil)
 	}()
 	env := readEnv(t, c)
-	// 同 ID 应答，载荷合法 JSON 但类型无法解进 ProcLogsAck。
+	// Reply with the same ID; payload is valid JSON but its type cannot decode into ProcLogsAck.
 	bad := agentproto.Envelope{V: env.V, ID: env.ID, Type: agentproto.MsgProcLogsAck,
 		Payload: []byte(`"not-an-object"`)}
 	if err := c.WriteJSON(bad); err != nil {
