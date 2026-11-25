@@ -1,4 +1,4 @@
-// Package config 加载 agent 运行配置：文件为 JSON，环境变量可覆盖关键项。
+// Package config loads the agent runtime configuration: the file is JSON, and environment variables may override key items.
 package config
 
 import (
@@ -12,75 +12,75 @@ import (
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
 
-// TLSConfig 声明 mTLS 相关文件；全部为空时仅用节点令牌走系统根证书校验。
+// TLSConfig declares the mTLS related files; when all of them are empty, only the node token is used and verification runs against the system root certificates.
 type TLSConfig struct {
-	CAFile   string `json:"ca_file"`   // 校验面板证书的 CA（自签部署时必填）
-	CertFile string `json:"cert_file"` // 客户端证书（mTLS 开启时）
+	CAFile   string `json:"ca_file"`   // CA used to verify the panel certificate (required for self-signed deployments)
+	CertFile string `json:"cert_file"` // client certificate (when mTLS is enabled)
 	KeyFile  string `json:"key_file"`
 }
 
-// ProcSpec 描述一个被管代理进程，进程管理功能使用。
+// ProcSpec describes one managed proxy process and is used by the process management feature.
 type ProcSpec struct {
-	Name       string   `json:"name"`        // 进程名，面板消息按此寻址
+	Name       string   `json:"name"`        // process name; panel messages are addressed by it
 	Kind       string   `json:"kind"`        // xray / sing-box / hysteria2
-	Exec       string   `json:"exec"`        // 可执行文件路径
-	Args       []string `json:"args"`        // 启动参数
-	WorkDir    string   `json:"work_dir"`    // 工作目录
-	ConfigPath string   `json:"config_path"` // 配置文件路径，配置下发落盘点
-	AssetDir   string   `json:"asset_dir"`   // 规则库资产目录（rulelib 下发落盘点），空则回退 config_path 同级 assets/
-	StatsAPI   string   `json:"stats_api"`   // xray gRPC stats API 地址（如 127.0.0.1:10085），空=不采集该进程流量
-	MetricsURL string   `json:"metrics_url"` // HTTP GET 指标接口（文本 key-value 行 / JSON 数字对象），空=不采集
-	Reload     string   `json:"reload"`      // reload 策略：restart / signal
-	Validate   string   `json:"validate"`    // 校验命令模板，{config} 占位符；空则跳过校验
+	Exec       string   `json:"exec"`        // path to the executable
+	Args       []string `json:"args"`        // startup arguments
+	WorkDir    string   `json:"work_dir"`    // working directory
+	ConfigPath string   `json:"config_path"` // config file path, also where a config push lands
+	AssetDir   string   `json:"asset_dir"`   // rule library asset directory (where a rulelib push lands); empty falls back to assets/ alongside config_path
+	StatsAPI   string   `json:"stats_api"`   // xray gRPC stats API address (e.g. 127.0.0.1:10085); empty = no traffic collection for this process
+	MetricsURL string   `json:"metrics_url"` // HTTP GET metrics endpoint (text key-value lines / a JSON numeric object); empty = no collection
+	Reload     string   `json:"reload"`      // reload policy: restart / signal
+	Validate   string   `json:"validate"`    // validation command template with a {config} placeholder; empty skips validation
 }
 
-// ProbeSpec 描述一个边缘探测任务：出口基线与入口互探本地执行，
-// 隧道探测经 relay 数据面（E-5/E-6 接入前跳过）。
+// ProbeSpec describes one edge probing task: exit baselines and inbound peer probing run locally,
+// while tunnel probing goes through the relay data plane (skipped until E-5/E-6 are connected).
 type ProbeSpec struct {
-	Name        string `json:"name"`        // 任务名
+	Name        string `json:"name"`        // task name
 	TargetKind  string `json:"target_kind"` // tunnel/exit/peer
-	Target      string `json:"target"`      // 目标 host:port
-	Direction   string `json:"direction"`   // out/in，默认 out
+	Target      string `json:"target"`      // target host:port
+	Direction   string `json:"direction"`   // out/in, default out
 	IntervalSec int    `json:"interval_sec"`
 }
 
-// RelaySpec 是 relay 数据面（E-5）的运行参数：本机监听 → 经传输插件拨落地。
+// RelaySpec holds the runtime parameters of the relay data plane (E-5): listen locally, then dial the landing through the transport plugin.
 type RelaySpec struct {
-	Listen      string `json:"listen"`       // 本地监听，如 127.0.0.1:1080
-	LandingAddr string `json:"landing_addr"` // 落地地址，如 landing.example.com:443
-	Tunnel      string `json:"tunnel"`       // 传输插件名，空=默认 tls-camo
-	ServerName  string `json:"server_name"`  // TLS 伪装域名，空=落地主机名；ssh=sshd 地址
-	CAFile      string `json:"ca_file"`      // 私有 CA，空=系统根证书
+	Listen      string `json:"listen"`       // local listener, e.g. 127.0.0.1:1080
+	LandingAddr string `json:"landing_addr"` // landing address, e.g. landing.example.com:443
+	Tunnel      string `json:"tunnel"`       // transport plugin name; empty = the default tls-camo
+	ServerName  string `json:"server_name"`  // TLS camouflage domain; empty = the landing hostname; ssh = an sshd address
+	CAFile      string `json:"ca_file"`      // private CA; empty = the system root certificates
 
-	// ssh 插件参数（E-28，其他传输忽略）：密钥与 known_hosts 是本机文件
-	// 路径引用，密钥内容不进配置不进库（凭据加密面 R24 只覆盖库内机密）。
-	SSHUser        string `json:"ssh_user,omitempty"`         // SSH 登录用户，publickey 认证
-	SSHKeyFile     string `json:"ssh_key_file,omitempty"`     // 私钥文件路径
-	SSHKnownHosts  string `json:"ssh_known_hosts,omitempty"`  // known_hosts 路径，空=跳过 host key 校验（仅引导期）
-	SSHForwardAddr string `json:"ssh_forward_addr,omitempty"` // direct-tcpip 目标（落地本机 relay 监听）
+	// ssh plugin parameters (E-28, ignored by other transports): the key and known_hosts are local
+	// path references, and the key content goes neither into config nor into the database (the credential encryption scope R24 covers only in-database secrets).
+	SSHUser        string `json:"ssh_user,omitempty"`         // SSH login user, publickey authentication
+	SSHKeyFile     string `json:"ssh_key_file,omitempty"`     // private key file path
+	SSHKnownHosts  string `json:"ssh_known_hosts,omitempty"`  // known_hosts path; empty = skip host key verification (bootstrap phase only)
+	SSHForwardAddr string `json:"ssh_forward_addr,omitempty"` // direct-tcpip target (the relay listener on the landing host)
 }
 
-// Config 是 agent 的全部运行参数。
+// Config is every runtime parameter of the agent.
 type Config struct {
-	PanelURL     string              `json:"panel_url"` // 形如 wss://panel.example.com/agent/ws
+	PanelURL     string              `json:"panel_url"` // e.g. wss://panel.example.com/agent/ws
 	AgentID      string              `json:"agent_id"`
 	Token        string              `json:"token"`
 	HeartbeatSec int                 `json:"heartbeat_sec"`
-	TrafficSec   int                 `json:"traffic_sec"` // 流量采集上报周期，0=关闭
-	SpoolDir     string              `json:"spool_dir"`   // 角色上报 spool 目录，空=不转发（E-5/E-7）
+	TrafficSec   int                 `json:"traffic_sec"` // traffic collection and reporting period; 0 = disabled
+	SpoolDir     string              `json:"spool_dir"`   // spool directory for role reports; empty = no forwarding (E-5/E-7)
 	TLS          TLSConfig           `json:"tls"`
-	Meta         agentproto.NodeMeta `json:"meta"` // 节点注册元数据初值，注册时随 hello 上报
+	Meta         agentproto.NodeMeta `json:"meta"` // initial node registration metadata, reported with hello at registration time
 	Procs        []ProcSpec          `json:"procs"`
 	Probes       []ProbeSpec         `json:"probes"`
-	Relay        RelaySpec           `json:"relay"` // -role relay 用；核心模式忽略
+	Relay        RelaySpec           `json:"relay"` // used by -role relay; ignored in core mode
 }
 
-// Default 返回带默认值的配置。
+// Default returns a configuration populated with default values.
 func Default() Config {
 	return Config{HeartbeatSec: 30, TrafficSec: 60}
 }
 
-// Load 读取配置文件并用环境变量覆盖：FERRY_PANEL_URL / FERRY_NODE_TOKEN / FERRY_AGENT_ID / FERRY_HEARTBEAT_SEC。
+// Load reads the config file and applies environment variable overrides: FERRY_PANEL_URL / FERRY_NODE_TOKEN / FERRY_AGENT_ID / FERRY_HEARTBEAT_SEC.
 func Load(path string) (Config, error) {
 	cfg := Default()
 	if path != "" {
@@ -142,7 +142,7 @@ func Load(path string) (Config, error) {
 	return cfg, nil
 }
 
-// applyMetaDefaults 补齐元数据缺省值，与 nodes 表默认值对齐。
+// applyMetaDefaults fills in missing metadata defaults, aligned with the nodes table defaults.
 func applyMetaDefaults(cfg *Config) {
 	m := &cfg.Meta
 	if m.Role == "" {
@@ -171,7 +171,7 @@ func applyMetaDefaults(cfg *Config) {
 	}
 }
 
-// Validate 校验必填项与取值范围。
+// Validate checks required items and value ranges.
 func (c Config) Validate() error {
 	if c.PanelURL == "" {
 		return errors.New("panel_url is required")
@@ -253,12 +253,12 @@ func (c Config) Validate() error {
 	return nil
 }
 
-// HeartbeatInterval 返回心跳周期。
+// HeartbeatInterval returns the heartbeat period.
 func (c Config) HeartbeatInterval() time.Duration {
 	return time.Duration(c.HeartbeatSec) * time.Second
 }
 
-// TrafficInterval 返回流量采集周期；0 表示关闭。
+// TrafficInterval returns the traffic collection period; 0 means disabled.
 func (c Config) TrafficInterval() time.Duration {
 	if c.TrafficSec <= 0 {
 		return 0

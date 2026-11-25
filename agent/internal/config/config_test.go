@@ -11,7 +11,7 @@ import (
 )
 
 func TestLoadDefaults(t *testing.T) {
-	// 无文件且无环境变量时必填项缺失，加载应当报错。
+	// With neither a file nor environment variables, required items are missing and loading must fail.
 	if _, err := Load(""); err == nil {
 		t.Fatal("empty load must fail: panel_url/token required")
 	}
@@ -241,7 +241,7 @@ func TestValidate(t *testing.T) {
 	}
 }
 
-// TestLoadErrors 读取/解析/env 数值三类失败都要冒错（不回退默认值糊过去）。
+// TestLoadErrors covers read/parse/env-numeric failures all surfacing as errors (no silently papering over them with defaults).
 func TestLoadErrors(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "absent.json")
 	if _, err := Load(missing); err == nil || !strings.Contains(err.Error(), "read config") {
@@ -267,7 +267,7 @@ func TestLoadErrors(t *testing.T) {
 	}
 }
 
-// TestLoadFileMetaEnvOverride 文件给必填项、env 逐项覆盖元数据。
+// TestLoadFileMetaEnvOverride covers the file supplying required items while env overrides metadata item by item.
 func TestLoadFileMetaEnvOverride(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "agent.json")
 	body := `{"panel_url":"https://panel.example.com","token":"tok-file","agent_id":"agent-file",
@@ -300,7 +300,7 @@ func TestLoadFileMetaEnvOverride(t *testing.T) {
 	}
 }
 
-// TestIntervals 周期口径：流量周期 <=0 表示关闭采集。
+// TestIntervals covers period semantics: a traffic period <=0 means collection is off.
 func TestIntervals(t *testing.T) {
 	if got := (Config{HeartbeatSec: 30}).HeartbeatInterval(); got != 30*time.Second {
 		t.Errorf("HeartbeatInterval = %v; want 30s", got)

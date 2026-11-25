@@ -9,7 +9,7 @@ import (
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
 
-// TestLoadEnvHeartbeatAndTraffic 面板心跳/流量周期可经环境变量覆盖文件值。
+// TestLoadEnvHeartbeatAndTraffic covers the panel heartbeat/traffic periods being overridden by environment variables over the file values.
 func TestLoadEnvHeartbeatAndTraffic(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "agent.json")
@@ -32,7 +32,7 @@ func TestLoadEnvHeartbeatAndTraffic(t *testing.T) {
 	}
 }
 
-// validBase 组一份能过 Validate 的最小配置，再按用例破坏。
+// validBase assembles a minimal configuration that passes Validate, then breaks it per case.
 func validBase() Config {
 	return Config{
 		PanelURL:     "wss://p.example/agent/ws",
@@ -42,7 +42,7 @@ func validBase() Config {
 	}
 }
 
-// TestValidateTrafficSecRange traffic_sec 只允许 0（关）或 10-3600。
+// TestValidateTrafficSecRange covers traffic_sec allowing only 0 (off) or 10-3600.
 func TestValidateTrafficSecRange(t *testing.T) {
 	cfg := validBase()
 	cfg.TrafficSec = 5
@@ -52,7 +52,7 @@ func TestValidateTrafficSecRange(t *testing.T) {
 	}
 }
 
-// TestValidateDuplicateProbeName 探测规格重名：拒绝。
+// TestValidateDuplicateProbeName covers duplicate probe spec names: rejected.
 func TestValidateDuplicateProbeName(t *testing.T) {
 	cfg := validBase()
 	cfg.Probes = []ProbeSpec{
@@ -65,7 +65,7 @@ func TestValidateDuplicateProbeName(t *testing.T) {
 	}
 }
 
-// TestValidateProbeIntervalRange 探测周期出界：拒绝。
+// TestValidateProbeIntervalRange covers an out-of-range probe period: rejected.
 func TestValidateProbeIntervalRange(t *testing.T) {
 	cfg := validBase()
 	cfg.Probes = []ProbeSpec{
