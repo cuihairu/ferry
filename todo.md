@@ -1896,7 +1896,7 @@ External Client
 -   [ ] `F-1472` 提供账单差异对账入口。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1472 | 未满足：无账单差异对账。）
 -   [ ] `F-1473` 提供成本异常告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1473 | 部分：高成本阈值（CostView.vue:297-303）+价格 watch（:560-587）；非增长率异常。）
+    - 待补（F-1473 | 部分：高成本阈值（CostView.vue:297-303）+价格 watch（:560-587）+增长率异常检测 API（GET /cost/anomalies spend_spike，Commit: 2be063c）；未接 Herald 周期告警循环。）
 -   [ ] `F-1474` 支持成本明细导出。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1474 | 未满足：无导出。）
 -   [ ] `F-1475` 在页面明确区分实际、估算和分摊金额。（依赖：无；完成条件：需求落地+测试绿+证据行）
@@ -2641,8 +2641,8 @@ External Client
     - 备注（Task ID: F-10003 | Status: Done | Evidence: 区分实际账单/估算/分摊：三表并存互不混写 (§4.1/§4.3/§4.4) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
 -   [ ] `F-10004` 能够按 Provider、账号、区域、资源和 Node 查看成本。（依赖：F-1462、F-1463、F-1465；完成条件：需求落地+测试绿+证据行）
     - 待补（F-10004 | 部分：区域/ISP/节点成本维度有（F-1464/1466 关）；无 Provider/账号/资源维度（F-1462/1463/1465）——按五维度查看成本缺二。）
--   [ ] `F-10005` 能够发现账单缺失、资源无法匹配和异常成本。（依赖：F-0588、F-0589、F-1473；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-10005 | 未满足：无账单（F-0588/0589）；仅高成本阈值（F-1473 部分）——不能发现账单缺失/资源无法匹配/异常成本。）
+-   [x] `F-10005` 能够发现账单缺失、资源无法匹配和异常成本。（依赖：F-0588、F-0589、F-1473；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-10005 | Status: Done | Evidence: DetectAnomalies 三类齐备：missing_bill（同步资源无账单明细）/unmatched_resource（账单无对应资源）/spend_spike（月环比涨幅），另有高成本阈值（F-1473 已关部分） | Verification: TestDetectAnomalies（go test ./... 全绿 2026-11-26） | Commit: 2be063c）
 
 ## 数据面与订阅
 
