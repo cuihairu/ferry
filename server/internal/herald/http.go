@@ -2,6 +2,7 @@ package herald
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/ratelimit"
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
@@ -36,6 +38,11 @@ func HTTPSender(url, token string) Sender {
 		req.Header.Set("Content-Type", "application/json")
 		if token != "" {
 			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		// Pacing (F-0047): the shared per-host pacer keeps the delivery loop
+		// inside the channel's tolerance; the wait is bounded by the window.
+		if err := ratelimit.WaitURL(context.Background(), base+"/events"); err != nil {
+			return err
 		}
 		resp, err := client.Do(req)
 		if err != nil {

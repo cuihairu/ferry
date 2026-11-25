@@ -5,12 +5,14 @@ package notify
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/ratelimit"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"gorm.io/gorm"
 )
@@ -72,6 +74,11 @@ func (n *Notifier) Send(e Event) error {
 	req.Header.Set("Content-Type", "application/json")
 	if n.secret != "" {
 		req.Header.Set("X-Ferry-Webhook-Secret", n.secret)
+	}
+	// Pacing (F-0047): the shared per-host pacer keeps event bursts inside the
+	// channel's tolerance; the wait is bounded by the window.
+	if err := ratelimit.WaitURL(context.Background(), n.url); err != nil {
+		return err
 	}
 	resp, err := n.client.Do(req)
 	if err != nil {

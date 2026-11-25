@@ -15,6 +15,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/cuihairu/ferry/server/internal/ratelimit"
 )
 
 // Client is the minimal client for servify host-backend calls (embedding guide §3.2/§4.2).
@@ -145,6 +147,11 @@ func (c *Client) call(ctx context.Context, method, path string, body any, out an
 	req.Header.Set("X-API-Key", c.ServiceKey)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	// Pacing (F-0047): the shared per-host pacer bounds call bursts to the
+	// servify API.
+	if err := ratelimit.WaitURL(ctx, req.URL.String()); err != nil {
+		return err
 	}
 	resp, err := c.http().Do(req)
 	if err != nil {

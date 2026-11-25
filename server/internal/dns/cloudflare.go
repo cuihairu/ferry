@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/ratelimit"
 	"github.com/cuihairu/ferry/server/internal/safestr"
 )
 
@@ -67,6 +68,11 @@ func (c *Cloudflare) do(ctx context.Context, method, path string, body any) (jso
 	req.Header.Set("Authorization", "Bearer "+c.Token)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	// Pacing (F-0047): Cloudflare enforces API quotas; the shared per-host pacer
+	// keeps record ops well under them.
+	if err := ratelimit.WaitURL(ctx, req.URL.String()); err != nil {
+		return nil, err
 	}
 	resp, err := c.client().Do(req)
 	if err != nil {

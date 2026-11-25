@@ -7,6 +7,7 @@
 package idp
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/ferry/server/internal/config"
+	"github.com/cuihairu/ferry/server/internal/ratelimit"
 )
 
 // OIDC is the authorization-code client of one provider.
@@ -79,6 +81,11 @@ func (o *OIDC) Exchange(code string) (Identity, error) {
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.SetBasicAuth(url.QueryEscape(o.cfg.ClientID), url.QueryEscape(o.cfg.ClientSecret))
+	// Pacing (F-0047): the shared per-host pacer bounds login-driven bursts to
+	// the IdP.
+	if err := ratelimit.WaitURL(context.Background(), o.cfg.TokenURL); err != nil {
+		return Identity{}, fmt.Errorf("oidc token pacing: %w", err)
+	}
 	resp, err := o.client.Do(req)
 	if err != nil {
 		return Identity{}, fmt.Errorf("oidc token endpoint: %w", err)
@@ -110,6 +117,9 @@ func (o *OIDC) Exchange(code string) (Identity, error) {
 		return Identity{}, fmt.Errorf("oidc userinfo request: %w", err)
 	}
 	req.Header.Set("Authorization", token.TokenType+" "+token.AccessToken)
+	if err := ratelimit.WaitURL(context.Background(), o.cfg.UserInfoURL); err != nil {
+		return Identity{}, fmt.Errorf("oidc userinfo pacing: %w", err)
+	}
 	resp, err = o.client.Do(req)
 	if err != nil {
 		return Identity{}, fmt.Errorf("oidc userinfo endpoint: %w", err)
