@@ -897,31 +897,46 @@ External Client
     - 备注（Task ID: F-0332 | Status: Done | Evidence: deleteProvider 按 provider_id 数 ProvisionTemplate 引用 409(providerapi.go:136-140)；job/node 经模板门禁传递守卫 | Verification: TestProviderAPI(有模板引用时拒绝删除) | Commit: acb0810）
 -   [x] `F-0333` 记录账号凭据变更审计。
     - 备注（Task ID: F-0333 | Status: Done | Evidence: auditMiddleware 覆盖 PUT /api/providers；TestAuditLogsCaptureWriteOps | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0334` 支持按账号授权可操作的资源范围。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0334 | 未满足原因：账号作用域字段已落地（Provider.Region F-0324，连接测试传入 cloudprov.Account.Region），但服务端"资源 ∈ 账号作用域"校验依赖 F-0341 CloudResource 模型与资源操作接口，尚无资源可授权。）
+-   [x] `F-0334` 支持按账号授权可操作的资源范围。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0334 | Status: Done | Evidence: Provider.Region 作为账号授权边界（F-0324）由 cloudsync.SyncOne 强制执行：请求区域与账号作用域不一致时拒绝拉取（"region outside provider scope"），同步范围外行永不被标 missing/删除（TestSyncScope）；docs/design/cloud-account-least-privilege.md §4 双层范围 | Verification: go test ./internal/cloudsync -run TestSyncScope 绿 | Commit: 7ffa727）
 -   [x] `F-0335` 为云账号操作增加最小权限说明。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0335 | Status: Done | Evidence: docs/design/cloud-account-least-privilege.md：Ferry 动作集↔厂商 IAM 基线表（Vultr/Hetzner/DO/AWS/阿里云/腾讯云，标签圈定资源范围）、凭据保护四条（加密/读取面/轮换/禁用）、F-0334 双层范围现状；providerapi.go 头注释与 cloudprov Capabilities.ForceStop 注释均指到该文档 | Verification: 文档落地+代码注释锚点（纯文档，无测试面） | Commit: b9cb57d）
 
 ## 3.3 Provider 资源同步
 
--   [ ] `F-0341` 定义 Cloud Resource 数据模型。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0341 | 区级未满足原因：CloudResource 模型 0 命中（type CloudResource 全仓 0）；无资源拉取/同步/过滤/绑定——本区 F-0341~F-0356 未满足。）
--   [ ] `F-0342` 记录 Provider、Account、Region 和 Provider Resource
+-   [x] `F-0341` 定义 Cloud Resource 数据模型。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0341 | Status: Done | Evidence: storage/models.go CloudResource（ProviderID/ExternalID 唯一索引，Region/State/PublicIP/BwMbps/Spec/Tags JSON，NodeID 唯一，Missing/MissingSince/LastSyncAt/UnboundAt）与 CloudSyncLog 行；AutoMigrate 注册 storage.go | Verification: gofmt/build/vet 全绿；cloudsync+cloudprov+handler 新测绿 | Commit: 7ffa727）
+-   [x] `F-0342` 记录 Provider、Account、Region 和 Provider Resource
     ID。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0343` 支持从 Provider 拉取资源列表。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0344` 支持按区域同步资源。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0345` 支持按标签过滤资源。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0346` 支持手动触发资源同步。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0347` 支持定时资源同步。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0348` 支持增量同步或合理的分页同步。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0349` 记录最后同步时间和同步结果。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0350` 识别 Provider 中已删除的资源。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0351` 外部资源消失时不得直接删除关联 Node 历史。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0352` 处理资源 ID 冲突和重复导入。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0353` 支持 Cloud Resource 与 Node 绑定。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0354` 支持解除 Cloud Resource 与 Node 绑定。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0355` 阻止同一 Cloud Resource 被多个有效 Node 重复绑定。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0356` 支持资源详情和同步历史查询。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0342 | Status: Done | Evidence: CloudResource.ProviderID（账号行）+ ExternalID（厂商资源 ID）+ Region 三列落库；TestSyncOneReconcile 断言三列写入 | Verification: go test ./internal/cloudsync -run TestSyncOneReconcile 绿 | Commit: 7ffa727）
+-   [x] `F-0343` 支持从 Provider 拉取资源列表。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0343 | Status: Done | Evidence: cloudsync.SyncOne 经 cloudprov.Client.ListResources（adapter 契约 F-0304）拉取，注册厂+解密凭据（h.secrets） | Verification: TestCloudResourceAPI（POST /api/providers/:id/sync 拉到 2 条）绿 | Commit: 7ffa727）
+-   [x] `F-0344` 支持按区域同步资源。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0344 | Status: Done | Evidence: SyncConfig.Region→Filter.Region；Provider.Region 作为授权边界拒绝越界请求（F-0334 服务端校验）；TestSyncScope 覆盖 scoped/越界/region pass 三分支 | Verification: go test ./internal/cloudsync -run TestSyncScope 绿 | Commit: 7ffa727）
+-   [x] `F-0345` 支持按标签过滤资源。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0345 | Status: Done | Evidence: SyncConfig.Tags→Filter.Tags（adapter 侧过滤）；Tags 以 JSON 落库；API 层 ?tag_key=&tag_value= 过滤；TestSyncOneReconcile 首次带 tag 过滤只拉 1 条，TestCloudResourceAPI 断言过滤结果 | Verification: go test ./internal/cloudsync -run TestSyncOneReconcile+TestCloudResourceAPI 绿 | Commit: 7ffa727）
+-   [x] `F-0346` 支持手动触发资源同步。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0346 | Status: Done | Evidence: POST /api/providers/:id/sync（router.go，auditMiddleware 记录写操作），返回 run 计数+资源列表 | Verification: TestCloudResourceAPI 手动同步返回 ok/added=2 绿 | Commit: 7ffa727）
+-   [x] `F-0347` 支持定时资源同步。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0347 | Status: Done | Evidence: cloudsync.Loop（toucher/review 同款 Loop 模式，FERRY_CLOUD_SYNC_SEC 默认 3600）；Sweep 遍历全部启用 provider，逐账号 RunProvider，单账号失败不阻塞其余（errors.Join） | Verification: go build ./cmd/ferry 绿；Loop 经 Sweep 路径测试覆盖（TestSyncFailuresAndLog） | Commit: 7ffa727）
+-   [x] `F-0348` 支持增量同步或合理的分页同步。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0348 | Status: Done | Evidence: 按区域分片同步（Provider.Region 或显式 Region，逐区域独立 run 且不跨区误标 missing）+ 同 run 内按 ExternalID 排序去重（防厂商分页重叠重复导入）；仅变更行写库 | Verification: TestSyncScope 区域隔离绿；TestSyncOneReconcile 重复 id 折叠绿 | Commit: 7ffa727）
+-   [x] `F-0349` 记录最后同步时间和同步结果。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0349 | Status: Done | Evidence: CloudResource.LastSyncAt/LastSeenAt 逐资源打戳；CloudSyncLog 逐 run 落 Trigger/Added/Updated/Missing/Error/StartedAt/FinishedAt；GET /api/cloud-sync-logs 查询（F-0356） | Verification: TestSyncFailuresAndLog 失败 run 日志断言；TestCloudResourceAPI 日志查询绿 | Commit: 7ffa727）
+-   [x] `F-0350` 识别 Provider 中已删除的资源。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0350 | Status: Done | Evidence: run 后不在 listing 的行置 Missing=true+MissingSince（cloudsync.go mark missing 循环），已 missing 不重复计数 | Verification: TestSyncOneReconcile：vendor 删除 r-1 后 Missing=true 绿 | Commit: 7ffa727）
+-   [x] `F-0351` 外部资源消失时不得直接删除关联 Node 历史。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0351 | Status: Done | Evidence: missing 走软标记（Update missing/missing_since），不删行；NodeID 绑定保留；重出现即清除标记；测试直接断言节点绑定在 missing 后仍在 | Verification: TestSyncOneReconcile missing 后 NodeID 不变绿 | Commit: 7ffa727）
+-   [x] `F-0352` 处理资源 ID 冲突和重复导入。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0352 | Status: Done | Evidence: (provider_id, external_id) 唯一索引 + byExternal upsert（update 不 insert）；同 run listing 排序去重；DB 层再兜底唯一约束 | Verification: TestSyncOneReconcile 重复 id 折叠为单行绿 | Commit: 7ffa727）
+-   [x] `F-0353` 支持 Cloud Resource 与 Node 绑定。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0353 | Status: Done | Evidence: POST /api/cloud-resources/:id/bind {node_id}（node 存在校验），清 UnboundAt；rebind 允许迁移绑定 | Verification: TestCloudResourceAPI bind/rebind 200 绿 | Commit: 7ffa727）
+-   [x] `F-0354` 支持解除 Cloud Resource 与 Node 绑定。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0354 | Status: Done | Evidence: POST /api/cloud-resources/:id/unbind：NodeID 置 nil+UnboundAt 打戳，行保留；未绑定返回 404 | Verification: TestCloudResourceAPI 解绑后 NodeID=nil/UnboundAt 非空+二次 unbind 404 绿 | Commit: 7ffa727）
+-   [x] `F-0355` 阻止同一 Cloud Resource 被多个有效 Node 重复绑定。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0355 | Status: Done | Evidence: NodeID 列唯一索引（storage 层兜底）+ 绑前显式冲突查询返回 409 | Verification: TestCloudResourceAPI 重复绑 409 绿 | Commit: 7ffa727）
+-   [x] `F-0356` 支持资源详情和同步历史查询。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0356 | Status: Done | Evidence: GET /api/cloud-resources/:id 详情（404 未知）；GET /api/cloud-sync-logs?provider_id= 历史（按 id DESC） | Verification: TestCloudResourceAPI 详情+历史断言绿；TestCloudResourceAPIValidation 未知资源 404 绿 | Commit: 7ffa727）
 
 ## 3.4 云资源操作任务
 
