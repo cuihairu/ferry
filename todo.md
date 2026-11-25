@@ -751,8 +751,8 @@ External Client
     - 完成（F-0249 | Path 表无 (landing_node_id) 唯一约束；TestPathCRUD 验证同 landing 建两条 Path。 | Verification: TestPathCRUD | Commit: 2455a6c）
 -   [x] `F-0250` 定义 Path 的启停状态。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
     - 完成（F-0250 | Path.Enabled 布尔字段，默认 true；create/update 显式写回，list 支持 enabled 筛选。 | Verification: TestPathCRUD | Commit: 2455a6c）
--   [ ] `F-0251` 定义 Path 的健康状态。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0251 | 未满足原因：Path 无独立健康字段，节点级健康/探测报告已有但 Path 级健康状态未落地；待 group 健康聚合一并实现。）
+-   [x] `F-0251` 定义 Path 的健康状态。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0251 | Status: Done | Evidence: pathhealth.Evaluate 读时推导四态 healthy/unknown/degraded/off：disabled=off、端点 offline/pool 挂起或落点新探测 sick=degraded、窗口内有 healthy verdict=healthy、无新 verdict=unknown（窗口与调度一致 30m）；GET /api/paths/:id/health | Verification: TestEvaluateStates/TestPathHealthEndpoints | Commit: c40c735）
 -   [x] `F-0252` 定义 Path 的配置版本。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
     - 完成（F-0252 | Path.Version 整数，create=1、update 递增；TestPathCRUD 验证更新后版本为 2。 | Verification: TestPathCRUD | Commit: 2455a6c）
 -   [x] `F-0253` 定义 Path 的变更历史。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
@@ -778,10 +778,10 @@ External Client
     - 完成（F-0266 | Group 支持 direction/region/purpose 组织与筛选；成员 direction 必须与组一致。 | Verification: TestPathGroupMembers | Commit: 2455a6c）
 -   [x] `F-0267` 支持手动排除 Path。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
     - 完成（F-0267 | PathGroupMember.Excluded 标记手动排除；PATCH 可切换，GET 详情返回该标记。 | Verification: TestPathGroupMembers | Commit: 2455a6c）
--   [ ] `F-0268` 支持 Group 健康状态聚合。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0268 | 未满足原因：Group 健康状态聚合尚未实现，需节点级健康数据源接入；依赖 Path 级健康（F-0251）。）
--   [ ] `F-0269` 支持 Group 可用性统计。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0269 | 未满足原因：Group 可用性统计尚未实现（依赖 F-0268 健康聚合）。）
+-   [x] `F-0268` 支持 Group 健康状态聚合。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0268 | Status: Done | Evidence: pathhealth.GroupHealth 按非排除成员 worst-of 聚合（无成员=unknown）；GET /api/path-groups/:id/health 返回 group health+逐成员状态 | Verification: TestGroupHealthAndAvailability/TestPathHealthEndpoints | Commit: c40c735）
+-   [x] `F-0269` 支持 Group 可用性统计。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0269 | Status: Done | Evidence: pathhealth.Availability 按成员落点节点 24h 窗口内探测 verdict 的 healthy 占比（无探测数据返回 null），随 group health 接口同出 | Verification: TestGroupHealthAndAvailability（50%/null 断言）/TestPathHealthEndpoints（100%） | Commit: c40c735）
 -   [ ] `F-0270` 支持 Group 与订阅策略关联。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0270 | 未满足原因：Group 与订阅策略关联尚未实现，依赖 F-0282 Policy 模型。）
 
