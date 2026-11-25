@@ -8,14 +8,14 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestStandbyLifecycle 覆盖预备清单（BR-3）：在池入口标记预备（出订阅但
-// 在册待命）、摘除态/预备态不可重复标记、预备态可手动回池、探测 sick
-// 照常把预备机摘出清单。
+// TestStandbyLifecycle covers the standby list (BR-3): marking an in-pool entry standby (out of
+// subscriptions but registered and waiting), no re-marking from suspended/standby, manual return
+// to the pool from standby, and a sick probe removing the standby machine from the list as usual.
 func TestStandbyLifecycle(t *testing.T) {
 	db := newDB(t)
 	n := seedNode(t, db, "sb-1", "entry", true)
 
-	// 标记预备。
+	// Mark standby.
 	if _, err := MarkStandby(db, n.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -23,12 +23,12 @@ func TestStandbyLifecycle(t *testing.T) {
 		t.Fatalf("after mark = %+v", got)
 	}
 
-	// 已是预备：再标记报 ErrNotActive。
+	// Already standby: re-marking reports ErrNotActive.
 	if _, err := MarkStandby(db, n.ID); !errors.Is(err, ErrNotActive) {
 		t.Fatalf("second mark err = %v", err)
 	}
 
-	// 预备机探测 sick：照常摘除出清单（坏机不留待命）。
+	// Standby machine probes sick: removed from the list as usual (broken machines do not stay on standby).
 	report(t, db, n.ID, "sick", time.Minute)
 	report(t, db, n.ID, "sick", time.Minute)
 	report(t, db, n.ID, "sick", time.Minute)
@@ -39,12 +39,12 @@ func TestStandbyLifecycle(t *testing.T) {
 		t.Fatalf("sick standby must be suspended: %+v", got)
 	}
 
-	// 摘除态不可直接标记预备（须先复位）。
+	// A suspended node cannot be marked standby directly (resume first).
 	if _, err := MarkStandby(db, n.ID); !errors.Is(err, ErrNotActive) {
 		t.Fatalf("mark suspended err = %v", err)
 	}
 
-	// 预备回池：先复位回 active，再标记预备，再走回池分支。
+	// Standby return: resume back to active, mark standby again, then take the return branch.
 	if _, err := Resume(db, n.ID, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -60,8 +60,8 @@ func TestStandbyLifecycle(t *testing.T) {
 	}
 }
 
-// TestStandbyEntryPromote 覆盖补位取机：只取在线的预备入口，Promote 升池
-// 留痕；离线预备机不会被取用。
+// TestStandbyEntryPromote covers backfill picking: only online standby entries are picked,
+// Promote lifts into the pool with a trace; offline standby machines are not picked.
 func TestStandbyEntryPromote(t *testing.T) {
 	db := newDB(t)
 	offline := seedNode(t, db, "sb-off", "entry", true)
@@ -88,7 +88,7 @@ func TestStandbyEntryPromote(t *testing.T) {
 	if got := getPoolState(t, db, pick.ID); got.PoolState != StateActive || got.PoolReason != "恢复补位" {
 		t.Fatalf("after promote = %+v", got)
 	}
-	// 取用后清单里只剩离线机：取不到。
+	// Only the offline machine is left in the list after picking: nothing to pick.
 	pick, err = StandbyEntry(db)
 	if err != nil || pick.ID != 0 {
 		t.Fatalf("second pick = %+v err=%v", pick, err)

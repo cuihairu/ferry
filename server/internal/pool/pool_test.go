@@ -18,7 +18,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// newDB 建内存库并迁移。
+// newDB opens an in-memory database and migrates it.
 func newDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := storage.Open("sqlite", ":memory:")
@@ -38,7 +38,7 @@ func seedNode(t *testing.T, db *gorm.DB, name, role string, enabled bool) storag
 		t.Fatal(err)
 	}
 	if !enabled {
-		// GORM 对带 default 的布尔零值会跳过写入，禁用需显式更新。
+		// GORM skips writing zero-value booleans that have a default; disabling needs an explicit update.
 		if err := db.Model(&n).Update("enabled", false).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -66,18 +66,18 @@ func getPoolState(t *testing.T, db *gorm.DB, id uint) storage.Node {
 	return n
 }
 
-// TestSweepSuspendAndResume 覆盖主链路：连续 3 次 sick → 摘除；
-// 再连续 2 次 healthy → 复位；未足额或结论混杂不动状态。
+// TestSweepSuspendAndResume covers the main path: 3 consecutive sick → suspend;
+// then 2 consecutive healthy → resume; short of the threshold or mixed verdicts leave the state alone.
 func TestSweepSuspendAndResume(t *testing.T) {
 	db := newDB(t)
 	sick := seedNode(t, db, "sick-entry", "entry", true)
 	mixed := seedNode(t, db, "mixed-entry", "entry", true)
 
-	// sick-entry：三条连续 sick → 摘除
+	// sick-entry: three consecutive sick → suspend
 	for _, age := range []time.Duration{9 * time.Minute, 6 * time.Minute, 3 * time.Minute} {
 		report(t, db, sick.ID, agentproto.ProbeVerdictSick, age)
 	}
-	// mixed-entry：两条 sick + 一条 healthy，不构成连续 3 次 sick
+	// mixed-entry: two sick + one healthy, not 3 consecutive sick
 	report(t, db, mixed.ID, agentproto.ProbeVerdictSick, 9*time.Minute)
 	report(t, db, mixed.ID, agentproto.ProbeVerdictSick, 6*time.Minute)
 	report(t, db, mixed.ID, agentproto.ProbeVerdictHealthy, 3*time.Minute)
@@ -96,7 +96,7 @@ func TestSweepSuspendAndResume(t *testing.T) {
 		t.Fatalf("mixed-entry should stay active, got %s", n.PoolState)
 	}
 
-	// 已摘除再扫一轮（结论不变）→ 无重复迁移
+	// sweep another round while suspended (verdicts unchanged) → no repeated transition
 	events, err = Sweep(db, Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -105,7 +105,7 @@ func TestSweepSuspendAndResume(t *testing.T) {
 		t.Fatalf("idempotent sweep emitted %+v", events)
 	}
 
-	// 恢复：一条 healthy 不足额，第二条才复位
+	// Recovery: one healthy is short of the threshold; the second one resumes
 	report(t, db, sick.ID, agentproto.ProbeVerdictHealthy, 3*time.Minute)
 	events, err = Sweep(db, Options{})
 	if err != nil {
@@ -127,8 +127,8 @@ func TestSweepSuspendAndResume(t *testing.T) {
 	}
 }
 
-// TestSweepOnceEmitsNodeDown 覆盖单点摘挂事件（HERALD-3 余量）：自动摘除
-// 落 node_down（warning），复位与重复扫不重发。
+// TestSweepOnceEmitsNodeDown covers single-node suspend/resume events (HERALD-3 slack):
+// automatic suspension emits node_down (warning); resume and repeat sweeps do not re-emit.
 func TestSweepOnceEmitsNodeDown(t *testing.T) {
 	db := newDB(t)
 	n := seedNode(t, db, "down-entry", "entry", true)
@@ -146,7 +146,7 @@ func TestSweepOnceEmitsNodeDown(t *testing.T) {
 		evs[0].DedupKey != fmt.Sprintf("node:%d:node_down", n.ID) {
 		t.Fatalf("node_down events = %+v", evs)
 	}
-	// 已摘除再扫：不重发
+	// sweep again while suspended: no re-emit
 	if err := sweepOnce(db, log.New(&bytes.Buffer{}, "", 0)); err != nil {
 		t.Fatal(err)
 	}
@@ -157,8 +157,8 @@ func TestSweepOnceEmitsNodeDown(t *testing.T) {
 	}
 }
 
-// TestSweepScope 覆盖范围口径：仅 entry/both 且 enabled 的节点参与；
-// 超龄结论不参与判定；足额 sick 才动手。
+// TestSweepScope covers scope: only enabled entry/both nodes take part; stale verdicts
+// do not count; suspension needs the full quota of sick.
 func TestSweepScope(t *testing.T) {
 	db := newDB(t)
 	landing := seedNode(t, db, "landing-1", "landing", true)
@@ -169,7 +169,7 @@ func TestSweepScope(t *testing.T) {
 		report(t, db, landing.ID, agentproto.ProbeVerdictSick, time.Duration(i+1)*time.Minute)
 		report(t, db, disabled.ID, agentproto.ProbeVerdictSick, time.Duration(i+1)*time.Minute)
 	}
-	// stale-entry：三条 sick 但全部超龄
+	// stale-entry: three sick but all stale
 	for i := 0; i < DefaultSickStrikes; i++ {
 		report(t, db, stale.ID, agentproto.ProbeVerdictSick, ProbeFresh+time.Duration(i+1)*time.Minute)
 	}
@@ -189,7 +189,7 @@ func TestSweepScope(t *testing.T) {
 	}
 }
 
-// TestResume 覆盖手动复位：摘除态可复位并留痕；active 态报 ErrNotSuspended。
+// TestResume covers manual resume: a suspended node resumes with a trace; active reports ErrNotSuspended.
 func TestResume(t *testing.T) {
 	db := newDB(t)
 	n := seedNode(t, db, "manual", "entry", true)
@@ -211,8 +211,8 @@ func TestResume(t *testing.T) {
 	}
 }
 
-// TestSuspend 手动摘除（E-25）：立即出池留痕；重复摘除报已摘、非入口节点
-// 拒绝、未知节点报不存在。
+// TestSuspend covers manual suspend (E-25): out of the pool at once with a trace; re-suspend
+// reports already-suspended, non-entry nodes are rejected, unknown nodes report not-found.
 func TestSuspend(t *testing.T) {
 	db := newDB(t)
 	n := seedNode(t, db, "manual-entry", "entry", true)
@@ -236,8 +236,8 @@ func TestSuspend(t *testing.T) {
 	}
 }
 
-// TestLoopSweepsAndStopsOnCancel 覆盖 Loop 启停：启动即跑一轮（连续 sick
-// 节点被摘除），ctx 取消后退出；nil logger 走默认 logger 兜底。
+// TestLoopSweepsAndStopsOnCancel covers Loop start/stop: one round runs on start (the
+// consecutively-sick node is suspended), exits after ctx cancel; nil logger falls back to the default.
 func TestLoopSweepsAndStopsOnCancel(t *testing.T) {
 	db := newDB(t)
 	n := seedNode(t, db, "sick-entry", "entry", true)
@@ -270,8 +270,8 @@ func TestLoopSweepsAndStopsOnCancel(t *testing.T) {
 	}
 }
 
-// TestMarkStandbyBranches 预备标记分支：节点不存在/非入口角色/非池内
-// active 各自明确报错；正常入口标预备成功，重复标预备报 ErrNotActive。
+// TestMarkStandbyBranches covers standby-mark branches: missing node / non-entry role /
+// not active in the pool each error out clearly; a normal entry marks standby fine, re-marking reports ErrNotActive.
 func TestMarkStandbyBranches(t *testing.T) {
 	db := newDB(t)
 	if _, err := MarkStandby(db, 999); err == nil {
@@ -296,7 +296,7 @@ func TestMarkStandbyBranches(t *testing.T) {
 	}
 }
 
-// TestPromote 预备升池：缺省理由「预备补位」，显式理由保留。
+// TestPromote covers standby promotion: the default reason applies when empty; an explicit reason is kept.
 func TestPromote(t *testing.T) {
 	db := newDB(t)
 	n := seedNode(t, db, "spare-1", "entry", true)
@@ -324,8 +324,8 @@ func TestPromote(t *testing.T) {
 	}
 }
 
-// TestAnnounceWebhook 池事件外发：配置 webhook 后 announce 同步发送；
-// 渠道故障只记日志不阻断。
+// TestAnnounceWebhook covers pool event delivery: with a webhook configured, announce sends
+// synchronously; a channel failure only logs and never blocks.
 func TestAnnounceWebhook(t *testing.T) {
 	db := newDB(t)
 	var mu sync.Mutex
@@ -348,7 +348,7 @@ func TestAnnounceWebhook(t *testing.T) {
 		t.Fatalf("webhook calls = %d; want 1", n)
 	}
 
-	// 渠道挂了：Send 报错只记日志。
+	// Channel down: Send errors are only logged.
 	srv.Close()
 	var buf bytes.Buffer
 	announce(db, log.New(&buf, "", 0), ev)

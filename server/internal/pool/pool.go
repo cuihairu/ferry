@@ -1,8 +1,8 @@
-// Package pool 入口池自动摘挂（E-16）：边缘互探/隧道探测结论连续
-// SickStrikes 次 sick → 摘除（pool_state=suspended，订阅入口池即时消失），
-// 恢复连续 WellStreak 次 healthy → 复位。摘挂不动 enabled——agent 连接
-// 与探测保持，复位判定才有依据。订阅是入口池的直接消费方（剩余 active
-// 入口自然补位）；落地换线（config.push 变更列表）随 E-21 分配策略接入。
+// Package pool implements automatic entry-pool suspend/resume (E-16): SickStrikes consecutive
+// sick edge-mutual/tunnel probe verdicts → suspend (pool_state=suspended, gone from the
+// subscribed entry pool at once); WellStreak consecutive healthy → resume. Suspend/resume
+// never touches enabled — the agent connection and probing stay, giving the resume verdict its
+// basis. Subscriptions consume the pool directly (active entries fill in); landing reassignment (config.push) arrives with the E-21 allocation policy.
 package pool
 
 import (
@@ -19,23 +19,23 @@ import (
 	"gorm.io/gorm"
 )
 
-// 判定口径默认值与探测结论新鲜度。
+// Default verdict thresholds and probe-result freshness.
 const (
-	// DefaultSickStrikes 连续 sick 摘除阈值。
+	// DefaultSickStrikes is the consecutive-sick threshold for suspension.
 	DefaultSickStrikes = 3
-	// DefaultWellStreak 连续 healthy 复位阈值。
+	// DefaultWellStreak is the consecutive-healthy threshold for resumption.
 	DefaultWellStreak = 2
-	// ProbeFresh 探测结论参与判定的时限，超龄视为无结论。
+	// ProbeFresh is the time limit for a verdict to count; older ones count as no verdict.
 	ProbeFresh = 30 * time.Minute
 )
 
-// 池状态取值。
+// Pool state values.
 const (
 	StateActive    = "active"
 	StateSuspended = "suspended"
 )
 
-// Options 是摘挂口径，零值回退默认。
+// Options holds the suspend/resume thresholds; the zero value falls back to defaults.
 type Options struct {
 	SickStrikes int
 	WellStreak  int
@@ -51,7 +51,7 @@ func (o Options) normalize() Options {
 	return o
 }
 
-// Event 是一次摘挂状态迁移。
+// Event is one suspend/resume state transition.
 type Event struct {
 	NodeID uint
 	Name   string
@@ -59,18 +59,18 @@ type Event struct {
 	Reason string
 }
 
-// OnChange 摘挂状态迁移的进程内钩子（E-27 分地域对账的事件驱动挂点，
-// 设计 §C.8 不建轮询）：sweepOnce 产生迁移或手动摘挂成功后回调（同进程
-// main 装配一次）；nil 安全，异步触发不阻断摘挂主流程。
+// OnChange is an in-process hook on suspend/resume transitions (the event-driven hook point
+// for E-27 per-region reconciliation; design §C.8, no polling): called after sweepOnce produces
+// a transition or a manual suspend/resume succeeds (wired once in main); nil-safe, async, never blocks the main flow.
 var OnChange func(db *gorm.DB)
 
-// ErrNotSuspended 手动复位时节点不在摘除状态。
+// ErrNotSuspended is returned by manual resume when the node is not suspended.
 var ErrNotSuspended = errors.New("node not suspended")
 
-// ErrAlreadySuspended 手动摘除时节点已在摘除状态。
+// ErrAlreadySuspended is returned by manual suspend when the node is already suspended.
 var ErrAlreadySuspended = errors.New("node already suspended")
 
-// Loop 周期执行摘挂判定直到 ctx 取消；状态迁移记日志并外发事件。
+// Loop runs the suspend/resume verdict periodically until ctx is cancelled; transitions are logged and announced.
 func Loop(ctx context.Context, db *gorm.DB, interval time.Duration, logger *log.Logger) {
 	if logger == nil {
 		logger = log.Default()
@@ -78,7 +78,7 @@ func Loop(ctx context.Context, db *gorm.DB, interval time.Duration, logger *log.
 	if interval <= 0 {
 		interval = time.Minute
 	}
-	t := time.NewTimer(0) // 启动即跑一轮
+	t := time.NewTimer(0) // run one round immediately on start
 	defer t.Stop()
 	for {
 		select {
@@ -101,8 +101,8 @@ func sweepOnce(db *gorm.DB, logger *log.Logger) error {
 	for _, ev := range events {
 		logger.Printf("pool %s: node %d %s（%s）", ev.Action, ev.NodeID, ev.Name, ev.Reason)
 		announce(db, logger, ev)
-		// 单点摘挂事件（HERALD-3 余量）：仅自动摘除发 node_down，复位/
-		// 手动动作不发（恢复在订阅侧即时生效，无需告警触达）。失败只记日志。
+		// Single-node suspend/resume events (HERALD-3 slack): only automatic suspension emits node_down;
+		// resume and manual actions do not (recovery is instant on the subscription side, no alert reach needed). Failures only log.
 		if ev.Action == "suspend" {
 			if _, err := herald.Emit(db, herald.EmitInput{
 				Kind: herald.KindNodeDown, Severity: herald.SeverityWarning,
@@ -122,10 +122,10 @@ func sweepOnce(db *gorm.DB, logger *log.Logger) error {
 	return nil
 }
 
-// Sweep 执行一轮摘挂判定：每个入口/双角色节点取窗口内最近 K 条
-// 互探与隧道结论（K=max(SickStrikes, WellStreak)，新在前），最近
-// SickStrikes 条全 sick → 摘除；摘除态下最近 WellStreak 条全 healthy
-// → 复位。返回状态迁移事件。
+// Sweep runs one round of suspend/resume verdicts: for each entry/dual-role node, take the most
+// recent K edge-mutual and tunnel verdicts in the window (K=max(SickStrikes, WellStreak), newest
+// first); the most recent SickStrikes all sick → suspend; while suspended, the most recent
+// WellStreak all healthy → resume. Returns the state-transition events.
 func Sweep(db *gorm.DB, opts Options) ([]Event, error) {
 	opts = opts.normalize()
 	keep := opts.SickStrikes
@@ -151,7 +151,7 @@ func Sweep(db *gorm.DB, opts Options) ([]Event, error) {
 		switch {
 		case len(verdicts) >= opts.SickStrikes && allVerdicts(verdicts[:opts.SickStrikes], agentproto.ProbeVerdictSick):
 			if n.PoolState == StateSuspended {
-				continue // 已摘除，不重复迁移
+				continue // already suspended; no repeated transition
 			}
 			reason := fmt.Sprintf("连续 %d 次探测 sick", opts.SickStrikes)
 			if err := setPoolState(db, n.ID, StateSuspended, reason); err != nil {
@@ -160,7 +160,7 @@ func Sweep(db *gorm.DB, opts Options) ([]Event, error) {
 			events = append(events, Event{NodeID: n.ID, Name: n.Name, Action: "suspend", Reason: reason})
 		case len(verdicts) >= opts.WellStreak && allVerdicts(verdicts[:opts.WellStreak], agentproto.ProbeVerdictHealthy):
 			if n.PoolState != StateSuspended {
-				continue // 未摘除无需复位
+				continue // not suspended; nothing to resume
 			}
 			reason := fmt.Sprintf("连续 %d 次探测 healthy", opts.WellStreak)
 			if err := setPoolState(db, n.ID, StateActive, reason); err != nil {
@@ -172,7 +172,7 @@ func Sweep(db *gorm.DB, opts Options) ([]Event, error) {
 	return events, nil
 }
 
-// Resume 手动复位（管理端）：摘除态人工摘回、预备态回池，走同一留痕与通知。
+// Resume is a manual reset (admin side): a suspended node is lifted back, a standby node returns to the pool; same trace and notifications.
 func Resume(db *gorm.DB, nodeID uint, logger *log.Logger) (storage.Node, error) {
 	if logger == nil {
 		logger = log.Default()
@@ -184,7 +184,7 @@ func Resume(db *gorm.DB, nodeID uint, logger *log.Logger) (storage.Node, error) 
 	switch n.PoolState {
 	case StateSuspended:
 	case StateStandby:
-		// 预备回池：出待命清单直接入订阅。
+		// Standby return: leaves the standby list straight into subscriptions.
 	default:
 		return storage.Node{}, ErrNotSuspended
 	}
@@ -203,8 +203,8 @@ func Resume(db *gorm.DB, nodeID uint, logger *log.Logger) (storage.Node, error) 
 	return n, nil
 }
 
-// Suspend 手动摘除（E-25 管理端）：立即出池（订阅即时生效）并留痕通知；
-// 摘除态复位仍走自动判定或手动复位。已在摘除态报 ErrAlreadySuspended。
+// Suspend is a manual removal (E-25 admin side): out of the pool at once (immediate for
+// subscriptions) with trace and notification; resuming still goes through the automatic verdict or manual resume. ErrAlreadySuspended when already suspended.
 func Suspend(db *gorm.DB, nodeID uint, logger *log.Logger) (storage.Node, error) {
 	if logger == nil {
 		logger = log.Default()
@@ -231,7 +231,7 @@ func Suspend(db *gorm.DB, nodeID uint, logger *log.Logger) (storage.Node, error)
 	return n, nil
 }
 
-// allVerdicts 结论序列是否全为指定判定（空序列不算）。
+// allVerdicts reports whether the verdict slice is entirely the given verdict (an empty slice is not).
 func allVerdicts(verdicts []string, want string) bool {
 	if len(verdicts) == 0 {
 		return false
@@ -244,7 +244,7 @@ func allVerdicts(verdicts []string, want string) bool {
 	return true
 }
 
-// setPoolState 落池状态与迁移留痕。
+// setPoolState persists the pool state and the transition trace.
 func setPoolState(db *gorm.DB, nodeID uint, state, reason string) error {
 	return db.Model(&storage.Node{}).Where("id = ?", nodeID).
 		Updates(map[string]any{
@@ -254,7 +254,7 @@ func setPoolState(db *gorm.DB, nodeID uint, state, reason string) error {
 		}).Error
 }
 
-// announce 状态迁移外发事件（P1-10 通知通道）；失败只记日志不阻断。
+// announce sends state-transition events outbound (P1-10 notify channel); failures only log and never block.
 func announce(db *gorm.DB, logger *log.Logger, ev Event) {
 	n := notify.FromDB(db)
 	if !n.Enabled() {
