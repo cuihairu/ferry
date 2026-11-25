@@ -5,8 +5,8 @@ import (
 	"sync"
 )
 
-// logRing 是单进程运行日志的内存环形缓冲（P1-11）：进程 stdout/stderr
-// 镜像进固定容量环形缓冲供面板拉取，不落盘、agent 重启即空。
+// logRing is an in-memory ring buffer of one process's runtime log (P1-11): the process stdout/stderr
+// is mirrored into a fixed-capacity ring buffer for the panel to fetch; nothing is written to disk and an agent restart empties it.
 type logRing struct {
 	mu    sync.Mutex
 	lines []string
@@ -23,8 +23,8 @@ func newLogRing(capacity int) *logRing {
 	return &logRing{lines: make([]string, capacity)}
 }
 
-// Write 实现 io.Writer，适配 exec.Cmd 的输出（管道复制可能把多行并成
-// 一次写入，按内嵌换行拆行；跳过空行）。
+// Write implements io.Writer, adapting exec.Cmd output (a pipe copy can merge several lines into
+// one write, so lines are split on embedded newlines; empty lines are skipped).
 func (r *logRing) Write(p []byte) (int, error) {
 	for _, line := range strings.Split(strings.TrimRight(string(p), "\r\n"), "\n") {
 		line = strings.TrimRight(line, "\r")
@@ -46,7 +46,7 @@ func (r *logRing) add(line string) {
 	}
 }
 
-// snapshot 返回最近的至多 limit 行（时间升序，最新在后）。
+// snapshot returns at most the most recent limit lines (in ascending time order, newest last).
 func (r *logRing) snapshot(limit int) []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()

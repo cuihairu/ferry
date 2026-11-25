@@ -48,14 +48,14 @@ func (c *collector) has(prefix string) bool {
 	return false
 }
 
-// all 返回行快照，供 Fatalf 打印（不能裸读 rows，读循环在后台 goroutine 追加）。
+// all returns a snapshot of the lines for Fatalf to print (rows must not be read raw; the read loop appends from a background goroutine).
 func (c *collector) all() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return append([]string(nil), c.rows...)
 }
 
-// waitFor 等待进程进入目标状态，超时则失败。
+// waitFor waits for the process to reach the target state, failing on timeout.
 func waitFor(t *testing.T, m *Manager, name, want string) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
@@ -74,8 +74,8 @@ func waitFor(t *testing.T, m *Manager, name, want string) {
 	t.Fatalf("proc %s never became %s (last=%s)", name, want, last)
 }
 
-// waitForEvent 等状态事件落进 collector：setState 经独立 goroutine 投递，
-// waitFor（读同步状态）返回时事件可能尚未到达，断言前必须等事件。
+// waitForEvent waits for the state event to land in the collector: setState delivers through a separate goroutine,
+// so when waitFor (which reads synchronized state) returns the event may not have arrived yet; wait for the event before asserting.
 func waitForEvent(t *testing.T, c *collector, prefix string) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
@@ -115,7 +115,7 @@ func TestCrashAutoRestart(t *testing.T) {
 	defer cancel()
 	m.Start(ctx)
 
-	// 崩溃后应自动拉起并产生告警
+	// it should be restarted automatically after the crash and raise an alarm
 	deadline := time.Now().Add(3 * time.Second)
 	for {
 		for _, s := range m.Statuses() {
@@ -133,7 +133,7 @@ crashed:
 		t.Fatalf("missing crash alarm: %v", c.all())
 	}
 
-	// stop 后不再拉起
+	// no restart after stop
 	if err := m.Control("crasher", agentproto.ProcActionStop); err != nil {
 		t.Fatalf("stop: %v", err)
 	}
@@ -146,10 +146,10 @@ crashed:
 	}
 }
 
-// TestCrashDetectionWithLingeringGrandchild 复现「子进程被外部杀、孙进程
-// 仍握着 stdio 管道」的场景：直接子进程退出后 cmd.Wait 还要等管道关闭，
-// 而管道写端在孙进程手里（nginx worker、daemonize 的内核都会这样），
-// 监管循环随之挂起，崩溃检测与自动拉起全部停摆。Wait 必须限时收口。
+// TestCrashDetectionWithLingeringGrandchild reproduces the "child killed externally while a grandchild
+// still holds the stdio pipe" scenario: after the direct child exits, cmd.Wait still waits for the pipe to close,
+// while the pipe write end belongs to the grandchild (nginx workers, daemonizing kernels all do this),
+// so the supervision loop hangs and crash detection plus auto-restart stall entirely. Wait must be deadline-bounded.
 func TestCrashDetectionWithLingeringGrandchild(t *testing.T) {
 	m, _ := testManager(t, []config.ProcSpec{{
 		Name: "forker", Kind: "xray",
@@ -169,7 +169,7 @@ func TestCrashDetectionWithLingeringGrandchild(t *testing.T) {
 	if pid == 0 {
 		t.Fatal("forker has no pid")
 	}
-	// 只杀直接子进程：sleep 60 孙进程存活并握着 stdio 管道写端。
+	// kill only the direct child: the sleep 60 grandchild survives and holds the stdio pipe write end.
 	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
 		t.Fatalf("kill: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestReloadRestartStrategy(t *testing.T) {
 	if err := m.Control("svc", agentproto.ProcActionReload); err != nil {
 		t.Fatalf("reload: %v", err)
 	}
-	// reload（restart 策略）后进程必须是新实例：running 且 pid 变化
+	// after a reload (restart policy) the process must be a new instance: running with a changed pid
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		pid := pidOf(t, m, "svc")
@@ -210,7 +210,7 @@ func TestReloadRestartStrategy(t *testing.T) {
 	t.Fatalf("reload did not replace process (old pid=%d)", oldPID)
 }
 
-// pidOf 返回进程当前 pid，未运行为 0。
+// pidOf returns the process's current pid, or 0 when it is not running.
 func pidOf(t *testing.T, m *Manager, name string) int {
 	t.Helper()
 	for _, s := range m.Statuses() {
@@ -241,8 +241,8 @@ func TestControlErrors(t *testing.T) {
 	}
 }
 
-// TestProcLogs 覆盖进程日志拉取（P1-11）：stdout 镜像进环形缓冲、
-// limit 取最近 N 行、未知进程报错。
+// TestProcLogs covers process log fetching (P1-11): stdout mirrored into the ring buffer,
+// limit taking the most recent N lines, and unknown processes erroring.
 func TestProcLogs(t *testing.T) {
 	m, _ := testManager(t, []config.ProcSpec{{
 		Name: "logger", Kind: "xray", Exec: "sh", Args: []string{"-c", "echo line-1; echo line-2; sleep 60"},
@@ -252,7 +252,7 @@ func TestProcLogs(t *testing.T) {
 	m.Start(ctx)
 	waitFor(t, m, "logger", agentproto.ProcRunning)
 
-	// 等待两行日志进入环形缓冲
+	// wait for both log lines to enter the ring buffer
 	deadline := time.Now().Add(3 * time.Second)
 	var lines []string
 	for time.Now().Before(deadline) {
@@ -265,7 +265,7 @@ func TestProcLogs(t *testing.T) {
 	if len(lines) != 2 || lines[0] != "line-1" || lines[1] != "line-2" {
 		t.Fatalf("proc logs = %v", lines)
 	}
-	// limit 取最近 N 行
+	// limit takes the most recent N lines
 	if lines, _ = m.Logs("logger", 1); len(lines) != 1 || lines[0] != "line-2" {
 		t.Fatalf("limited proc logs = %v", lines)
 	}
@@ -274,7 +274,7 @@ func TestProcLogs(t *testing.T) {
 	}
 }
 
-// waitForAlarm 等待出现前缀匹配的告警（消息含 exec 路径等细节），超时失败。
+// waitForAlarm waits for an alarm matching the prefix (the message carries the exec path and other details), failing on timeout.
 func waitForAlarm(t *testing.T, c *collector, prefix string) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
@@ -287,9 +287,9 @@ func waitForAlarm(t *testing.T, c *collector, prefix string) {
 	t.Fatalf("alarm %q never fired (rows=%v)", prefix, c.all())
 }
 
-// TestBinaryMissingAlarm 覆盖二进制缺失面（hy2 批）：启动预检显式告警
-// （面板可见明确原因而非静默），监管循环退避重试、装上二进制前不误报
-// running；launch 失败告警带 exec 路径。
+// TestBinaryMissingAlarm covers the missing-binary surface (hy2 batch): the startup precheck alarms explicitly
+// (the panel sees a clear reason instead of silence), the supervision loop retries with backoff and does not falsely report
+// running before the binary is installed; the launch-failure alarm carries the exec path.
 func TestBinaryMissingAlarm(t *testing.T) {
 	m, c := testManager(t, []config.ProcSpec{{
 		Name: "hy2", Kind: "hysteria2", Exec: "/nonexistent/ferry-test-hysteria",
@@ -298,11 +298,11 @@ func TestBinaryMissingAlarm(t *testing.T) {
 	defer cancel()
 	m.Start(ctx)
 
-	// 预检告警：exec 路径进消息（面板给明确提示而不是静默失败）。
+	// precheck alarm: the exec path goes into the message (a clear panel hint instead of a silent failure).
 	waitForAlarm(t, c, "alarm=proc_crash:hy2:binary not found: /nonexistent/ferry-test-hysteria")
-	// launch 失败告警同样带 exec 路径与底层错误。
+	// the launch-failure alarm also carries the exec path and the underlying error.
 	waitForAlarm(t, c, "alarm=proc_crash:hy2:launch failed: exec /nonexistent/ferry-test-hysteria:")
-	// 进程从未 running。
+	// the process was never running.
 	for _, s := range m.Statuses() {
 		if s.Name == "hy2" && s.State == agentproto.ProcRunning {
 			t.Fatal("missing binary must not report running")

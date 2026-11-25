@@ -16,24 +16,24 @@ import (
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
 
-// metricsResp 是测试指标端点的可切换应答（状态码 + 正文）。
+// metricsResp is a switchable response of the test metrics endpoint (status code + body).
 type metricsResp struct {
 	code int
 	body string
 }
 
-// TestMetricsParser 覆盖指标解析：JSON 数字对象、文本 key-value
-// 行（空行/单词行/非数字值跳过）、空与垃圾输入得空映射。
+// TestMetricsParser covers metric parsing: a JSON numeric object, text key-value
+// lines (empty lines/word-only lines/non-numeric values skipped), and empty or garbage input yielding an empty map.
 func TestMetricsParser(t *testing.T) {
 	p := newMetricsParser()
 
-	// JSON 数字对象
+	// a JSON numeric object
 	m, err := p.Parse(strings.NewReader(`{"hits":123,"misses":45}`))
 	if err != nil || m["hits"] != 123 || m["misses"] != 45 {
 		t.Fatalf("json parse = %v, %v", m, err)
 	}
 
-	// 文本 key-value 行：空行与单词行跳过、非数字值跳过
+	// text key-value lines: empty and word-only lines skipped, non-numeric values skipped
 	m, err = p.Parse(strings.NewReader("hits 123\n\nbadline\nmisses notanum\nproxies 7\n"))
 	if err != nil || m["hits"] != 123 || m["proxies"] != 7 {
 		t.Fatalf("text parse = %v, %v", m, err)
@@ -42,7 +42,7 @@ func TestMetricsParser(t *testing.T) {
 		t.Fatalf("non-numeric value must be skipped: %v", m)
 	}
 
-	// 空与垃圾输入：空映射不报错
+	// empty and garbage input: an empty map without an error
 	for _, in := range []string{"", "   \n", "not json at all"} {
 		m, err = p.Parse(strings.NewReader(in))
 		if err != nil || len(m) != 0 {
@@ -51,9 +51,9 @@ func TestMetricsParser(t *testing.T) {
 	}
 }
 
-// TestCollectProcMetrics 覆盖指标采集协程：MetricsURL 轮询结果
-// 挂状态快照随心跳上报（文本行与 JSON 两路），端点故障时
-// 快照清空不残留旧值。
+// TestCollectProcMetrics covers the metric collection goroutine: MetricsURL polling results
+// are attached to the status snapshot and reported with the heartbeat (both the text-line and JSON paths); when the endpoint fails
+// the snapshot is cleared without leaving stale values.
 func TestCollectProcMetrics(t *testing.T) {
 	var cur atomic.Value
 	cur.Store(metricsResp{code: http.StatusOK, body: "hits 12\nmisses 3\n"})
@@ -80,7 +80,7 @@ func TestCollectProcMetrics(t *testing.T) {
 	m.Start(ctx)
 	waitFor(t, m, "cache", agentproto.ProcRunning)
 
-	// 文本行指标随状态快照上报
+	// text-line metrics reported with the status snapshot
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		for _, s := range m.Statuses() {
@@ -94,7 +94,7 @@ func TestCollectProcMetrics(t *testing.T) {
 	t.Fatal("text metrics never collected")
 collected:
 
-	// 换成 JSON 对象同样可采
+	// a JSON object is collectable the same way
 	cur.Store(metricsResp{code: http.StatusOK, body: `{"hits": 99, "misses": 1}`})
 	deadline = time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
@@ -108,7 +108,7 @@ collected:
 	t.Fatal("json metrics never collected")
 jsonCollected:
 
-	// 端点 500：快照清空，不残留旧值
+	// endpoint 500: the snapshot is cleared, no stale values left
 	cur.Store(metricsResp{code: http.StatusInternalServerError})
 	deadline = time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
@@ -122,16 +122,16 @@ jsonCollected:
 	t.Fatal("metrics not cleared on endpoint failure")
 cleared:
 
-	// 先停进程再结束：等待 goroutine 的退出日志落在
-	// 测试窗口内，避免测试结束后写 t.Output() 触发 panic。
+	// stop the process before finishing: wait for the goroutine's exit log to fall
+	// inside the test window, so writing t.Output() after the test does not panic.
 	if err := m.Control("cache", agentproto.ProcActionStop); err != nil {
 		t.Fatalf("stop: %v", err)
 	}
 	waitFor(t, m, "cache", agentproto.ProcStopped)
 }
 
-// TestCollectProcMetricsNoURL 覆盖未配置 MetricsURL 的进程：
-// 不起采集，状态快照无指标。
+// TestCollectProcMetricsNoURL covers a process with no MetricsURL configured:
+// no collection starts and the status snapshot has no metrics.
 func TestCollectProcMetricsNoURL(t *testing.T) {
 	m, _ := testManager(t, []config.ProcSpec{{
 		Name: "plain", Kind: "xray", Exec: "sh", Args: []string{"-c", "sleep 60"},
@@ -147,8 +147,8 @@ func TestCollectProcMetricsNoURL(t *testing.T) {
 			t.Fatalf("metrics must stay nil without MetricsURL: %v", s.Metrics)
 		}
 	}
-	// 先停进程再结束：等待 goroutine 的退出日志落在
-	// 测试窗口内，避免测试结束后写 t.Output() 触发 panic。
+	// stop the process before finishing: wait for the goroutine's exit log to fall
+	// inside the test window, so writing t.Output() after the test does not panic.
 	if err := m.Control("plain", agentproto.ProcActionStop); err != nil {
 		t.Fatalf("stop: %v", err)
 	}

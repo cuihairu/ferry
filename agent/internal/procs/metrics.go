@@ -8,26 +8,26 @@ import (
 	"sync"
 )
 
-// metricsParser 是从 HTTP GET 响应中解析 key-value 指标的实现。
-// 优先顺序：1) JSON map[string]number，2) 逐行 whitespace 分割，取前两字段的末数值。
+// metricsParser implements parsing key-value metrics out of an HTTP GET response.
+// Priority: 1) a JSON map[string]number, 2) line-by-line whitespace splitting taking the trailing number of the first two fields.
 type metricsParser struct {
 	mu sync.Mutex
 }
 
-// newMetricsParser 创建一个新的指标解析器。
+// newMetricsParser creates a new metrics parser.
 func newMetricsParser() *metricsParser {
 	return &metricsParser{}
 }
 
-// Parse 从 r 中读取响应体并返回 key-value 指标映射。
-// 返回格式：map[key]value（value 为 uint64）
+// Parse reads the response body from r and returns the key-value metrics map.
+// return format: map[key]value (value is a uint64)
 func (p *metricsParser) Parse(r io.Reader) (map[string]uint64, error) {
 	body, err := io.ReadAll(r)
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 
-	// 尝试解析为 JSON map[string]number
+	// try to parse it as a JSON map[string]number
 	var jsonMap map[string]float64
 	if err := json.Unmarshal(body, &jsonMap); err == nil {
 		result := make(map[string]uint64, len(jsonMap))
@@ -37,8 +37,8 @@ func (p *metricsParser) Parse(r io.Reader) (map[string]uint64, error) {
 		return result, nil
 	}
 
-	// 退回：逐行 whitespace 分割，取前两字段的末数值
-	// 例如 "rx 1234" 或 "received 5678 bytes"
+	// fallback: split line by line on whitespace and take the trailing number of the first two fields
+	// e.g. "rx 1234" or "received 5678 bytes"
 	result := make(map[string]uint64)
 	lines := strings.Split(strings.TrimSpace(string(body)), "\n")
 	for _, line := range lines {
@@ -58,6 +58,6 @@ func (p *metricsParser) Parse(r io.Reader) (map[string]uint64, error) {
 	if len(result) > 0 {
 		return result, nil
 	}
-	// 兼容：把整行当 key，数值取 0 或跳过
+	// compatibility: treat the whole line as the key and take 0 as the value or skip it
 	return result, nil
 }

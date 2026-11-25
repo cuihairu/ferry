@@ -1,6 +1,6 @@
 //go:build unix
 
-// Package procs 管理本机代理进程：按规格启停、崩溃自动拉起（退避）、reload 与状态上报。
+// Package procs manages the local proxy processes: start/stop per spec, automatic crash restart (with backoff), reload and status reporting.
 package procs
 
 import (
@@ -21,37 +21,37 @@ import (
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
 
-// reload 策略取值。
+// reload policy values.
 const (
 	ReloadRestart = "restart"
 	ReloadSignal  = "signal"
 )
 
-// defaultMetricsInterval 是进程指标采集的缺省间隔（SAVE-3：
-// 命中统计等指标随心跳上报的采样档）。
+// defaultMetricsInterval is the default interval for collecting process metrics (SAVE-3:
+// the sampling tier at which metrics like hit statistics are reported with the heartbeat).
 const defaultMetricsInterval = 15 * time.Second
 
-// Manager 管理全部被管进程。
+// Manager manages every managed process.
 type Manager struct {
 	log *log.Logger
 
 	mu    sync.Mutex
 	procs map[string]*proc
 
-	// OnStatusChange 在进程状态变化时被异步调用，供上报 proc_report。
+	// OnStatusChange is called asynchronously when a process changes state, for reporting proc_report.
 	OnStatusChange func(status agentproto.ProcStatus)
-	// OnAlarm 在崩溃等异常时被异步调用，供上报 alarm。
+	// OnAlarm is called asynchronously on crashes and other anomalies, for reporting an alarm.
 	OnAlarm func(alarm agentproto.Alarm)
 
 	minBackoff time.Duration
 	maxBackoff time.Duration
-	stableRun  time.Duration // 连续运行超过该时长后重置退避
+	stableRun  time.Duration // reset the backoff after running continuously for longer than this
 
-	// metricsInterval 是进程指标（MetricsURL）采集间隔。
+	// metricsInterval is the interval for collecting process metrics (MetricsURL).
 	metricsInterval time.Duration
 }
 
-// proc 是单个被管进程的运行态与监管输入。
+// proc holds the runtime state and supervision inputs of one managed process.
 type proc struct {
 	mgr  *Manager
 	spec config.ProcSpec
@@ -60,16 +60,16 @@ type proc struct {
 	state    string
 	since    time.Time
 	restarts int
-	desired  bool // 期望运行（true=running）
-	stopping bool // 退出由 stop/reload 指令触发（区别于崩溃）
+	desired  bool // expected to run (true = running)
+	stopping bool // the exit was triggered by a stop/reload command (as opposed to a crash)
 	pid      int
-	logs     *logRing // 运行日志环形缓冲（P1-11），stdout/stderr 镜像
+	logs     *logRing // runtime log ring buffer (P1-11), the stdout/stderr mirror
 
 	req    chan ctrlReq
-	exited chan struct{} // 当前进程退出后关闭；启动失败时为已关闭通道
-	kill   func()        // 终止当前进程
+	exited chan struct{} // closed when the current process exits; a closed channel on startup failure
+	kill   func()        // terminate the current process
 
-	// metrics 最近一次成功采集的指标快照
+	// metrics: snapshot of the last successful collection
 	metrics map[string]uint64
 }
 
@@ -78,7 +78,7 @@ type ctrlReq struct {
 	reply  chan error
 }
 
-// New 按规格表创建管理器（不启动进程，由 Start 统一监管）。
+// New creates a manager from the spec table (no process is started; Start supervises them all together).
 func New(specs []config.ProcSpec, logger *log.Logger) *Manager {
 	if logger == nil {
 		logger = log.Default()
@@ -111,29 +111,29 @@ func closedChan() chan struct{} {
 	return ch
 }
 
-// Start 为每个进程拉起监管循环；agent 启动即自启全部进程。
+// Start raises a supervision loop for every process; all processes start themselves when the agent starts.
 func (m *Manager) Start(ctx context.Context) {
 	for _, p := range m.procs {
 		p.mu.Lock()
 		p.desired = true
 		p.mu.Unlock()
-		// 二进制缺失预检（hy2 批）：启动前显式探测 exec 可执行文件，
-		// 缺失立即发告警（面板可见明确原因），不等首轮 launch 失败——
-		// 监管循环照常退避重试，装上二进制后自动拉起。
+		// Binary-missing precheck (hy2 batch): probe the exec file explicitly before starting,
+		// so a missing one raises an alarm right away (the panel sees a clear reason) instead of waiting for the first launch failure --
+		// the supervision loop keeps retrying with backoff and the process comes up once the binary is installed.
 		if _, err := os.Stat(p.spec.Exec); err != nil {
 			m.alarm(p, agentproto.AlarmKindProcCrash, agentproto.AlarmSeverityCritical,
 				fmt.Sprintf("binary not found: %s (fix procs[].exec or install the engine)", p.spec.Exec))
 		}
 		go m.supervise(ctx, p)
-		// SAVE-3：带指标接口（MetricsURL）的进程另起采集协程，
-		// 结果挂状态快照随心跳上报。
+		// SAVE-3: a process with a metrics endpoint (MetricsURL) also gets a collection goroutine,
+		// whose result is attached to the status snapshot and reported with the heartbeat.
 		if p.spec.MetricsURL != "" {
 			go m.collectProcMetrics(ctx, p)
 		}
 	}
 }
 
-// Statuses 返回全部进程状态快照（供心跳）。
+// Statuses returns snapshots of every process state (for the heartbeat).
 func (m *Manager) Statuses() []agentproto.ProcStatus {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -149,7 +149,7 @@ func (m *Manager) Statuses() []agentproto.ProcStatus {
 	return out
 }
 
-// Control 执行面板指令：start/stop/reload，阻塞到指令落地或超时。
+// Control executes a panel command: start/stop/reload, blocking until it lands or times out.
 func (m *Manager) Control(name, action string) error {
 	m.mu.Lock()
 	p := m.procs[name]
@@ -176,7 +176,7 @@ func (m *Manager) Control(name, action string) error {
 	}
 }
 
-// Logs 返回进程运行日志的最近 limit 行（P1-11）；未知进程报错。
+// Logs returns the most recent limit lines of a process's runtime log (P1-11); an unknown process errors.
 func (m *Manager) Logs(name string, limit int) ([]string, error) {
 	m.mu.Lock()
 	p := m.procs[name]
@@ -187,7 +187,7 @@ func (m *Manager) Logs(name string, limit int) ([]string, error) {
 	return p.logs.snapshot(limit), nil
 }
 
-// supervise 是单进程的监管循环：期望运行则保活，崩溃退避拉起，指令即时响应。
+// supervise is the supervision loop for one process: keep it alive while expected to run, restart crashes with backoff, and answer commands immediately.
 func (m *Manager) supervise(ctx context.Context, p *proc) {
 	backoff := m.minBackoff
 	for {
@@ -208,8 +208,8 @@ func (m *Manager) supervise(ctx context.Context, p *proc) {
 
 		startedAt := time.Now()
 		if err := m.launch(p); err != nil {
-			// 启动失败按崩溃处理：退避后重试；告警带 exec 路径与底层
-			// 错误（二进制缺失/权限等面板可见明确原因，不静默）。
+			// a failed start is treated as a crash: retry after backoff; the alarm carries the exec path and the underlying
+			// error (missing binary/permissions etc. give the panel a clear reason, never silent).
 			p.setState(agentproto.ProcCrashed)
 			m.alarm(p, agentproto.AlarmKindProcCrash, agentproto.AlarmSeverityCritical,
 				fmt.Sprintf("launch failed: exec %s: %v", p.spec.Exec, err))
@@ -226,10 +226,10 @@ func (m *Manager) supervise(ctx context.Context, p *proc) {
 		case <-p.exited:
 			ranFor := time.Since(startedAt)
 			if p.consumeStopping() {
-				// stop/reload 触发的退出：回到循环头，desired 决定是否再拉起。
+				// an exit triggered by stop/reload: back to the top of the loop, where desired decides whether to start again.
 				continue
 			}
-			// 非预期退出：崩溃告警并退避拉起。
+			// an unexpected exit: crash alarm and a backoff restart.
 			p.setState(agentproto.ProcCrashed)
 			p.bumpRestarts()
 			m.alarm(p, agentproto.AlarmKindProcCrash, agentproto.AlarmSeverityWarning,
@@ -243,7 +243,7 @@ func (m *Manager) supervise(ctx context.Context, p *proc) {
 	}
 }
 
-// backoffWait 退避等待，期间照常响应指令；返回下一段退避。
+// backoffWait waits out a backoff while still answering commands; it returns the next backoff segment.
 func (m *Manager) backoffWait(ctx context.Context, p *proc, backoff time.Duration) time.Duration {
 	select {
 	case <-ctx.Done():
@@ -259,18 +259,18 @@ func (m *Manager) backoffWait(ctx context.Context, p *proc, backoff time.Duratio
 	return next
 }
 
-// launch 启动进程；无论成败都保证 p.exited/p.kill 可用，返回启动错误
-// （nil=已拉起，进程退出另行经 exited 通道感知）。
+// launch starts the process; p.exited/p.kill are guaranteed usable whether it succeeds or not, and the start error is returned
+// (nil = started; the process exiting is learned separately through the exited channel).
 func (m *Manager) launch(p *proc) error {
 	cmd := exec.Command(p.spec.Exec, p.spec.Args...)
 	cmd.Dir = p.spec.WorkDir
-	// 运行日志镜像：agent 日志之外写入进程环形缓冲，供面板拉取（P1-11）。
+	// runtime log mirror: written to the process ring buffer in addition to the agent log, for the panel to fetch (P1-11).
 	cmd.Stdout = io.MultiWriter(m.log.Writer(), p.logs)
 	cmd.Stderr = io.MultiWriter(m.log.Writer(), p.logs)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	// 子进程退出后若孙进程仍握着 stdio 管道写端（nginx worker、daemonize
-	// 的内核都会这样），Wait 会一直等管道关闭，监管循环随之挂起、崩溃
-	// 检测停摆。限时 1s 强制收口：管道 promptly 关闭的正常退出不受影响。
+	// after a child exits, a grandchild may still hold the stdio pipe write end (nginx workers, daemonizing kernels
+	// all do this), and Wait would block until the pipe closes, hanging the supervision loop and stalling
+	// crash detection. A 1s deadline forces it closed: normal exits that close the pipe promptly are unaffected.
 	cmd.WaitDelay = time.Second
 	if err := cmd.Start(); err != nil {
 		m.log.Printf("proc %s launch: %v", p.spec.Name, err)
@@ -300,18 +300,18 @@ func (m *Manager) launch(p *proc) error {
 	return nil
 }
 
-// applyWhenStopped 处理停机态指令，返回后续退避起点。
+// applyWhenStopped handles commands while the process is stopped and returns the starting point of the following backoff.
 func (m *Manager) applyWhenStopped(p *proc, r ctrlReq) time.Duration {
 	defer close(r.reply)
 	switch r.action {
 	case agentproto.ProcActionStart, agentproto.ProcActionReload:
-		// 停机态 start 与 reload 等价：恢复期望运行。
+		// while stopped, start and reload are equivalent: expect it to run again.
 		p.mu.Lock()
 		p.desired = true
 		p.mu.Unlock()
 		r.reply <- nil
 	case agentproto.ProcActionStop:
-		// 停机态与崩溃退避态都可能出现 stop：统一置为不期望运行。
+		// stop can arrive both while stopped and while crash-backing-off: in both cases expect it not to run.
 		p.mu.Lock()
 		p.desired = false
 		p.mu.Unlock()
@@ -322,7 +322,7 @@ func (m *Manager) applyWhenStopped(p *proc, r ctrlReq) time.Duration {
 	return m.minBackoff
 }
 
-// handleRunningReq 处理运行态指令。
+// handleRunningReq handles commands while the process is running.
 func (m *Manager) handleRunningReq(p *proc, r ctrlReq) {
 	switch r.action {
 	case agentproto.ProcActionStop:
@@ -341,7 +341,7 @@ func (m *Manager) handleRunningReq(p *proc, r ctrlReq) {
 	}
 }
 
-// reload 按 reload 策略执行：signal 发 SIGHUP，restart 停止后由监管循环拉起。
+// reload follows the reload policy: signal sends SIGHUP, restart stops the process and the supervision loop brings it back.
 func (m *Manager) reload(p *proc) error {
 	if p.spec.Reload == ReloadSignal {
 		p.mu.Lock()
@@ -360,7 +360,7 @@ func (m *Manager) reload(p *proc) error {
 	kill := p.kill
 	p.mu.Unlock()
 	kill()
-	<-p.exited // 监管循环随后按 desired=true 立即拉起
+	<-p.exited // the supervision loop then starts it immediately with desired=true
 	return nil
 }
 
@@ -376,7 +376,7 @@ func (p *proc) clearStopping() {
 	p.mu.Unlock()
 }
 
-// consumeStopping 返回并清除 stopping 标记：退出是否由指令触发。
+// consumeStopping returns and clears the stopping flag: whether the exit was triggered by a command.
 func (p *proc) consumeStopping() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -441,8 +441,8 @@ func (m *Manager) alarm(p *proc, kind, severity, message string) {
 	})
 }
 
-// collectProcMetrics 持续轮询单个进程的 MetricsURL 并缓存结果；
-// 采集失败（不可达/非 200/解析错）清空快照，ctx 取消即退出。
+// collectProcMetrics keeps polling one process's MetricsURL and caches the result;
+// a failed collection (unreachable/non-200/parse error) clears the snapshot, and a cancelled ctx exits.
 func (m *Manager) collectProcMetrics(ctx context.Context, p *proc) {
 	parser := newMetricsParser()
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -473,7 +473,7 @@ func (m *Manager) collectProcMetrics(ctx context.Context, p *proc) {
 	}
 }
 
-// setMetrics 更新进程指标快照（p.mu 口径，与 status() 读侧一致）。
+// setMetrics updates the process metrics snapshot (under p.mu, matching the status() read side).
 func (p *proc) setMetrics(metrics map[string]uint64) {
 	p.mu.Lock()
 	p.metrics = metrics

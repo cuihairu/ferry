@@ -13,8 +13,8 @@ import (
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
 
-// TestNewNilLoggerAndSilentAlarm 缺省 logger 与无 OnAlarm 回调：构造与告警
-// 分发都不得 panic（alarm 无订阅者时静默返回）。
+// TestNewNilLoggerAndSilentAlarm covers a nil logger and no OnAlarm callback: neither construction nor alarm
+// dispatching may panic (an alarm with no subscriber returns silently).
 func TestNewNilLoggerAndSilentAlarm(t *testing.T) {
 	m := New(nil, nil)
 	if m.log == nil {
@@ -25,8 +25,8 @@ func TestNewNilLoggerAndSilentAlarm(t *testing.T) {
 	m.alarm(&proc{spec: config.ProcSpec{Name: "x"}}, agentproto.AlarmKindProcCrash, "critical", "boom")
 }
 
-// TestControlStartFromStopped 停机态指令闭环：stop 后（停机监管分支）再
-// start，进程恢复运行——覆盖停机态 select 的指令处理路径。
+// TestControlStartFromStopped covers the stopped-state command round trip: after stop (the stopped supervision branch),
+// a start brings the process back to running -- covering the command handling path of the stopped-state select.
 func TestControlStartFromStopped(t *testing.T) {
 	m, _ := testManager(t, []config.ProcSpec{{
 		Name: "sleeper", Kind: "xray", Exec: "sh", Args: []string{"-c", "sleep 60"},
@@ -46,8 +46,8 @@ func TestControlStartFromStopped(t *testing.T) {
 	waitFor(t, m, "sleeper", agentproto.ProcRunning)
 }
 
-// TestControlStoppedReloadAndUnknownAction 停机态 reload 等价 start；
-// 未知名（直接投递绕过 Control 校验）回错误——applyWhenStopped 的完整分支。
+// TestControlStoppedReloadAndUnknownAction covers reload while stopped being equivalent to start;
+// an unknown name (delivered directly, bypassing Control validation) returns an error -- the full applyWhenStopped branch.
 func TestControlStoppedReloadAndUnknownAction(t *testing.T) {
 	m, _ := testManager(t, []config.ProcSpec{{
 		Name: "sleeper", Kind: "xray", Exec: "sh", Args: []string{"-c", "sleep 60"},
@@ -70,8 +70,8 @@ func TestControlStoppedReloadAndUnknownAction(t *testing.T) {
 		t.Fatalf("stop: %v", err)
 	}
 	waitFor(t, m, "sleeper", agentproto.ProcStopped)
-	// 直接向停机监管分支投递非法 action（Control 层校验会先行拒绝，这里
-	// 白盒穿透以覆盖 applyWhenStopped 的兜底分支）。
+	// deliver an illegal action straight to the stopped supervision branch (Control-level validation would reject it first, so
+	// this punches through the white box to cover applyWhenStopped's fallback branch).
 	m.mu.Lock()
 	p := m.procs["sleeper"]
 	m.mu.Unlock()
@@ -82,8 +82,8 @@ func TestControlStoppedReloadAndUnknownAction(t *testing.T) {
 	}
 }
 
-// TestReloadSignalSendsHUP signal 策略 reload：对忽略 HUP 的进程发信号后
-// 进程仍在运行且 reload 成功。
+// TestReloadSignalSendsHUP covers the signal policy reload: after signalling a process that ignores HUP,
+// the process is still running and the reload succeeds.
 func TestReloadSignalSendsHUP(t *testing.T) {
 	m, _ := testManager(t, []config.ProcSpec{{
 		Name: "sleeper", Kind: "xray", Exec: "sh",
@@ -98,18 +98,18 @@ func TestReloadSignalSendsHUP(t *testing.T) {
 	if err := m.Control("sleeper", agentproto.ProcActionReload); err != nil {
 		t.Fatalf("signal reload: %v", err)
 	}
-	waitFor(t, m, "sleeper", agentproto.ProcRunning) // 未被 HUP 杀掉
+	waitFor(t, m, "sleeper", agentproto.ProcRunning) // not killed by the HUP
 }
 
-// TestCrashBackoffCap 崩溃退避封顶：连崩进程的退避翻倍到 maxBackoff 后
-// 保持封顶值，重启持续发生。
+// TestCrashBackoffCap covers the crash backoff cap: a repeatedly crashing process doubles its backoff up to maxBackoff and
+// then holds at the cap, with restarts continuing.
 func TestCrashBackoffCap(t *testing.T) {
 	m, _ := testManager(t, []config.ProcSpec{{
 		Name: "crasher", Kind: "xray", Exec: "sh", Args: []string{"-c", "exit 1"},
 	}})
 	m.minBackoff = 10 * time.Millisecond
 	m.maxBackoff = 40 * time.Millisecond
-	m.stableRun = time.Hour // 永不视为稳定运行，退避一路翻倍
+	m.stableRun = time.Hour // never considered a stable run, so the backoff keeps doubling
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	m.Start(ctx)
@@ -117,7 +117,7 @@ func TestCrashBackoffCap(t *testing.T) {
 	deadline := time.Now().Add(3 * time.Second)
 	for {
 		st := m.Statuses()
-		if len(st) == 1 && st[0].Restarts >= 4 { // 10→20→40→封顶 40 至少 4 轮
+		if len(st) == 1 && st[0].Restarts >= 4 { // 10 -> 20 -> 40 -> capped at 40 for at least 4 rounds
 			return
 		}
 		if time.Now().After(deadline) {
@@ -127,8 +127,8 @@ func TestCrashBackoffCap(t *testing.T) {
 	}
 }
 
-// TestCollectProcMetricsFailure 指标采集失败面：URL 非法与端点不可达都
-// 清空快照继续轮询（不 panic、不影响进程监管）。
+// TestCollectProcMetricsFailure covers metric collection failures: an invalid URL and an unreachable endpoint both
+// clear the snapshot and keep polling (no panic, no impact on process supervision).
 func TestCollectProcMetricsFailure(t *testing.T) {
 	m, _ := testManager(t, []config.ProcSpec{
 		{Name: "badurl", Kind: "xray", Exec: "sh", Args: []string{"-c", "sleep 60"}, MetricsURL: "http://127.0.0.1:9/metr\nic"},
@@ -141,7 +141,7 @@ func TestCollectProcMetricsFailure(t *testing.T) {
 
 	waitFor(t, m, "badurl", agentproto.ProcRunning)
 	waitFor(t, m, "down", agentproto.ProcRunning)
-	// 采集失败 → Metrics 为 nil；给几个轮询周期后仍无快照即符合预期
+	// collection failed -> Metrics is nil; still no snapshot after a few polling periods is the expected outcome
 	time.Sleep(60 * time.Millisecond)
 	for _, s := range m.Statuses() {
 		if s.Metrics != nil {
@@ -150,8 +150,8 @@ func TestCollectProcMetricsFailure(t *testing.T) {
 	}
 }
 
-// TestMetricsCollectSuccess 指标采集成功面：本地 HTTP 端点返回 JSON 指标，
-// 快照随 Statuses 暴露。
+// TestMetricsCollectSuccess covers successful metric collection: a local HTTP endpoint returns JSON metrics,
+// and the snapshot is exposed through Statuses.
 func TestMetricsCollectSuccess(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
