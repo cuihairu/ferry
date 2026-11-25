@@ -889,8 +889,8 @@ External Client
     - 备注（Task ID: F-0328 | Status: Done | Evidence: POST /api/providers/:id/test：先本地解密凭据（无明文回显），有 cloudprov.Adapter factory 时经 Client 共享策略探活厂商 Capabilities；结果 200+ok/mode/error_type（auth/unsupported 分型），禁用账号 409；cloudprov registry Register/Lookup/Unregister/NewAdapter 作为可插拔适配器入口 | Verification: TestProviderTestConnection（本地/适配器/认证失败/禁用 4 场景） | Commit: a80419d）
 -   [x] `F-0329` 支持凭据更新。
     - 备注（Task ID: F-0329 | Status: Done | Evidence: updateProvider access_key 非空换密；TestProviderAPI | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0330` 支持凭据轮换。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0330 | 未满足原因：未满足：PUT /api/providers/:id 非空 access_key 为单键替换(providerapi.go:113-120)，无轮换语义（无双键/版本/宽限）。）
+-   [x] `F-0330` 支持凭据轮换。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0330 | Status: Done | Evidence: POST /api/providers/:id/rotate 双键轮换（旧密文移入 PrevAccessKey 宽限副本、KeyVersion 递增、PrevSetAt 开启 24h 宽限窗 RotationGrace）；POST /api/providers/:id/revoke-previous 显式提前吊销（404=无可吊销）；PUT access_key 为普通替换（不留宽限副本但也递增版本）；视图只回 key_version/prev_key_held/prev_set_at，双密文均不回显 | Verification: TestProviderCredentialRotation（v1→v2 宽限保留+解密校验+防泄漏+吊销+替换 v3） | Commit: 13349ba）
 -   [x] `F-0331` 支持账号禁用。
     - 备注（Task ID: F-0331 | Status: Done | Evidence: Provider.Enabled(models.go:485,default:true) 可配(providerapi.go:65-82,110-112)；runProvision 拒绝 disabled("provider disabled" provisionapi.go:44-47) | Verification: TestProviderAPI | Commit: acb0810）
 -   [x] `F-0332` 支持账号删除前依赖检查。
