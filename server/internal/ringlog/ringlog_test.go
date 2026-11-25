@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestRingOverwrite 覆盖环形覆盖与 Entries 时间升序、limit 截取。
+// TestRingOverwrite covers ring overwrite plus Entries' ascending-time order and limit truncation.
 func TestRingOverwrite(t *testing.T) {
 	l := New(3)
 	for _, s := range []string{"a", "b", "c", "d", "e"} {
@@ -15,7 +15,7 @@ func TestRingOverwrite(t *testing.T) {
 	if len(got) != 3 || got[0].Line != "c" || got[1].Line != "d" || got[2].Line != "e" {
 		t.Fatalf("entries = %v", got)
 	}
-	// limit 截取最近的 n 条，顺序保持
+	// limit truncates to the latest n entries, keeping their order
 	got = l.Entries(2)
 	if len(got) != 2 || got[0].Line != "d" || got[1].Line != "e" {
 		t.Fatalf("limited entries = %v", got)
@@ -25,7 +25,7 @@ func TestRingOverwrite(t *testing.T) {
 	}
 }
 
-// TestWriteImplementsWriter 覆盖 io.Writer 适配（去尾部换行）。
+// TestWriteImplementsWriter covers the io.Writer adaptation (strips the trailing newline).
 func TestWriteImplementsWriter(t *testing.T) {
 	l := New(4)
 	if n, err := l.Write([]byte("2026/10/07 log line\n")); err != nil || n != len("2026/10/07 log line\n") {
@@ -37,7 +37,7 @@ func TestWriteImplementsWriter(t *testing.T) {
 	}
 }
 
-// TestClear 覆盖清空后可继续写入。
+// TestClear covers continuing to write after a clear.
 func TestClear(t *testing.T) {
 	l := New(2)
 	l.Add("x")

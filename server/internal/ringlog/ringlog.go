@@ -1,6 +1,6 @@
-// Package ringlog 面板运行日志的内存环形缓冲（P1-11，对齐 3x-ui 日志查看）：
-// 把 std log 与 gin 访问日志镜像进固定容量环形缓冲，供管理端查看与清除，
-// 不落盘、重启即空。
+// Package ringlog is the in-memory ring buffer of panel runtime logs (P1-11, aligned with 3x-ui log viewing):
+// it mirrors std log and gin access logs into a fixed-capacity ring buffer for the admin side to view and clear,
+// never writing to disk and starting empty again after a restart.
 package ringlog
 
 import (
@@ -9,13 +9,13 @@ import (
 	"time"
 )
 
-// Entry 是一条运行日志。
+// Entry is one runtime log line.
 type Entry struct {
 	Time time.Time `json:"time"`
 	Line string    `json:"line"`
 }
 
-// Log 是固定容量的环形缓冲，并发安全；容量满后覆盖最旧条目。
+// Log is a fixed-capacity ring buffer, concurrency-safe; once full it overwrites the oldest entries.
 type Log struct {
 	mu   sync.Mutex
 	ring []Entry
@@ -23,14 +23,14 @@ type Log struct {
 	full bool
 }
 
-// defaultLog 是进程级共享实例：main 把它接进 std log/gin 输出，
-// 管理端接口直接读取，避免改路由装配签名。
+// defaultLog is the process-level shared instance: main wires it into std log/gin output,
+// and the admin API reads it directly, avoiding changes to the route-assembly signature.
 var defaultLog = New(1000)
 
-// Default 返回进程级共享环形缓冲。
+// Default returns the process-level shared ring buffer.
 func Default() *Log { return defaultLog }
 
-// New 创建容量 capacity 的环形缓冲。
+// New creates a ring buffer with capacity capacity.
 func New(capacity int) *Log {
 	if capacity < 1 {
 		capacity = 1
@@ -38,7 +38,7 @@ func New(capacity int) *Log {
 	return &Log{ring: make([]Entry, capacity)}
 }
 
-// Add 追加一条日志（时间取当前）。
+// Add appends one log line (timed now).
 func (l *Log) Add(line string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -50,13 +50,13 @@ func (l *Log) Add(line string) {
 	}
 }
 
-// Write 实现 io.Writer，适配 log.Logger/gin 的整行输出（去除尾部换行）。
+// Write implements io.Writer, adapting to log.Logger/gin whole-line output (stripping the trailing newline).
 func (l *Log) Write(p []byte) (int, error) {
 	l.Add(strings.TrimRight(string(p), "\n"))
 	return len(p), nil
 }
 
-// Entries 返回最近的至多 limit 条（时间升序，最新在后）；limit<=0 表示全部。
+// Entries returns at most the latest limit lines (ascending by time, newest last); limit<=0 means all.
 func (l *Log) Entries(limit int) []Entry {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -80,7 +80,7 @@ func (l *Log) Entries(limit int) []Entry {
 	return out
 }
 
-// Clear 清空缓冲。
+// Clear empties the buffer.
 func (l *Log) Clear() {
 	l.mu.Lock()
 	defer l.mu.Unlock()

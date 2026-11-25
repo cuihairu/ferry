@@ -2,7 +2,7 @@ package ringlog
 
 import "testing"
 
-// TestDefaultAndNewEdge 覆盖 Default 单例与 New 容量下限。
+// TestDefaultAndNewEdge covers the Default singleton and New's capacity lower bound.
 func TestDefaultAndNewEdge(t *testing.T) {
 	if Default() == nil {
 		t.Fatal("Default nil")
@@ -15,7 +15,7 @@ func TestDefaultAndNewEdge(t *testing.T) {
 	if len(l2.ring) != 5 {
 		t.Fatalf("New(5) len=%d", len(l2.ring))
 	}
-	// 写入一条确保 Add 路径。
+	// Write one line to make sure the Add path is exercised.
 	l.Add("x")
 	if got := l.Entries(10); len(got) != 1 {
 		t.Fatalf("entries=%d", len(got))
