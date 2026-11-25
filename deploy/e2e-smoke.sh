@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# 端到端部署链路冒烟（FERRY-004 最小骨架）：真起 ferry-server 二进制（sqlite
-# 落临时目录）+ 真 ferry-agent 二进制拨真实 WebSocket，一条链路走通
-# 健康检查/库初始化 → 管理员首登与鉴权 → 签发一次性注册凭据 → 注册建节点
-# → agent 握手上线（健康计数+1）→ agent 断线回落 → 令牌轮换/兼容窗口/吊销
-# → 配置下发与 agent 应答记账、面板改节点状态可见 → 备份后恢复再登录验证
-# 节点数据。全程不 mock，数据只落临时目录；任一步失败打印全部服务日志尾部
-# 后非零退出。CI 见 test.yml deploy-scripts job；本地需 go 工具链。
+# End-to-end deployment path smoke (the minimal FERRY-004 skeleton): really starts the ferry-server binary
+# (sqlite in a temp dir) plus a real ferry-agent binary dialing a real WebSocket, walking one path through
+# health check/DB init -> admin first login and auth -> issue a one-time enrollment credential -> register a node
+# -> agent handshakes online (health count +1) -> agent disconnect falls back -> token rotation/compat window/revocation
+# -> config push with the agent's answer recorded, and node edits visible from the panel -> backup then restore and
+# re-login to verify node data. Nothing is mocked; data lands only in a temp dir; any failing step prints the tails
+# of all service logs and exits non-zero. CI: test.yml's deploy-scripts job; locally the go toolchain is needed.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -19,7 +19,7 @@ cleanup() {
 }
 trap cleanup EXIT
 log() { echo "[e2e] $*"; }
-expect() { # $1=描述 $2=期望 $3=实际
+expect() { # $1=description $2=expected $3=actual
   if [ "$2" = "$3" ]; then log "ok - $1"
   else echo "FAIL - $1：want [$2] got [$3]" >&2; dump; exit 1; fi
 }
@@ -31,7 +31,7 @@ dump() {
     fi
   done
 }
-# json_get FILE KEY：优先 jq/python3，退回文本截取（与安装脚本同口径）
+# json_get FILE KEY: jq/python3 first, falling back to text extraction (same approach as the install script)
 json_get() {
   local f="$1" file="$2" v=""
   if command -v jq >/dev/null 2>&1; then
@@ -48,7 +48,7 @@ except Exception:
   printf '%s' "$v"
 }
 
-# agents_online_count 取嵌套 checks.agents_online（健康计数）
+# agents_online_count reads the nested checks.agents_online (the health count)
 agents_online_count() {
   local file="$1" v=""
   if command -v jq >/dev/null 2>&1; then
@@ -65,7 +65,7 @@ except Exception:
   printf '%s' "$v"
 }
 
-# poll_health WANT：轮询健康直到 agents_online==WANT（最多 ~15 秒），回显计数
+# poll_health WANT: polls health until agents_online==WANT (at most ~15 seconds) and echoes the count
 poll_health() {
   local want="$1" n=""
   for i in $(seq 1 30); do
@@ -77,8 +77,8 @@ poll_health() {
   printf '%s' "$n"
 }
 
-# expect_stays_zero DESC：~10 秒内 agents_online 不得变 1（用于「被拒的 agent
-# 反复重试也上不来」的否定断言；中途变 1 即失败）
+# expect_stays_zero DESC: agents_online must not become 1 within ~10 seconds (the negative assertion for "a
+# rejected agent never gets online no matter how often it retries"; turning 1 midway fails)
 expect_stays_zero() {
   local i n
   for i in $(seq 1 20); do
@@ -162,9 +162,10 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/enroll" \
 expect "凭据一次性（重放拒绝）" 401 "$code"
 
 log "启动 agent 拨面板（真实 WebSocket 握手）..."
-# stub 内核：真 OS 进程（起后常驻并写痕迹），给 agent 的 procs 监管一个
-# 可控被管对象。FERRY-004 的「被管内核二进制」外部件指真实隧道流量与
-# 协议行为，进程监管面（配置→拉起→心跳落库→崩溃自拉）可本地等价收口。
+# Stub kernel: a real OS process (resident once started, writing traces), giving the agent's procs supervision a
+# controllable managed object. FERRY-004's external "managed kernel binary" concern is real tunnel traffic and
+# protocol behavior; the process supervision surface (config -> start -> heartbeat persisted -> auto-restart on
+# crash) can be closed out with a local equivalent.
 cat > "$TMP/stub-kernel" <<EOF
 #!/bin/sh
 echo "up \$(date +%s)" >> "$TMP/kernel-runs.log"
@@ -191,7 +192,7 @@ AGENT_PID=$!
 
 expect "agent 上线（健康计数=1）" "1" "$(poll_health 1)"
 
-# proc_field FIELD：从 /api/nodes/:id/procs 取被管进程 k1 的字段（jq→python3 两级）
+# proc_field FIELD: reads managed process k1's field from /api/nodes/:id/procs (jq then python3 as fallback)
 proc_field() {
   local f="$1" v=""
   curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
@@ -237,9 +238,10 @@ expect "自拉后重启计数≥1" "1" "$([ "${rst:-0}" -ge 1 ] 2>/dev/null && e
 expect "stub 内核真被重新拉起（第二段痕迹）" "1" \
   "$([ "$(grep -c '^up ' "$TMP/kernel-runs.log" 2>/dev/null)" -ge 2 ] && echo 1 || echo 0)"
 
-# 面板→agent 进程控制（A-15 proc_ctl 请求应答通路）：stop 后停机态落库
-# 且不自拉；start 拉起；reload 走 restart 策略重拉但不计崩溃（stopping 退出
-# 与崩溃计数语义分开）；运行态重复 start 被 agent 拒（already running）。
+# Panel -> agent process control (the A-15 proc_ctl request/response path): after stop the stopped state is persisted
+# and nothing auto-restarts; start starts it; reload uses the restart policy to relaunch but does not count as a crash
+# (a stopping exit and the crash counter are semantically separate); a repeated start while running is refused by the
+# agent (already running).
 log "面板进程控制链路（proc_ctl 全真）..."
 code=$(curl -s -o "$TMP/ctl-bad.json" -w '%{http_code}' -X POST \
   "$BASE/api/nodes/$NODE_ID/proc" -H "Authorization: Bearer $ADMIN_TOKEN" \
@@ -306,7 +308,7 @@ NEW_TOKEN=$(json_get token "$TMP/rotate.json")
 [ -n "$NEW_TOKEN" ] && [ "$NEW_TOKEN" != "$NODE_TOKEN" ] \
   || { echo "FAIL - 轮换响应缺新令牌或与旧令牌相同" >&2; dump; exit 1; }
 
-# 兼容窗口：旧令牌在窗口内仍可握手上线
+# Compatibility window: the old token can still handshake online while the window is open
 cp "$TMP/agent.json" "$TMP/agent-old.json"
 "$TMP/ferry-agent" -config "$TMP/agent-old.json" > "$TMP/agent-old.log" 2>&1 &
 AGENT_PID=$!
@@ -314,8 +316,8 @@ expect "兼容窗口内旧令牌可上线" "1" "$(poll_health 1)"
 kill "$AGENT_PID"; AGENT_PID=""
 expect "旧令牌 agent 断开" "0" "$(poll_health 0)"
 
-# 吊销后：旧令牌立即拒绝（CRL）——agent 保持运行持续重试 ~10 秒，计数不得
-# 变 1（起跑失败不算拒绝，要观察的是「反复重试也上不来」）
+# After revocation: the old token is rejected immediately (CRL) — the agent keeps running and retrying for ~10
+# seconds, and the count must not become 1 (failing to start is not rejection; what is being observed is "retrying forever never gets online")
 code=$(curl -s -o "$TMP/revoke.json" -w '%{http_code}' -X POST "$BASE/api/nodes/$NODE_ID/token/revoke" \
   -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
   -d "{\"token\":\"$NODE_TOKEN\"}")
@@ -325,7 +327,7 @@ AGENT_PID=$!
 expect_stays_zero "吊销后旧令牌被拒（重试 10 秒不上线）"
 kill "$AGENT_PID"; AGENT_PID=""
 
-# 新令牌照常上线
+# The new token gets online normally
 cat > "$TMP/agent-new.json" <<EOF
 {
   "panel_url": "ws://127.0.0.1:$PORT/agent/ws",
@@ -339,9 +341,10 @@ EOF
 AGENT_PID=$!
 expect "新令牌上线" "1" "$(poll_health 1)"
 
-# 配置下发 → agent 应答 → 服务端状态更新（A-18）：proc 故意用面板不存在的
-# 名字，agent 会回「unknown proc」——该报错串只可能来自 agent 侧执行，等于
-# 证明了下行帧真过 WS 抵达 agent 并回执（agent 离线只会走到超时 pending）。
+# Config push -> agent answer -> server-side status update (A-18): the proc deliberately uses a name the panel does
+# not have, so the agent replies "unknown proc" — that error string can only come from execution on the agent side,
+# proving the downstream frame really crossed the WS, reached the agent, and got a receipt (an offline agent would
+# only ever end up as a pending timeout).
 t0=$(date +%s)
 code=$(curl -s -o "$TMP/push.json" -w '%{http_code}' -X POST "$BASE/api/nodes/$NODE_ID/config" \
   -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
@@ -357,7 +360,7 @@ grep -Eq 'unknown proc|config_path' "$TMP/push.json" \
   || { echo "FAIL - 配置下发耗时 $((t1 - t0)) 秒，疑似超时未应答" >&2; dump; exit 1; }
 log "ok - 配置下发经 WS 抵达 agent 并回执（status=$PUSH_STATUS，$((t1 - t0)) 秒）"
 
-# 面板改节点元数据 → 服务端状态更新可见（agent 保持在线，不受影响）
+# Panel edits node metadata -> the server-side status update is visible (the agent stays online, unaffected)
 code=$(curl -s -o "$TMP/node-upd.json" -w '%{http_code}' -X PUT "$BASE/api/nodes/$NODE_ID" \
   -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
   -d '{"name":"e2e-node","address":"e2e.example.com","port":443,"protocol":"vless","region":"ap-e2e"}')
@@ -369,7 +372,7 @@ grep -q '"region":"ap-e2e"' "$TMP/node-get.json" \
   || { echo "FAIL - 节点元数据未更新：$(cat "$TMP/node-get.json")" >&2; dump; exit 1; }
 log "ok - 节点元数据更新落库可见"
 
-# 服务端状态更新：下发结果（含 agent 应答的错误串）已记账可查
+# Server-side status update: the push result (including the agent's error string in its answer) is recorded and queryable
 code=$(curl -s -o "$TMP/nconfigs.json" -w '%{http_code}' "$BASE/api/nodes/$NODE_ID/configs" \
   -H "Authorization: Bearer $ADMIN_TOKEN")
 expect "读取配置下发历史" 200 "$code"
@@ -398,7 +401,7 @@ fi
   || { echo "FAIL - 恢复目录无 ferry.db" >&2; tail -n 30 "$TMP/restore.log" >&2; dump; exit 1; }
 log "ok - 解密+导入完成（restored/ferry.db 就位）"
 
-# 恢复后的实例：同 keyfile 起服务；故意给错误首启密码——已有管理员必须被保留
+# The restored instance: the service starts with the same keyfile; a deliberately wrong first-run password is given — the existing admin must be preserved
 wait_health() {
   for i in $(seq 1 40); do
     code=$(curl -s -o "$TMP/health.json" -w '%{http_code}' "$BASE/api/health" || true)
@@ -428,7 +431,7 @@ log "ok - e2e-node 随库恢复"
 
 log "PASS：部署→认证→注册→通信→断线→轮换吊销→配置下发应答→备份恢复链路全通"
 
-# ---- compose 配置检查（FERRY-004 第 1 项；无 docker 的环境跳过）----
+# ---- compose config check (FERRY-004 item 1; skipped where docker is unavailable) ----
 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
   log "校验 docker compose 配置 ..."
   if docker compose --env-file deploy/ferry.env.example \

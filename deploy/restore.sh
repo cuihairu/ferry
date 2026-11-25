@@ -1,29 +1,32 @@
 #!/usr/bin/env bash
-# ferry 一键恢复（面板可用性 §3）：备份档 → 解密 → 导入数据库 → 证书 → 启动 → 健康冒烟。
-# 执行前面板须已停止（systemctl stop / compose down），脚本不代管服务生命周期；
-# 六步对应设计 §3：①部署检查 ②解密 .enc ③导入数据库（SQLite 覆盖 / pg_restore）
-# ④恢复证书目录 ⑤启动（AutoMigrate 随启动补结构，agent 出站自动重连，节点侧零操作）
-# ⑥ /api/health 冒烟。可复跑：数据段幂等（现有库留底+同目录暂存+原子覆盖），
-# 留底按时间戳另存不覆盖。
+# ferry one-click restore (panel availability §3): backup archive -> decrypt -> import the database ->
+# certificates -> start -> health smoke.
+# The panel must already be stopped before running (systemctl stop / compose down); this script does not
+# own the service lifecycle. The six steps map to design §3: (1) deployment check (2) decrypt .enc (3) import
+# the database (SQLite overwrite / pg_restore) (4) restore the certificate directory (5) start (AutoMigrate
+# patches the schema at startup, agents reconnect outbound on their own, nothing to do on the node side)
+# (6) /api/health smoke. Re-runnable: the data steps are idempotent (holdback copy of the existing DB
+# + staging in the same directory + atomic overwrite), and holdback copies are stored under a timestamp, never
+# overwritten.
 #
-# 用法（新机/同机恢复）：
-#   restore.sh --backup <档> --data-dir <目录> [选项]
-#   restore.sh --backup <档> --pg-dsn <dsn> [选项]
+# Usage (fresh host / same-host restore):
+#   restore.sh --backup <archive> --data-dir <dir> [options]
+#   restore.sh --backup <archive> --pg-dsn <dsn> [options]
 #
-# 选项：
-#   --backup <path>        备份档（ferry-backup-*.db 或 .enc，必填）
-#   --data-dir <dir>       SQLite 数据目录（ferry.db 所在，SQLite 模式必填）
-#   --key <master>         主密钥（.enc 必填；缺省取环境变量 FERRY_SECRET_KEY）
-#   --ferry-bin <path>     ferry-server 可执行路径（.enc 解密用；缺省 PATH 查找）
-#   --pg-dsn <dsn>         PostgreSQL 恢复：走 pg_restore --clean（档须自备
-#                          pg_dump -Fc 产物；本仓周期备份只产 SQLite 档）
-#   --cert-src <dir>       证书源目录（与 --cert-dst 成对，缺省跳过④）
-#   --cert-dst <dir>       证书目标目录
-#   --start-cmd <cmd>      启动命令（缺省跳过⑤，交由部署方式拉起）
-#   --health-url <url>     /api/health 地址（缺省跳过⑥）
-#   -h, --help             本帮助
+# Options:
+#   --backup <path>        backup archive (ferry-backup-*.db or .enc, required)
+#   --data-dir <dir>       SQLite data directory (where ferry.db lives; required in SQLite mode)
+#   --key <master>         master key (required for .enc; defaults to the FERRY_SECRET_KEY env var)
+#   --ferry-bin <path>     path to the ferry-server executable (used to decrypt .enc; defaults to a PATH lookup)
+#   --pg-dsn <dsn>         PostgreSQL restore: runs pg_restore --clean (the archive must be a
+#                          pg_dump -Fc product you supply; this repo's periodic backups only produce SQLite archives)
+#   --cert-src <dir>       certificate source directory (paired with --cert-dst; step 4 skipped by default)
+#   --cert-dst <dir>       certificate destination directory
+#   --start-cmd <cmd>      start command (step 5 skipped by default, leaving startup to the deployment method)
+#   --health-url <url>     /api/health address (step 6 skipped by default)
+#   -h, --help             this help
 #
-# 示例：
+# Example:
 #   restore.sh --backup backups/ferry-backup-20261008-000000.db.enc \
 #     --data-dir /data --ferry-bin /usr/local/bin/ferry-server \
 #     --start-cmd "systemctl restart ferry" \
@@ -53,7 +56,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# ---- 入参校验：缺参/缺档明确报错非 0 ----
+# ---- Input validation: a missing argument or missing archive reports clearly with a non-zero exit ----
 [ -n "$BACKUP" ] || die "缺 --backup（备份档路径）"
 [ -s "$BACKUP" ] || die "备份档不存在或为空：$BACKUP"
 
@@ -66,7 +69,7 @@ else
   STAGE="$DATA_DIR/.ferry-restore-stage.db"
 fi
 
-# ---- ① 部署检查：ferry-server 可执行即视为已部署（版本同或更高由部署者保证）----
+# ---- (1) Deployment check: an executable ferry-server counts as deployed (the deployer guarantees the same or a newer version) ----
 step "① 部署检查"
 if [ -n "$FERRY_BIN" ]; then
   [ -x "$FERRY_BIN" ] || die "ferry 二进制不可执行：$FERRY_BIN（先部署 ferry，同版本或更高）"
@@ -75,7 +78,7 @@ else
   echo "跳过（未提供 --ferry-bin；.enc 档会自动在 PATH 找 ferry-server）"
 fi
 
-# ---- ② 解密 .enc：openssl enc 无 AES-GCM 能力，借 ferry-server 自身还原 ----
+# ---- (2) Decrypt the .enc: openssl enc cannot do AES-GCM, so ferry-server itself performs the restore ----
 SRC="$BACKUP"
 case "$BACKUP" in
   *.enc)
@@ -100,7 +103,7 @@ case "$BACKUP" in
     ;;
 esac
 
-# ---- ③ 导入数据库 ----
+# ---- (3) Import the database ----
 step "③ 导入数据库"
 if [ "$MODE" = pg ]; then
   command -v pg_restore >/dev/null 2>&1 || die "pg_restore 不在 PATH（PG 恢复需 pg 工具链）"
@@ -121,15 +124,15 @@ else
   if [ "$SRC" != "$STAGE" ]; then
     cp "$SRC" "$STAGE" || die "暂存备份档失败：$STAGE"
   fi
-  # 先清旧库 WAL/SHM 残留再原子换主库，防新主库打开时回放旧 WAL。
+  # Clear the old DB's leftover WAL/SHM before atomically swapping in the main DB, so the new main DB is never opened against a stale WAL replay.
   rm -f "$DB-wal" "$DB-shm"
   mv "$STAGE" "$DB" || die "覆盖 $DB 失败"
   echo "已导入：$SRC -> $DB（原子覆盖）"
 fi
-# 解密用过的临时档清理（SQLite 模式的暂存已被 mv 走，rm -f 兜底无害）。
+# Clean up the temporary file used for decryption (in SQLite mode the staging copy was already moved away; the rm -f is a harmless belt-and-braces).
 if [ "$SRC" != "$BACKUP" ] && [ "$MODE" = pg ]; then rm -f "$SRC"; fi
 
-# ---- ④ 恢复证书目录（mTLS CA / acme.sh 工作目录等，缺省跳过）----
+# ---- (4) Restore the certificate directory (the mTLS CA / the acme.sh working directory etc.; skipped by default) ----
 step "④ 证书目录"
 if [ -n "$CERT_SRC" ] && [ -n "$CERT_DST" ]; then
   [ -d "$CERT_SRC" ] || die "证书源目录不存在：$CERT_SRC"
@@ -142,7 +145,7 @@ else
   echo "跳过（未提供 --cert-src/--cert-dst）"
 fi
 
-# ---- ⑤ 启动（AutoMigrate 随进程启动补齐结构；agent 出站自动重连）----
+# ---- (5) Start (AutoMigrate patches the schema as the process starts; agents reconnect outbound on their own) ----
 step "⑤ 启动"
 if [ -n "$START_CMD" ]; then
   echo "执行：$START_CMD"
@@ -151,7 +154,7 @@ else
   echo "跳过（未提供 --start-cmd，交由部署方式拉起）"
 fi
 
-# ---- ⑥ /api/health 冒烟（ok/degraded 均 200 可读即算通，异常如实报在 body）----
+# ---- (6) /api/health smoke test (ok and degraded both count as passing once a 200 with readable body arrives; anomalies are reported as-is in the body) ----
 step "⑥ 健康冒烟"
 if [ -n "$HEALTH_URL" ]; then
   command -v curl >/dev/null 2>&1 || die "冒烟需要 curl（--health-url）"

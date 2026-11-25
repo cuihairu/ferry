@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# ferry 一键启动：生成 .env → 构建并起服务 → 等就绪 → 校验建库。
+# ferry one-click startup: generate .env -> build and start services -> wait for readiness -> verify DB creation.
 #
-#   ./deploy/start.sh                       # 默认 sqlite
-#   ./deploy/start.sh --profile postgres     # 同时起 postgres 存储
+#   ./deploy/start.sh                       # sqlite by default
+#   ./deploy/start.sh --profile postgres     # also bring up postgres storage
 #
-# 停服务：docker compose --env-file .env -f deploy/docker-compose.yml down
-#   （postgres 部署要带上 --profile postgres，否则 postgres 容器与卷会被留下）
+# Stop services: docker compose --env-file .env -f deploy/docker-compose.yml down
+#   (postgres deploys must pass --profile postgres, otherwise the postgres container and volume are left behind)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -13,9 +13,10 @@ cd "$ROOT"
 
 COMPOSE=(docker compose --env-file .env -f deploy/docker-compose.yml)
 
-# --profile 是 compose 全局参数，必须排在子命令之前；原样透传给 `up` 会报
-# unknown flag。这里把 --profile 抽出插到命令前段，其余参数（如 --scale）
-# 继续透传给 up。
+# --profile is a compose global flag and must precede the subcommand; passing
+# it through to `up` as-is raises an unknown flag error. So --profile is
+# pulled out and inserted into the front of the command, while the remaining
+# arguments (e.g. --scale) keep being forwarded to up.
 PROFILE_ARGS=()
 UP_ARGS=()
 i=1
@@ -33,8 +34,9 @@ while [ "$i" -le "$#" ]; do
 done
 COMPOSE=(docker compose ${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"} --env-file .env -f deploy/docker-compose.yml)
 
-# postgres profile 预检：不留 FERRY_PG_PASSWORD 时容器直接拒启，早报错比等
-# 180 秒超时好读。DSN 里的密码必须与此一致（user=ferry 由 compose 建）。
+# postgres profile preflight: with FERRY_PG_PASSWORD unset the container refuses
+# to start, so failing early is easier to read than waiting out the 180s timeout.
+# The password in the DSN must match it (user=ferry is created by compose).
 PG_PROFILE=0
 for p in ${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"}; do
   [ "$p" = postgres ] && PG_PROFILE=1
@@ -49,7 +51,7 @@ fi
 
 echo "==> ferry one-click startup (repo: $ROOT)"
 
-# 首次启动：.env 不存在则从 .env.example 生成；已存在则原样使用，绝不覆盖。
+# First run: if .env is missing, generate it from .env.example; if it exists, use it as-is and never overwrite it.
 if [ ! -f .env ]; then
   cp .env.example .env
   echo "==> .env generated from .env.example — edit it to set ports / secrets"
@@ -85,9 +87,11 @@ until "${COMPOSE[@]}" exec -T ferry-server \
   sleep 3
 done
 
-# 建库校验：建表/迁移随 storage.Open 的 AutoMigrate 自动跑（幂等，可重复
-# 执行），这里只确认库文件真的落盘——没落盘说明启动被别的原因打断。
-# 容器内 FERRY_DB_DRIVER 是 compose 插值后的权威值，不再自行解析 .env。
+# DB verification: table creation/migrations run automatically via storage.Open's AutoMigrate
+# (idempotent and repeatable); here we only confirm the DB file actually landed on disk —
+# if it has not, startup was interrupted for some other reason.
+# Inside the container FERRY_DB_DRIVER is the authoritative value after compose interpolation,
+# so we do not re-parse .env ourselves.
 DB_DRIVER="$("${COMPOSE[@]}" exec -T ferry-server \
   sh -c 'echo "${FERRY_DB_DRIVER:-sqlite}"' 2>/dev/null || true)"
 DB_DRIVER="${DB_DRIVER:-sqlite}"
@@ -101,7 +105,7 @@ if [ "$DB_DRIVER" = "sqlite" ]; then
   fi
 fi
 
-# 生效端口以 compose 实际映射为准（用户在 .env 里改过就从映射里读）。
+# Effective ports follow the actual compose mapping (read from the mapping when the user changed .env).
 host_port() {
   "${COMPOSE[@]}" port "$1" 80 2>/dev/null | tail -n1 | sed 's/.*://' | tr -d '[:space:]'
 }

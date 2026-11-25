@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# agent-install.sh 在容器内真实 systemd 的等价回归（FERRY-004 真机验收的本地
-# 降级面）：PATH 假件沙箱（install-rollback-test.sh）只能模拟 systemctl/
-# journalctl 的返回值，这里用真实 PID 1 验证 daemon-reload/enable/restart
-# 语义、journal 失败诊断的真实采集与 .prev 回滚后的真实恢复；链路四再把
-# 「需生产真面板」降级为本地等价——真 ferry-server 二进制签发一次性凭据，
-# 容器内真脚本凭它走真 enroll API 换真节点令牌。
-# 前置：docker + 宿主 cgroup v2（镜像可经 FERRY_SYSTEMD_IMAGE 覆盖）；
-# 无 docker 时跳过（PATH 假件沙箱仍覆盖脚本逻辑）；链路四另需 go 工具链。
+# Equivalent regression of agent-install.sh against a real systemd inside a container (the local
+# fallback for FERRY-004's on-real-machine acceptance): the PATH fake sandbox (install-rollback-test.sh)
+# can only simulate systemctl/journalctl return values, while this uses a real PID 1 to verify
+# daemon-reload/enable/restart semantics, the real collection of journal failure diagnostics, and real
+# recovery after a .prev rollback; pipeline four then downgrades "needs a production panel" to a local
+# equivalent — a real ferry-server binary issues a one-time credential, and the real script inside the
+# container uses it through the real enroll API to exchange for a real node token.
+# Prerequisites: docker + host cgroup v2 (the image can be overridden via FERRY_SYSTEMD_IMAGE);
+# skips when docker is unavailable (the PATH fake sandbox still covers script logic); pipeline four
+# additionally needs the go toolchain.
 set -u
 cd "$(dirname "$0")/.."
 
@@ -20,14 +22,14 @@ fi
 pass=0 fail=0
 ok() { pass=$((pass+1)); echo "ok - $1"; }
 bad() { fail=$((fail+1)); echo "FAIL - $1" >&2; }
-assert_eq() { # $1=描述 $2=期望 $3=实际
+assert_eq() { # $1=description $2=expected $3=actual
   if [ "$2" = "$3" ]; then ok "$1"; else bad "$1：want [$2] got [$3]"; fi
 }
-assert_contains() { # $1=描述 $2=应含子串 $3=全文
+assert_contains() { # $1=description $2=substring expected $3=full text
   case "$3" in *"$2"*) ok "$1" ;; *) bad "$1：缺 [$2]" >&2 ;; esac
 }
 
-# json_get FILE KEY：优先 jq/python3，退回文本截取（与 e2e-smoke 同口径）
+# json_get FILE KEY: jq/python3 first, falling back to text extraction (same approach as e2e-smoke)
 json_get() {
   local key="$1" file="$2" v=""
   if command -v jq >/dev/null 2>&1; then
@@ -50,25 +52,26 @@ SRV_PID=""
 trap 'docker rm -f "$CTR" >/dev/null 2>&1; [ -n "$SRV_PID" ] && kill "$SRV_PID" 2>/dev/null; rm -rf "$SB"' EXIT
 mkdir -p "$SB/bin" "$SB/etc"
 
-# good-agent：真被 systemd 拉起的常驻进程（写运行痕迹，is-active 才是 active）
+# good-agent: a resident process genuinely started by systemd (it writes run traces, so is-active only reports active when truly running)
 cat > "$SB/good-agent" <<'EOF'
 #!/bin/sh
 echo "run $(date +%s) pid $$" >> /sb/runs.log
 exec sleep 600
 EOF
-# bad-agent：坏 shebang（解释器不存在）——ExecStart 必 exec 失败
-# （status=203/EXEC，journal 记 Main process exited），坏进程从不诞生。
-# 不能用「可执行但秒退」造失败：秒退进程与 Restart=always/轮询周期共振时
-# wait 会撞见瞬时 active 窗口把失败判成成功（间歇 flake）；也不能用去执行位
-# 造——脚本安装时 install -m 0755 会把执行位加回来。
+# bad-agent: a broken shebang (interpreter does not exist) — ExecStart must fail at exec
+# (status=203/EXEC, journal records Main process exited), so the bad process is never born.
+# A "runs but exits instantly" process cannot fake the failure: when instant exits resonate with
+# Restart=always/the polling period, wait can catch a transient active window and judge the failure a
+# success (intermittent flake); stripping the exec bit cannot either — the script installs with
+# install -m 0755, which adds the exec bit back.
 cat > "$SB/bad-agent" <<'EOF'
 #!/nonexistent-interpreter
 exit 1
 EOF
 chmod +x "$SB/good-agent" "$SB/bad-agent"
 
-# 起 systemd 容器：cgroup v2-only 宿主上 systemd 249 走 v1 挂载会 EPERM，
-# 需把宿主 cgroup2 绑进容器并 host 命名空间（systemd-in-docker 标准配方）
+# Start the systemd container: on a cgroup v2-only host, systemd 249 gets EPERM using v1 mounts,
+# so the host cgroup2 must be bind-mounted in with the host namespace (the standard systemd-in-docker recipe)
 docker run -d --privileged --cgroupns=host -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
   -v "$SB":/sb -v "$(pwd)/deploy":/work:ro --name "$CTR" "$IMAGE" >/dev/null
 ready=""
@@ -85,7 +88,7 @@ if [ -z "$ready" ]; then
 fi
 ok "容器内 systemd 就绪（$s）"
 
-run_install() { # $1=沙箱二进制名（/sb/ 下）；$2..=额外透传；OUT/RC 承接结果
+run_install() { # $1=sandbox binary name (under /sb/); $2..=extra passthrough; OUT/RC receive the result
   local bin="$1"; shift
   OUT=$(docker exec "$CTR" bash /work/agent-install.sh \
     --panel https://panel.example.com --token smoke-node-token \
@@ -95,7 +98,7 @@ run_install() { # $1=沙箱二进制名（/sb/ 下）；$2..=额外透传；OUT/
 }
 svc_state() { docker exec "$CTR" systemctl is-active ferry-agent 2>/dev/null | tr -d '\n'; }
 
-# ---- 1. 真实首装：真 unit 落真目录、enable/restart 真语义、进程真被拉起 ----
+# ---- 1. Real first install: a real unit in a real directory, real enable/restart semantics, the process really started ----
 run_install good-agent
 assert_eq "容器内首装退出码" 0 "$RC"
 assert_eq "真实 systemd 服务 active" "active" "$(svc_state)"
@@ -109,7 +112,7 @@ assert_contains "配置落盘含节点令牌" '"token": "smoke-node-token"' \
   "$(docker exec "$CTR" cat /sb/etc/agent.json 2>/dev/null)"
 assert_eq "成功后 .prev 清除" "0" "$([ -e "$SB/bin/ferry-agent.prev" ] && echo 1 || echo 0)"
 
-# ---- 2. 真实升级失败：journal 真实采集失败诊断、.prev 回滚、服务真恢复 ----
+# ---- 2. Real upgrade failure: journal really collects failure diagnostics, .prev rolls back, the service really recovers ----
 docker exec "$CTR" sh -c ': > /sb/runs.log'
 run_install bad-agent
 assert_eq "升级失败退出码非零" "1" "$([ "$RC" != 0 ] && echo 1 || echo 0)"
@@ -122,7 +125,7 @@ assert_contains "恢复后 ExecStart 真跑旧件（good 痕迹非 crash 痕迹�
   "$([ "$(grep -c '^run ' "$SB/runs.log" 2>/dev/null)" -ge 1 ] && echo 1 || echo 0)"
 assert_eq ".prev 保留供手动核对（内容为升级前旧件）" "0" "$(cmp -s "$SB/bin/ferry-agent.prev" "$SB/good-agent" && echo 0 || echo 1)"
 
-# ---- 3. 真实首装失败清理：无旧件时清掉 unit 与二进制，服务不再 active ----
+# ---- 3. Real first-install failure cleanup: with no previous binary, the unit and binary are removed and the service is no longer active ----
 docker exec "$CTR" rm -f /sb/bin/ferry-agent /sb/bin/ferry-agent.prev
 docker exec "$CTR" sh -c ': > /sb/runs.log'
 run_install bad-agent
@@ -132,15 +135,17 @@ assert_eq "失败后 unit 已清理" "0" "$(docker exec "$CTR" test -e /etc/syst
 assert_eq "失败后二进制已清理" "0" "$([ -e "$SB/bin/ferry-agent" ] && echo 1 || echo 0)"
 st=$(svc_state); [ "$st" = "active" ] && bad "清理后服务仍 active" || ok "清理后服务不再 active（$st）"
 
-# ---- 4. 真面板注册链路：容器内真脚本对真 ferry-server 走真 enroll API ----
-# 「需生产真面板」的本地等价降级：ferry-server 二进制就是面板本体。脚本→
-# 面板的 enroll 契约此前只有两个半面（沙箱假 curl 供 201、e2e 直调 API），
-# 这里把两半拼成全真：真 server 签发一次性凭据 → 容器内真脚本凭它注册换
-# 真节点令牌 → 令牌落配置、面板节点行可查 → 凭据一次性对真脚本同样成立。
-# 需 go 工具链构建 server；无 go 跳过本链路（前三链路仍覆盖脚本行为）。
+# ---- 4. Real panel registration path: the real script in the container goes through the real enroll API against a real ferry-server ----
+# The local equivalent of "needs a production panel": the ferry-server binary IS the panel. The script -> panel
+# enroll contract previously existed only as two half-pictures (a sandbox fake curl serving 201, and e2e calling
+# the API directly); this stitches both halves into a fully real one: a real server issues a one-time credential
+# -> the real script inside the container registers with it and exchanges it for a real node token -> the token
+# lands in the config, the panel's node row is queryable -> the credential's one-time property holds against the
+# real script too.
+# Needs the go toolchain to build the server; without go this path is skipped (the first three still cover script behavior).
 SRV_PORT="${FERRY_SMOKE_PORT:-18101}"
 mkdir -p "$SB/server"
-node_field() { # $1=admin token $2=节点名 $3=字段：从 /api/nodes 取该节点字段
+node_field() { # $1=admin token $2=node name $3=field: read that node's field from /api/nodes
   local body
   body=$(curl -s -H "Authorization: Bearer $1" "http://127.0.0.1:$SRV_PORT/api/nodes")
   if command -v jq >/dev/null 2>&1; then
@@ -186,10 +191,10 @@ else
       -d '{"note":"systemd-smoke"}')
     assert_eq "签发一次性注册凭据" 201 "$code"
     CRED=$(json_get token "$SB/server/cred.json")
-    # 容器→宿主走默认网桥网关
+    # Container -> host goes through the default bridge gateway
     GW=$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null)
     GW=${GW:-172.17.0.1}
-    # 镜像不带 curl，脚本的下载/注册都依赖它：装好再走注册链路
+    # The image ships without curl, which the script's download/registration both need: install it before the registration path
     echo "[smoke] 容器内补装 curl（注册链路依赖，镜像不带）..."
     docker exec "$CTR" sh -c 'command -v curl >/dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq curl) >/dev/null 2>&1'
     if ! docker exec "$CTR" sh -c 'command -v curl >/dev/null 2>&1'; then
@@ -209,8 +214,8 @@ else
     assert_eq "配置令牌=真面板签发的节点令牌" "$SRV_TOKEN" "$(json_get token "$SB/cfg4.json")"
     assert_eq "配置令牌非注册凭据本身" "1" \
       "$([ "$(json_get token "$SB/cfg4.json")" != "$CRED" ] && echo 1 || echo 0)"
-    # 凭据一次性对真脚本成立：同凭据再注册必须被面板 401 拒绝，
-    # 且拒绝发生在动文件之前——既有安装原样无恙
+    # The credential's one-time property holds against the real script: re-registering with the same credential must be
+    # rejected by the panel with 401, and the rejection must happen before any file is touched — the existing install stays intact
     OUT=$(docker exec "$CTR" bash /work/agent-install.sh \
       --panel "http://$GW:$SRV_PORT" --register panel-node-replay \
       --enroll-token "$CRED" --address replay.example.com \

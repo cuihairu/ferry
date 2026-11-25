@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# start.sh 参数装配回归（--profile 必须排在 compose 子命令之前）：
-# PATH 假 docker 只记录 argv 并让就绪轮询立即通过，真 start.sh 全流程跑完
-# 但一个真容器都不碰。四条断言：postgres profile 出现在 up 之前、
-# --profile=x 等号写法、无 profile 时不夹带、postgres profile 缺
-# FERRY_PG_PASSWORD 时早失败并打印 DSN 提示。
+# Regression for start.sh argument assembly (--profile must precede the compose subcommand):
+# a fake docker on PATH only records argv and makes the readiness poll pass immediately, so the real
+# start.sh runs end to end without touching a single real container. Four assertions: the postgres profile
+# appears before up, the --profile=x equals form, no profile smuggled in when none is given, and an early
+# failure with a DSN hint when the postgres profile lacks FERRY_PG_PASSWORD.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -19,9 +19,9 @@ cat > "$FAKEBIN/docker" <<'EOF'
 #!/bin/sh
 echo "$*" >> "$FAKE_LOG"
 case "$*" in
-  *"exec -T ferry-server wget"*) exit 0 ;;                 # 健康轮询立即通过
-  *"exec -T ferry-server sh -c"*) echo sqlite; exit 0 ;;   # 驱动口径
-  *"exec -T ferry-server test"*) exit 0 ;;                 # 建库校验
+  *"exec -T ferry-server wget"*) exit 0 ;;                 # readiness poll passes immediately
+  *"exec -T ferry-server sh -c"*) echo sqlite; exit 0 ;;   # driver lookup
+  *"exec -T ferry-server test"*) exit 0 ;;                 # DB-file check
   *"port ferry-dash"*) echo 127.0.0.1:18080 ;;
   *"port ferry-panel"*) echo 127.0.0.1:18081 ;;
   *) exit 0 ;;
@@ -29,29 +29,29 @@ esac
 EOF
 chmod +x "$FAKEBIN/docker"
 
-# 隔离布局：start.sh 会 cd 到自身 deploy/ 的上级，故整套布局拷进临时目录，
-# 绝不动仓库根的 .env。
+# Isolated layout: start.sh cds to the parent of its own deploy/, so the whole layout is copied into a temp
+# directory and the repo root's .env is never touched.
 SAVEDIR="$TMP/repo/deploy"
 mkdir -p "$SAVEDIR"
 cp deploy/start.sh deploy/docker-compose.yml "$SAVEDIR/"
 cp .env.example "$TMP/repo/"
 
-# .env 里给了 postgres 密码：postgres profile 预检通过
+# The .env carries the postgres password, so the postgres profile preflight passes
 printf 'FERRY_PG_PASSWORD=pg-test-pw\nFERRY_HTTP_PORT=18080\n' > "$TMP/repo/.env"
 
-run_start() { # $1=输出日志；其余为 start.sh 参数（返回其退出码）
+run_start() { # $1=output log; the rest are start.sh arguments (returns its exit code)
   local out="$1"
   shift
-  : > "$TMP/argv.log"   # 每次重记，避免读到上一轮 argv
+  : > "$TMP/argv.log"   # re-record every run so a previous round's argv is never read
   FAKE_LOG="$TMP/argv.log" PATH="$FAKEBIN:$PATH" bash "$SAVEDIR/start.sh" "$@" \
     > "$out" 2>&1
 }
 up_line() { grep -m1 ' up ' "$TMP/argv.log"; }
-offset_of() { # $1=片段 $2=字符串；返回片段在字符串中的字节偏移
+offset_of() { # $1=needle $2=string; returns the byte offset of the needle in the string
   printf '%s' "$2" | grep -boF -e "$1" | head -1 | cut -d: -f1 || true
 }
 
-# 1. --profile postgres 必须排在 up 之前
+# 1. --profile postgres must come before up
 set +e
 run_start "$TMP/1.log" --profile postgres
 RC=$?
@@ -64,7 +64,7 @@ U=$(offset_of ' up ' "$LINE")
   && ok "--profile 排在子命令 up 之前（$P < $U）" \
   || fail "--profile 位置错误：profile@$P up@$U 行=[$LINE]"
 
-# 2. --profile=postgres 等号写法同样落到前段
+# 2. The --profile=postgres equals form must also land before the subcommand
 set +e
 run_start "$TMP/2.log" --profile=postgres
 RC=$?
@@ -77,7 +77,7 @@ U=$(offset_of ' up ' "$LINE")
   && ok "等号写法同样排在 up 之前（$P < $U）" \
   || fail "等号写法位置错误：profile@$P up@$U 行=[$LINE]"
 
-# 3. 不带 profile 时不夹带任何 --profile
+# 3. No profile given means no --profile is smuggled in
 set +e
 run_start "$TMP/3.log"
 RC=$?
@@ -89,8 +89,8 @@ case "$LINE" in
   *) ok "无 profile 时 compose 命令不夹带 --profile" ;;
 esac
 
-# 4. postgres profile 缺 FERRY_PG_PASSWORD 必须早失败并给出 DSN 提示
-rm -f "$TMP/repo/.env"   # start.sh 会从 .env.example 生成（密码行是注释）
+# 4. A postgres profile missing FERRY_PG_PASSWORD must fail early and print the DSN hint
+rm -f "$TMP/repo/.env"   # start.sh will generate it from .env.example (the password line there is commented out)
 set +e
 run_start "$TMP/4.log" --profile postgres
 RC=$?

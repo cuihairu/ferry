@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# compose 真部署冒烟（FERRY-004 收尾）：临时 compose project + 临时卷真跑
-# docker compose build/up，经 Caddy 前端验证三件事——静态产物托管、
-# history 路由回退、后端顶层前缀反代（漏登记的典型故障形态：GET 返回
-# index.html(200)、POST 返回 405，能被本脚本的 POST 断言打回来）；
-# 两条腿：sqlite 默认存储 + postgres profile 存储切换（compose 注释里
-# 记载但从未被任何自动化跑过的路径）。结束 down -v 清容器与卷，
-# 随机 project 名与真实部署互不干扰，绝不碰本机面板数据。
-# 只放 nightly：build 是真编译（Go 前端两套 + 后端），不宜进 push 门禁。
+# compose real-deploy smoke (closing FERRY-004): a throwaway compose project + temp volume runs a
+# real docker compose build/up, and the Caddy front end verifies three things — static asset hosting,
+# history routing fallback, and backend top-level prefix reverse proxy (the typical failure shape
+# when a route is missing from the registry: GET returns index.html(200) and POST returns 405,
+# which this script's POST assertions catch); two legs: sqlite default storage + postgres profile
+# storage switch (a path documented in compose comments but never exercised by any automation).
+# Ends with down -v to clear containers and volumes; the random project name cannot clash with a
+# real deployment and never touches the host's panel data.
+# Nightly only: build is a real compile (both Go front ends + backend), unsuitable for the push gate.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
@@ -22,7 +23,7 @@ ADMIN_USER=admin
 ADMIN_PW=$(printf 'compose-e2e-%032d' "$(date +%s%N | cut -c1-32)")
 PG_PW=$(printf 'pg-e2e-%016d' "$(date +%s%N | cut -c1-16)")
 die() { echo "FATAL $*" >&2; exit 1; }
-free_port() { # [base, base+400] 内找未被占用的 TCP 端口（本机常已有面板占 18080）
+free_port() { # find an unoccupied TCP port in [base, base+400] (the panel often already holds 18080 on this host)
   local base="$1" p
   for p in $(seq "$base" "$((base + 400))"); do
     (echo > "/dev/tcp/127.0.0.1/$p") >/dev/null 2>&1 && continue
@@ -33,7 +34,7 @@ free_port() { # [base, base+400] 内找未被占用的 TCP 端口（本机常已
 }
 A_PORT=${E2E_HTTP_PORT:-$(free_port 18080)}
 P_PORT=${E2E_PANEL_PORT:-$(free_port 19000)}
-PROJECTS="" # 空格分隔 "project:envfile"，EXIT 时逐个 down -v
+PROJECTS="" # space-separated "project:envfile", each downed with -v on EXIT
 CLEANED=0
 
 cleanup() {
@@ -58,7 +59,7 @@ bad() {
   done
   exit 1
 }
-expect() { # $1=描述 $2=期望 $3=实际
+expect() { # $1=description $2=expected $3=actual
   if [ "$2" = "$3" ]; then ok "$1"
   else bad "$1：want [$2] got [$3]"; fi
 }
@@ -77,19 +78,19 @@ except Exception:
   fi
   printf '%s' "$v"
 }
-http_get() { # $1=url $2=outfile（返回状态码）
+http_get() { # $1=url $2=outfile (returns the status code)
   curl -sS -o "$2" -w '%{http_code}' "$1"
 }
-http_post() { # $1=url $2=body $3=outfile（返回状态码）
+http_post() { # $1=url $2=body $3=outfile (returns the status code)
   curl -sS -o "$3" -w '%{http_code}' -H 'Content-Type: application/json' -d "$2" "$1"
 }
 dc() { # dc <project> <envfile> <compose args...>
   docker compose --project-name "$1" --env-file "$2" -f "$ROOT/deploy/docker-compose.yml" "${@:3}"
 }
-register() { # 记录 project:envfile 供 EXIT 清理
+register() { # record project:envfile for EXIT cleanup
   PROJECTS="$PROJECTS $1:$2"
 }
-health_poll() { # $1=base url $2=bearer token（最多 ~90 秒）
+health_poll() { # $1=base url $2=bearer token (up to ~90 seconds)
   local base="$1" token="$2" i code=""
   for i in $(seq 1 18); do
     if [ -n "$token" ]; then
@@ -110,8 +111,9 @@ db_writable() {
   fi
 }
 
-# postgres 镜像只在此处预拉：base 镜像元数据查询失败（registry EOF/超时）
-# 会打断整个 build，前置重试比半途失败好读。
+# The postgres image is pre-pulled only here: a failed base image metadata lookup
+# (registry EOF/timeout) would abort the whole build, and an early retry reads better
+# than a mid-flight failure.
 for i in 1 2 3; do
   docker image inspect postgres:15-alpine >/dev/null 2>&1 && break
   log "pull postgres:15-alpine（尝试 $i）"
@@ -120,8 +122,8 @@ for i in 1 2 3; do
   sleep 5
 done
 
-# docker build：registry 抖动重试。真编译失败（Dockerfile/源码错）不会因重试变绿，
-# 三次全败即按 build 失败处理。
+# docker build: retry on registry flakiness. A genuine compile failure (Dockerfile/source
+# error) does not turn green on retry; three failures in a row is treated as a build failure.
 docker_build() { # $1=project $2=envfile
   local i
   for i in 1 2 3; do
@@ -132,7 +134,7 @@ docker_build() { # $1=project $2=envfile
   done
 }
 
-# ---------- 腿 A：sqlite 默认存储，dash/panel 经 Caddy 全链路 ----------
+# ---------- Leg A: sqlite default storage, dash/panel full path through Caddy ----------
 A="ferry-e2e-a$RANDOM"
 AENV="$TMP/a.env"
 cat > "$AENV" <<EOF
@@ -155,7 +157,7 @@ dc "$A" "$AENV" up -d > "$LOGS/A-up.log" 2>&1 || {
 RUNNING=$(dc "$A" "$AENV" ps --format '{{.Service}} {{.State}}' 2>/dev/null | awk '{print $1}' | sort -u | tr '\n' ' ')
 expect "三服务全部运行" "ferry-dash ferry-panel ferry-server " "$RUNNING"
 
-# compose 自带 healthcheck 真跑通（30s 间隔 + 15s start_period，等首轮结果）
+# The compose healthcheck actually runs (30s interval + 15s start_period, wait for the first result)
 HC="unknown"
 for i in $(seq 1 12); do
   HC=$(dc "$A" "$AENV" ps --format '{{.Service}} {{.Health}}' 2>/dev/null \
@@ -167,9 +169,11 @@ expect "ferry-server 容器健康检查 healthy" "healthy" "$HC"
 
 DASH="http://127.0.0.1:$A_PORT"
 PANEL="http://127.0.0.1:$P_PORT"
-# P2 health 鉴权（router.go healthGuard）后 /api/health 环回豁免只认直连
-# ClientIP，反代链路（宿主 curl→Caddy→server）不落环回——探活须带凭据。
-# 就绪口径：坏凭据登录先回 401（后端经 Caddy 已应答），再真登录拿 JWT。
+# After the P2 health auth change (router.go healthGuard), the loopback exemption on /api/health
+# only trusts the direct ClientIP; a reverse-proxied path (host curl -> Caddy -> server) does not
+# land on loopback — so health probes must carry credentials.
+# Readiness criterion: a login with bad credentials first returns 401 (the backend behind Caddy has
+# already answered), then a real login fetches the JWT.
 for i in $(seq 1 18); do
   CODE=$(http_post "$DASH/admin/login" '{"username":"admin","password":"wrong-pw"}' "$TMP/a-warm.json" 2>/dev/null) || CODE=000
   [ "$CODE" = "401" ] && break
@@ -184,10 +188,10 @@ TOKEN=$(json_get token "$TMP/a-login.json")
 CODE=$(health_poll "$DASH" "$TOKEN")
 expect "dash Caddy 反代 /api/health 就绪（凭据探活，经前端而非容器直连）" "200" "$CODE"
 expect "sqlite 落卷且可写" "true" "$(db_writable)"
-# 首启库从未备份过 → degraded 属设计口径（compose healthcheck 注释同口径）
+# The first-run DB has never been backed up -> degraded is by design (same criterion as the compose healthcheck comment)
 expect "首启从未备份=degraded（与 health 三态口径一致）" "degraded" "$(json_get status "$TMP/hp.json")"
 
-# 静态产物托管 + history 回退
+# Static asset hosting + history fallback
 CODE=$(http_get "$DASH/" "$TMP/a-home.html")
 expect "dash 首页 200" "200" "$CODE"
 grep -qi '<html' "$TMP/a-home.html" && ok "dash 首页是 html 静态产物" || bad "dash 首页非 html"
@@ -199,7 +203,7 @@ expect "dash SPA 深链刷新返回 200" "200" "$CODE"
 cmp -s "$TMP/a-home.html" "$TMP/a-deep.html" && ok "深链回退到 index.html（history 路由不 404）" \
   || bad "深链未回退 index.html"
 
-# 后端顶层前缀反代已在就绪探活段覆盖（坏凭据 401 即真后端应答）
+# Backend top-level prefix reverse proxy is already covered by the readiness probe section (a 401 on bad credentials proves the real backend answered)
 CODE=$(curl -sS -o "$TMP/a-nodes.json" -w '%{http_code}' -H "Authorization: Bearer $TOKEN" "$DASH/api/nodes")
 expect "Bearer 调 /api/nodes（dash 前端真实调用路径）" "200" "$CODE"
 grep -q '^\[\]' "$TMP/a-nodes.json" && ok "节点列表为空数组（新库）" || bad "节点列表非空数组：$(cat "$TMP/a-nodes.json")"
@@ -211,7 +215,7 @@ grep -q '<?xml' "$TMP/a-feed.xml" && ok "RSS 是 XML 而非 index.html" || bad "
 CODE=$(http_post "$DASH/distributor/login" '{"password":"wrong"}' "$TMP/a-dist.json")
 expect "/distributor/login 顶层前缀反代（未落静态兜底）" "401" "$CODE"
 
-# panel 第二实例同一 Caddyfile
+# Second panel instance off the same Caddyfile
 CODE=$(http_get "$PANEL/" "$TMP/p-home.html")
 expect "panel 首页 200" "200" "$CODE"
 grep -qi '<html' "$TMP/p-home.html" && ok "panel 首页是 html 静态产物" || bad "panel 首页非 html"
@@ -223,7 +227,7 @@ CODE=$(health_poll "$PANEL" "$TOKEN")
 expect "panel 侧 /api/health 反代 200" "200" "$CODE"
 expect "panel 侧反代拿到后端真数据" "true" "$(db_writable)"
 
-# 备份导出经 /admin 反代拿附件，健康由 never-backed-up 转 ok
+# Fetch the backup export attachment through the /admin reverse proxy; health moves from never-backed-up to ok
 BKOUT="$TMP/a-backup.bin"
 BKHDR="$TMP/a-backup.hdr"
 CODE=$(curl -sS -D "$BKHDR" -o "$BKOUT" -w '%{http_code}' \
@@ -235,8 +239,8 @@ grep -qi '<html' "$BKOUT" && bad "备份附件是 index.html（反代把 /admin 
 BKN=$(grep -i '^content-disposition:' "$BKHDR" | head -1 | tr -d '\r' \
   | sed 's/.*filename="\(.*\)"/\1/')
 [ -n "$BKN" ] && ok "备份文件名 $BKN" || bad "无 Content-Disposition 文件名"
-# 容器内未配 FERRY_SECRET_KEY 时 keyinit 自动生成并持久化主密钥，
-# 故默认部署的导出件即加密件（.enc）。
+# When FERRY_SECRET_KEY is not configured in the container, keyinit generates and persists the master
+# key automatically, so the default deployment's export is already an encrypted (.enc) artifact.
 [ "${BKN##*.}" = enc ] && ok "默认部署备份即加密件（keyinit 自动主密钥生效）" \
   || bad "备份未加密（$BKN）"
 CODE=$(curl -sS -o "$TMP/hp.json" -w '%{http_code}' -H "Authorization: Bearer $TOKEN" "$DASH/api/health")
@@ -245,7 +249,7 @@ expect "备份状态记账生效" "ok" "$(json_get status "$TMP/hp.json")"
 FRESH=$(grep -o '"fresh":[a-z]*' "$TMP/hp.json" | tail -1 | cut -d: -f2)
 expect "备份新鲜度记账（health 读回 backup.fresh）" "true" "$FRESH"
 
-# teardown：端口释放、卷清干净
+# teardown: ports released, volumes wiped
 dc "$A" "$AENV" down -v --remove-orphans > "$LOGS/A-down.log" 2>&1 || bad "leg A down 失败"
 CODE=200
 for i in $(seq 1 20); do
@@ -257,7 +261,7 @@ done
 VOL=$(docker volume ls -q --filter "name=^${A}_ferry-data$" | wc -l)
 expect "leg A 数据卷已删除" "0" "$VOL"
 
-# ---------- 腿 B：postgres profile 存储切换（compose 记载路径，首次自动化） ----------
+# ---------- Leg B: postgres profile storage switch (the compose-documented path, first time automated) ----------
 B="ferry-e2e-b$RANDOM"
 BENV="$TMP/b.env"
 cat > "$BENV" <<EOF
@@ -282,9 +286,9 @@ dc "$B" "$BENV" --profile postgres up -d > "$LOGS/B-up.log" 2>&1 || {
 RUNNING=$(dc "$B" "$BENV" ps --format '{{.Service}} {{.State}}' 2>/dev/null | awk '{print $1}' | sort -u | tr '\n' ' ')
 expect "postgres profile 四服务全部运行" "ferry-dash ferry-panel ferry-postgres ferry-server " "$RUNNING"
 
-# postgres 先起、服务端再连上并完成迁移：单次探活，最多等 ~120 秒。
-# healthGuard 后 /api/health 须经凭据探活：先等 /admin/login 拒坏凭据 401
-# （后端就绪），登录拿 JWT 再轮询 health。
+# postgres starts first, then the server connects and finishes migrations: a single probe, at most ~120 seconds.
+# With healthGuard, /api/health must be probed with credentials: first wait for /admin/login to reject bad
+# credentials with 401 (backend ready), then log in for the JWT and poll health.
 BTOKEN=""
 for i in $(seq 1 24); do
   CODE=$(http_post "$DASH/admin/login" '{"username":"admin","password":"wrong-pw"}' "$TMP/b-warm.json" 2>/dev/null) || CODE=000
@@ -317,8 +321,9 @@ CODE=$(http_post "$DASH/admin/login" \
 expect "管理员首登（数据落在 postgres 卷）" "200" "$CODE"
 [ -n "$(json_get token "$TMP/b-login.json")" ] && ok "postgres 侧签发 JWT" || bad "postgres 侧未返回 token"
 
-# postgres 存储下密钥无从推断落点：不配 FERRY_KEYFILE 时每轮重启换新密钥，
-# 旧 JWT 全废、已加密备份解不开。断言显式配了之后密钥落卷且重启后不变。
+# With postgres storage there is no way to infer where the key lands: without FERRY_KEYFILE a fresh key
+# is generated on every restart, invalidating all old JWTs and making encrypted backups unreadable.
+# Assert that with an explicit keyfile the key lands on the volume and survives a restart.
 MODE=$(dc "$B" "$BENV" exec -T ferry-server sh -c 'stat -c%a /data/ferry-keys.env 2>/dev/null')
 expect "密钥文件落数据卷且 0600" "600" "$MODE"
 dc "$B" "$BENV" exec -T ferry-server cat /data/ferry-keys.env > "$TMP/keyfile-1" 2>/dev/null
@@ -340,7 +345,7 @@ cmp -s "$TMP/keyfile-1" "$TMP/keyfile-2" \
   && ok "重启后密钥文件未变（JWT 与加密备份可恢复）" \
   || bad "重启后密钥被换掉（未配 FERRY_KEYFILE 的症状）"
 
-# down 必须带 --profile：不带时 postgres 不在服务列表内，容器与卷会整个留下。
+# down must include --profile: otherwise postgres is not in the service list and its container and volume are left behind entirely.
 dc "$B" "$BENV" --profile postgres down -v --remove-orphans > "$LOGS/B-down.log" 2>&1 \
   || bad "leg B down 失败"
 VOL=$(docker volume ls -q --filter "name=^${B}_ferry-pg$" | wc -l)

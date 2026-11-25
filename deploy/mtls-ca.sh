@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# ferry 面板侧 mTLS 证书工具（A-24）：自签 CA 常驻面板机，签发节点客户端证书。
-# 口径见 docs/design/安全设计.md §2.2：CA 私钥只在面板机；开启 mTLS 后
-# 令牌+证书双因子；面板侧是否强制校验客户端证书由反代/面板 TLS 配置决定，
-# 本脚本只负责证书材料的生成与续签。
+# ferry panel-side mTLS certificate tool (A-24): a self-signed CA lives on the panel host and issues
+# node client certificates.
+# Rationale per `docs/design/安全设计.md` §2.2: the CA private key stays on the panel host only; with mTLS enabled,
+# token+certificate form two factors; whether the panel side enforces client certificate verification is
+# decided by the reverse proxy / panel TLS configuration — this script only generates and renews the
+# certificate material.
 #
-# 用法（面板机执行）：
-#   mtls-ca.sh init [目录]                      生成 CA（默认 deploy/mtls；已存在则拒绝）
-#   mtls-ca.sh issue <节点名> [天数] [目录]      签发 <目录>/<节点名>.{crt,key}（默认 825 天）
+# Usage (run on the panel host):
+#   mtls-ca.sh init [dir]                       create the CA (default deploy/mtls; refused if it already exists)
+#   mtls-ca.sh issue <node-name> [days] [dir]  issue <dir>/<node-name>.{crt,key} (default 825 days)
 set -euo pipefail
 
 die() { echo "mtls-ca: $*" >&2; exit 1; }

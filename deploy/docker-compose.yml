@@ -9,20 +9,20 @@ services:
       FERRY_DB_DRIVER: ${FERRY_DB_DRIVER:-sqlite}
       FERRY_DB_DSN: ${FERRY_DB_DSN:-/data/ferry.db}
       FERRY_BASE_URL: ${FERRY_BASE_URL:-http://localhost:8080}
-      # 备份目录缺省落数据卷（容器重建不丢档；env 指定则覆盖）。
+      # The backup directory defaults to the data volume (survives container recreation; overridden by env).
       FERRY_BACKUP_DIR: ${FERRY_BACKUP_DIR:-/data/backups}
-      # --env-file 只做 ${...} 替换不自动注入容器：ferry.env.example 里
-      # 记载的部署项必须在此逐一透传，否则设置即被静默忽略。
-      # 空串与未设同效（config 侧只认非空值）。
+      # --env-file only performs ${...} substitution; it does not auto-inject into containers: every
+      # deployment item documented in ferry.env.example must be passed through here one by one,
+      # otherwise the setting is silently ignored. An empty string has the same effect as unset (the config side only accepts non-empty values).
       FERRY_SECRET_KEY: ${FERRY_SECRET_KEY:-}
-      # FERRY_ENV/FERRY_KEYFILE 同为记载部署项，漏透传即被静默忽略
-      # （compose-smoke 的 postgres 腿踩过）：env 里写 FERRY_ENV=production 的
-      # 密钥门禁、FERRY_KEYFILE 的密钥持久化在容器部署里都不生效。
+      # FERRY_ENV/FERRY_KEYFILE are equally documented deployment items; missing them is silently ignored
+      # (the compose-smoke postgres leg hit this): writing FERRY_ENV=production
+      # for the key gate, and FERRY_KEYFILE key persistence, do not take effect in container deployments.
       FERRY_ENV: ${FERRY_ENV:-}
       FERRY_KEYFILE: ${FERRY_KEYFILE:-}
-      # Caddy 反代后 health 环回豁免看 ClientIP：不信任代理时 ClientIP=反代
-      # 容器 IP，compose 部署的探活/限流口径须按内网网段信任代理
-      # （ferry.env.example「可信任反代白名单」节同口径；env 可覆盖）。
+      # After the Caddy reverse proxy the health loopback exemption looks at ClientIP: when the proxy is not
+      # trusted, ClientIP is the proxy's container IP, so compose deployments' health/rate-limit criterion must
+      # trust the proxy on the intranet segment (same as ferry.env.example's "trusted proxy allowlist" section; env can override).
       FERRY_TRUSTED_PROXIES: ${FERRY_TRUSTED_PROXIES:-172.16.0.0/12}
       FERRY_ADMIN_USER: ${FERRY_ADMIN_USER:-}
       FERRY_ADMIN_PASSWORD: ${FERRY_ADMIN_PASSWORD:-}
@@ -51,14 +51,14 @@ services:
       FERRY_BACKUP_S3_BUCKET: ${FERRY_BACKUP_S3_BUCKET:-}
       FERRY_BACKUP_S3_ACCESS_KEY: ${FERRY_BACKUP_S3_ACCESS_KEY:-}
       FERRY_BACKUP_S3_SECRET_KEY: ${FERRY_BACKUP_S3_SECRET_KEY:-}
-      # 外部客服（servify 嵌入，可选）：任一为空 = 客服入口关闭。
+      # External support (servify embed, optional): any one empty = the support entry is disabled.
       FERRY_SUPPORT_URL: ${FERRY_SUPPORT_URL:-}
       FERRY_SUPPORT_SERVICE_KEY: ${FERRY_SUPPORT_SERVICE_KEY:-}
-      # 主从同步（standby）：主面板开 TOKEN，standby 实例配 MASTER_URL 指向主面板。
+      # Master/standby replication (standby): the master panel enables TOKEN; the standby instance sets MASTER_URL pointing at the master panel.
       FERRY_STANDBY_TOKEN: ${FERRY_STANDBY_TOKEN:-}
       FERRY_STANDBY_MASTER_URL: ${FERRY_STANDBY_MASTER_URL:-}
       FERRY_STANDBY_SEC: ${FERRY_STANDBY_SEC:-}
-      # 调度周期旋钮（ferry.env.example「调度周期旋钮」节逐一对应）。
+      # Scheduling-interval knobs, one per item in ferry.env.example's "scheduling-interval knobs" section.
       FERRY_HEARTBEAT_SEC: ${FERRY_HEARTBEAT_SEC:-}
       FERRY_MONITOR_SEC: ${FERRY_MONITOR_SEC:-}
       FERRY_EVENT_FLUSH_SEC: ${FERRY_EVENT_FLUSH_SEC:-}
@@ -75,8 +75,8 @@ services:
       FERRY_AUDIT_RETENTION_DAYS: ${FERRY_AUDIT_RETENTION_DAYS:-}
     volumes:
       - ferry-data:/data
-    # /api/health 三态口径：ok/degraded 都返回 200（degraded 是应用层细节，
-    # 由检查项上报，不算容器存活失败）；非 200/超时才算不健康。
+    # Three-state criterion for /api/health: both ok and degraded return 200 (degraded is an application-layer
+    # detail reported by the checks, not a container-liveness failure); only a non-200 or timeout counts as unhealthy.
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/api/health"]
       interval: 30s
@@ -94,10 +94,10 @@ services:
     ports:
       - "${FERRY_HTTP_PORT:-8080}:80"
 
-  # 用户面板（自助订阅/流量查询，Vue 3）：与 ferry-dash 同构——pnpm 构建静态
-  # 产物 + Caddy 托管并反代后端。此前 compose 只发 dash，用户端在容器部署里
-  # 没有入口；panel/ 目录虽在仓内构建（make build-panel），但 dist 从未被
-  # 任何 compose 服务 COPY 进去。
+  # User panel (self-service subscription / traffic lookup, Vue 3): structured the same way as ferry-dash —
+  # pnpm builds the static artifacts + Caddy hosts them and reverse-proxies the backend. Previously compose
+  # only shipped dash, leaving the user side with no entry point in a container deployment; the panel/
+  # directory was built in the repo (make build-panel), but no compose service ever COPY'd its dist in.
   ferry-panel:
     build:
       context: ..
@@ -108,22 +108,23 @@ services:
     ports:
       - "${FERRY_PANEL_PORT:-8081}:80"
 
-  # 切 postgres 存储：docker compose --env-file ferry.env --profile postgres up -d
-  # 注意 --profile 是 compose 全局参数，必须放在子命令前（放 up 后会报 unknown flag）。
-  # down 也要带：不带 --profile 时 postgres 不在服务列表内，容器与 ferry-pg 卷
-  # 会整个留下（--remove-orphans 只清别的项目的容器，不管本项目的漏登服务）。
-  # 且 postgres 存储下 keyinit 无从推断密钥文件位置，须在 env 设
-  # FERRY_KEYFILE=/data/ferry-keys.env（或显式三钥），否则密钥每轮重启换掉、
-  # 已加密的备份重启后解不开。
+  # Switch to postgres storage: docker compose --env-file ferry.env --profile postgres up -d
+  # Note that --profile is a compose global flag and must precede the subcommand (after up it raises unknown flag).
+  # down needs it too: without --profile postgres is not in the service list, so the container and the ferry-pg
+  # volume are left behind entirely (--remove-orphans only clears other projects' containers, not this project's
+  # unlisted service).
+  # Also, with postgres storage keyinit cannot infer where the key file lives, so env must set
+  # FERRY_KEYFILE=/data/ferry-keys.env (or the three explicit keys), otherwise the key is replaced on every
+  # restart and encrypted backups can no longer be decrypted after a restart.
   ferry-postgres:
     image: postgres:15-alpine
     profiles: [postgres]
     restart: unless-stopped
     environment:
-      # 启用本 profile 前必须在 env 设置 FERRY_PG_PASSWORD（留空时容器会拒绝启动）
+      # FERRY_PG_PASSWORD must be set in env before enabling this profile (the container refuses to start if it is empty)
       POSTGRES_PASSWORD: ${FERRY_PG_PASSWORD:-}
-      # 与记载的 DSN 口径对齐：ferry.env.example 的 DSN 用 user=ferry，
-      # 不设本项时 postgres 只会建默认用户 postgres，DSN 连不上。
+      # Aligned with the documented DSN: ferry.env.example's DSN uses user=ferry, and without this item postgres
+      # would only create the default user postgres, which the DSN cannot connect to.
       POSTGRES_USER: ${FERRY_PG_USER:-ferry}
       POSTGRES_DB: ferry
     volumes:
