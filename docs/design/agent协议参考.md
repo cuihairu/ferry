@@ -44,15 +44,30 @@
 | `agent.upgrade_ack` | agent→panel | `UpgradeAck` | 立即接受/拒绝；真正结果见 `agent.upgrade_status` 与重连后 hello.Version | — |
 | `agent.upgrade_status` | agent→panel | `UpgradeStatus` | 升级进度单向报告（F-0712）：`downloading→applying→applied`，失败 `failed` 带原因；信封 ID = 命令 ID + 态 | 无 ack；FERRY-004 判重落 `node_upgrades`，未知状态丢弃 |
 
-## 3. 幂等与断线（摘要）
+## 3. 幂等与断线处理规则（F-0727 统一口径）
 
-agent→panel 报告类（`traffic`/`probe_report`/`alarm`/`calibrate`/`proc_report`/
-`upgrade_status`）按 `(node_id, 消息类型, envelope ID)` 保证 at-most-once 副作用；
-判重窗口每节点有界 FIFO（512 个 ID / TTL 10 分钟，跨重连存活）。完整语义、判据表
-（C1~C7）与"复用原 envelope ID 重传"纪律见《agent架构设计.md》§8（FERRY-004）。
+**幂等（摘要）**：agent→panel 报告类（`traffic`/`probe_report`/`alarm`/`calibrate`/
+`proc_report`/`upgrade_status`）按 `(node_id, 消息类型, envelope ID)` 保证
+at-most-once 副作用；判重窗口每节点有界 FIFO（512 个 ID / TTL 10 分钟，跨重连存活）。
+完整语义、判据表（C1~C7）与"复用原 envelope ID 重传"纪律见《agent架构设计.md》§8
+（FERRY-004）。
 
-断线期间：进程内报告静默丢弃（at-most-once 发送）、角色上报进 spool 重放、面板命令
-返回 `ErrOffline`；重连后以 hello 重新对账元数据（`syncNodeMeta`，面板侧权威值回灌）。
+**断线期间按消息类别的处理规则**（发送方=agent 侧，接收方=面板侧）：
+
+| 消息类别 | 断线时发送方行为 | 保留/重试 | 断线时面板侧行为 |
+| --- | --- | --- | --- |
+| 核心进程内报告（`heartbeat`/`traffic`/`alarm`/`proc_report`/`calibrate`/`upgrade_status`） | `sendIfConnected` 失败即**静默丢弃**（at-most-once 发送，无队列） | 不保留；下一周期以新帧重报（heartbeat/calibrate 是快照，traffic 是累计增量口径的下一段，不丢账） | 节点标记 offline（`setNodeStatus`）；无入站帧 |
+| 角色进程报告（probe 等，`-role` 独立进程） | 写 `<spool_dir>/<role>.out`（原子 O_APPEND 逐行 JSON 信封） | **保留**：核心 `spool.Watch` 每 2s 扫描转发；send 失败即停、消费偏移不前移，**恢复后整段重放**（角色崩溃只丢自己的文件） | 收到重放帧按正常报告处理，FERRY-004 判重兜底 |
+| 面板→agent 命令（`proc_ctl`/`proc_logs`/`config_push`/`upgrade`） | — | — | `Hub.Request` 直接返回 `ErrOffline`（HTTP 502），不排队、不上门重试；由操作方重发 |
+| 连接断开本身 | `link.Run` 重连循环持续重试直至取消 | — | `Unregister` 清理连接；判重窗口跨重连保留 |
+
+**重连对账**：重连后以 `agent.hello` 重新登记——认证 → `syncNodeMeta` 元数据对账
+（`meta_init` 未设时采纳 agent 首报值，否则面板权威值经 `hello_ack` 回灌）→ 面板覆盖
+的心跳周期经 `hello_ack.NextIntervalSec`（及 `heartbeat_ack`）校准；静态能力集首注册
+已记录，存量面板值优先（F-0228），动态能力态随首个 heartbeat 重新合并（F-0229）。
+
+**面板命令超时**（节点在线但不应答）：`Hub.Request` 超时返回 `ErrTimeout`（升级 ack
+窗口 15s，`upgradeAckTimeout`）；挂起的应答配对随连接注册表清理，不会跨连接误配。
 
 ## 4. 兼容规则
 
