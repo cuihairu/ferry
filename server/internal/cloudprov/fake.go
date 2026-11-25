@@ -67,6 +67,24 @@ func (f *Fake) Seed(r Resource) Resource {
 	return r
 }
 
+// SetFailHook installs (or clears, with nil) a per-operation failure hook
+// (F-0372): operation tests use it to simulate vendor timeouts and typed
+// failures without a real provider.
+func (f *Fake) SetFailHook(op string, hook func() *Error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if op == "" {
+		f.failHook = nil
+		return
+	}
+	f.failHook = func(gotOp, _ string) *Error {
+		if gotOp == op {
+			return hook()
+		}
+		return nil
+	}
+}
+
 // Unseed drops a resource, simulating a provider-side deletion for the sync
 // reconciliation tests (F-0350/F-0351); it reports whether the id existed.
 func (f *Fake) Unseed(resourceID string) bool {

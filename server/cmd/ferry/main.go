@@ -33,6 +33,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/keyinit"
 	"github.com/cuihairu/ferry/server/internal/monitor"
 	"github.com/cuihairu/ferry/server/internal/notifyscan"
+	"github.com/cuihairu/ferry/server/internal/oper"
 	"github.com/cuihairu/ferry/server/internal/pool"
 	"github.com/cuihairu/ferry/server/internal/provision"
 	"github.com/cuihairu/ferry/server/internal/quota"
@@ -240,6 +241,28 @@ func run(ctx context.Context, cfg config.Config) error {
 	// soft-synced into CloudResource rows and every run is logged.
 	go cloudsync.Loop(ctx, db, secret.NewStore(cfg.SecretKey),
 		time.Duration(cfg.CloudSyncIntervalSec)*time.Second, "scheduled")
+
+	// Cloud operation reconciliation (F-0373): tasks left Unknown by a vendor
+	// timeout are settled by querying the vendor state; no blind re-execution.
+	opService := oper.New(db, secret.NewStore(cfg.SecretKey))
+	go func() {
+		interval := time.Duration(cfg.CloudOpsIntervalSec) * time.Second
+		if interval <= 0 {
+			interval = time.Minute
+		}
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if err := opService.Reconcile(ctx, time.Now()); err != nil {
+					log.Printf("cloudops reconcile: %v", err)
+				}
+			}
+		}
+	}()
 
 	// Event outbox (HERALD-1/2): events persist and return immediately, the delivery loop retries asynchronously;
 	// setting FERRY_HERALD_URL hooks up the Herald delivery leg, when unset events only land in the DB, visible on the dash.

@@ -14,6 +14,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/backup"
 	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/idp"
+	"github.com/cuihairu/ferry/server/internal/oper"
 	"github.com/cuihairu/ferry/server/internal/ratelimit"
 	"github.com/cuihairu/ferry/server/internal/relaypush"
 	"github.com/cuihairu/ferry/server/internal/secret"
@@ -34,6 +35,8 @@ type Handler struct {
 	// secrets is the unified secret-encryption entry point (R24): secrets such
 	// as cloud credentials are stored AES-256-GCM encrypted.
 	secrets *secret.Store
+	// operations is the cloud operation task system (F-0361~F-0384).
+	operations *oper.Service
 	// redeemLimiter is the IP rate limit for the redeem endpoint (PAY-5:
 	// 10/min, 5 failures lock for 15 minutes).
 	redeemLimiter *ratelimit.Limiter
@@ -125,6 +128,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 	})
 	h.pusher = relaypush.New(db, h.hub, nil)
 	h.secrets = secret.NewStore(cfg.SecretKey)
+	h.operations = oper.New(db, h.secrets)
 	r := gin.Default()
 	// ClientIP only trusts forwarding headers from explicitly allow-listed
 	// reverse proxies (audit fix 2026-11-12): by default no proxy is trusted
@@ -196,6 +200,11 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.POST("/cloud-resources/:id/bind", h.bindCloudResource)
 		api.POST("/cloud-resources/:id/unbind", h.unbindCloudResource)
 		api.GET("/cloud-sync-logs", h.listCloudSyncLogs)
+		// Cloud operations (F-0361~F-0384): unified task system with a state machine.
+		api.POST("/cloud-operations", h.createCloudOperation)
+		api.GET("/cloud-operations", h.listCloudOperations)
+		api.GET("/cloud-operations/:id", h.getCloudOperation)
+		api.POST("/cloud-operations/:id/cancel", h.cancelCloudOperation)
 		api.POST("/provision-templates/:id/apply", h.applyTemplate)
 		api.POST("/provision-templates/:id/plan", h.planTemplate)
 		api.GET("/provision-jobs", h.listProvisionJobs)

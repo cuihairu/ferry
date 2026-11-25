@@ -137,6 +137,9 @@ type Config struct {
 	// CloudSyncIntervalSec is the cloud resource sync period (seconds, F-0347); one hour by default,
 	// each enabled provider account is pulled by its registered adapter (if any).
 	CloudSyncIntervalSec int
+	// CloudOpsIntervalSec is the cloud operation reconciliation period (seconds, F-0373);
+	// Unknown tasks are settled by querying the vendor instead of re-running.
+	CloudOpsIntervalSec int
 	// EventFlushIntervalSec is the event outbox delivery period (seconds, HERALD-1); without a configured
 	// Herald channel, events are only stored awaiting delivery.
 	EventFlushIntervalSec int
@@ -234,6 +237,7 @@ func Load() Config {
 		QuotaLinkIntervalSec:  envIntOr("FERRY_QUOTA_LINK_SEC", 600),
 		SaveStatsIntervalSec:  envIntOr("FERRY_SAVE_STATS_SEC", 600),
 		CloudSyncIntervalSec:  envIntOr("FERRY_CLOUD_SYNC_SEC", 3600),
+		CloudOpsIntervalSec:   envIntOr("FERRY_CLOUD_OPS_SEC", 60),
 
 		// Local periodic backups (panel availability §2): dir is the archive directory, cron defaults to daily,
 		// keep is the rolling retention count; S3_* is the outbound slot (off by default, an explicit toggle wires in the S3 endpoint).

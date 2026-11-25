@@ -641,6 +641,54 @@ type CloudSyncLog struct {
 	FinishedAt time.Time `json:"finished_at"`
 }
 
+// CloudOperation is one provider operation task (F-0361~F-0384). It records
+// the caller, target, parameters, state machine transitions, idempotency key
+// and the provider-side result; operations never block on the vendor call --
+// the executor runs asynchronously and reconciles Unknown outcomes by
+// querying the vendor instead of blindly retrying (F-0372/F-0373).
+type CloudOperation struct {
+	ID uint `gorm:"primaryKey" json:"id"`
+	// ResourceID is the CloudResource row id (the vendor resource id stays in
+	// the resource row); BatchID groups one batch request (F-0377~F-0383).
+	ResourceID uint   `gorm:"index;not null" json:"resource_id"`
+	BatchID    string `gorm:"size:64;index" json:"batch_id,omitempty"`
+	ProviderID uint   `gorm:"index;not null" json:"provider_id"`
+	// Op is one Op* constant from cloudprov (power_on/power_off/reboot/
+	// force_stop/rebuild), Params is the JSON request parameter snapshot.
+	Op     string `gorm:"size:32;not null" json:"op"`
+	Params string `gorm:"type:text" json:"params,omitempty"`
+	// State is the task state machine value (F-0362): pending/running/
+	// succeeded/failed/cancelled/unknown.
+	State          string `gorm:"size:16;index;not null" json:"state"`
+	IdempotencyKey string `gorm:"size:128;uniqueIndex" json:"idempotency_key"`
+	// Actor/ActorKind record who requested the operation (F-0384); the
+	// per-step log lives in CloudOperationLog.
+	Actor     string `gorm:"size:128" json:"actor"`
+	ActorKind string `gorm:"size:16" json:"actor_kind"`
+	// Error holds the failure reason (F-0376); ProviderCode keeps the vendor
+	// code verbatim, Result carries the final vendor state.
+	Error        string `gorm:"size:512" json:"error,omitempty"`
+	ProviderCode string `gorm:"size:128" json:"provider_code,omitempty"`
+	Result       string `gorm:"size:16" json:"result,omitempty"`
+	// Confirmed marks the second confirmation for high-risk operations
+	// (F-0370), AllowCancel reflects the adapter-declared cancellability at
+	// creation time (F-0374).
+	Confirmed   bool       `json:"confirmed"`
+	AllowCancel bool       `json:"allow_cancel"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	FinishedAt  *time.Time `json:"finished_at,omitempty"`
+}
+
+// CloudOperationLog is one state transition or vendor fact (F-0375/F-0384).
+type CloudOperationLog struct {
+	ID          uint      `gorm:"primaryKey" json:"id"`
+	OperationID uint      `gorm:"index;not null" json:"operation_id"`
+	State       string    `gorm:"size:16" json:"state"`
+	Message     string    `gorm:"size:512" json:"message"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
 // ProvisionTemplate is a machine template (OS-1): dash enters it, OS-2 renders HCL supply,
 // and when OS-4 fills in node metadata by the template it aligns with the node (direction / line / region / cost policy).
 type ProvisionTemplate struct {

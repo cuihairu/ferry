@@ -96,6 +96,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&Provider{},
 		&CloudResource{},
 		&CloudSyncLog{},
+		&CloudOperation{},
+		&CloudOperationLog{},
 		&ProvisionTemplate{},
 		&ProvisionJob{},
 		&Recovery{},
