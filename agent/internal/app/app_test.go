@@ -34,26 +34,26 @@ func TestLoadWatch(t *testing.T) {
 	base := time.Now()
 	var w loadWatch
 
-	// 阈值以下不报
+	// no report below the threshold
 	if w.observe(10, base.Add(1*time.Minute)) {
 		t.Fatal("low cpu should not fire")
 	}
-	// 第一次超阈值只是累计，第二次才报（此时 last 为零值，立即生效）
+	// the first reading over the threshold only accumulates; the second one reports (last is the zero value then, so it takes effect immediately)
 	if w.observe(95, base.Add(2*time.Minute)) {
 		t.Fatal("single spike should not fire")
 	}
 	if !w.observe(95, base.Add(3*time.Minute)) {
 		t.Fatal("sustained load should fire")
 	}
-	// 冷却期内持续高负载不重报（streak 持续累计）
+	// sustained high load during the cooldown does not re-report (streak keeps accumulating)
 	if w.observe(95, base.Add(4*time.Minute)) || w.observe(95, base.Add(10*time.Minute)) {
 		t.Fatal("cooldown should suppress")
 	}
-	// 冷却期（30m）过后再报：上一次为 +3m，+34m 已过
+	// reports again after the cooldown (30m): last was +3m, +34m is past it
 	if !w.observe(95, base.Add(34*time.Minute)) {
 		t.Fatal("after cooldown should fire again")
 	}
-	// 回落清零：再升需重新累计两次，且新冷却期未过不报
+	// dropping back resets it: rising again needs two consecutive readings, and the new cooldown has not passed so no report
 	if w.observe(10, base.Add(35*time.Minute)) {
 		t.Fatal("recovered cpu should reset streak")
 	}
@@ -63,14 +63,14 @@ func TestLoadWatch(t *testing.T) {
 	if w.observe(99, base.Add(37*time.Minute)) {
 		t.Fatal("fresh streak still in cooldown")
 	}
-	// 上一次报于 +34m，+65m 越过冷却期后可再报
+	// last reported at +34m, +65m crosses the cooldown and can report again
 	if !w.observe(99, base.Add(65*time.Minute)) {
 		t.Fatal("third fire after cooldown")
 	}
 }
 
-// newDispatchApp 造最小可分发 App：不接真实进程/探测/流量组件。
-// version 对齐生产构造器 New(cfg, version) 的入参，握手断言要用。
+// newDispatchApp builds a minimal dispatchable App: no real process/probe/traffic components are attached.
+// version matches the argument of the production constructor New(cfg, version); the handshake assertion needs it.
 func newDispatchApp() *App {
 	return &App{
 		log:        log.New(io.Discard, "", 0),
@@ -80,7 +80,7 @@ func newDispatchApp() *App {
 	}
 }
 
-// recorder 捕获 sendIfConnected 发出的应答。
+// recorder captures the replies sent by sendIfConnected.
 type recorder struct {
 	mu   sync.Mutex
 	msgs []agentproto.Envelope
@@ -135,9 +135,9 @@ func TestOnMessageHelloAckDelivery(t *testing.T) {
 }
 
 func TestOnMessageHelloAckNoWaiter(t *testing.T) {
-	a := newDispatchApp() // hello 通道为 nil（未连接握手期）
+	a := newDispatchApp() // hello channel is nil (before connect/handshake)
 	env, _ := agentproto.NewEnvelope("h1", agentproto.MsgHelloAck, agentproto.HelloAck{})
-	a.OnMessage(context.Background(), env, a.sendIfConnected) // 不应 panic
+	a.OnMessage(context.Background(), env, a.sendIfConnected) // must not panic
 }
 
 func TestOnMessageHeartbeatAckInterval(t *testing.T) {
@@ -150,7 +150,7 @@ func TestOnMessageHeartbeatAckInterval(t *testing.T) {
 	if got := a.currentInterval(); got != 45*time.Second {
 		t.Fatalf("interval = %v; want 45s", got)
 	}
-	// 零值 interval 不改当前周期
+	// a zero interval leaves the current period unchanged
 	env2, _ := agentproto.NewEnvelope("hb", agentproto.MsgHeartbeatAck, agentproto.HeartbeatAck{})
 	a.OnMessage(context.Background(), env2, a.sendIfConnected)
 	if got := a.currentInterval(); got != 45*time.Second {
@@ -163,10 +163,10 @@ func TestOnMessageUpgradeRejected(t *testing.T) {
 	rec := &recorder{}
 	a.setSend(rec.send)
 
-	// 载荷解码失败
+	// payload fails to decode
 	bad, _ := agentproto.NewEnvelope("u1", agentproto.MsgUpgrade, "junk")
 	a.OnMessage(context.Background(), bad, a.sendIfConnected)
-	// 缺 version/url
+	// missing version/url
 	missing, _ := agentproto.NewEnvelope("u2", agentproto.MsgUpgrade, agentproto.Upgrade{Version: "v2"})
 	a.OnMessage(context.Background(), missing, a.sendIfConnected)
 
@@ -190,7 +190,7 @@ func TestOnMessageUpgradeAccepted(t *testing.T) {
 	rec := &recorder{}
 	a.setSend(rec.send)
 
-	// 受理即回 ack；后台 doUpgrade 走不可达 URL 失败只记日志（不换二进制）
+	// acceptance is acked immediately; the background doUpgrade fails on an unreachable URL and only logs (binary unchanged)
 	env, _ := agentproto.NewEnvelope("u3", agentproto.MsgUpgrade,
 		agentproto.Upgrade{Version: "v2", URL: "http://127.0.0.1:1/agent"})
 	a.OnMessage(context.Background(), env, a.sendIfConnected)
@@ -246,7 +246,7 @@ func TestOnMessageProcLogsUnknown(t *testing.T) {
 }
 
 func TestOnMessageConfigPushUnknownProc(t *testing.T) {
-	a := newDispatchApp() // 空 cfg.Procs → 任何 proc 都 unknown
+	a := newDispatchApp() // empty cfg.Procs means every proc is unknown
 	replies := make(chan agentproto.Envelope, 4)
 	a.setSend(func(env agentproto.Envelope) error {
 		replies <- env
@@ -255,7 +255,7 @@ func TestOnMessageConfigPushUnknownProc(t *testing.T) {
 
 	env, _ := agentproto.NewEnvelope("p1", agentproto.MsgConfigPush,
 		agentproto.ConfigPush{Proc: "ghost", Kind: "xray", Version: "v1", Payload: "{}"})
-	a.OnMessage(context.Background(), env, a.sendIfConnected) // 异步执行
+	a.OnMessage(context.Background(), env, a.sendIfConnected) // runs asynchronously
 
 	select {
 	case got := <-replies:
@@ -286,7 +286,7 @@ func TestOnMessageUnknownType(t *testing.T) {
 func TestOnDisconnectedClearsSend(t *testing.T) {
 	a := newDispatchApp()
 	a.setSend((&recorder{}).send)
-	// traf 生产构造器恒初始化（app.go:89），这里补真实实例供清空
+	// the production constructor always initializes traf (app.go:89); supply a real instance here so it can be cleared
 	a.traf = traffic.New(nil, time.Second, nil, a.log)
 	a.OnDisconnected()
 	if err := a.sendIfConnected(agentproto.Envelope{}); err == nil {
@@ -295,10 +295,10 @@ func TestOnDisconnectedClearsSend(t *testing.T) {
 }
 
 func TestMaybeCalibrateSkipsWithoutPlan(t *testing.T) {
-	a := newDispatchApp() // Meta.BwDownMbps=0 → 不测速
+	a := newDispatchApp() // Meta.BwDownMbps=0 means no speed test
 	rec := &recorder{}
 	a.maybeCalibrate(rec.send)
-	a.maybeCalibrate(rec.send) // 二次调用走 calibrated 短路
+	a.maybeCalibrate(rec.send) // a second call short-circuits on calibrated
 	if rec.count() != 0 {
 		t.Fatalf("calibrate without plan should not send; got %d", rec.count())
 	}
@@ -310,11 +310,11 @@ func TestWatchAlarmsCertExpiryThrottle(t *testing.T) {
 	a.setSend(rec.send)
 
 	now := time.Now()
-	notAfter := now.Add(10 * 24 * time.Hour) // 30 天窗口内
+	notAfter := now.Add(10 * 24 * time.Hour) // inside the 30-day window
 	hb := agentproto.Heartbeat{Certs: []agentproto.CertStatus{{Domain: "a.com", NotAfter: notAfter}}, At: now}
 
 	a.watchAlarms(hb)
-	a.watchAlarms(hb) // 同证书同有效期只报一次
+	a.watchAlarms(hb) // the same certificate with the same validity is reported once
 	if got := rec.count(); got != 1 {
 		t.Fatalf("alarms = %d; want 1 (throttled)", got)
 	}
@@ -324,14 +324,14 @@ func TestWatchAlarmsCertExpiryThrottle(t *testing.T) {
 		t.Fatalf("kind = %q; want cert expiry", al.Kind)
 	}
 
-	// 续期后（NotAfter 变化）重新具备告警资格
+	// after renewal (a NotAfter change) it is eligible to alarm again
 	hb.Certs[0].NotAfter = notAfter.Add(24 * time.Hour)
 	a.watchAlarms(hb)
 	if got := rec.count(); got != 2 {
 		t.Fatalf("alarms after renew = %d; want 2", got)
 	}
 
-	// 远期证书不告警
+	// a far-future certificate does not alarm
 	far := agentproto.Heartbeat{Certs: []agentproto.CertStatus{{Domain: "b.com", NotAfter: now.Add(365 * 24 * time.Hour)}}}
 	a.watchAlarms(far)
 	if got := rec.count(); got != 2 {
@@ -347,11 +347,11 @@ func TestWatchAlarmsHighLoadStreakAndCooldown(t *testing.T) {
 	high := agentproto.Heartbeat{CPUUtil: 95}
 	low := agentproto.Heartbeat{CPUUtil: 10}
 
-	a.watchAlarms(high) // streak 1，不报
+	a.watchAlarms(high) // streak 1, no report
 	if got := rec.count(); got != 0 {
 		t.Fatalf("single spike should not alarm; got %d", got)
 	}
-	a.watchAlarms(high) // streak 2，报一次
+	a.watchAlarms(high) // streak 2, reports once
 	if got := rec.count(); got != 1 {
 		t.Fatalf("sustained load should alarm; got %d", got)
 	}
@@ -361,19 +361,19 @@ func TestWatchAlarmsHighLoadStreakAndCooldown(t *testing.T) {
 		t.Fatalf("kind = %q; want high load", al.Kind)
 	}
 
-	a.watchAlarms(low) // 回落清 streak
+	a.watchAlarms(low) // dropping back clears the streak
 	a.watchAlarms(high)
 	if got := rec.count(); got != 1 {
 		t.Fatalf("fresh streak needs two samples; got %d", got)
 	}
-	a.watchAlarms(high) // streak 2 但冷却期内（30m），抑制
+	a.watchAlarms(high) // streak 2 but inside the cooldown (30m), suppressed
 	if got := rec.count(); got != 1 {
 		t.Fatalf("cooldown should suppress; got %d", got)
 	}
 }
 
-// TestNewWiresComponents 覆盖装配：空配置也能建全组件（mgr/cfgd/probe/trafs）
-// 与心跳快照口、告警节流 map。
+// TestNewWiresComponents covers wiring: even an empty config builds all components (mgr/cfgd/probe/trafs)
+// plus the heartbeat snapshot entry point and the alarm throttling map.
 func TestNewWiresComponents(t *testing.T) {
 	a := New(config.Config{}, "v1.2.3")
 	if a.mgr == nil || a.cfgd == nil || a.probe == nil || a.traf == nil {
@@ -390,8 +390,8 @@ func TestNewWiresComponents(t *testing.T) {
 	}
 }
 
-// TestReportStatusAndAlarm 覆盖进程状态/告警上报：连着发送口时封装
-// proc.report 与 alarm 信封送出。
+// TestReportStatusAndAlarm covers process state/alarm reporting: with the sender attached, the proc.report
+// and alarm envelopes go out.
 func TestReportStatusAndAlarm(t *testing.T) {
 	a := newDispatchApp()
 	rec := &recorder{}
@@ -402,8 +402,8 @@ func TestReportStatusAndAlarm(t *testing.T) {
 	if env.Type != agentproto.MsgProcReport {
 		t.Fatalf("type = %q; want proc.report", env.Type)
 	}
-	// FERRY-004：proc_report 须带非空 ID（服务端幂等窗口的判据键），
-	// 且每次上报生成新 ID（换 ID = 新帧）。语义见 docs/design/agent架构设计.md §8。
+	// FERRY-004: proc_report must carry a non-empty ID (the key for the server-side idempotency window),
+	// and a new ID is generated per report (a new ID = a new frame). Semantics in `docs/design/agent架构设计.md` §8.
 	if env.ID == "" {
 		t.Fatal("proc_report must carry a non-empty envelope id (dedup key)")
 	}
@@ -432,8 +432,8 @@ func TestReportStatusAndAlarm(t *testing.T) {
 	}
 }
 
-// TestOnConnectedHelloAck 覆盖握手成功路径：发 hello（带令牌/标识）→
-// 收 ack 校准心跳周期、面板权威元数据覆盖本地 → 起心跳、回调 OnHelloOK。
+// TestOnConnectedHelloAck covers the successful handshake path: send hello (with token/identity) ->
+// receive the ack calibrating the heartbeat period, panel-authoritative metadata overriding local values -> start the heartbeat and invoke OnHelloOK.
 func TestOnConnectedHelloAck(t *testing.T) {
 	a := newDispatchApp()
 	a.traf = traffic.New(nil, time.Second, nil, a.log)
@@ -504,7 +504,7 @@ func TestOnConnectedHelloAck(t *testing.T) {
 	a.stopHeartbeat()
 }
 
-// TestOnConnectedCancelWhileWaiting 覆盖握手等待期取消：ctx 取消即返回错误。
+// TestOnConnectedCancelWhileWaiting covers cancellation while waiting for the handshake: a cancelled ctx returns an error.
 func TestOnConnectedCancelWhileWaiting(t *testing.T) {
 	a := newDispatchApp()
 	a.traf = traffic.New(nil, time.Second, nil, a.log)
@@ -538,8 +538,8 @@ func TestOnConnectedCancelWhileWaiting(t *testing.T) {
 	}
 }
 
-// TestCollectCerts 覆盖配置证书挖掘：cert 键命中 inline PEM 出状态，
-// 空 ConfigPath 跳过。
+// TestCollectCerts covers certificate mining from configs: a cert key hitting an inline PEM yields state,
+// an empty ConfigPath is skipped.
 func TestCollectCerts(t *testing.T) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -575,8 +575,8 @@ func TestCollectCerts(t *testing.T) {
 	}
 }
 
-// TestBuildHeartbeatAndStartHeartbeat 覆盖心跳组装与周期发送：
-// 快照带进程状态与时间戳；周期发包按 seq 递增；stop 后停发。
+// TestBuildHeartbeatAndStartHeartbeat covers heartbeat assembly and periodic sending:
+// the snapshot carries process states and a timestamp; periodic sends advance seq; sending stops after stop.
 func TestBuildHeartbeatAndStartHeartbeat(t *testing.T) {
 	a := newDispatchApp()
 	a.version = "v1.2.3-batch"
@@ -623,7 +623,7 @@ func TestBuildHeartbeatAndStartHeartbeat(t *testing.T) {
 	}
 }
 
-// TestProcSpecLookup 进程规格查找：命中与未命中两条口径。
+// TestProcSpecLookup covers process spec lookup: both the hit and miss paths.
 func TestProcSpecLookup(t *testing.T) {
 	a := newDispatchApp()
 	a.cfg.Procs = []config.ProcSpec{{Name: "xray"}, {Name: "relay"}}
@@ -638,8 +638,8 @@ func TestProcSpecLookup(t *testing.T) {
 	}
 }
 
-// TestOnMessageConfigPushBadPayload 载荷解码失败：无从定位 proc/version，
-// ack 无从构造，静默放弃不外发。
+// TestOnMessageConfigPushBadPayload covers a payload that fails to decode: proc/version cannot be located,
+// no ack can be built, and it is silently dropped without an outbound reply.
 func TestOnMessageConfigPushBadPayload(t *testing.T) {
 	a := newDispatchApp()
 	rec := &recorder{}
@@ -655,8 +655,8 @@ func TestOnMessageConfigPushBadPayload(t *testing.T) {
 	}
 }
 
-// TestOnMessageConfigPushSendFails 应答发出失败：走失败分支只记日志，
-// ack 仍构造并发一次。
+// TestOnMessageConfigPushSendFails covers a reply that fails to send: the failure branch only logs,
+// the ack is still built and sent once.
 func TestOnMessageConfigPushSendFails(t *testing.T) {
 	a := newDispatchApp()
 	delivered := make(chan agentproto.Envelope, 1)
@@ -684,8 +684,8 @@ func TestOnMessageConfigPushSendFails(t *testing.T) {
 	}
 }
 
-// TestMaybeCalibrateReports 有套餐容量且面板可达：测速结果回报一次，
-// 二次调用走 calibrated 短路。
+// TestMaybeCalibrateReports covers having plan capacity with the panel reachable: the speed-test result is reported once,
+// and a second call short-circuits on calibrated.
 func TestMaybeCalibrateReports(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/speedtest/bytes" {
@@ -716,7 +716,7 @@ func TestMaybeCalibrateReports(t *testing.T) {
 	}
 }
 
-// TestMaybeCalibrateFailures 面板地址非法与面板不可达：只记日志不上报。
+// TestMaybeCalibrateFailures covers an invalid panel address and an unreachable panel: log only, no report.
 func TestMaybeCalibrateFailures(t *testing.T) {
 	for name, url := range map[string]string{
 		"bad scheme":  "",

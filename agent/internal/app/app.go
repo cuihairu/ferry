@@ -1,4 +1,4 @@
-// Package app 组装 agent 业务：握手 hello、周期心跳与消息分发。
+// Package app wires up the agent business logic: the hello handshake, periodic heartbeats and message dispatch.
 package app
 
 import (
@@ -28,12 +28,12 @@ const (
 	helloTimeout = 10 * time.Second
 	sendTimeout  = 10 * time.Second
 
-	highLoadCPU      = 90.0             // CPU 使用率告警阈值
-	highLoadStreak   = 2                // 连续超阈值的心跳次数
-	highLoadCooldown = 30 * time.Minute // 同类告警最短间隔
+	highLoadCPU      = 90.0             // CPU usage alarm threshold
+	highLoadStreak   = 2                // consecutive heartbeats above the threshold
+	highLoadCooldown = 30 * time.Minute // minimum interval between alarms of the same kind
 )
 
-// App 实现 link.Handlers，持有运行态。
+// App implements link.Handlers and holds runtime state.
 type App struct {
 	cfg     config.Config
 	version string
@@ -48,29 +48,29 @@ type App struct {
 	probe *probe.Runner
 	traf  *traffic.Reporter
 
-	// 告警节流状态（A-7）：证书按「域名+有效期」只报一次，高负载按冷却期。
+	// Alarm throttling state (A-7): a certificate keyed by "domain+validity" is reported once; high load is gated by a cooldown period.
 	alarmMu    sync.Mutex
 	certAlarms map[string]time.Time
 	lw         loadWatch
 
-	// OnHelloOK 在 hello 握手成功时调用（A-23 升级验证提交点）。
+	// OnHelloOK is called when the hello handshake succeeds (the A-23 upgrade verification commit point).
 	OnHelloOK func()
 
 	sendMu  sync.Mutex
-	curSend func(agentproto.Envelope) error // 当前连接的发送口；断开即清空
+	curSend func(agentproto.Envelope) error // sender of the current connection; cleared on disconnect
 
-	// calibrated 保证测速校准每进程只跑一次（重连不重测，E-8）。
+	// calibrated ensures speed-test calibration runs once per process (no retest on reconnect, E-8).
 	calMu      sync.Mutex
 	calibrated bool
 
 	hbSeq int
 	hello chan agentproto.Envelope
 
-	// Procs 返回进程状态快照（心跳载荷用）。
+	// Procs returns a snapshot of process states (used by the heartbeat payload).
 	Procs func() []agentproto.ProcStatus
 }
 
-// New 创建 app，并按配置装配进程管理器。
+// New creates the app and wires up the process manager per configuration.
 func New(cfg config.Config, version string) *App {
 	a := &App{
 		cfg:        cfg,
@@ -90,12 +90,12 @@ func New(cfg config.Config, version string) *App {
 	return a
 }
 
-// Run 阻塞运行到 ctx 取消：先起进程监管与边缘探测，再维持与面板的连接。
+// Run blocks until the ctx is cancelled: it starts process supervision and edge probing first, then maintains the connection to the panel.
 func (a *App) Run(ctx context.Context) error {
 	a.mgr.Start(ctx)
 	if a.cfg.SpoolDir != "" {
-		// 角色模式：探测由 -role probe 独立进程跑，经 spool 上报；
-		// 核心不再跑内置探测，避免结论重复。
+		// Role mode: probing runs in the standalone -role probe process and reports through the spool;
+		// the core no longer runs built-in probing, avoiding duplicate conclusions.
 		go func() {
 			_ = spool.Watch(ctx, a.cfg.SpoolDir, a.sendIfConnected)
 		}()
@@ -113,8 +113,8 @@ func (a *App) Run(ctx context.Context) error {
 	return client.Run(ctx, a)
 }
 
-// maybeCalibrate 注册后跑一次轻量测速并上报（E-8）：无套餐下行容量即跳过
-// （纯中转/未定价节点不测）；测速失败只记日志，不影响在线。
+// maybeCalibrate runs a light speed test once after registration and reports it (E-8): skip when
+// there is no plan download capacity (pure relay / unpriced nodes are not tested); a failed test is only logged and does not affect being online.
 func (a *App) maybeCalibrate(send func(agentproto.Envelope) error) {
 	a.calMu.Lock()
 	if a.calibrated {
@@ -157,7 +157,7 @@ func (a *App) maybeCalibrate(send func(agentproto.Envelope) error) {
 	}
 }
 
-// doUpgrade 后台执行自升级（A-23）：失败仅记日志，二进制保持原状。
+// doUpgrade performs self-upgrade in the background (A-23): failures are only logged and the binary is left as it is.
 func (a *App) doUpgrade(up agentproto.Upgrade) {
 	self, err := upgrade.Self()
 	if err != nil {
@@ -169,9 +169,9 @@ func (a *App) doUpgrade(up agentproto.Upgrade) {
 	}
 }
 
-// reportStatus 把进程状态变化推给面板（离线时静默丢弃）。
-// envelope ID 每次上报新生成：面板按 (节点, 类型, ID) 做报告幂等（FERRY-004），
-// 换 ID 即新帧；旧版发空 ID 时面板不去重，兼容。
+// reportStatus pushes process state changes to the panel (dropped silently when offline).
+// a fresh envelope ID is generated per report: the panel makes reports idempotent by (node, type, ID) (FERRY-004),
+// a new ID means a new frame; older versions sending an empty ID are not deduplicated by the panel, which stays compatible.
 func (a *App) reportStatus(status agentproto.ProcStatus) {
 	env, err := agentproto.NewEnvelope(fmt.Sprintf("proc-%d", time.Now().UnixNano()), agentproto.MsgProcReport, agentproto.ProcReport{
 		Procs: []agentproto.ProcStatus{status},
@@ -182,7 +182,7 @@ func (a *App) reportStatus(status agentproto.ProcStatus) {
 	_ = a.sendIfConnected(env)
 }
 
-// reportAlarm 上报异常告警。
+// reportAlarm reports an abnormal alarm.
 func (a *App) reportAlarm(al agentproto.Alarm) {
 	env, err := agentproto.NewEnvelope(fmt.Sprintf("alarm-%d", time.Now().UnixNano()), agentproto.MsgAlarm, al)
 	if err != nil {
@@ -207,7 +207,7 @@ func (a *App) setSend(send func(agentproto.Envelope) error) {
 	a.sendMu.Unlock()
 }
 
-// OnConnected 发送 hello 并等待应答，超时视为握手失败。
+// OnConnected sends hello and waits for the reply; a timeout counts as a handshake failure.
 func (a *App) OnConnected(ctx context.Context, send func(agentproto.Envelope) error) error {
 	a.stopHeartbeat()
 	a.setSend(send)
@@ -240,7 +240,7 @@ func (a *App) OnConnected(ctx context.Context, send func(agentproto.Envelope) er
 			if ha.HeartbeatIntervalSec > 0 {
 				a.setInterval(time.Duration(ha.HeartbeatIntervalSec) * time.Second)
 			}
-			// 面板为元数据权威来源：hello_ack 回传值覆盖本地初值。
+			// The panel is the authoritative source of metadata: values returned by hello_ack override the local defaults.
 			if ha.Meta.Role != "" || ha.Meta.ISP != "" {
 				ha.Meta.Normalize()
 				a.cfg.Meta = ha.Meta
@@ -259,7 +259,7 @@ func (a *App) OnConnected(ctx context.Context, send func(agentproto.Envelope) er
 	}
 }
 
-// OnMessage 分发面板消息。
+// OnMessage dispatches panel messages.
 func (a *App) OnMessage(_ context.Context, env agentproto.Envelope, send func(agentproto.Envelope) error) {
 	switch env.Type {
 	case agentproto.MsgHelloAck:
@@ -278,7 +278,7 @@ func (a *App) OnMessage(_ context.Context, env agentproto.Envelope, send func(ag
 			a.setInterval(time.Duration(ha.NextIntervalSec) * time.Second)
 		}
 	case agentproto.MsgUpgrade:
-		// 自升级（A-23）：先应答受理，再后台下载替换重启；拒绝原因随 ack 回传。
+		// Self-upgrade (A-23): reply with acceptance first, then download, replace and restart in the background; rejection reasons are sent back with the ack.
 		var up agentproto.Upgrade
 		ack := agentproto.UpgradeAck{}
 		if err := env.Decode(&up); err != nil {
@@ -311,7 +311,7 @@ func (a *App) OnMessage(_ context.Context, env agentproto.Envelope, send func(ag
 		reply, _ := agentproto.NewEnvelope(env.ID, agentproto.MsgProcCtlAck, ack)
 		_ = a.sendIfConnected(reply)
 	case agentproto.MsgProcLogs:
-		// 进程日志拉取（P1-11）：从进程环形缓冲回最近 limit 行。
+		// Process log fetching (P1-11): return the most recent limit lines from the process ring buffer.
 		var req agentproto.ProcLogsReq
 		ack := agentproto.ProcLogsAck{}
 		if err := env.Decode(&req); err != nil {
@@ -334,10 +334,10 @@ func (a *App) OnMessage(_ context.Context, env agentproto.Envelope, send func(ag
 		reply, _ := agentproto.NewEnvelope(env.ID, agentproto.MsgProcLogsAck, ack)
 		_ = a.sendIfConnected(reply)
 	case agentproto.MsgConfigPush:
-		// 下发执行耗时（校验命令 + reload），放后台跑避免阻塞读循环；串行化由 Deployer 保证。
+		// Applying a push takes time (validation command + reload), so it runs in the background to avoid blocking the read loop; serialization is guaranteed by the Deployer.
 		go a.handleConfigPush(env)
 	case agentproto.MsgAlarmAck, agentproto.MsgTrafficAck:
-		// 面板对 agent 上报的确认，无需处理。
+		// The panel's acknowledgement of an agent report; nothing to do.
 	case agentproto.MsgCalibrateAck:
 		var ca agentproto.CalibrateAck
 		if err := env.Decode(&ca); err == nil {
@@ -348,19 +348,19 @@ func (a *App) OnMessage(_ context.Context, env agentproto.Envelope, send func(ag
 	}
 }
 
-// OnDisconnected 停掉本轮心跳并清空发送口。
+// OnDisconnected stops this round of heartbeats and clears the sender.
 func (a *App) OnDisconnected() {
 	a.stopHeartbeat()
 	a.setSend(nil)
 	a.traf.SetSend(nil)
 }
 
-// handleConfigPush 执行配置下发并回 config.ack（A-16/A-17）。
+// handleConfigPush applies a config push and replies with config.ack (A-16/A-17).
 func (a *App) handleConfigPush(env agentproto.Envelope) {
 	var push agentproto.ConfigPush
 	if err := env.Decode(&push); err != nil {
 		a.log.Printf("config_push decode: %v", err)
-		return // 无法定位 proc/version，ack 无从构造，放弃
+		return // cannot locate proc/version, so no ack can be built; give up
 	}
 	ack := agentproto.ConfigAck{Proc: push.Proc, Version: push.Version}
 	spec, ok := a.procSpec(push.Proc)
@@ -380,7 +380,7 @@ func (a *App) handleConfigPush(env agentproto.Envelope) {
 	}
 }
 
-// procSpec 按名字查找进程规格。
+// procSpec looks up a process spec by name.
 func (a *App) procSpec(name string) (config.ProcSpec, bool) {
 	for _, p := range a.cfg.Procs {
 		if p.Name == name {
@@ -467,7 +467,7 @@ func (a *App) buildHeartbeat() agentproto.Heartbeat {
 	return hb
 }
 
-// collectCerts 汇总受管进程配置里的证书状态（A-3）。
+// collectCerts aggregates certificate state from managed process configs (A-3).
 func (a *App) collectCerts() []agentproto.CertStatus {
 	out := []agentproto.CertStatus{}
 	for _, p := range a.cfg.Procs {
@@ -479,13 +479,13 @@ func (a *App) collectCerts() []agentproto.CertStatus {
 	return out
 }
 
-// watchAlarms 基于心跳采样触发证书临期与持续高负载告警（A-7），内部自带节流。
+// watchAlarms raises certificate-expiry and sustained high-load alarms from heartbeat samples (A-7), with throttling built in.
 func (a *App) watchAlarms(hb agentproto.Heartbeat) {
 	now := time.Now()
 	a.alarmMu.Lock()
 	defer a.alarmMu.Unlock()
 	for _, c := range certwatch.Expiring(hb.Certs, now, certwatch.ExpiryWindow) {
-		// 同一张证书同一有效期只报一次，续期后（NotAfter 变化）重新具备告警资格。
+		// the same certificate with the same validity is reported once; after renewal (a NotAfter change) it becomes eligible to alarm again.
 		if last, ok := a.certAlarms[c.Domain]; ok && last.Equal(c.NotAfter) {
 			continue
 		}
@@ -508,7 +508,7 @@ func (a *App) watchAlarms(hb agentproto.Heartbeat) {
 	}
 }
 
-// loadWatch 连续高负载判定：连续 streak 次超阈值报警一次，冷却期内不重报。
+// loadWatch decides sustained high load: alarm once after streak consecutive readings above the threshold, and do not repeat inside the cooldown period.
 type loadWatch struct {
 	streak int
 	last   time.Time

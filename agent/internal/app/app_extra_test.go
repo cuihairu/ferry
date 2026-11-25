@@ -24,7 +24,7 @@ import (
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
 
-// badPayload 造载荷无法解码的信封（RawMessage 非法 JSON）。
+// badPayload builds an envelope whose payload cannot be decoded (RawMessage with invalid JSON).
 func badPayload(id, typ string) agentproto.Envelope {
 	return agentproto.Envelope{
 		V: agentproto.ProtocolVersion, ID: id, Type: typ,
@@ -32,7 +32,7 @@ func badPayload(id, typ string) agentproto.Envelope {
 	}
 }
 
-// TestOnConnectedSendFails hello 发出即失败：握手直接报错返回。
+// TestOnConnectedSendFails covers hello failing to send: the handshake returns an error right away.
 func TestOnConnectedSendFails(t *testing.T) {
 	a := newDispatchApp()
 	a.traf = traffic.New(nil, time.Second, nil, a.log)
@@ -44,8 +44,8 @@ func TestOnConnectedSendFails(t *testing.T) {
 	}
 }
 
-// TestOnConnectedHelloAckTimeout 握手应答超时（helloTimeout=10s）：返回超时
-// 错误且不启心跳。
+// TestOnConnectedHelloAckTimeout covers a handshake reply timeout (helloTimeout=10s): it returns a
+// timeout error and does not start the heartbeat.
 func TestOnConnectedHelloAckTimeout(t *testing.T) {
 	a := newDispatchApp()
 	a.traf = traffic.New(nil, time.Second, nil, a.log)
@@ -65,15 +65,15 @@ func TestOnConnectedHelloAckTimeout(t *testing.T) {
 	}
 }
 
-// TestOnMessageHelloAckDropsWhenFull 应答通道已满（容量 1 且占位）：第二帧
-// 非阻塞投递走 default 丢弃，不阻塞读循环。
+// TestOnMessageHelloAckDropsWhenFull covers a full reply channel (capacity 1, already occupied): the
+// second frame is dropped by the non-blocking send via default and never blocks the read loop.
 func TestOnMessageHelloAckDropsWhenFull(t *testing.T) {
 	a := newDispatchApp()
 	a.hello = make(chan agentproto.Envelope, 1)
 	first, _ := agentproto.NewEnvelope("h0", agentproto.MsgHelloAck, agentproto.HelloAck{})
-	a.hello <- first // 占满
+	a.hello <- first // fill it up
 	second, _ := agentproto.NewEnvelope("h1", agentproto.MsgHelloAck, agentproto.HelloAck{})
-	a.OnMessage(context.Background(), second, a.sendIfConnected) // 应立即返回不阻塞
+	a.OnMessage(context.Background(), second, a.sendIfConnected) // should return immediately without blocking
 	select {
 	case got := <-a.hello:
 		if got.ID != "h0" {
@@ -84,9 +84,9 @@ func TestOnMessageHelloAckDropsWhenFull(t *testing.T) {
 	}
 }
 
-// TestOnMessageProcCtlBadPayload proc.control 载荷解码失败：回拒收 ack。
+// TestOnMessageProcCtlBadPayload covers a proc.control payload that fails to decode: a rejected ack is returned.
 func TestOnMessageProcCtlBadPayload(t *testing.T) {
-	a := newDispatchApp() // mgr 为 nil 也安全：解码失败在 Control 之前
+	a := newDispatchApp() // safe even with a nil mgr: decoding fails before Control runs
 	rec := &recorder{}
 	a.setSend(rec.send)
 
@@ -101,7 +101,7 @@ func TestOnMessageProcCtlBadPayload(t *testing.T) {
 	}
 }
 
-// TestOnMessageProcLogsBadPayload proc.logs 载荷解码失败：回错误 ack。
+// TestOnMessageProcLogsBadPayload covers a proc.logs payload that fails to decode: an error ack is returned.
 func TestOnMessageProcLogsBadPayload(t *testing.T) {
 	a := newDispatchApp()
 	rec := &recorder{}
@@ -118,7 +118,7 @@ func TestOnMessageProcLogsBadPayload(t *testing.T) {
 	}
 }
 
-// TestOnMessageCalibrateAck 测速确认帧：仅记日志，无外发应答。
+// TestOnMessageCalibrateAck covers a speed-test confirmation frame: log only, no outbound reply.
 func TestOnMessageCalibrateAck(t *testing.T) {
 	a := newDispatchApp()
 	rec := &recorder{}
@@ -135,8 +135,8 @@ func TestOnMessageCalibrateAck(t *testing.T) {
 	}
 }
 
-// startManagedApp 起带真实子进程（sh -c sleep 60）的 App：mgr 已 Start，
-// 等进程 running；清理先 stop 再取消监管。
+// startManagedApp starts an App with a real child process (sh -c sleep 60): the mgr is already Started,
+// wait for the process to be running; cleanup stops it first and then cancels supervision.
 func startManagedApp(t *testing.T) *App {
 	t.Helper()
 	dir := t.TempDir()
@@ -166,7 +166,7 @@ func startManagedApp(t *testing.T) *App {
 	}
 }
 
-// waitReply 等待 rec 收到第 want 条消息（从 before 起算）后返回最后一帧。
+// waitReply waits until rec has received the want-th message (counted from before), then returns the last frame.
 func waitReply(t *testing.T, rec *recorder, before, want int) agentproto.Envelope {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -179,8 +179,8 @@ func waitReply(t *testing.T, rec *recorder, before, want int) agentproto.Envelop
 	return rec.last(t)
 }
 
-// TestOnMessageProcCtlAgainstManagedProc 对在管进程的 control 指令：
-// stop 与 start 都成功并回 OK ack（配对 unknown proc 的拒收分支）。
+// TestOnMessageProcCtlAgainstManagedProc covers control commands aimed at a managed process:
+// both stop and start succeed and return an OK ack (paired with the unknown-proc rejection branch).
 func TestOnMessageProcCtlAgainstManagedProc(t *testing.T) {
 	a := startManagedApp(t)
 	rec := &recorder{}
@@ -208,8 +208,8 @@ func TestOnMessageProcCtlAgainstManagedProc(t *testing.T) {
 	}
 }
 
-// TestOnMessageProcLogsEmptyRing 日志拉取的 limit 收口路径（0/负数补默认
-// 200、上限封顶 1000、区间原样）：空环形缓冲回空行集不报错。
+// TestOnMessageProcLogsEmptyRing covers the limit clamping paths of log fetching (0/negative filled with the
+// default 200, capped at 1000, range passed through): an empty ring buffer returns an empty line set without error.
 func TestOnMessageProcLogsEmptyRing(t *testing.T) {
 	a := startManagedApp(t)
 	rec := &recorder{}
@@ -234,8 +234,8 @@ func TestOnMessageProcLogsEmptyRing(t *testing.T) {
 	}
 }
 
-// TestOnMessageConfigPushApplies 配置下发全链路成功：sha256 校验、落盘、
-// reload（在管进程）后回 OK ack，磁盘内容与推送一致。
+// TestOnMessageConfigPushApplies covers a config push succeeding end to end: sha256 verification, writing to disk,
+// reload (of managed processes), then an OK ack, with the on-disk content matching the push.
 func TestOnMessageConfigPushApplies(t *testing.T) {
 	a := startManagedApp(t)
 	rec := &recorder{}
@@ -268,7 +268,7 @@ func TestOnMessageConfigPushApplies(t *testing.T) {
 	}
 }
 
-// failRecorder 记录尝试次数并固定失败（心跳/测速发送失败分支用）。
+// failRecorder counts attempts and always fails (used by the heartbeat/speed-test send-failure branches).
 type failRecorder struct {
 	mu      sync.Mutex
 	attempt int
@@ -287,8 +287,8 @@ func (r *failRecorder) count() int {
 	return r.attempt
 }
 
-// TestStartHeartbeatSendFails 心跳发出失败：记日志并退出心跳循环，
-// 不再继续尝试。
+// TestStartHeartbeatSendFails covers a heartbeat that fails to send: log it and exit the heartbeat loop,
+// without retrying.
 func TestStartHeartbeatSendFails(t *testing.T) {
 	a := newDispatchApp()
 	a.setInterval(10 * time.Millisecond)
@@ -311,7 +311,7 @@ func TestStartHeartbeatSendFails(t *testing.T) {
 	}
 }
 
-// TestStartHeartbeatCtxCancel 心跳随 ctx 取消退出：计数稳定不再增长。
+// TestStartHeartbeatCtxCancel covers the heartbeat exiting on ctx cancellation: the counter settles and stops growing.
 func TestStartHeartbeatCtxCancel(t *testing.T) {
 	a := newDispatchApp()
 	a.setInterval(10 * time.Millisecond)
@@ -327,10 +327,10 @@ func TestStartHeartbeatCtxCancel(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	cancel()
-	// 取消后允许一个在途 tick 落账（select 已选中已触发 timer.C 的竞态
-	// 窗口，CI 慢机实证 1 -> 2），断言「计数最终稳定」：连续两帧相等即
-	// 视为循环已退出；若循环未退出，10ms 间隔下计数持续增长，stabilize
-	// 窗口内永不满足。
+	// one in-flight tick is still allowed to land after cancellation (select may already have picked a timer.C
+	// that had already fired; observed 1 -> 2 on slow CI machines), so assert "the counter eventually settles":
+	// two consecutive equal frames mean the loop has exited; if it had not, the counter would keep growing at the
+	// 10ms tick rate and the stabilize window would never be satisfied.
 	stabilize := time.Now().Add(2 * time.Second)
 	prev := rec.count()
 	for {
@@ -346,7 +346,7 @@ func TestStartHeartbeatCtxCancel(t *testing.T) {
 	}
 }
 
-// TestWatchAlarmsExpiredCert 已过期证书：告警消息用「已于…过期」措辞。
+// TestWatchAlarmsExpiredCert covers an already-expired certificate: the alarm message uses the "already expired as of" wording.
 func TestWatchAlarmsExpiredCert(t *testing.T) {
 	a := newDispatchApp()
 	rec := &recorder{}
@@ -366,7 +366,7 @@ func TestWatchAlarmsExpiredCert(t *testing.T) {
 	}
 }
 
-// TestMaybeCalibrateSendFails 测速完成但回传失败：只记日志，不重试不外发。
+// TestMaybeCalibrateSendFails covers the speed test finishing but its report failing: log only, no retry, no resend.
 func TestMaybeCalibrateSendFails(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write(make([]byte, 1<<20))
@@ -381,16 +381,16 @@ func TestMaybeCalibrateSendFails(t *testing.T) {
 	if rec.count() != 1 {
 		t.Fatalf("send attempts = %d; want 1", rec.count())
 	}
-	// 二次调用走 calibrated 短路，不再尝试
+	// a second call short-circuits on calibrated and does not retry
 	a.maybeCalibrate(rec.send)
 	if rec.count() != 1 {
 		t.Fatalf("attempts after recalibrate = %d; want 1", rec.count())
 	}
 }
 
-// TestRunConnectsAndHandshakes Run 全链路（真 link 拨号）：本地 ws 面板收
-// hello、回 hello_ack，Run 经 OnConnected 握手成功并触发 OnHelloOK；ctx
-// 取消后 Run 返回 context.Canceled。探测内建与 spool 两个配置分支各跑一轮。
+// TestRunConnectsAndHandshakes covers the whole Run path (a real link dial): the local ws panel receives
+// hello and answers hello_ack, Run completes the handshake through OnConnected and fires OnHelloOK; after ctx
+// cancellation Run returns context.Canceled. Both config branches, built-in probing and spool, run one round each.
 func TestRunConnectsAndHandshakes(t *testing.T) {
 	up := websocket.Upgrader{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -422,7 +422,7 @@ func TestRunConnectsAndHandshakes(t *testing.T) {
 		if err := conn.WriteMessage(websocket.TextMessage, raw); err != nil {
 			return
 		}
-		for { // 握手完成，继续收心跳/上报直至对端断开
+		for { // handshake complete, keep receiving heartbeats/reports until the peer disconnects
 			if _, _, err := conn.ReadMessage(); err != nil {
 				return
 			}
