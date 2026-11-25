@@ -12,7 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// doAdmin 带管理员令牌发请求。
+// doAdmin sends the request with an admin token.
 func doAdmin(t *testing.T, r *gin.Engine, method, path string, body []byte) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, bytes.NewReader(body))
@@ -25,13 +25,14 @@ func doAdmin(t *testing.T, r *gin.Engine, method, path string, body []byte) *htt
 	return w
 }
 
-// TestWebCertLifecycle 覆盖证书生命周期（P1-7）：初始未配置 →
-// 自签 → 状态可用 → 上传配对替换 → 错配拒绝 → 清除回落 HTTP。
+// TestWebCertLifecycle covers the certificate lifecycle (P1-7): initially
+// unconfigured -> self-sign -> status usable -> upload a pair as replacement
+// -> mismatched pair rejected -> clear and fall back to HTTP.
 func TestWebCertLifecycle(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	seedAdminForJWT(t, db)
 
-	// 初始未配置
+	// Initially unconfigured
 	w := doAdmin(t, r, "GET", "/admin/web-cert", nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("get initial: %d %s", w.Code, w.Body)
@@ -43,12 +44,12 @@ func TestWebCertLifecycle(t *testing.T) {
 	if st.Configured {
 		t.Fatalf("initial cert should be unconfigured: %+v", st)
 	}
-	// 启动加载：未配置 ok=false
+	// Startup load: unconfigured, ok=false
 	if _, ok, err := WebTLSCert(db); err != nil || ok {
 		t.Fatalf("WebTLSCert unconfigured: ok=%v err=%v", ok, err)
 	}
 
-	// 自签：30 天
+	// Self-sign: 30 days
 	w = doAdmin(t, r, "POST", "/admin/web-cert/selfsign", []byte(`{"host":"panel.example.com","days":30}`))
 	if w.Code != http.StatusOK {
 		t.Fatalf("selfsign: %d %s", w.Code, w.Body)
@@ -66,13 +67,13 @@ func TestWebCertLifecycle(t *testing.T) {
 		t.Fatalf("not_after = %v, want ~%v", st.NotAfter, want)
 	}
 
-	// 启动加载：配对成功拿到可用证书
+	// Startup load: pairing succeeds and yields a usable certificate
 	cert, ok, err := WebTLSCert(db)
 	if err != nil || !ok || cert == nil || len(cert.Certificate) == 0 {
 		t.Fatalf("WebTLSCert after selfsign: ok=%v err=%v", ok, err)
 	}
 
-	// 上传替换：另一对自签证书
+	// Upload replacement: another self-signed pair
 	certPEM, keyPEM, err := generateSelfSignedPEM("upload.example.com", 90)
 	if err != nil {
 		t.Fatalf("generate pair: %v", err)
@@ -89,7 +90,7 @@ func TestWebCertLifecycle(t *testing.T) {
 		t.Fatalf("uploaded cert status mismatch: %+v", st)
 	}
 
-	// 错配拒绝：A 证书配 B 私钥
+	// Mismatch rejected: cert A with key B
 	otherCert, _, err := generateSelfSignedPEM("other.example.com", 90)
 	if err != nil {
 		t.Fatalf("generate other pair: %v", err)
@@ -99,7 +100,7 @@ func TestWebCertLifecycle(t *testing.T) {
 		t.Fatalf("mismatched pair should 400: %d %s", w.Code, w.Body)
 	}
 
-	// 清除：回落未配置
+	// Clear: falls back to unconfigured
 	if w = doAdmin(t, r, "DELETE", "/admin/web-cert", nil); w.Code != http.StatusOK {
 		t.Fatalf("delete cert: %d %s", w.Code, w.Body)
 	}
@@ -107,7 +108,7 @@ func TestWebCertLifecycle(t *testing.T) {
 		t.Fatalf("WebTLSCert after delete: ok=%v err=%v", ok, err)
 	}
 
-	// 自签参数校验
+	// Self-sign parameter validation
 	if w = doAdmin(t, r, "POST", "/admin/web-cert/selfsign", []byte(`{"host":"x.com","days":9999}`)); w.Code != http.StatusBadRequest {
 		t.Fatalf("days out of range should 400: %d", w.Code)
 	}
@@ -115,7 +116,7 @@ func TestWebCertLifecycle(t *testing.T) {
 		t.Fatalf("missing host should 400: %d", w.Code)
 	}
 
-	// 无令牌 401
+	// No token 401
 	if w := doBare(t, r, "GET", "/admin/web-cert"); w.Code != http.StatusUnauthorized {
 		t.Fatalf("without token should 401: %d", w.Code)
 	}

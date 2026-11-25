@@ -14,8 +14,9 @@ import (
 	"gorm.io/gorm"
 )
 
-// newTestRouterWithMasterKey 建带机密主密钥的测试路由（OS-1 凭证录入用），
-// 返回同主密钥的独立 store 供验密文。
+// newTestRouterWithMasterKey builds a test router with a secret master key (for
+// OS-1 credential entry), returning a separate store with the same master key to
+// verify the ciphertext.
 func newTestRouterWithMasterKey(t *testing.T) (*gin.Engine, *gorm.DB) {
 	t.Helper()
 	db, err := storage.Open(storage.DriverSQLite, filepath.Join(t.TempDir(), "test.db"))
@@ -34,14 +35,16 @@ func newTestRouterWithMasterKey(t *testing.T) (*gin.Engine, *gorm.DB) {
 	return r, db
 }
 
-// TestProviderAPI 覆盖提供商凭证（OS-1）：录入加密落库（库中无明文）、
-// 列表不回显（has_access_key）、更换机密、空机密保留、有模板的提供商拒绝删除、
-// 未配主密钥的实例拒绝录入。
+// TestProviderAPI covers provider credentials (OS-1): entry is encrypted before
+// hitting the database (no plaintext stored), the list does not echo the key
+// (has_access_key), secret rotation, an empty secret being preserved, providers
+// with templates refusing deletion, and instances without a master key refusing
+// credential entry.
 func TestProviderAPI(t *testing.T) {
 	r, db := newTestRouterWithMasterKey(t)
 	store := secret.NewStore("test-master-key")
 
-	// 录入
+	// enter credentials
 	rec := doJSON(t, r, "POST", "/api/providers", map[string]any{
 		"name": "vultr-main", "type": "vultr", "access_key": "sk-live-secret",
 	})
@@ -60,7 +63,7 @@ func TestProviderAPI(t *testing.T) {
 		t.Fatalf("provider view leaks key: %+v", pv)
 	}
 
-	// 库里是密文且可解回
+	// stored encrypted and decryptable back to plaintext
 	var row storage.Provider
 	if err := db.First(&row, pv.ID).Error; err != nil {
 		t.Fatal(err)
@@ -72,7 +75,7 @@ func TestProviderAPI(t *testing.T) {
 		t.Fatalf("decrypt stored key = %q err=%v", plain, err)
 	}
 
-	// 列表掩码：只有 has_access_key，无明文
+	// list masking: only has_access_key, no plaintext
 	rec = doJSON(t, r, "GET", "/api/providers", nil)
 	body := rec.Body.String()
 	if rec.Code != http.StatusOK {
@@ -82,7 +85,7 @@ func TestProviderAPI(t *testing.T) {
 		t.Fatalf("list leaks key: %s", body)
 	}
 
-	// 更换机密
+	// rotate the secret
 	id := strconv.FormatUint(uint64(pv.ID), 10)
 	rec = doJSON(t, r, "PUT", "/api/providers/"+id, map[string]any{"access_key": "sk-new"})
 	if rec.Code != http.StatusOK {
@@ -93,7 +96,7 @@ func TestProviderAPI(t *testing.T) {
 		t.Fatalf("rotated key = %q err=%v", plain, err)
 	}
 
-	// 空机密保留：只改名
+	// empty secret preserved: rename only
 	rec = doJSON(t, r, "PUT", "/api/providers/"+id, map[string]any{"name": "vultr-renamed"})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("rename status = %d", rec.Code)
@@ -106,7 +109,7 @@ func TestProviderAPI(t *testing.T) {
 		t.Fatal("rename must keep access key")
 	}
 
-	// 有模板引用时拒绝删除
+	// deletion refused while a template references it
 	rec = doJSON(t, r, "POST", "/api/provision-templates", map[string]any{
 		"name": "hk-3t", "provider_id": pv.ID, "plan": "vc2-1c-1gb", "region": "hkg",
 		"bw_mbps": 500, "billing_type": "包月", "direction": "out", "line_type": "163", "role": "entry",
@@ -119,7 +122,7 @@ func TestProviderAPI(t *testing.T) {
 		t.Fatalf("delete provider with templates status = %d", rec.Code)
 	}
 
-	// 未配主密钥的实例拒绝录入（禁止明文落库）
+	// an instance without a master key refuses entry (no plaintext in the DB)
 	r2, _ := newTestRouterWithDB(t)
 	rec = doJSON(t, r2, "POST", "/api/providers", map[string]any{
 		"name": "x", "type": "vultr", "access_key": "sk",
@@ -129,7 +132,7 @@ func TestProviderAPI(t *testing.T) {
 	}
 }
 
-// TestTemplateAPI 覆盖机型模板（OS-1）：CRUD 与字段校验。
+// TestTemplateAPI covers machine templates (OS-1): CRUD and field validation.
 func TestTemplateAPI(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 
@@ -138,19 +141,20 @@ func TestTemplateAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 非法方向拒绝
+	// invalid direction refused
 	rec := doJSON(t, r, "POST", "/api/provision-templates", map[string]any{
 		"name": "bad", "provider_id": prov.ID, "direction": "sideways",
 	})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("invalid direction status = %d", rec.Code)
 	}
-	// 缺 provider 拒绝
+	// missing provider refused
 	rec = doJSON(t, r, "POST", "/api/provision-templates", map[string]any{"name": "bad"})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("missing provider status = %d", rec.Code)
 	}
-	// 配置模板非法 JSON 拒绝（OS-4 随开服落节点行，进不合法的配置毫无意义）
+	// invalid JSON in the config template refused (OS-4 lands a node row per
+	// provisioned server at open; an invalid config would be pointless)
 	rec = doJSON(t, r, "POST", "/api/provision-templates", map[string]any{
 		"name": "bad", "provider_id": prov.ID, "config": "{inbounds:",
 	})
@@ -158,7 +162,8 @@ func TestTemplateAPI(t *testing.T) {
 		t.Fatalf("invalid config status = %d", rec.Code)
 	}
 
-	// 建模板（缺省 direction=out role=entry；配置模板压缩存档）
+	// create a template (defaults direction=out role=entry; the config template
+	// is stored compacted)
 	rec = doJSON(t, r, "POST", "/api/provision-templates", map[string]any{
 		"name": "hk-3t", "provider_id": prov.ID, "plan": "vc2-1c-1gb", "region": "hkg",
 		"bw_mbps": 500, "billing_type": "包月", "monthly_cost_cents": 500,
@@ -190,7 +195,7 @@ func TestTemplateAPI(t *testing.T) {
 		t.Fatalf("template config must be compacted: %q", row.Config)
 	}
 
-	// 改与删
+	// update and delete
 	tid := strconv.FormatUint(uint64(tpl.ID), 10)
 	rec = doJSON(t, r, "PUT", "/api/provision-templates/"+tid, map[string]any{
 		"name": "hk-3t-v2", "provider_id": prov.ID, "plan": "vc2-2c-2gb", "region": "hkg",

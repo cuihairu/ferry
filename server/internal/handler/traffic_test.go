@@ -10,7 +10,7 @@ import (
 func TestTrafficRecordAndRead(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 
-	// 两个用户 + 一个节点
+	// Two users + one node
 	for _, name := range []string{"alice", "bob"} {
 		if rec := doJSON(t, r, "POST", "/api/users", map[string]any{"username": name}); rec.Code != http.StatusCreated {
 			t.Fatalf("create %s: %d", name, rec.Code)
@@ -22,7 +22,8 @@ func TestTrafficRecordAndRead(t *testing.T) {
 		t.Fatalf("create node: %d", rec.Code)
 	}
 
-	// 批量记账：alice 三条（跨两天、含节点归属与显式时间），bob 一条
+	// Batch accounting: three rows for alice (spanning two days, with node attribution
+	// and explicit times), one for bob
 	day1 := "2026-10-01T10:00:00Z"
 	day2 := "2026-10-02T10:00:00Z"
 	rec := doJSON(t, r, "POST", "/api/traffic-logs", map[string]any{
@@ -40,7 +41,7 @@ func TestTrafficRecordAndRead(t *testing.T) {
 		t.Fatalf("record body = %s", got)
 	}
 
-	// 单条写入（缺省时间）
+	// Single-row write (default time)
 	rec = doJSON(t, r, "POST", "/api/traffic-logs", map[string]any{
 		"items": []map[string]any{{"user_id": 2, "rx_bytes": 4, "tx_bytes": 8}},
 	})
@@ -48,7 +49,7 @@ func TestTrafficRecordAndRead(t *testing.T) {
 		t.Fatalf("record single: %d", rec.Code)
 	}
 
-	// alice 汇总 + 按日明细
+	// alice summary + per-day detail
 	rec = doJSON(t, r, "GET", "/api/users/1/traffic", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("read summary: %d", rec.Code)
@@ -74,7 +75,7 @@ func TestTrafficRecordAndRead(t *testing.T) {
 		t.Fatalf("days mismatch: %+v", s.Days)
 	}
 
-	// 无记录用户：零值 + 空明细
+	// User with no records: zero values + empty detail
 	rec = doJSON(t, r, "POST", "/api/users", map[string]any{"username": "carol"})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create carol: %d", rec.Code)
@@ -83,7 +84,7 @@ func TestTrafficRecordAndRead(t *testing.T) {
 		t.Fatalf("empty summary: %d", rec.Code)
 	}
 
-	// 校验：空 items / 负字节 / 未知用户 / 未知节点
+	// Validation: empty items / negative bytes / unknown user / unknown node
 	if rec := doJSON(t, r, "POST", "/api/traffic-logs", map[string]any{"items": []any{}}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("empty items: %d", rec.Code)
 	}

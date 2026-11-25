@@ -11,16 +11,16 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 测速端点（E-8）：agent 注册后下载固定字节测下行容量。
-// 公开但设防：单次上限 8MB + 按 IP 30 次/分钟（测速包 4MB，正常注册只打 1 次）。
+// Speed test endpoint (E-8): after agent registration, a fixed byte count is downloaded to measure downlink capacity.
+// Public but hardened: 8MB cap per request plus 30 requests/minute per IP (4MB payload; normal registration hits once).
 const (
 	speedtestDefault = 4 << 20
 	speedtestMin     = 64 << 10
 	speedtestMax     = 8 << 20
 )
 
-// effectiveDownMbps 判定生效容量（E-8）：无套餐以实测为准；
-// 实测与套餐偏差超过 30% 以实测为准（套餐虚标/限速都按实测分配）。
+// effectiveDownMbps decides the effective capacity (E-8): with no plan the measured value wins;
+// a measured vs plan deviation above 30% also adopts the measured value (overrated or throttled plans alike).
 func effectiveDownMbps(plan, measured int) (effective int, accepted bool) {
 	if plan <= 0 {
 		return measured, true
@@ -38,7 +38,7 @@ func effectiveDownMbps(plan, measured int) (effective int, accepted bool) {
 	return plan, false
 }
 
-// speedtestBytes 下发确定性伪随机字节（xorshift，不可压缩，防中间件压缩虚增）。
+// speedtestBytes serves deterministic pseudo-random bytes (xorshift, incompressible, so middleware compression cannot inflate it).
 func (h *Handler) speedtestBytes(c *gin.Context) {
 	if !h.speedLimiter.Allow(c.ClientIP()) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "too many requests"})
@@ -78,7 +78,7 @@ func (h *Handler) speedtestBytes(c *gin.Context) {
 	}
 }
 
-// handleCalibrate 接收测速校准，落 speed_measured_mbps/speed_calibrated_at。
+// handleCalibrate receives speed calibration and persists speed_measured_mbps/speed_calibrated_at.
 func (h *Handler) handleCalibrate(nodeID int64, env agentproto.Envelope) (agentproto.Envelope, bool) {
 	var cal agentproto.Calibrate
 	if err := env.Decode(&cal); err != nil {
@@ -89,8 +89,8 @@ func (h *Handler) handleCalibrate(nodeID int64, env agentproto.Envelope) (agentp
 		return agentproto.Envelope{}, false
 	}
 	effective, accepted := effectiveDownMbps(n.BwDownMbps, cal.MeasuredDownMbps)
-	// 幂等（FERRY-004）：重复帧跳过覆盖写但 ack 照常回（ack 由 payload 与
-	// 套餐决定，确定性相同）。
+	// idempotent (FERRY-004): duplicate frames skip the overwrite write but still reply with the ack
+	// (the ack is determined by the payload and the plan, hence deterministically identical).
 	dup := h.repeatReport(nodeID, env.Type, env.ID)
 	now := time.Now()
 	updates := map[string]any{

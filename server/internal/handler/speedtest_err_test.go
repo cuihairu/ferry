@@ -17,8 +17,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// TestSpeedtestRateLimit 覆盖测速字节端点的 IP 限流（30 次/分钟）：第 31
-// 次 429。
+// TestSpeedtestRateLimit covers the speed test bytes endpoint's per-IP rate
+// limit (30 requests/minute): the 31st gets a 429.
 func TestSpeedtestRateLimit(t *testing.T) {
 	r := newTestRouter(t)
 	for i := 0; i < 30; i++ {
@@ -31,7 +31,7 @@ func TestSpeedtestRateLimit(t *testing.T) {
 	}
 }
 
-// TestSpeedtestTailChunk 覆盖非 32KB 整倍数的尾块（chunk=remain）。
+// TestSpeedtestTailChunk covers the tail chunk that is not a multiple of 32KB (chunk=remain).
 func TestSpeedtestTailChunk(t *testing.T) {
 	r := newTestRouter(t)
 	rec := doJSON(t, r, "GET", "/api/speedtest/bytes?n=65537", nil)
@@ -40,8 +40,8 @@ func TestSpeedtestTailChunk(t *testing.T) {
 	}
 }
 
-// TestSpeedtestAbortClient 覆盖下发途中客户端中断的写失败分支：大包传输
-// 中客户端 RST，服务端写错误即止（该分支无外部产物，断言其后服务仍正常）。
+// TestSpeedtestAbortClient covers the write-failure branch when the client aborts mid-delivery:
+// the client RSTs during a large transfer and the server stops on the write error (the branch has no external side effects, so only assert the server still works afterwards).
 func TestSpeedtestAbortClient(t *testing.T) {
 	r := newTestRouter(t)
 	srv := httptest.NewServer(r)
@@ -56,7 +56,7 @@ func TestSpeedtestAbortClient(t *testing.T) {
 		t.Fatalf("read head: %v", err)
 	}
 	if tc, ok := conn.(*net.TCPConn); ok {
-		_ = tc.SetLinger(0) // 关闭即 RST，服务端后续写必失败
+		_ = tc.SetLinger(0) // closing sends an RST, so the server's later writes must fail
 	}
 	_ = conn.Close()
 	time.Sleep(200 * time.Millisecond)
@@ -65,7 +65,7 @@ func TestSpeedtestAbortClient(t *testing.T) {
 	}
 }
 
-// expectNoReply 断言短窗口内没有回帧（读超时即通过）。
+// expectNoReply asserts that no reply frame arrives within a short window (a read timeout means pass).
 func expectNoReply(t *testing.T, c *websocket.Conn) {
 	t.Helper()
 	if err := c.SetReadDeadline(time.Now().Add(300 * time.Millisecond)); err != nil {
@@ -76,10 +76,10 @@ func expectNoReply(t *testing.T, c *websocket.Conn) {
 	}
 }
 
-// TestAgentWSCalibrateDBErrors 覆盖测速校准落库失败：节点行已删（定位
-// 失败）与节点回写失败两路都不回应答。回写注错用标志位门控的回调，且
-// 先于 agent 握手注册（gorm 回调 compile 与服务端 goroutine 并发即数据
-// 竞争）。
+// TestAgentWSCalibrateDBErrors covers calibration persistence failures: neither the deleted node row
+// (lookup failure) nor the failed node write-back replies with an ack. The write-back fault injection
+// uses a flag-gated callback registered before the agent handshake (gorm callback compile concurrent
+// with a server goroutine would be a data race).
 func TestAgentWSCalibrateDBErrors(t *testing.T) {
 	cal := func(id string) agentproto.Envelope {
 		env, _ := agentproto.NewEnvelope(id, agentproto.MsgCalibrate, agentproto.Calibrate{
@@ -88,7 +88,7 @@ func TestAgentWSCalibrateDBErrors(t *testing.T) {
 		return env
 	}
 
-	// 定位失败：握手后删掉节点行，校准定位不到 → 不回应答。
+	// lookup failure: delete the node row after the handshake, so calibration cannot locate it -> no ack.
 	r, db := newTestRouterWithDB(t)
 	id, token := createNodeFor(t, r, "cal-gone")
 	srv := httptest.NewServer(r)
@@ -102,7 +102,7 @@ func TestAgentWSCalibrateDBErrors(t *testing.T) {
 	}
 	expectNoReply(t, c)
 
-	// 回写失败：节点行在，更新被门控回调注错 → 不回应答。
+	// write-back failure: the node row exists but the update is faulted by the gated callback -> no ack.
 	r2, db2 := newTestRouterWithDB(t)
 	_, token2 := createNodeFor(t, r2, "cal-upd")
 	var failUpd atomic.Bool

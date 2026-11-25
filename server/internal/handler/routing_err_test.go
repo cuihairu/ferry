@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// rlRaw 规则库推送用原始体请求（octet-stream，带管理员 JWT）。
+// rlRaw issues a raw-body request for rule lib push (octet-stream, with admin JWT).
 func rlRaw(t *testing.T, r http.Handler, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -23,10 +23,11 @@ func rlRaw(t *testing.T, r http.Handler, method, path, body string) *httptest.Re
 	return w
 }
 
-// TestRuleLibPushDBErrors 覆盖规则库推送面：快照建档失败 500（推送链在
-// 建档之后，注错即断）、版本史取数失败 500。
+// TestRuleLibPushDBErrors covers the rule lib push path: snapshot record
+// creation failure 500 (the push chain runs after creation, so an injected
+// error breaks it) and version history fetch failure 500.
 func TestRuleLibPushDBErrors(t *testing.T) {
-	// 快照建档失败 → 500。
+	// snapshot record creation failure -> 500.
 	r, db := newTestRouterWithDB(t)
 	_, _ = createNodeFor(t, r, "rl-db")
 	db.Callback().Create().Before("gorm:create").Register("t:rlcreate", func(tx *gorm.DB) {
@@ -38,7 +39,7 @@ func TestRuleLibPushDBErrors(t *testing.T) {
 		t.Fatalf("create fail: %d %s", rec.Code, rec.Body)
 	}
 
-	// 版本史取数失败 → 500。
+	// version history fetch failure -> 500.
 	r2, db2 := newTestRouterWithDB(t)
 	regQueryFail("t:rllist", db2, (*[]storage.NodeConfig)(nil))
 	if rec := doJSON(t, r2, "GET", "/api/nodes/1/rulelib", nil); rec.Code != http.StatusInternalServerError {
@@ -46,15 +47,15 @@ func TestRuleLibPushDBErrors(t *testing.T) {
 	}
 }
 
-// TestRuleLibPushTimeout 覆盖 agent 在线但不回执 → 504（hub 60s 等待超时
-// 分支），快照置 failed。等待时长取自 rulelibAckTimeout 常量，本用例固
-// 有耗时约 60s。
+// TestRuleLibPushTimeout covers agent online but no ack -> 504 (the hub 60s
+// wait-timeout branch), snapshot set to failed. The wait duration comes from
+// the rulelibAckTimeout constant, so this case inherently takes ~60s.
 func TestRuleLibPushTimeout(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	id, token := createNodeFor(t, r, "rl-to")
 	srv := httptest.NewServer(r)
 	defer srv.Close()
-	fakeAgent(t, srv.URL, "rl-to", token) // 握手后不应答
+	fakeAgent(t, srv.URL, "rl-to", token) // handshake only, never answers
 
 	rec := rlRaw(t, r, "POST", fmt.Sprintf("/api/nodes/%d/rulelib?proc=xray&name=geoip.dat", id), "dat")
 	if rec.Code != http.StatusGatewayTimeout {
@@ -69,8 +70,8 @@ func TestRuleLibPushTimeout(t *testing.T) {
 	}
 }
 
-// TestRoutingAdsSaveError 覆盖拦截开关保存失败 500（SetSetting 走 Save
-// 的 Update 链）。
+// TestRoutingAdsSaveError covers blocking toggle save failure 500 (SetSetting
+// goes through Save's Update chain).
 func TestRoutingAdsSaveError(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	db.Callback().Update().Before("gorm:update").Register("t:adssave", func(tx *gorm.DB) {

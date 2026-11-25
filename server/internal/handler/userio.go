@@ -1,8 +1,11 @@
 package handler
 
-// 用户批量导入/导出（用户迁移面）：export 与 listUsers 同字段口径（含订阅
-// 令牌，不含口令——口令不迁移）；import 批量建号——校验失败整批 400 零
-// 写入，重名跳过并回报，成功行回订阅令牌（可选沿用旧令牌保址，缺省新生成）。
+// Bulk user import/export (user migration surface): export follows the same
+// field terms as listUsers (includes subscription tokens, never passwords --
+// passwords do not migrate); import creates accounts in bulk -- validation
+// failure means 400 for the whole batch with zero writes, duplicate names are
+// skipped and reported, and successful rows get subscription tokens back
+// (optionally reusing the old token to keep the address, else freshly minted).
 
 import (
 	"errors"
@@ -17,30 +20,35 @@ import (
 	"gorm.io/gorm"
 )
 
-// maxImportRows 是单次导入行数上限（防超大载荷拖垮请求与事务）。
+// maxImportRows caps the row count per import call (guards against oversized
+// payloads dragging down the request and the transaction).
 const maxImportRows = 500
 
-// importRow 是导入一行：与创建用户同形（模板开关沿用，缺省不套），额外可选
-// 收 sub_token——迁移保址：导出含订阅令牌，导入沿用即订阅地址不换（用户无感）；
-// 不传则逐行生成新令牌。令牌全局唯一（users.uniqueIndex），重复行拒。
+// importRow is one imported row: same shape as user creation (template switch
+// carried over, not applied by default), plus an optional sub_token -- address
+// preservation on migration: export carries the subscription token, and
+// importing it keeps the subscription address unchanged (invisible to the user);
+// when absent, a fresh token is minted per row. Tokens are globally unique
+// (users.uniqueIndex); duplicate rows are rejected.
 type importRow struct {
 	model.UserInput
 	SubToken string `json:"sub_token,omitempty"`
 }
 
-// importRequest 是一次导入请求。
+// importRequest is one import call.
 type importRequest struct {
 	Users []importRow `json:"users"`
 }
 
-// importSkip 是一行被跳过/拒绝的原因。
+// importSkip is the reason a row was skipped/rejected.
 type importSkip struct {
 	Username string `json:"username"`
 	Reason   string `json:"reason"`
 }
 
-// exportUsers 导出全部用户（GET /api/users/export）：备份与跨面板迁出；
-// 字段与 listUsers 完全一致（额外带 count），口令不导出（json:"-" 天然不带）。
+// exportUsers exports all users (GET /api/users/export): backup and cross-panel
+// migration out; fields match listUsers exactly (plus a count), and passwords are
+// never exported (json:"-" omits them naturally).
 func (h *Handler) exportUsers(c *gin.Context) {
 	var users []storage.User
 	if err := h.db.Order("id").Find(&users).Error; err != nil {
@@ -51,9 +59,11 @@ func (h *Handler) exportUsers(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"users": views, "count": len(views)})
 }
 
-// importUsers 批量导入用户（POST /api/users/import）：先全量校验（任一坏行
-// 整批 400、零写入），再在事务内逐行落库（重名跳过）；返回导入成功行
-// （含新生成的订阅令牌）与被跳过行及原因。子管理员受 max_users 批量约束。
+// importUsers bulk-imports users (POST /api/users/import): validate everything
+// first (any bad row means 400 for the whole batch, zero writes), then persist
+// row by row inside a transaction (duplicates skipped); it returns the
+// successfully imported rows (with freshly minted subscription tokens) and the
+// skipped rows with their reasons. Sub-admins are bound by max_users per batch.
 func (h *Handler) importUsers(c *gin.Context) {
 	var req importRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -83,7 +93,8 @@ func (h *Handler) importUsers(c *gin.Context) {
 		}
 		tpl = t
 	}
-	// 先校验后写入：坏行不落库、整批 400 并报该行原因。
+	// Validate before writing: bad rows never land, whole batch 400s with that
+	// row's reason.
 	seen := make(map[string]int)
 	for i := range req.Users {
 		in := &req.Users[i]
@@ -103,7 +114,8 @@ func (h *Handler) importUsers(c *gin.Context) {
 			seen[in.SubToken] = i
 		}
 	}
-	// 沿用令牌须全局未占用（users.sub_token uniqueIndex 兜底并发竞态）。
+	// Reused tokens must be globally unoccupied (users.sub_token uniqueIndex
+	// backstops concurrent races).
 	if name, err := checkImportTokens(h.db, req.Users); err != nil {
 		if name == "" {
 			fail(c, http.StatusInternalServerError, err)
@@ -131,13 +143,15 @@ func (h *Handler) importUsers(c *gin.Context) {
 	})
 }
 
-// importReject 校验期整批 400：零写入，报坏行原因（行号随 err 文案）。
+// importReject is the validation-stage whole-batch 400: zero writes, reporting
+// the bad row's reason (the row number travels inside the err message).
 func importReject(c *gin.Context, username string, err error) {
 	c.JSON(http.StatusBadRequest, gin.H{"created": 0, "skipped": 1, "skipped_rows": []importSkip{{Username: strings.TrimSpace(username), Reason: err.Error()}}})
 }
 
-// checkImportTokens 校验沿用令牌未被占用：占用时返回该行用户名与原因（调用方
-// 整批 400）；db 侧错误返回空用户名（调用方按 500 处理）。
+// checkImportTokens validates that reused tokens are unoccupied: on occupation it
+// returns that row's username and reason (the caller 400s the whole batch); on a
+// db-side error it returns an empty username (the caller treats it as 500).
 func checkImportTokens(db *gorm.DB, rows []importRow) (string, error) {
 	var wanted []string
 	for i := range rows {
@@ -162,7 +176,7 @@ func checkImportTokens(db *gorm.DB, rows []importRow) (string, error) {
 	return "", nil
 }
 
-// validateImportRow 校验导入一行（与创建用户同口径）。
+// validateImportRow validates one imported row (same terms as user creation).
 func validateImportRow(in *importRow) error {
 	username := strings.TrimSpace(in.Username)
 	if username == "" || len(username) > 64 {
@@ -184,8 +198,9 @@ func validateImportRow(in *importRow) error {
 	return err
 }
 
-// checkImportQuota 子管理员批量导入配额：名下现有数 + 本批行数 ≤ max_users
-// （0=不限），超出整批 403（不做部分导入，避免配额语义含糊）。
+// checkImportQuota checks the sub-admin bulk import quota: existing count under
+// the operator + this batch's rows <= max_users (0=unlimited); exceeding it
+// 403s the whole batch (no partial import, which would muddy quota semantics).
 func checkImportQuota(db *gorm.DB, operator string, n int) error {
 	var op storage.User
 	if err := db.Where("username = ? AND is_admin = ?", operator, true).First(&op).Error; err != nil {
@@ -204,8 +219,10 @@ func checkImportQuota(db *gorm.DB, operator string, n int) error {
 	return nil
 }
 
-// txImportUsers 在事务内逐行建号：重名跳过（回报原因），订阅令牌逐行新生成；
-// enabled=false 显式补写（同创建口径，防 GORM 略过零值落默认真）。
+// txImportUsers creates accounts row by row inside a transaction: duplicates
+// are skipped (reason reported), subscription tokens are freshly minted per row;
+// enabled=false is written explicitly (same terms as creation, so GORM does not
+// skip the zero value and land the default true).
 func (h *Handler) txImportUsers(rows []importRow, operator string) ([]storage.User, []importSkip, error) {
 	var created []storage.User
 	var skips []importSkip
@@ -220,7 +237,7 @@ func (h *Handler) txImportUsers(rows []importRow, operator string) ([]storage.Us
 				skips = append(skips, importSkip{Username: username, Reason: "username already exists"})
 				continue
 			}
-			token := rows[i].SubToken // 沿用旧令牌=迁移保址；缺省新生成
+			token := rows[i].SubToken // reusing the old token = address-preserving migration; empty means freshly minted
 			if token == "" {
 				t, err := RandomToken()
 				if err != nil {
@@ -265,7 +282,8 @@ func (h *Handler) txImportUsers(rows []importRow, operator string) ([]storage.Us
 	return created, skips, err
 }
 
-// anyWantTemplate 任一行要求套用户模板时才读一次模板设置。
+// anyWantTemplate only reads the template settings once when some row asks for
+// the user template.
 func anyWantTemplate(rows []importRow) bool {
 	for i := range rows {
 		if rows[i].UseTemplate != nil && *rows[i].UseTemplate {

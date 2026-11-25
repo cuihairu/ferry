@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// TestNodeShare 覆盖单节点分享链接（P1-9）：四种协议各构造一次 +
-// 未知协议 400 + 不存在 404。
+// TestNodeShare covers the single-node share link (P1-9): one build per each
+// of the four protocols + unknown protocol 400 + missing node 404.
 func TestNodeShare(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 
@@ -54,7 +54,7 @@ func TestNodeShare(t *testing.T) {
 		}
 	}
 
-	// 未知协议 400（创建端有协议白名单，直改库构造存量脏数据场景）
+	// unknown protocol 400 (the create side has a protocol allowlist; mutate the db directly to simulate legacy dirty data)
 	if err := db.Exec(`UPDATE nodes SET protocol='wireguard' WHERE name='vless'`).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestNodeShare(t *testing.T) {
 		t.Fatalf("unsupported protocol should 400: %d %s", rec.Code, rec.Body)
 	}
 
-	// 不存在 404
+	// missing node 404
 	if rec := doJSON(t, r, "GET", "/api/nodes/999/share", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("missing node should 404: %d", rec.Code)
 	}

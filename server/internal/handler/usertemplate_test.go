@@ -7,11 +7,12 @@ import (
 	"time"
 )
 
-// TestUserTemplateCRUD 覆盖默认模板的读取默认值、保存与校验（P1-5）。
+// TestUserTemplateCRUD covers the default template's read defaults, save and
+// validation (P1-5).
 func TestUserTemplateCRUD(t *testing.T) {
 	r := newTestRouter(t)
 
-	// 未配置时返回全默认
+	// Returns all defaults when unconfigured
 	rec := doJSON(t, r, "GET", "/api/user-template", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get template: %d %s", rec.Code, rec.Body)
@@ -22,7 +23,7 @@ func TestUserTemplateCRUD(t *testing.T) {
 		t.Fatalf("default template mismatch: %v", tpl)
 	}
 
-	// 保存并回读
+	// Save and read back
 	rec = doJSON(t, r, "PUT", "/api/user-template", map[string]any{
 		"quota_bytes": 1073741824, "expire_days": 30, "reset_cycle": "month",
 	})
@@ -35,7 +36,7 @@ func TestUserTemplateCRUD(t *testing.T) {
 		t.Fatalf("saved template mismatch: %v", tpl)
 	}
 
-	// 校验：负配额、负时长、非法周期
+	// Validation: negative quota, negative duration, invalid cycle
 	for _, body := range []map[string]any{
 		{"quota_bytes": -1},
 		{"expire_days": -5},
@@ -47,8 +48,8 @@ func TestUserTemplateCRUD(t *testing.T) {
 	}
 }
 
-// TestCreateUserWithTemplate 覆盖 use_template 补全缺席字段、显式字段优先、
-// 不带 use_template 时模板不生效（P1-5）。
+// TestCreateUserWithTemplate covers use_template filling absent fields, explicit
+// fields winning, and the template not applying without use_template (P1-5).
 func TestCreateUserWithTemplate(t *testing.T) {
 	r := newTestRouter(t)
 
@@ -78,7 +79,7 @@ func TestCreateUserWithTemplate(t *testing.T) {
 		t.Fatalf("expires_at = %v, want ~%v", exp, want)
 	}
 
-	// 显式字段优先于模板
+	// Explicit fields win over the template
 	rec = doJSON(t, r, "POST", "/api/users", map[string]any{
 		"username": "mixed", "use_template": true, "quota_bytes": 5, "reset_cycle": "day",
 	})
@@ -90,7 +91,7 @@ func TestCreateUserWithTemplate(t *testing.T) {
 		t.Fatalf("explicit fields should win: %v", u)
 	}
 
-	// 不带 use_template：模板不生效，维持原默认口径
+	// Without use_template: the template does not apply, keeping the original defaults
 	rec = doJSON(t, r, "POST", "/api/users", map[string]any{"username": "plain"})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create plain: %d %s", rec.Code, rec.Body)

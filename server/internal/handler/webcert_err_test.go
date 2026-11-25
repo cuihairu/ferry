@@ -11,15 +11,18 @@ import (
 	"gorm.io/gorm"
 )
 
-// 三十二批补口：面板 Web 证书（P1-7）错误口径——证书/私钥读取各段库故障、
-// 启动加载配对失败、状态视图配对错误回显、上传坏绑定/缺 PEM/超限/两次落库
-// 各自失败、自签坏绑定/缺 host/默认天数/IP host 分支/两次落库各自失败、
-// 清除库故障。
-// 留白：crypto/rand 取熵失败、密钥生成后 CreateCertificate 与
-// MarshalECPrivateKey 失败（正常流程不可达）、X509KeyPair 已解析叶证书后
-// ParseCertificate 再失败（同一次解析不可能成败各一）不硬凑。
+// Thirty-second batch of fill-in: panel web certificate (P1-7) error terms --
+// db failures in each stage of the cert/key read, startup-load pairing failure,
+// pair error echoed in the status view, upload bad bind / missing PEM /
+// oversize / each of the two saves failing, self-sign bad bind / missing host /
+// default days / IP host branch / each of the two saves failing, and the clear
+// db failure.
+// Left white: crypto/rand entropy failure, CreateCertificate and
+// MarshalECPrivateKey failures after key generation (unreachable in the normal
+// flow), and ParseCertificate failing after X509KeyPair already parsed the
+// leaf (one parse cannot both succeed and fail) -- not forced.
 
-// isSettingModel 判断语句是否落在设置 KV 表上。
+// isSettingModel reports whether the statement lands on the settings KV table.
 func isSettingModel(v any) bool {
 	switch v.(type) {
 	case *storage.Setting, []storage.Setting, *[]storage.Setting:
@@ -28,8 +31,9 @@ func isSettingModel(v any) bool {
 	return false
 }
 
-// failSettingAt 让第 n 次（1 起）命中设置表的写语句失败：SetSetting 走
-// Save（UPDATE 未中再 INSERT），跨 Update/Create 两条链计数。
+// failSettingAt makes the nth (1-based) write statement hitting the settings
+// table fail: SetSetting goes through Save (UPDATE, then INSERT if it misses),
+// counting across the Update and Create chains.
 func failSettingAt(t *testing.T, db *gorm.DB, name string, n int) {
 	t.Helper()
 	seen := 0
@@ -45,18 +49,20 @@ func failSettingAt(t *testing.T, db *gorm.DB, name string, n int) {
 	db.Callback().Create().Before("gorm:create").Register(name+"_c", bump)
 }
 
-// TestLoadWebCertPEMErrors 证书加载助手：证书段读取失败、私钥段读取失败与
-// 已配置但配对失败（启动中止口径）。
+// TestLoadWebCertPEMErrors covers the certificate loading helper: cert-stage
+// read failure, key-stage read failure, and configured-but-mismatched
+// (startup-abort terms).
 func TestLoadWebCertPEMErrors(t *testing.T) {
 	_, db := newTestRouterWithDB(t)
 
-	// 证书段读取失败（关库即首查报错）。
+	// Cert-stage read failure (closing the db makes the first query error).
 	closeSQL(t, db)
 	if _, _, _, err := loadWebCertPEM(db); err == nil {
 		t.Fatal("closed db: want err")
 	}
 
-	// 私钥段读取失败：证书段（第 1 查）放行，私钥段（第 2 查）注错。
+	// Key-stage read failure: the cert stage (1st query) passes, the key stage
+	// (2nd query) is injected with an error.
 	_, db = newTestRouterWithDB(t)
 	seen := 0
 	db.Callback().Query().Before("gorm:query").Register("test:setting_q_at", func(tx *gorm.DB) {
@@ -71,7 +77,7 @@ func TestLoadWebCertPEMErrors(t *testing.T) {
 		t.Fatal("key read: want err")
 	}
 
-	// 已配置但配对失败：WebTLSCert 报错并回 configured=true。
+	// Configured but mismatched: WebTLSCert errors and returns configured=true.
 	_, db = newTestRouterWithDB(t)
 	_, keyPEM, err := generateSelfSignedPEM("a.example.com", 30)
 	if err != nil {
@@ -93,11 +99,13 @@ func TestLoadWebCertPEMErrors(t *testing.T) {
 	}
 }
 
-// TestGetWebCertError 状态视图：读取失败 500 与配对错误回显（200+Error）。
+// TestGetWebCertError covers the status view: read failure 500 and the pair
+// error echoed back (200+Error).
 func TestGetWebCertError(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	seedAdminForJWT(t, db)
-	// settings 首读注错 → 500（回库复核的 First 只读 users，定向不拦）。
+	// Settings first read injected with an error -> 500 (the re-check First only
+	// reads users, so the targeted hook does not intercept it).
 	failNthSetting("t:wcerr", db, 1)
 	if w := doAdmin(t, r, http.MethodGet, "/admin/web-cert", nil); w.Code != http.StatusInternalServerError {
 		t.Fatalf("db fail: %d %s", w.Code, w.Body)
@@ -124,9 +132,10 @@ func TestGetWebCertError(t *testing.T) {
 	}
 }
 
-// TestPutWebCertErrors 上传：坏绑定、缺 PEM、超限与两次落库各自失败。
-// SetSetting 走 Save（非主键行先 UPDATE 后 INSERT），两次保存按语句次序
-// 定向：第 1 句落在证书键，第 3 句落在私钥键。
+// TestPutWebCertErrors covers upload: bad bind, missing PEM, oversize and each
+// of the two saves failing. SetSetting goes through Save (a non-primary-key row
+// is UPDATEd then INSERTed), so the two saves are targeted by statement order:
+// statement 1 lands on the cert key, statement 3 on the private key.
 func TestPutWebCertErrors(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	seedAdminForJWT(t, db)
@@ -153,7 +162,7 @@ func TestPutWebCertErrors(t *testing.T) {
 	}
 	body := `{"cert_pem":` + mustQuote(t, certPEM) + `,"key_pem":` + mustQuote(t, keyPEM) + `}`
 
-	// 证书键落库失败（第 1 句注错）。
+	// Cert key save failure (statement 1 injected).
 	r, db = newTestRouterWithDB(t)
 	seedAdminForJWT(t, db)
 	failSettingAt(t, db, "test:setting_at_1", 1)
@@ -161,7 +170,8 @@ func TestPutWebCertErrors(t *testing.T) {
 		t.Fatalf("cert save: %d %s", w.Code, w.Body)
 	}
 
-	// 私钥键落库失败（第 3 句注错：证书键 UPDATE+INSERT 两句先过）。
+	// Private key save failure (statement 3 injected: the cert key's UPDATE and
+	// INSERT pair passes first).
 	r, db = newTestRouterWithDB(t)
 	seedAdminForJWT(t, db)
 	failSettingAt(t, db, "test:setting_at_3", 3)
@@ -170,8 +180,8 @@ func TestPutWebCertErrors(t *testing.T) {
 	}
 }
 
-// TestSelfSignWebCertErrors 自签：坏绑定、缺 host、默认天数、IP host 分支
-// 与两次落库各自失败。
+// TestSelfSignWebCertErrors covers self-sign: bad bind, missing host, default
+// days, the IP host branch and each of the two saves failing.
 func TestSelfSignWebCertErrors(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	seedAdminForJWT(t, db)
@@ -182,7 +192,7 @@ func TestSelfSignWebCertErrors(t *testing.T) {
 		t.Fatalf("empty host: %d %s", w.Code, w.Body)
 	}
 
-	// 缺省天数 365：days 段不传走默认分支。
+	// Default days 365: omitting the days field takes the default branch.
 	r, db = newTestRouterWithDB(t)
 	seedAdminForJWT(t, db)
 	w := doAdmin(t, r, http.MethodPost, "/admin/web-cert/selfsign", []byte(`{"host":"def-days.example.com"}`))
@@ -197,14 +207,14 @@ func TestSelfSignWebCertErrors(t *testing.T) {
 		t.Fatalf("default days status: %+v", st)
 	}
 
-	// IP host：SAN 走 IPAddresses 分支，证书照发。
+	// IP host: the SAN takes the IPAddresses branch, and the certificate is still issued.
 	r, db = newTestRouterWithDB(t)
 	seedAdminForJWT(t, db)
 	if w := doAdmin(t, r, http.MethodPost, "/admin/web-cert/selfsign", []byte(`{"host":"1.2.3.4","days":30}`)); w.Code != http.StatusOK {
 		t.Fatalf("ip host: %d %s", w.Code, w.Body)
 	}
 
-	// 证书键落库失败（第 1 句注错）。
+	// Cert key save failure (statement 1 injected).
 	r, db = newTestRouterWithDB(t)
 	seedAdminForJWT(t, db)
 	failSettingAt(t, db, "test:ss_setting_at_1", 1)
@@ -212,7 +222,7 @@ func TestSelfSignWebCertErrors(t *testing.T) {
 		t.Fatalf("cert save: %d %s", w.Code, w.Body)
 	}
 
-	// 私钥键落库失败（第 3 句注错）。
+	// Private key save failure (statement 3 injected).
 	r, db = newTestRouterWithDB(t)
 	seedAdminForJWT(t, db)
 	failSettingAt(t, db, "test:ss_setting_at_3", 3)
@@ -221,14 +231,16 @@ func TestSelfSignWebCertErrors(t *testing.T) {
 	}
 }
 
-// TestDeleteWebCertError 清除证书库故障 500（回落未配置需在重启后生效）。
+// TestDeleteWebCertError covers a clear with a db failure returning 500 (the
+// fallback to unconfigured only takes effect after a restart).
 func TestDeleteWebCertError(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	seedAdminForJWT(t, db)
 	if err := db.Create(&storage.Setting{Key: settingKeyWebTLSCert, Value: "x"}).Error; err != nil {
 		t.Fatal(err)
 	}
-	// settings 删除注错 → 500（回库复核的 First 只读 users，定向不拦）。
+	// Settings delete injected with an error -> 500 (the re-check First only
+	// reads users, so the targeted hook does not intercept it).
 	db.Callback().Delete().Before("gorm:delete").Register("t:wcdel", func(tx *gorm.DB) {
 		if _, ok := tx.Statement.Model.(*storage.Setting); ok {
 			tx.AddError(errors.New("db down"))

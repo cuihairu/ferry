@@ -17,7 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// getSub 以指定 UA 请求订阅端点。
+// getSub requests the subscription endpoint with the given UA.
 func getSub(t *testing.T, r *gin.Engine, path, ua string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, path, nil)
@@ -30,7 +30,7 @@ func getSub(t *testing.T, r *gin.Engine, path, ua string) *httptest.ResponseReco
 func TestSubscription(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 
-	// 用户 alice：配额 1000，2030 到期
+	// User alice: quota 1000, expiring in 2030
 	rec := doJSON(t, r, "POST", "/api/users", map[string]any{
 		"username": "alice", "quota_bytes": 1000, "expires_at": "2030-01-01T00:00:00Z",
 	})
@@ -41,7 +41,7 @@ func TestSubscription(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &u)
 	token := u["sub_token"].(string)
 
-	// 节点：hk 可用（vless+ws+tls），us 停用
+	// Nodes: hk available (vless+ws+tls), us disabled
 	rec = doJSON(t, r, "POST", "/api/nodes", map[string]any{
 		"name": "hk", "address": "a.example.com", "port": 443, "protocol": "vless",
 		"config": `{"uuid":"u-1","tls":true,"sni":"s.com","net":"ws","path":"/wss","host":"cdn.example.com"}`,
@@ -56,7 +56,8 @@ func TestSubscription(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create disabled node: %d %s", rec.Code, rec.Body)
 	}
-	// E-19：仅入口/双角色节点进订阅，落地不下发（测试 API 建节点默认 landing）。
+	// E-19: only entry/both-role nodes enter the subscription, landing nodes are not
+	// delivered (the test API creates nodes as landing by default).
 	if err := db.Model(&storage.Node{}).Where("name=?", "hk").
 		Updates(map[string]any{"role": "entry", "meta_init": true}).Error; err != nil {
 		t.Fatal(err)
@@ -64,7 +65,7 @@ func TestSubscription(t *testing.T) {
 
 	subPath := "/sub/" + token
 
-	// 默认 UA（v2ray 系）：base64 链接，只含可用节点
+	// Default UA (v2ray family): base64 links, only available nodes
 	rec = getSub(t, r, subPath, "v2rayNG/1.8")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("sub default: %d %s", rec.Code, rec.Body)
@@ -86,7 +87,7 @@ func TestSubscription(t *testing.T) {
 		t.Fatalf("profile headers missing: %v", rec.Header())
 	}
 
-	// clash UA：YAML 输出
+	// clash UA: YAML output
 	clashRec := getSub(t, r, subPath, "clash-verge/2.0")
 	if clashRec.Code != http.StatusOK {
 		t.Fatalf("sub clash: %d", clashRec.Code)
@@ -98,12 +99,12 @@ func TestSubscription(t *testing.T) {
 	if strings.Contains(body, "name: us") {
 		t.Fatalf("disabled node in clash yaml:\n%s", body)
 	}
-	// ws 传输展开
+	// ws transport expanded
 	if !strings.Contains(body, "ws-opts:") || !strings.Contains(body, "path: /wss") {
 		t.Fatalf("ws-opts missing:\n%s", body)
 	}
 
-	// sing-box/Stash UA：outbounds JSON；默认 UA 回落 v2ray base64（SHOP-2）。
+	// sing-box/Stash UA: outbounds JSON; the default UA falls back to v2ray base64 (SHOP-2).
 	for _, ua := range []string{"sing-box/1.8.0", "Stash/2.0"} {
 		rec := getSub(t, r, subPath, ua)
 		if rec.Code != http.StatusOK {
@@ -118,7 +119,7 @@ func TestSubscription(t *testing.T) {
 		t.Fatalf("default UA should v2ray base64: %v", err)
 	}
 
-	// target 显式覆盖 UA
+	// target explicitly overrides the UA
 	if rec := getSub(t, r, subPath+"?target=clash", "curl/8.0"); !strings.Contains(rec.Body.String(), "proxies:") {
 		t.Fatalf("target=clash ignored:\n%s", rec.Body)
 	}
@@ -126,12 +127,12 @@ func TestSubscription(t *testing.T) {
 		t.Fatalf("bad target: %d", rec.Code)
 	}
 
-	// 错误令牌 404
+	// Bad token: 404
 	if rec := getSub(t, r, "/sub/nope", "v2rayNG/1.8"); rec.Code != http.StatusNotFound {
 		t.Fatalf("bad token: %d", rec.Code)
 	}
 
-	// 用户停用后令牌视同吊销：404
+	// After the user is disabled the token counts as revoked: 404
 	if rec := doJSON(t, r, "PUT", "/api/users/1", map[string]any{"enabled": false}); rec.Code != http.StatusOK {
 		t.Fatalf("disable user: %d", rec.Code)
 	}
@@ -168,7 +169,7 @@ func TestSubscriptionAvailability(t *testing.T) {
 		return id, u["sub_token"].(string)
 	}
 
-	// 超限（120/100）：空订阅但保留用量头
+	// Over quota (120/100): empty subscription but the usage headers are kept
 	quotaID, quotaTok := mkUser("bob", 100, "")
 	qid := quotaID
 	if err := db.Create(&storage.TrafficLog{UserID: &qid, RxBytes: 60, TxBytes: 60, RecordedAt: time.Now()}).Error; err != nil {
@@ -178,7 +179,8 @@ func TestSubscriptionAvailability(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("over-quota: %d", rec.Code)
 	}
-	// 空订阅仍带断联容灾注释（TOUCH-7）：无节点链接，逃生通道在手
+	// An empty subscription still carries the outage contingency notes (TOUCH-7):
+	// no node links, but the escape channel is in hand
 	raw, err := base64.StdEncoding.DecodeString(rec.Body.String())
 	if err != nil || strings.Contains(string(raw), "vless://") || !strings.Contains(string(raw), "公告订阅") {
 		t.Fatalf("over-quota should be nodeless sub with notes: %v %q", err, string(raw))
@@ -187,7 +189,7 @@ func TestSubscriptionAvailability(t *testing.T) {
 		t.Fatalf("over-quota userinfo = %q", rec.Header().Get("Subscription-Userinfo"))
 	}
 
-	// 已到期：空订阅（仍带断联容灾注释）
+	// Expired: empty subscription (still with the outage contingency notes)
 	_, expTok := mkUser("carol", 0, "2020-01-01T00:00:00Z")
 	if rec := getSub(t, r, "/sub/"+expTok, "v2rayNG/1.8"); rec.Code != http.StatusOK {
 		t.Fatalf("expired: %d", rec.Code)
@@ -196,7 +198,7 @@ func TestSubscriptionAvailability(t *testing.T) {
 		t.Fatalf("expired should be nodeless sub with notes: %v %q", err, string(raw))
 	}
 
-	// 不限配额（0）有用量：照常出节点
+	// Unlimited quota (0) with usage: nodes are served as usual
 	freeID, freeTok := mkUser("dave", 0, "")
 	fid := freeID
 	if err := db.Create(&storage.TrafficLog{UserID: &fid, RxBytes: 1, TxBytes: 2, RecordedAt: time.Now()}).Error; err != nil {
@@ -215,8 +217,9 @@ func TestSubscriptionAvailability(t *testing.T) {
 	}
 }
 
-// TestSubResetCycleWindow 是 P1-4 语义：day 周期用户窗口外流量不计超限，
-// 窗口内超限才封订阅。
+// TestSubResetCycleWindow encodes the P1-4 semantics: for a day-cycle user, traffic
+// outside the window does not count toward the over-quota verdict; only over-quota
+// traffic inside the window blocks the subscription.
 func TestSubResetCycleWindow(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 
@@ -242,7 +245,8 @@ func TestSubResetCycleWindow(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &u)
 	tok := u["sub_token"].(string)
 
-	// 上月 200 超 100：day 窗口外 → 照常出节点，用量头只算窗口内
+	// 200 last month against a 100 quota: outside the day window -> nodes served as
+	// usual, and the usage header only counts the window
 	uid := uint(u["id"].(float64))
 	if err := db.Create(&storage.TrafficLog{
 		UserID: &uid, RxBytes: 200,
@@ -255,7 +259,7 @@ func TestSubResetCycleWindow(t *testing.T) {
 		t.Fatalf("窗口外流量不应封订阅: %d %q", r1.Code, r1.Body)
 	}
 
-	// 今日再记 60：窗口内 60 < 100 → 仍出节点
+	// Add 60 today: 60 < 100 inside the window -> nodes still served
 	uid2 := uint(u["id"].(float64))
 	if err := db.Create(&storage.TrafficLog{
 		UserID: &uid2, RxBytes: 60, RecordedAt: time.Now(),
@@ -271,7 +275,7 @@ func TestSubResetCycleWindow(t *testing.T) {
 		t.Fatalf("用量头应只算窗口内: %q", r2.Header().Get("Subscription-Userinfo"))
 	}
 
-	// 今日累计到 100 → 封
+	// Today's total reaches 100 -> blocked
 	uid3 := uint(u["id"].(float64))
 	if err := db.Create(&storage.TrafficLog{
 		UserID: &uid3, RxBytes: 40, RecordedAt: time.Now(),
@@ -285,9 +289,11 @@ func TestSubResetCycleWindow(t *testing.T) {
 	}
 }
 
-// TestSubscriptionRateLimit 订阅端点限频（安全设计 §4）：
-// token 层 30 次/分钟防单 token 爆破；miss 层按 IP 连续 20 次未知/停用令牌
-// 锁 15 分钟防每次换新 token 的枚举；命中 429 并记日志（token 脱敏前缀）。
+// TestSubscriptionRateLimit covers subscription endpoint rate limiting (Security
+// Design §4): the token layer allows 30/minute to stop single-token brute force;
+// the miss layer locks an IP for 15 minutes after 20 consecutive unknown/disabled
+// tokens, blocking enumeration that rotates a fresh token each time; 429 hits are
+// logged with a redacted token prefix.
 func TestSubscriptionRateLimit(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 
@@ -306,7 +312,8 @@ func TestSubscriptionRateLimit(t *testing.T) {
 	log.SetOutput(&buf)
 	defer log.SetOutput(os.Stderr)
 
-	// token 层：同令牌窗口 30 次内放行，第 31 次 429 并记日志。
+	// Token layer: the same token passes within 30 requests per window, and the 31st
+	// gets 429 plus a log line.
 	for i := 0; i < 30; i++ {
 		if rec := getSub(t, r, "/sub/"+alice, "v2rayNG/1.8"); rec.Code != http.StatusOK {
 			t.Fatalf("alice 第 %d 次应放行: %d", i+1, rec.Code)
@@ -318,13 +325,14 @@ func TestSubscriptionRateLimit(t *testing.T) {
 	if !strings.Contains(buf.String(), "sub rate limited") {
 		t.Fatalf("命中限频应记日志: %q", buf.String())
 	}
-	// 按 token 隔离：alice 预算耗尽不影响 bob。
+	// Isolation per token: alice exhausting her budget does not affect bob.
 	if rec := getSub(t, r, "/sub/"+bob, "v2rayNG/1.8"); rec.Code != http.StatusOK {
 		t.Fatalf("bob 应不受 alice 耗尽影响: %d", rec.Code)
 	}
 
-	// miss 层：同 IP 连续 20 个未知令牌（各不相同）后进入锁定，
-	// 第 21 个未知令牌 429，同 IP 的有效令牌也被锁。
+	// Miss layer: after 20 consecutive unknown tokens (each different) from the same
+	// IP, the lock engages -- the 21st unknown token gets 429, and valid tokens from
+	// that IP are locked too.
 	for i := 0; i < 20; i++ {
 		if rec := getSub(t, r, fmt.Sprintf("/sub/enum-probe-%02d", i), "v2rayNG/1.8"); rec.Code != http.StatusNotFound {
 			t.Fatalf("未知令牌第 %d 次应 404: %d", i+1, rec.Code)
@@ -338,19 +346,19 @@ func TestSubscriptionRateLimit(t *testing.T) {
 	}
 }
 
-// TestSubscriptionHysteria2 覆盖 hy2 节点全链（hy2 批）：建节点校验
-// （缺密码 400）→ 订阅链接（hysteria2://）→ clash（type: hysteria2）→
-// singbox（outbounds 数组）。
+// TestSubscriptionHysteria2 covers the full hy2 node chain (hy2 batch): node
+// creation validation (400 without a password) -> subscription link (hysteria2://)
+// -> clash (type: hysteria2) -> singbox (outbounds array).
 func TestSubscriptionHysteria2(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 
-	// 建节点：缺密码被拦（面板明确报错，不静默）。
+	// Node creation: a missing password is rejected (an explicit panel error, never silent).
 	if rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
 		"name": "bad", "address": "a", "port": 443, "protocol": "hysteria2", "config": `{"sni":"s.com"}`,
 	}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("hy2 missing password: %d %s", rec.Code, rec.Body)
 	}
-	// 建节点：全字段 hy2。
+	// Node creation: full-field hy2.
 	if rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
 		"name": "hy", "address": "hy.example.com", "port": 443, "protocol": "hysteria2",
 		"transport": "quic",
@@ -363,7 +371,7 @@ func TestSubscriptionHysteria2(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 用户 + 订阅。
+	// User + subscription.
 	rec := doJSON(t, r, "POST", "/api/users", map[string]any{"username": "hyuser"})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create user: %d %s", rec.Code, rec.Body)
@@ -373,7 +381,7 @@ func TestSubscriptionHysteria2(t *testing.T) {
 	token := u["sub_token"].(string)
 	subPath := "/sub/" + token
 
-	// v2ray target：hysteria2:// 链接（全字段断言）。
+	// v2ray target: a hysteria2:// link (all fields asserted).
 	raw, err := base64.StdEncoding.DecodeString(getSub(t, r, subPath, "NekoBox/1.0").Body.String())
 	if err != nil {
 		t.Fatalf("body not base64: %v", err)
@@ -383,7 +391,7 @@ func TestSubscriptionHysteria2(t *testing.T) {
 		t.Fatalf("expected 1 hy2 link, got %d: %q", n, string(raw))
 	}
 
-	// clash target：type: hysteria2 条目与字段名。
+	// clash target: the type: hysteria2 entry and field names.
 	body := getSub(t, r, subPath+"?target=clash", "curl/8.0").Body.String()
 	for _, want := range []string{"type: hysteria2", "password: pw", "obfs: salamander", "obfs-password: op", "up: 100", "down: 200", "sni: s.com"} {
 		if !strings.Contains(body, want) {
@@ -391,7 +399,7 @@ func TestSubscriptionHysteria2(t *testing.T) {
 		}
 	}
 
-	// singbox target：outbounds 数组带 hysteria2 出站。
+	// singbox target: the outbounds array carries a hysteria2 outbound.
 	sb := getSub(t, r, subPath+"?target=singbox", "curl/8.0")
 	if sb.Code != http.StatusOK {
 		t.Fatalf("singbox target: %d %s", sb.Code, sb.Body)
@@ -404,14 +412,15 @@ func TestSubscriptionHysteria2(t *testing.T) {
 		t.Fatalf("singbox outbounds = %v", obs)
 	}
 
-	// routing 合成对 hy2 如实报错（xray 语法不适用 YAML 内核）。
+	// Routing synthesis reports an honest error for hy2 (xray syntax does not fit a YAML core).
 	if rec = doJSON(t, r, "GET", "/api/nodes/1/routing-config", nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("routing render on hy2: %d %s", rec.Code, rec.Body)
 	}
 }
 
-// TestSubscriptionSingBoxMixed 覆盖混编舰队 singbox 订阅（SB 批）：
-// xray 系与 hy2 节点共存时 target=singbox 出全量出站，不再整包报错。
+// TestSubscriptionSingBoxMixed covers mixed-fleet singbox subscriptions (SB batch):
+// when xray-family and hy2 nodes coexist, target=singbox yields the full outbound
+// list instead of failing the whole pack.
 func TestSubscriptionSingBoxMixed(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 
@@ -430,7 +439,8 @@ func TestSubscriptionSingBoxMixed(t *testing.T) {
 			t.Fatalf("create node %d: %d %s", i, rec.Code, rec.Body)
 		}
 	}
-	// 入订阅面：entry 角色（订阅只出 entry/both 且 active 的节点）。
+	// Entering the subscription surface: the entry role (subscriptions only serve
+	// active entry/both nodes).
 	if err := db.Model(&storage.Node{}).Where("name IN ?", []string{"vl", "tj", "ss", "hy"}).
 		Update("role", "entry").Error; err != nil {
 		t.Fatal(err)
@@ -460,11 +470,11 @@ func TestSubscriptionSingBoxMixed(t *testing.T) {
 			t.Fatalf("outbound[%d] type = %v, want %v", i, obs[i]["type"], want)
 		}
 	}
-	// vless ws 传输进 sing-box transport 对象。
+	// vless ws transport lands in the sing-box transport object.
 	if tr, ok := obs[0]["transport"].(map[string]any); !ok || tr["type"] != "ws" || tr["path"] != "/ws" {
 		t.Fatalf("vless transport = %v", obs[0]["transport"])
 	}
-	// trojan 恒 TLS。
+	// trojan is always TLS.
 	if tls, ok := obs[1]["tls"].(map[string]any); !ok || tls["enabled"] != true {
 		t.Fatalf("trojan tls = %v", obs[1]["tls"])
 	}

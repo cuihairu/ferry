@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// TestParseMemInfo 合成 /proc/meminfo 验证 used 与占用比（P1-8）。
+// TestParseMemInfo synthesizes /proc/meminfo to verify used and usage percent (P1-8).
 func TestParseMemInfo(t *testing.T) {
 	data := []byte(`MemTotal:        2048 kB
 MemFree:          256 kB
@@ -32,7 +32,7 @@ SwapTotal:         0 kB
 	if m.UsagePercent != 75 {
 		t.Fatalf("percent = %v, want 75", m.UsagePercent)
 	}
-	// 缺 MemAvailable：按全量算 used
+	// MemAvailable missing: used is computed as the full total
 	m, err = parseMemInfo([]byte("MemTotal: 100 kB\n"))
 	if err != nil {
 		t.Fatalf("parse minimal: %v", err)
@@ -40,17 +40,17 @@ SwapTotal:         0 kB
 	if m.UsedBytes != 100*1024 || m.UsagePercent != 100 {
 		t.Fatalf("minimal meminfo: %+v", m)
 	}
-	// 缺 MemTotal 报错
+	// MemTotal missing errors
 	if _, err := parseMemInfo([]byte("SwapTotal: 0 kB\n")); err == nil {
 		t.Fatal("missing MemTotal should error")
 	}
-	// 冒号后无值：空字段行跳过 → 仍按缺 MemTotal 报错
+	// No value after the colon: the empty-field line is skipped -> still errors as missing MemTotal
 	if _, err := parseMemInfo([]byte("MemTotal:\nMemAvailable: 100 kB\n")); err == nil {
 		t.Fatal("valueless MemTotal line should be skipped and error")
 	}
 }
 
-// TestParseLoadAvgUptimeCPU 覆盖负载/运行时长/CPU jiffies 解析。
+// TestParseLoadAvgUptimeCPU covers load/uptime/CPU jiffies parsing.
 func TestParseLoadAvgUptimeCPU(t *testing.T) {
 	loads, err := parseLoadAvg([]byte("0.52 0.58 0.59 2/1234 5678\n"))
 	if err != nil {
@@ -68,7 +68,7 @@ func TestParseLoadAvgUptimeCPU(t *testing.T) {
 		t.Fatalf("uptime = %d err=%v", up, err)
 	}
 
-	// busy = total - idle - iowait：首行 user10+nice10+system10+idle70+iowait10 → busy=30, total=110
+	// busy = total - idle - iowait: first line user10+nice10+system10+idle70+iowait10 -> busy=30, total=110
 	busy, total, err := parseCPUStat([]byte("cpu  10 10 10 70 10 0 0 0 0 0\ncpu0 1 1 1 7 1 0 0 0 0 0\n"))
 	if err != nil {
 		t.Fatalf("cpu stat: %v", err)
@@ -81,7 +81,7 @@ func TestParseLoadAvgUptimeCPU(t *testing.T) {
 	}
 }
 
-// TestSysStatus 端到端：计数概况正确、进程与 /proc 指标齐备。
+// TestSysStatus end to end: correct count overviews, and complete process and /proc metrics.
 func TestSysStatus(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	seedAdminForJWT(t, db)
@@ -118,7 +118,7 @@ func TestSysStatus(t *testing.T) {
 		t.Fatalf("nodes counts mismatch: %v", nodes)
 	}
 	users := out["users"].(map[string]any)
-	// root 是回库复核要求的管理员行（seedAdminForJWT），计入 total/enabled。
+	// root is the admin row required by DB re-checks (seedAdminForJWT), counted in total/enabled.
 	if users["total"].(float64) != 4 || users["enabled"].(float64) != 3 {
 		t.Fatalf("users counts mismatch: %v", users)
 	}
@@ -130,17 +130,17 @@ func TestSysStatus(t *testing.T) {
 		t.Fatal("uptime_sec missing (running on linux /proc expected)")
 	}
 
-	// 无令牌 401
+	// No token: 401
 	if w := doBare(t, r, "GET", "/admin/status"); w.Code != http.StatusUnauthorized {
 		t.Fatalf("without token should 401: %d", w.Code)
 	}
 }
 
-// TestStatusParseEdges 覆盖 /proc 解析器的负例与边界：可用内存大于总量的
-// 钳零、非数值行跳过、缺空格与非数值的 uptime、过短与非数值的 cpu 行、
-// percent 除零护栏。
+// TestStatusParseEdges covers /proc parser negatives and edges: clamping when
+// available exceeds total, skipping non-numeric lines, uptime without a space or
+// non-numeric, short and non-numeric cpu lines, and the percent divide-by-zero guard.
 func TestStatusParseEdges(t *testing.T) {
-	// available > total → used 钳 0，占比 0
+	// available > total -> used clamped to 0, percent 0
 	m, err := parseMemInfo([]byte("MemTotal: 100 kB\nMemAvailable: 200 kB\n"))
 	if err != nil {
 		t.Fatalf("clamp parse: %v", err)
@@ -148,7 +148,7 @@ func TestStatusParseEdges(t *testing.T) {
 	if m.UsedBytes != 0 || m.UsagePercent != 0 {
 		t.Fatalf("clamped meminfo = %+v", m)
 	}
-	// 非数值行被跳过 → 仍按缺 MemTotal 报错
+	// Non-numeric lines are skipped -> still errors as missing MemTotal
 	if _, err := parseMemInfo([]byte("MemTotal: x kB\n")); err == nil {
 		t.Fatal("garbage MemTotal should error")
 	}
@@ -172,8 +172,9 @@ func TestStatusParseEdges(t *testing.T) {
 	}
 }
 
-// TestSysStatusDBErrors 覆盖系统状态的取数故障面：节点计数与用户计数
-// 任一失败 → 500（gorm 回调注错，对齐既有错误注入口径）。
+// TestSysStatusDBErrors covers system status data-fetch failures: either the node
+// count or the user count failing -> 500 (gorm callback error injection, aligned with
+// the existing error-injection conventions).
 func TestSysStatusDBErrors(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	seedAdminForJWT(t, db)
@@ -187,7 +188,8 @@ func TestSysStatusDBErrors(t *testing.T) {
 		t.Fatalf("node count fail: %d %s", w.Code, w.Body)
 	}
 
-	// 用户计数失败：独立库独立回调（只注错 Count——回库复核的 First 不拦）。
+	// User count failure: a separate db and callback (only Count is injected -- the
+	// First used by DB re-checks is not intercepted).
 	r2, db2 := newTestRouterWithDB(t)
 	seedAdminForJWT(t, db2)
 	db2.Callback().Query().Before("gorm:query").Register("test:status_user_fail", func(tx *gorm.DB) {
@@ -202,8 +204,8 @@ func TestSysStatusDBErrors(t *testing.T) {
 	}
 }
 
-// TestSysStatusOnlineCountsFail 覆盖在线节点计数与启用用户计数（各自
-// 类型的第二次 Count）失败 → 500：按 Model 类型 + 序号定向注错。
+// TestSysStatusOnlineCountsFail covers the online-node count and the enabled-user count
+// (each type's second Count) failing -> 500: targeted injection by Model type + ordinal.
 func TestSysStatusOnlineCountsFail(t *testing.T) {
 	fail2ndCount := func(db *gorm.DB, name string, match func(*gorm.DB) bool) {
 		calls := 0

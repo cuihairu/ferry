@@ -1,8 +1,10 @@
 package handler
 
-// 用户批量导入/导出（用户迁移面）测试：导出全量带 count 且不带口令字段；
-// 导入建号（含禁用行与到期时间）、重名跳过回报、坏行整批 400 零写入、
-// 空载荷与超行数上限 400。
+// Bulk user import/export (user migration surface) tests: export returns all
+// users with a count and without the password field; import creates accounts
+// (including disabled rows and expiry times), duplicate names skipped and
+// reported, bad row 400s the whole batch with zero writes, empty payload and
+// over-cap row counts 400.
 
 import (
 	"bytes"
@@ -20,13 +22,13 @@ import (
 	"gorm.io/gorm"
 )
 
-// TestUserExportImport 覆盖导出全量与导入建号/重名跳过。
+// TestUserExportImport covers full export and import account creation / duplicate skip.
 func TestUserExportImport(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	panelToken(t, r, "mig-a")
 	panelToken(t, r, "mig-b")
 
-	// 导出：全量用户+count，含订阅令牌、不含口令字段。
+	// Export: all users + count, subscription tokens included, password field excluded.
 	rec := doJSON(t, r, "GET", "/api/users/export", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("export: %d %s", rec.Code, rec.Body)
@@ -48,7 +50,7 @@ func TestUserExportImport(t *testing.T) {
 		t.Fatal("export leaks password field")
 	}
 
-	// 导入：2 行有效（一行禁用、一行带到期）→ 201 建号带新令牌。
+	// Import: 2 valid rows (one disabled, one with expiry) -> 201, accounts created with fresh tokens.
 	exp30 := time.Now().Add(30 * 24 * time.Hour).Format(time.RFC3339)
 	rec = doJSON(t, r, "POST", "/api/users/import", map[string]any{"users": []map[string]any{
 		{"username": "mig-c", "quota_bytes": 1 << 30, "expires_at": exp30},
@@ -84,7 +86,7 @@ func TestUserExportImport(t *testing.T) {
 		t.Fatal("mig-d should be disabled")
 	}
 
-	// 重名跳过：mig-a 已存在 → 跳过并回报，mig-e 照建。
+	// Duplicate name skip: mig-a already exists -> skipped and reported, mig-e still created.
 	rec = doJSON(t, r, "POST", "/api/users/import", map[string]any{"users": []map[string]any{
 		{"username": "mig-a"},
 		{"username": "mig-e"},
@@ -108,7 +110,7 @@ func TestUserExportImport(t *testing.T) {
 	}
 }
 
-// TestUserImportValidation 覆盖坏行整批 400 零写入、空载荷与超行数上限。
+// TestUserImportValidation covers bad-row whole-batch 400 with zero writes, empty payload, and the row cap.
 func TestUserImportValidation(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	before := func() int64 {
@@ -119,7 +121,7 @@ func TestUserImportValidation(t *testing.T) {
 		return n
 	}
 
-	// 坏行（空用户名）+ 好行 → 400，好行也不落库。
+	// Bad row (empty username) + good row -> 400, the good row never lands either.
 	rec := doJSON(t, r, "POST", "/api/users/import", map[string]any{"users": []map[string]any{
 		{"username": ""},
 		{"username": "mig-ok"},
@@ -142,11 +144,11 @@ func TestUserImportValidation(t *testing.T) {
 		t.Fatalf("bad row wrote %d users, want 0", n)
 	}
 
-	// 空载荷 400。
+	// Empty payload 400.
 	if rec := doJSON(t, r, "POST", "/api/users/import", map[string]any{"users": []map[string]any{}}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("empty: %d, want 400", rec.Code)
 	}
-	// 超行数上限 400。
+	// Over the row cap 400.
 	rows := make([]map[string]any, 501)
 	for i := range rows {
 		rows[i] = map[string]any{"username": fmt.Sprintf("bulk-%d", i)}
@@ -154,11 +156,12 @@ func TestUserImportValidation(t *testing.T) {
 	if rec := doJSON(t, r, "POST", "/api/users/import", map[string]any{"users": rows}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("oversize: %d, want 400", rec.Code)
 	}
-	// 坏载荷 400。
+	// Bad payload 400.
 	if rec := doRaw(t, r, "POST", "/api/users/import", "{bad"); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad json: %d, want 400", rec.Code)
 	}
-	// 行级校验负例：超长令牌/负配额/非法带宽/非法设备数，整批 400 零写入。
+	// Row-level validation negatives: overlong token / negative quota / invalid
+	// bandwidth / invalid device count, whole batch 400 with zero writes.
 	for _, row := range []map[string]any{
 		{"username": "v1", "sub_token": strings.Repeat("t", 65)},
 		{"username": "v2", "quota_bytes": -1},
@@ -173,7 +176,7 @@ func TestUserImportValidation(t *testing.T) {
 		t.Fatalf("rejected imports wrote %d users, want 0", n)
 	}
 
-	// 套模板导入：模板值补进行内缺省项。
+	// Template-based import: template values fill the row's absent fields.
 	if rec := doJSON(t, r, "PUT", "/api/user-template", map[string]any{
 		"quota_bytes": 1073741824, "expire_days": 30, "reset_cycle": "month",
 	}); rec.Code != http.StatusOK {
@@ -194,8 +197,9 @@ func TestUserImportValidation(t *testing.T) {
 	}
 }
 
-// TestUserImportPreserveToken 覆盖导入沿用旧令牌（迁移保址）、令牌占用与批内
-// 重复整批 400 零写入、不传令牌仍生成新令牌。
+// TestUserImportPreserveToken covers importing with a reused old token
+// (address-preserving migration), occupied tokens and in-batch duplicates 400ing
+// the whole batch with zero writes, and a fresh token still minted when none is passed.
 func TestUserImportPreserveToken(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	panelToken(t, r, "tok-old")
@@ -204,7 +208,7 @@ func TestUserImportPreserveToken(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 沿用旧令牌建号：落库值与传入一致（订阅地址不换）。
+	// Account created with the old token: persisted value matches the input (subscription address unchanged).
 	rec := doJSON(t, r, "POST", "/api/users/import", map[string]any{"users": []map[string]any{
 		{"username": "tok-new", "sub_token": "legacy-token-value-1"},
 	}})
@@ -219,7 +223,7 @@ func TestUserImportPreserveToken(t *testing.T) {
 		t.Fatalf("preserved token = %q, want legacy-token-value-1", got.SubToken)
 	}
 
-	// 占用令牌（他人已在用）→ 整批 400 零写入。
+	// Occupied token (already used by someone else) -> whole batch 400 with zero writes.
 	rec = doJSON(t, r, "POST", "/api/users/import", map[string]any{"users": []map[string]any{
 		{"username": "tok-x", "sub_token": old.SubToken},
 	}})
@@ -234,7 +238,7 @@ func TestUserImportPreserveToken(t *testing.T) {
 		t.Fatalf("taken-token import wrote %d rows, want 0", cnt)
 	}
 
-	// 批内重复令牌 → 400 零写入。
+	// In-batch duplicate token -> 400 with zero writes.
 	rec = doJSON(t, r, "POST", "/api/users/import", map[string]any{"users": []map[string]any{
 		{"username": "tok-y", "sub_token": "dup-token"},
 		{"username": "tok-z", "sub_token": "dup-token"},
@@ -250,7 +254,7 @@ func TestUserImportPreserveToken(t *testing.T) {
 		t.Fatalf("dup-token import wrote %d rows, want 0", dup)
 	}
 
-	// 不传 sub_token 仍生成新令牌（原口径回归）。
+	// Without sub_token a fresh token is still minted (regression of the original terms).
 	rec = doJSON(t, r, "POST", "/api/users/import", map[string]any{"users": []map[string]any{
 		{"username": "tok-gen"},
 	}})
@@ -266,7 +270,7 @@ func TestUserImportPreserveToken(t *testing.T) {
 	}
 }
 
-// doJSONToken 与 doJSON 同口径但用指定令牌（operator 层级配额面用例用）。
+// doJSONToken matches doJSON's terms but sends the given token (for operator-tier quota cases).
 func doJSONToken(t *testing.T, r *gin.Engine, token, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	var buf bytes.Buffer
@@ -283,18 +287,20 @@ func doJSONToken(t *testing.T, r *gin.Engine, token, method, path string, body a
 	return rec
 }
 
-// TestUserImportDBErrors 覆盖导出/导入各步取数与落库失败分支：导出取数、
-// 模板读取、沿用令牌查重、子管理员配额计数与无账号整批 403（operator 令牌
-// 口径）、事务内重名计数/建号/停用补写失败且回滚零写入。
+// TestUserImportDBErrors covers db failure branches at each export/import step:
+// export fetch, template load, reused-token dedup check, sub-admin quota count
+// and missing account 403ing the whole batch (operator token terms), and
+// in-transaction duplicate-count / account creation / disable-write failures
+// with rollback and zero writes.
 func TestUserImportDBErrors(t *testing.T) {
-	// 导出取数失败 → 500。
+	// Export fetch failure -> 500.
 	r, db := newTestRouterWithDB(t)
 	closeSQL(t, db)
 	if rec := doJSON(t, r, "GET", "/api/users/export", nil); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("export: %d %s", rec.Code, rec.Body)
 	}
 
-	// 套模板导入时模板读取失败 → 500。
+	// Template load failure during a template-based import -> 500.
 	r2, db2 := newTestRouterWithDB(t)
 	closeSQL(t, db2)
 	if rec := doJSON(t, r2, "POST", "/api/users/import", map[string]any{
@@ -303,7 +309,7 @@ func TestUserImportDBErrors(t *testing.T) {
 		t.Fatalf("template load: %d %s", rec.Code, rec.Body)
 	}
 
-	// 沿用令牌查重失败 → 500（db 侧错误按空用户名走 500，不按 400 驳回）。
+	// Reused-token dedup failure -> 500 (db-side errors go 500 with an empty username, not a 400 rejection).
 	r3, db3 := newTestRouterWithDB(t)
 	closeSQL(t, db3)
 	if rec := doJSON(t, r3, "POST", "/api/users/import", map[string]any{
@@ -312,7 +318,7 @@ func TestUserImportDBErrors(t *testing.T) {
 		t.Fatalf("token check: %d %s", rec.Code, rec.Body)
 	}
 
-	// operator 无对应管理员账号 → 整批 403 零写入。
+	// Operator with no matching admin account -> whole batch 403 with zero writes.
 	r4, db4 := newTestRouterWithDB(t)
 	if rec := doJSONToken(t, r4, opJWT(t, "ghost-op"), "POST", "/api/users/import",
 		map[string]any{"users": []map[string]any{{"username": "imp-1"}}}); rec.Code != http.StatusForbidden {
@@ -326,7 +332,7 @@ func TestUserImportDBErrors(t *testing.T) {
 		t.Fatalf("quota reject wrote %d users, want 0", zero4)
 	}
 
-	// operator 配额计数失败 → 403（计数查询注错，定位查询先放行）。
+	// Operator quota count failure -> 403 (count query injected with an error, the lookup query passes first).
 	r5, db5 := newTestRouterWithDB(t)
 	seedAdminRow(t, db5, "imp-op")
 	db5.Callback().Query().Before("gorm:query").Register("t:quotacount", func(tx *gorm.DB) {
@@ -339,7 +345,7 @@ func TestUserImportDBErrors(t *testing.T) {
 		t.Fatalf("quota count: %d %s", rec.Code, rec.Body)
 	}
 
-	// 事务内重名计数失败 → 500。
+	// In-transaction duplicate-count failure -> 500.
 	r6, db6 := newTestRouterWithDB(t)
 	db6.Callback().Query().Before("gorm:query").Register("t:dupcount", func(tx *gorm.DB) {
 		if _, ok := tx.Statement.Dest.(*int64); ok {
@@ -352,7 +358,7 @@ func TestUserImportDBErrors(t *testing.T) {
 		t.Fatalf("dup count: %d %s", rec.Code, rec.Body)
 	}
 
-	// 事务内建号失败 → 500（回滚零写入）。
+	// In-transaction account creation failure -> 500 (rollback, zero writes).
 	r7, db7 := newTestRouterWithDB(t)
 	db7.Callback().Create().Before("gorm:create").Register("t:importcreate", func(tx *gorm.DB) {
 		if _, ok := tx.Statement.Dest.(*storage.User); ok {
@@ -372,7 +378,8 @@ func TestUserImportDBErrors(t *testing.T) {
 		t.Fatalf("import rollback leaked %d users", zero7)
 	}
 
-	// 停用补写失败 → 500（显式 enabled:false 的补写分支，回滚零写入）。
+	// Disable write-back failure -> 500 (the explicit enabled:false write-back
+	// branch, rollback with zero writes).
 	r8, db8 := newTestRouterWithDB(t)
 	db8.Callback().Update().Before("gorm:update").Register("t:disablewrite", func(tx *gorm.DB) {
 		if _, ok := tx.Statement.Model.(*storage.User); ok {

@@ -10,7 +10,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/config"
 )
 
-// stubServifyOK 是最小 servify 替身：guest/session 与 customers 两路可探。
+// stubServifyOK is a minimal servify stand-in: both the guest/session and customers paths are observable.
 func stubServifyOK(t *testing.T, hits *atomic.Int32) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
@@ -55,7 +55,7 @@ func TestPanelSupportDisabledByDefault(t *testing.T) {
 	token := panelToken(t, r, "dora")
 
 	var hits atomic.Int32
-	_ = stubServifyOK(t, &hits) // 存活但不应被调用
+	_ = stubServifyOK(t, &hits) // alive but must never be called
 	rec := doPanel(t, r, token, "GET", "/api/panel/support", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("support: %d %s", rec.Code, rec.Body)
@@ -109,7 +109,8 @@ func TestPanelSupportEnabledPayload(t *testing.T) {
 }
 
 func TestPanelSupportDegradesWhenServifyDown(t *testing.T) {
-	// 指向已关闭端口：客服不可达时降级 enabled=false，面板主流程不受扰。
+	// Point at a closed port: when support is unreachable, degrade to enabled=false
+	// without disturbing the panel main flow.
 	srv := httptest.NewServer(http.NewServeMux())
 	srv.Close()
 	r, _ := newTestRouterCfg(t, func(c *config.Config) {

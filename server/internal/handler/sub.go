@@ -16,15 +16,16 @@ import (
 	"gorm.io/gorm"
 )
 
-// trafficUsage 汇总某用户的累计用量。
+// trafficUsage aggregates a user's cumulative usage.
 type trafficUsage struct {
 	Rx int64
 	Tx int64
 }
 
-// subTargetByUA 按客户端 UA 协商订阅格式（?target= 未显式给定时）：
-// clash 系（clash/clash-verge/mihomo）走 YAML；sing-box 原生与 Stash 走
-// outbounds JSON；其余回落 v2ray base64（SHOP-2）。主订阅与自建订阅共用。
+// subTargetByUA negotiates the subscription format by client UA (when ?target= is not
+// explicitly given): clash family (clash/clash-verge/mihomo) gets YAML; sing-box native
+// and Stash get outbounds JSON; everything else falls back to v2ray base64 (SHOP-2).
+// Shared by the main subscription and the custom subscriptions.
 func subTargetByUA(ua string) string {
 	ua = strings.ToLower(ua)
 	switch {
@@ -37,12 +38,14 @@ func subTargetByUA(ua string) string {
 	}
 }
 
-// subscription 处理 GET /sub/:token（P0-6/P0-7/P0-8/E-19）：
-// 按 token 限频（安全设计 §4，防枚举；命中 429 记日志，token 脱敏只留前缀）；
-// 未启用用户按 404 处理（令牌视同吊销，防枚举）；到期/超限返回空订阅+用量头；
-// 入口列表按区域分组、备注带聚合测速延迟。target=v2ray|clash|singbox 显式指定
-// （singbox=sing-box outbounds 数组，hy2 批），缺省按 UA 识别（clash 系走
-// clash、sing-box/Stash 走 singbox，其余 v2ray，SHOP-2）。
+// subscription handles GET /sub/:token (P0-6/P0-7/P0-8/E-19):
+// rate limited per token (Security Design §4, anti-enumeration; 429 hits are logged with
+// the token redacted to its prefix); disabled users are treated as 404 (tokens count as
+// revoked, anti-enumeration); expired/over-quota users get an empty subscription plus
+// usage headers; the entry list is grouped by region with aggregated probe RTT in the
+// remarks. target=v2ray|clash|singbox can be given explicitly (singbox = a sing-box
+// outbounds array, hy2 batch); by default it is detected from the UA (clash family gets
+// clash, sing-box/Stash get singbox, everything else v2ray, SHOP-2).
 func (h *Handler) subscription(c *gin.Context) {
 	token, ip := c.Param("token"), c.ClientIP()
 	if !h.subMissLimiter.Allow(ip) || !h.subLimiter.Allow(token) {
@@ -65,9 +68,11 @@ func (h *Handler) subscription(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 		return
 	}
-	// 设备/IP 数校验（P2-4）：IP 面总是执行（不依赖客户端），hwid 面仅
-	// 在客户端带 X-Client-Hwid 时生效——未上报则设备数限制对该请求不生效
-	// （客户端配合不可控，超限风险记 todo）。已在册的老设备/老 IP 不受影响。
+	// Device/IP count checks (P2-4): the IP facet always runs (client-independent);
+	// the hwid facet only applies when the client sends X-Client-Hwid -- without it the
+	// device limit does not affect that request (client cooperation is out of our
+	// control; over-limit risk noted as todo). Already-registered devices/IPs are
+	// unaffected.
 	if err := h.subDeviceCheck(c, &u, c.GetHeader("X-Client-Hwid"), ip, c.Request.UserAgent()); err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
@@ -83,8 +88,10 @@ func (h *Handler) subscription(c *gin.Context) {
 
 	entries := []sub.Entry{}
 	if sub.UserActive(&u, usage.Rx+usage.Tx, time.Now()) {
-		// 订阅下发入口列表（E-19）：仅 entry/both 角色且未摘除（E-16 池态 active）的节点；落地不下发。
-		// provisioning（OS-3 供给中）不出订阅，转 online 后自动入列。
+		// Entry list delivered by the subscription (E-19): only entry/both-role nodes not
+		// yet removed (E-16 pool state active); landing nodes are not delivered.
+		// Nodes still provisioning (OS-3) stay out of the subscription until they turn
+		// online, at which point they enter the list automatically.
 		var nodes []storage.Node
 		if err := h.db.Where("enabled = ? AND role IN (?, ?) AND pool_state = ? AND status != ?",
 			true, "entry", "both", pool.StateActive, "provisioning").
@@ -97,9 +104,11 @@ func (h *Handler) subscription(c *gin.Context) {
 		for _, n := range nodes {
 			entries = append(entries, sub.Entry{Node: n, RttMs: rtt[n.ID]})
 		}
-		// 配额联动降档（SAVE-6）：生效中的联动行按其快照档线过滤——只出
-		// 低成本档入口，新连接自然落到低成本落地；无低成本档可用时订阅为空
-		// （与超限空订阅同口径，用户经站内信知情）。
+		// Quota-linked downgrade (SAVE-6): active linkage rows filter by their snapshot
+		// tier line -- only low-cost-tier entries are served, so new connections naturally
+		// land on low-cost landing nodes; with no low-cost tier available the subscription
+		// is empty (same semantics as the over-quota empty subscription; users are informed
+		// via in-panel mail).
 		action, err := quota.ActiveAction(h.db, u.ID)
 		if err != nil {
 			fail(c, http.StatusInternalServerError, err)
@@ -122,14 +131,15 @@ func (h *Handler) subscription(c *gin.Context) {
 		target = subTargetByUA(c.Request.UserAgent())
 	}
 
-	// P0-7 头：用量与到期（节点收到的 rx 记用户上传，tx 记下载）。
+	// P0-7 headers: usage and expiry (rx as seen by the node counts as user upload, tx as download).
 	c.Header("Subscription-Userinfo", userinfoHeader(u, usage))
 	c.Header("Profile-Update-Interval", "24")
 	c.Header("Profile-Title", u.Username)
 
-	// 断联容灾（TOUCH-7）：订阅文本注释带备用公告地址与备用域名清单，
-	// 客户端缓存里自带逃生通道（断联前就已下发；空订阅同样附——到期/超限
-	// 用户更要找得回来）。
+	// Outage contingency (TOUCH-7): subscription text comments carry a backup notice
+	// address and a backup domain list, so the client cache has its own escape channel
+	// (issued before any disconnection; empty subscriptions get them too -- expired and
+	// over-quota users need a way back the most).
 	notes := h.outageNotes()
 
 	switch target {
@@ -148,10 +158,11 @@ func (h *Handler) subscription(c *gin.Context) {
 		}
 		c.Data(http.StatusOK, "text/yaml; charset=utf-8", []byte(body))
 	case "singbox":
-		// sing-box outbounds 数组（hy2 批建、SB 批补全五协议）：客户端并入
-		// outbounds 段即可用。TOUCH-7 逃生注释不带——纯 JSON 无注释位，
-		// 插注释行即破坏解析；容灾注释走 v2ray/clash 目标（公告 panel 站内
-		// 与 Herald 外通道仍可达）。
+		// A sing-box outbounds array (built in the hy2 batch, five protocols completed in
+		// the SB batch): clients just merge it into their outbounds section. TOUCH-7 escape
+		// comments are omitted -- plain JSON has no comment position and inserting comment
+		// lines breaks parsing; the contingency notes travel via the v2ray/clash targets
+		// (the panel's in-site notice and the Herald out-of-band channel remain reachable).
 		body, err := sub.PackSingBox(entries)
 		if err != nil {
 			fail(c, http.StatusInternalServerError, err)
@@ -163,12 +174,13 @@ func (h *Handler) subscription(c *gin.Context) {
 	}
 }
 
-// rttWindow 内的隧道探测结论参与入口测速聚合。
+// rttWindow is the window of tunnel probe verdicts that participate in entry speed aggregation.
 const rttWindow = 30 * time.Minute
 
-// entryRttMs 聚合每个入口近期可达隧道探测的平均 RTT（毫秒，E-19）。
-// 无数据或不可达的入口不出现在返回值里，订阅备注随之省略延迟。
-// 聚合失败不阻断订阅，退化成无延迟输出。
+// entryRttMs aggregates the average RTT (ms, E-19) of recent reachable tunnel probes
+// per entry. Entries with no data or unreachable entries are absent from the return
+// value, and the subscription remarks then omit the latency. Aggregation failure does
+// not block the subscription; output degrades to no-latency.
 func (h *Handler) entryRttMs() map[uint]int {
 	out := map[uint]int{}
 	var rows []struct {

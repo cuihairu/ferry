@@ -11,30 +11,35 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// subDeviceIPWindow 是 IP 数统计的滚动窗口（P2-4）：窗口内独立 IP 计入
-// ip_limit，窗口外的旧行在判定时顺带清理（小用户量懒清理足够）。
+// subDeviceIPWindow is the rolling window for IP counting (P2-4): distinct IPs inside
+// the window count against ip_limit, and stale rows outside it are cleaned up as a
+// side effect of each verdict (lazy pruning is enough at this user scale).
 const subDeviceIPWindow = 24 * time.Hour
 
-// subDeviceCheck 记录并校验订阅端设备/IP（P2-4）：
-//   - ip 面：订阅来源 IP 总是可记（不依赖客户端），窗口内独立 IP 数超
-//     ip_limit 即拒（403）；
-//   - hwid 面：客户端带 X-Client-Hwid 才可记设备，设备数超 device_limit 即拒；
-//     未带 hwid 的订阅请求该面不生效（客户端配合不可控，见 todo P2-4）。
+// subDeviceCheck records and checks subscription devices/IPs (P2-4):
+//   - ip facet: the subscription source IP can always be recorded (client-independent);
+//     distinct IPs inside the window exceeding ip_limit are rejected (403);
+//   - hwid facet: a device can only be recorded when the client sends X-Client-Hwid,
+//     and device counts over device_limit are rejected; subscription requests without a
+//     hwid are not subject to this facet (client cooperation is out of our control, see
+//     todo P2-4).
 //
-// 已在册的 key（老设备/老 IP）不受收紧影响——只拦新 key，避免误伤存量。
-// 超限拒访时按用户按日去重落一条 admin 告警（herald outbox）。
+// Already-registered keys (existing devices/IPs) are unaffected by tightening -- only new
+// keys are blocked, so the existing base is not caught in the crossfire.
+// Over-limit rejections land one admin alert per user per day (herald outbox, deduped).
 func (h *Handler) subDeviceCheck(c *gin.Context, u *storage.User, hwid, ip, ua string) error {
 	now := time.Now()
-	// IP 面（总是执行）。
+	// IP facet (always runs).
 	exists, err := h.subDeviceExists(u.ID, "ip", ip)
 	if err != nil {
 		return err
 	}
 	if exists {
-		h.subDeviceTouch(u.ID, "ip", ip, ua, now) // 老 IP 续期（懒更新，失败不阻断）
+		h.subDeviceTouch(u.ID, "ip", ip, ua, now) // renew an existing IP (lazy update, failures do not block)
 	} else {
-		// 窗口外旧行总是顺带清理（P1-7）：IPLimit=0 无限额用户此前从不清窗，
-		// sub_devices 无限增长；每次新 IP 到访清一次，表体量有界。
+		// Rows outside the window are always pruned here (P1-7): unlimited users
+		// (IPLimit=0) never had their window cleared before, so sub_devices grew
+		// without bound; pruning once per new IP visit keeps the table bounded.
 		h.pruneSubDevices(u.ID, now)
 		if u.IPLimit > 0 {
 			var cnt int64
@@ -52,7 +57,7 @@ func (h *Handler) subDeviceCheck(c *gin.Context, u *storage.User, hwid, ip, ua s
 			return err
 		}
 	}
-	// HWID 面（客户端上报才生效）。
+	// HWID facet (only effective when the client reports one).
 	if hwid != "" {
 		exists, err := h.subDeviceExists(u.ID, "hwid", hwid)
 		if err != nil {
@@ -81,7 +86,7 @@ func (h *Handler) subDeviceCheck(c *gin.Context, u *storage.User, hwid, ip, ua s
 	return nil
 }
 
-// listUserDevices 列出某用户的设备/IP 记录（GET /api/users/:id/devices）。
+// listUserDevices lists a user's device/IP records (GET /api/users/:id/devices).
 func (h *Handler) listUserDevices(c *gin.Context) {
 	u, err := h.findUser(c.Param("id"))
 	if err != nil {
@@ -99,7 +104,7 @@ func (h *Handler) listUserDevices(c *gin.Context) {
 	c.JSON(http.StatusOK, rows)
 }
 
-// subDeviceExists 查某 user 名下某 kind/key 是否已在册。
+// subDeviceExists reports whether a kind/key is already registered under a user.
 func (h *Handler) subDeviceExists(userID uint, kind, key string) (bool, error) {
 	var cnt int64
 	err := h.db.Model(&storage.SubDevice{}).
@@ -108,8 +113,9 @@ func (h *Handler) subDeviceExists(userID uint, kind, key string) (bool, error) {
 	return cnt > 0, err
 }
 
-// subDeviceTouch 落一条设备/IP 记录（首访新建，已有则续期 last_seen）；
-// 并发首访撞唯一索引按已存在处理。
+// subDeviceTouch lands a device/IP record (created on first visit, last_seen renewed
+// when it already exists); a concurrent first visit hitting the unique index is treated
+// as already present.
 func (h *Handler) subDeviceTouch(userID uint, kind, key, ua string, now time.Time) error {
 	err := h.db.Create(&storage.SubDevice{
 		UserID: userID, Kind: kind, Key: key, UserAgent: ua,
@@ -126,13 +132,13 @@ func (h *Handler) subDeviceTouch(userID uint, kind, key, ua string, now time.Tim
 		Updates(map[string]any{"last_seen": now, "user_agent": ua}).Error
 }
 
-// pruneSubDevices 清某用户窗口外的 IP 行（hwid 行是设备集合，不随窗口清）。
+// pruneSubDevices deletes a user's IP rows outside the window (hwid rows are a device set and are not cleared with the window).
 func (h *Handler) pruneSubDevices(userID uint, now time.Time) {
 	h.db.Where("user_id = ? AND kind = ? AND last_seen < ?", userID, "ip", now.Add(-subDeviceIPWindow)).
 		Delete(&storage.SubDevice{})
 }
 
-// alertSubDeviceLimit 落一条设备/IP 超限告警（按用户按日去重，不刷屏）。
+// alertSubDeviceLimit lands a device/IP over-limit alert (deduped per user per day, so the inbox is not flooded).
 func (h *Handler) alertSubDeviceLimit(u *storage.User, kind, key string) {
 	dedup := fmt.Sprintf("device_limit:%d:%s", u.ID, time.Now().Format("2006-01-02"))
 	var n int64
@@ -155,7 +161,7 @@ func (h *Handler) alertSubDeviceLimit(u *storage.User, kind, key string) {
 	})
 }
 
-// validateSubLimit 校验设备数/IP 上限取值（P2-4）：0=不限，正数上限 1000。
+// validateSubLimit checks device/IP limit values (P2-4): 0 means unlimited, positive values are capped at 1000.
 func validateSubLimit(deviceLimit, ipLimit *int) error {
 	if deviceLimit != nil && (*deviceLimit < 0 || *deviceLimit > 1000) {
 		return errors.New("device_limit must be 0-1000 (0 = unlimited)")

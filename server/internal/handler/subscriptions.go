@@ -1,6 +1,8 @@
-// 自建订阅自助面（ferry-sub-filters，2026-11-21 用户拍板）：用户以订阅令牌
-// 登录（panelUser 同口径）管理自己的独立订阅——CRUD 与重置 token。
-// 路径与管理面共用 /api 前缀，但鉴权口径是订阅令牌（panelAuth），不是管理员 JWT。
+// Self-service surface for user-built subscriptions (ferry-sub-filters, decided by
+// the user on 2026-11-21): users log in with their subscription token (same code path
+// as panelUser) to manage their own subscriptions — CRUD plus token reset.
+// Paths share the /api prefix with the admin surface, but authentication uses the
+// subscription token (panelAuth), not the admin JWT.
 package handler
 
 import (
@@ -17,14 +19,16 @@ import (
 	"gorm.io/gorm"
 )
 
-// subPerUserMax 是每用户自建订阅上限（超限 409）。
+// subPerUserMax is the per-user cap on self-built subscriptions (exceeding it gives 409).
 const subPerUserMax = 10
 
-// ctxSubUserKey 是 panelAuth 中间件存入上下文的键（当前登录用户）。
+// ctxSubUserKey is the key the panelAuth middleware stores the logged-in user under.
 const ctxSubUserKey = "subscriptions.user"
 
-// panelAuth 是订阅自助面的身份中间件：解析订阅令牌（同 panelUser 口径），
-// 成功则把用户存入上下文供 handler 读取；失败由 panelUser 自行回 404（防枚举）。
+// panelAuth is the identity middleware for the subscription self-service surface:
+// it resolves the subscription token (same code path as panelUser) and, on success,
+// stores the user in the context for handlers to read; on failure panelUser itself
+// answers 404 (anti-enumeration).
 func (h *Handler) panelAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		u, ok := h.panelUser(c)
@@ -37,7 +41,7 @@ func (h *Handler) panelAuth() gin.HandlerFunc {
 	}
 }
 
-// subUserFrom 从上下文取当前登录用户（panelAuth 之后可用）。
+// subUserFrom reads the logged-in user from the context (available after panelAuth).
 func subUserFrom(c *gin.Context) (storage.User, bool) {
 	v, ok := c.Get(ctxSubUserKey)
 	if !ok {
@@ -47,16 +51,18 @@ func subUserFrom(c *gin.Context) (storage.User, bool) {
 	return u, ok
 }
 
-// decodeStrict 严格解码请求体：未知字段与格式错误一律报错——防「nam」这类
-// 拼写错误被静默忽略成空 name，导致看似配置了实则失效。
+// decodeStrict strictly decodes the request body: unknown fields and malformed
+// payloads always error out — prevents a typo like "nam" from being silently
+// ignored into an empty name that looks configured but does nothing.
 func decodeStrict(c *gin.Context, out any) error {
 	dec := json.NewDecoder(c.Request.Body)
 	dec.DisallowUnknownFields()
 	return dec.Decode(out)
 }
 
-// filterText 规范化 filter 载荷为落库文本：缺省 "{}"，提供时严格校验
-// （解析失败或含未知字段即报错，由调用方转 400）。
+// filterText normalizes the filter payload into stored text: "{}" when absent,
+// strict validation when provided (parse failures or unknown fields error out;
+// the caller maps that to 400).
 func filterText(raw json.RawMessage) (string, error) {
 	if len(raw) == 0 {
 		return "{}", nil
@@ -67,7 +73,7 @@ func filterText(raw json.RawMessage) (string, error) {
 	return string(raw), nil
 }
 
-// configText 规范化 config 载荷为落库文本（口径同 filterText）。
+// configText normalizes the config payload into stored text (same policy as filterText).
 func configText(raw json.RawMessage) (string, error) {
 	if len(raw) == 0 {
 		return "{}", nil
@@ -78,16 +84,18 @@ func configText(raw json.RawMessage) (string, error) {
 	return string(raw), nil
 }
 
-// ownSubscription 按 id + 属主查自建订阅：他人 id 或不存在都查不到，
-// handler 一律回 404（不泄露「存在但不是你的」，与令牌防枚举口径一致）。
+// ownSubscription looks up a self-built subscription by id + owner: another user's
+// id and a nonexistent id both miss, and the handler answers 404 either way (never
+// leaking "exists but not yours", consistent with the token anti-enumeration policy).
 func (h *Handler) ownSubscription(id uint, userID uint) (storage.Subscription, error) {
 	var s storage.Subscription
 	err := h.db.Where("id = ? AND user_id = ?", id, userID).First(&s).Error
 	return s, err
 }
 
-// listSubscriptions 列出当前用户的全部自建订阅（GET /api/subscriptions）。
-// token 明文随列表返回——是本人自己的订阅，可以看。
+// listSubscriptions lists all of the current user's self-built subscriptions
+// (GET /api/subscriptions). Tokens are returned in plaintext — these are the
+// user's own subscriptions, so seeing them is fine.
 func (h *Handler) listSubscriptions(c *gin.Context) {
 	u, ok := subUserFrom(c)
 	if !ok {
@@ -101,9 +109,10 @@ func (h *Handler) listSubscriptions(c *gin.Context) {
 	c.JSON(http.StatusOK, subs)
 }
 
-// createSubscription 创建自建订阅（POST /api/subscriptions）：
-// token 服务端 crypto/rand 生成；name 必填；filter/config 严格 JSON（未知字段 400）；
-// 每用户上限 subPerUserMax，超限 409。
+// createSubscription creates a self-built subscription (POST /api/subscriptions):
+// the token is generated server-side with crypto/rand; name is required; filter/config
+// are strict JSON (unknown fields give 400); the per-user cap is subPerUserMax,
+// exceeding it gives 409.
 func (h *Handler) createSubscription(c *gin.Context) {
 	u, ok := subUserFrom(c)
 	if !ok {
@@ -153,9 +162,10 @@ func (h *Handler) createSubscription(c *gin.Context) {
 	c.JSON(http.StatusCreated, s)
 }
 
-// updateSubscription 更新自建订阅（PATCH /api/subscriptions/:id）：只能改自己的，
-// 他人 id 404；可选 name/filter/config/enabled，缺省保持原值；无任何可改字段
-// 时原样返回当前值（幂等）。
+// updateSubscription updates a self-built subscription (PATCH /api/subscriptions/:id):
+// only one's own — another user's id gives 404; name/filter/config/enabled are optional
+// and default to keeping the original values; with no updatable fields at all it
+// returns the current value unchanged (idempotent).
 func (h *Handler) updateSubscription(c *gin.Context) {
 	u, ok := subUserFrom(c)
 	if !ok {
@@ -205,7 +215,8 @@ func (h *Handler) updateSubscription(c *gin.Context) {
 		updates["config"] = config
 	}
 	if in.Enabled != nil {
-		// map 更新不按零值跳过，enabled=false 可写（struct 更新会漏掉 false）。
+		// map-based updates don't skip zero values, so enabled=false is writable
+		// (a struct update would drop false).
 		updates["enabled"] = *in.Enabled
 	}
 	if len(updates) == 0 {
@@ -219,8 +230,8 @@ func (h *Handler) updateSubscription(c *gin.Context) {
 	c.JSON(http.StatusOK, s)
 }
 
-// deleteSubscription 删除自建订阅（DELETE /api/subscriptions/:id）：
-// 只能删自己的，他人 id 404。
+// deleteSubscription deletes a self-built subscription (DELETE /api/subscriptions/:id):
+// only one's own — another user's id gives 404.
 func (h *Handler) deleteSubscription(c *gin.Context) {
 	u, ok := subUserFrom(c)
 	if !ok {
@@ -247,8 +258,9 @@ func (h *Handler) deleteSubscription(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// resetSubscriptionToken 重新生成订阅令牌（POST /api/subscriptions/:id/reset-token）：
-// 泄漏换发用，旧令牌立即失效；只能操作自己的。
+// resetSubscriptionToken regenerates the subscription token
+// (POST /api/subscriptions/:id/reset-token): for leak re-issuance — the old token
+// is invalidated immediately; only one's own subscription.
 func (h *Handler) resetSubscriptionToken(c *gin.Context) {
 	u, ok := subUserFrom(c)
 	if !ok {
@@ -281,7 +293,7 @@ func (h *Handler) resetSubscriptionToken(c *gin.Context) {
 	c.JSON(http.StatusOK, s)
 }
 
-// subIDParam 解析 :id 路由参数为订阅 id（非法值 400）。
+// subIDParam parses the :id route param as a subscription id (invalid values give 400).
 func subIDParam(c *gin.Context) (uint, error) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil || id == 0 {

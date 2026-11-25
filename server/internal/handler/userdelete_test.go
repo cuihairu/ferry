@@ -9,10 +9,12 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestDeleteUserKeepsTrafficHistory 覆盖 P2 deleteUser 级联删计费历史修复：
-// 删除用户后 traffic_logs 记账明细保留且 user_id 置空（摘归属不删账），
-// 订阅设备/IP 安全态随用户清除，用户行本身 404。修复前 User 外键
-// CASCADE，删除用户连带清掉全部计费历史。
+// TestDeleteUserKeepsTrafficHistory covers the P2 deleteUser fix for
+// cascade-deleting billing history: after deleting a user, traffic_logs
+// ledger rows survive with user_id nulled (detach ownership, don't delete
+// the ledger), subscription device/IP safety state clears with the user, and
+// the user row itself 404s. Before the fix the User foreign key was CASCADE
+// and deleting a user wiped out all billing history.
 func TestDeleteUserKeepsTrafficHistory(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 
@@ -24,7 +26,7 @@ func TestDeleteUserKeepsTrafficHistory(t *testing.T) {
 	if err := db.Where("username = ?", "hist").First(&u).Error; err != nil {
 		t.Fatal(err)
 	}
-	// 落两条计费记录 + 一条设备记录（安全态，应随用户清除）。
+	// Two billing rows + one device row (safety state, should clear with the user).
 	uid := u.ID
 	if err := db.Create(&storage.TrafficLog{
 		UserID: &uid, RxBytes: 100, TxBytes: 50, RecordedAt: time.Now(),
@@ -47,7 +49,7 @@ func TestDeleteUserKeepsTrafficHistory(t *testing.T) {
 		t.Fatalf("delete user: %d %s", rec.Code, rec.Body)
 	}
 
-	// 用户行删除（404），计费历史保留（2 行），归属置空。
+	// User row deleted (404), billing history kept (2 rows), ownership nulled.
 	if rec := doJSON(t, r, "GET", "/api/users/"+idStr, nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("deleted user should 404: %d", rec.Code)
 	}

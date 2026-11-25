@@ -10,22 +10,22 @@ import (
 	"gorm.io/gorm"
 )
 
-// TestTrafficRecordErrors 覆盖流量记账的坏载荷、缺必填、引用缺失、
-// 取数与落库失败分支。
+// TestTrafficRecordErrors covers traffic accounting's malformed payload, missing
+// required field, missing reference, and read/write failure branches.
 func TestTrafficRecordErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doRaw(t, r, "POST", "/api/traffic-logs", "{bad"); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad json: %d %s", rec.Code, rec.Body)
 	}
-	// 行缺 user_id → 400（记账主键不可省）。
+	// Row missing user_id → 400 (the accounting primary key cannot be omitted).
 	if rec := doJSON(t, r, "POST", "/api/traffic-logs", map[string]any{
 		"items": []map[string]any{{"tx_bytes": 1}},
 	}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("missing user_id: %d %s", rec.Code, rec.Body)
 	}
 
-	// 引用部分缺失：一个有效 node_id + 一个缺失 → 400（缺失值回报，
-	// 命中集非空走 have 交集比对）。
+	// Partially missing reference: one valid node_id + one missing → 400 (the missing
+	// value is reported; a non-empty hit set takes the have-intersection comparison).
 	r2, _ := newTestRouterWithDB(t)
 	_, uid := createLimitedUser(t, r2, "tl-ref", 0, 0)
 	nid, _ := createNodeFor(t, r2, "tl-node")
@@ -38,8 +38,9 @@ func TestTrafficRecordErrors(t *testing.T) {
 		t.Fatalf("unknown node: %d %s", rec.Code, rec.Body)
 	}
 
-	// 引用 id 校验取数失败 → 400（checkIDsExist 的查无与库故障同走
-	// 「引用缺失」400 口径，库错文案原样透出；观察项，不改产品行为）。
+	// Reference id validation read failure → 400 (checkIDsExist's not-found and DB
+	// failure share the "missing reference" 400 policy, with the DB error text passed
+	// through verbatim; observation item, product behavior unchanged).
 	r3, db3 := newTestRouterWithDB(t)
 	_, uid3 := createLimitedUser(t, r3, "tl-plk", 0, 0)
 	regQueryFail("t:trafficpluck", db3, (*[]uint)(nil))
@@ -49,7 +50,7 @@ func TestTrafficRecordErrors(t *testing.T) {
 		t.Fatalf("pluck fail: %d %s", rec.Code, rec.Body)
 	}
 
-	// 落库失败 → 500（批量 Create 目标 *[]TrafficLog）。
+	// Write failure → 500 (batch Create destination is *[]TrafficLog).
 	r4, db4 := newTestRouterWithDB(t)
 	_, uid4 := createLimitedUser(t, r4, "tl-wr", 0, 0)
 	db4.Callback().Create().Before("gorm:create").Register("t:trafficcreate", func(tx *gorm.DB) {
@@ -64,15 +65,16 @@ func TestTrafficRecordErrors(t *testing.T) {
 	}
 }
 
-// TestTrafficReadErrors 覆盖单用户用量汇总的用户定位与明细取数失败分支。
+// TestTrafficReadErrors covers the single-user usage summary's user lookup and
+// detail read failure branches.
 func TestTrafficReadErrors(t *testing.T) {
-	// 用户不存在 → 404（findUser 查无与非法 id 同口径）。
+	// User does not exist → 404 (findUser's not-found and invalid id share the same policy).
 	r, _ := newTestRouterWithDB(t)
 	if rec := doJSON(t, r, "GET", "/api/users/999/traffic", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("missing user: %d", rec.Code)
 	}
 
-	// 明细取数失败 → 500。
+	// Detail read failure → 500.
 	r2, db2 := newTestRouterWithDB(t)
 	_, uid := createLimitedUser(t, r2, "tl-rd", 0, 0)
 	regQueryFail("t:trafficrows", db2, (*[]storage.TrafficLog)(nil))

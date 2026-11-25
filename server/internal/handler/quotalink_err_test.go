@@ -10,24 +10,26 @@ import (
 	"gorm.io/gorm"
 )
 
-// TestQuotaLinkDBErrors 覆盖联动管理端取数故障：设置读取失败与留痕列表
-// 查询失败均 500；保存成功后回读失败同样 500（保存已成功，不回显成功）。
+// TestQuotaLinkDBErrors covers read failures on the linkage admin side: a failed
+// setting read and a failed trail list query both return 500; a failed reread
+// after a successful save also returns 500 (the save already succeeded, so no
+// success is echoed).
 func TestQuotaLinkDBErrors(t *testing.T) {
-	// 设置读取失败 → 500。
+	// setting read failure -> 500.
 	r, db := newTestRouterWithDB(t)
 	regQueryFail("t:ql_setting", db, (*storage.Setting)(nil))
 	if rec := doJSON(t, r, http.MethodGet, "/api/quota-link", nil); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("load setting: %d %s", rec.Code, rec.Body)
 	}
 
-	// 留痕列表查询失败 → 500。
+	// trail list query failure -> 500.
 	r, db = newTestRouterWithDB(t)
 	regQueryFail("t:ql_rows", db, (*[]storage.QuotaAction)(nil))
 	if rec := doJSON(t, r, http.MethodGet, "/api/quota-link", nil); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("list rows: %d %s", rec.Code, rec.Body)
 	}
 
-	// 保存成功后再回读失败 → 500。
+	// reread failure after a successful save -> 500.
 	r, db = newTestRouterWithDB(t)
 	var saved atomic.Bool
 	db.Callback().Update().Before("gorm:update").Register("t:ql_save", func(tx *gorm.DB) {
@@ -51,7 +53,8 @@ func TestQuotaLinkDBErrors(t *testing.T) {
 	}
 }
 
-// TestQuotaLinkBadPayload 覆盖 PUT 坏载荷 400（落库前拦截）。
+// TestQuotaLinkBadPayload covers a bad PUT payload returning 400 (rejected before
+// it reaches the database).
 func TestQuotaLinkBadPayload(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doRaw(t, r, http.MethodPut, "/api/quota-link", "{bad"); rec.Code != http.StatusBadRequest {

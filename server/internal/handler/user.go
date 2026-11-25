@@ -14,21 +14,23 @@ import (
 	"gorm.io/gorm"
 )
 
-// userOnlineWindow 是 G2 在线判定窗口：agent 默认 30s 心跳 / 60s 流量上报，
-// 取 3 分钟阈值可容忍一次上报丢失，又不把「已断连许久」误判为在线。
+// userOnlineWindow is the G2 online-judgement window: agents default to a 30s heartbeat / 60s
+// traffic report, so a 3-minute threshold tolerates one lost report without mistaking a long-dead
+// connection for online.
 const userOnlineWindow = 3 * time.Minute
 
-// userView 是用户列表/详情的输出视图：在存储行上补在线态与最近接入节点名。
+// userView is the output view for the user list/detail: the storage row plus online state and the
+// most recent node name.
 type userView struct {
 	storage.User
 	Online   bool   `json:"online"`
 	LastNode string `json:"last_node,omitempty"`
 }
 
-// userViews 批量把存储行转视图：一次查询补齐最近接入节点名。
+// userViews converts storage rows to views in bulk: one query fills in the most recent node names.
 func (h *Handler) userViews(users []storage.User) []userView {
 	out := make([]userView, 0, len(users))
-	// 收集最近接入节点 ID，一次 IN 查询取名称。
+	// Collect the most recent node IDs and fetch the names with a single IN query.
 	ids := map[uint]bool{}
 	for _, u := range users {
 		if u.LastNodeID != nil {
@@ -86,7 +88,8 @@ func (h *Handler) createUser(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	// 套用默认模板（P1-5）：先补全缺席字段，后续校验与落库走同一管线。
+	// Apply the default template (P1-5): fill in absent fields first, then run the same validation
+	// and persistence pipeline as before.
 	if in.UseTemplate != nil && *in.UseTemplate {
 		tpl, err := h.loadUserTemplate()
 		if err != nil {
@@ -117,9 +120,11 @@ func (h *Handler) createUser(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	// 子管理员建用户配额（P2-2）：operator 受自身 max_users 约束，按
-	// created_by 归账计数（只数自己建的），超配额 403；super 不受限。
-	// api 组经 apiAuth，操作者名取 apiUser（=管理员 JWT Subject）。
+	// Sub-admin user creation quota (P2-2): an operator is bound by their own max_users and
+	// counted by created_by (only their own creations count); exceeding the quota gives 403.
+	// super is unlimited.
+	// The api group goes through apiAuth, so the operator name comes from apiUser (= the admin
+	// JWT Subject).
 	operator := ""
 	if actor, ok := c.Get("apiUser"); ok {
 		if s, isStr := actor.(string); isStr {
@@ -171,7 +176,7 @@ func (h *Handler) createUser(c *gin.Context) {
 		return
 	}
 	if !enabled {
-		// Enabled 带 default:true，零值 false 会被 GORM 略过落库默认值，需显式补写。
+		// Enabled carries default:true, so the zero value false is skipped by GORM in favor of the DB default; write it explicitly.
 		if err := h.db.Model(&storage.User{}).Where("id=?", u.ID).Update("enabled", false).Error; err != nil {
 			fail(c, http.StatusInternalServerError, err)
 			return
@@ -193,11 +198,12 @@ func (h *Handler) updateUser(c *gin.Context) {
 		return
 	}
 	updates := map[string]any{}
-	// renamedFrom 是改名前的旧名（P2 流量漏计修复）：改名后节点侧配置未
-	// 重推期间旧 email 仍在上报，旧名留作别名供 saveUserTraffic 继续归属。
+	// renamedFrom is the pre-rename name (P2 missed-traffic fix): until the node-side config is
+	// re-pushed after the rename, the old email keeps reporting, so the old name stays as an
+	// alias for saveUserTraffic to keep attributing traffic.
 	renamedFrom := ""
 	if strings.TrimSpace(in.Username) != "" {
-		// Username 非空即视为改名（PATCH 语义，空串不改）。
+		// A non-empty Username counts as a rename (PATCH semantics; an empty string leaves it unchanged).
 		username := strings.TrimSpace(in.Username)
 		if len(username) > 64 {
 			fail(c, http.StatusBadRequest, errors.New("username is required (1-64 chars)"))
@@ -228,7 +234,7 @@ func (h *Handler) updateUser(c *gin.Context) {
 			fail(c, http.StatusBadRequest, err)
 			return
 		}
-		// PATCH 语义：只改显式给的字段，缺席不动（derefInt 仅取值不置零）。
+		// PATCH semantics: only explicitly given fields change, absent ones stay put (derefInt only reads a value, it does not zero it).
 		if in.BwUpMbps != nil {
 			updates["bw_up_mbps"] = *in.BwUpMbps
 		}
@@ -241,7 +247,7 @@ func (h *Handler) updateUser(c *gin.Context) {
 			fail(c, http.StatusBadRequest, err)
 			return
 		}
-		// PATCH 语义同带宽限额：只改显式给的字段。
+		// PATCH semantics as with the bandwidth limits: only explicitly given fields change.
 		if in.DeviceLimit != nil {
 			updates["device_limit"] = *in.DeviceLimit
 		}
@@ -271,10 +277,12 @@ func (h *Handler) updateUser(c *gin.Context) {
 			if err := tx.Model(&storage.User{}).Where("id=?", u.ID).Updates(updates).Error; err != nil {
 				return err
 			}
-			// 改名：旧名留别名（P2 流量漏计）。已存在的同名别名不覆盖
-			//（同名换主时保留原归属，当前用户名匹配优先于别名，见
-			// saveUserTraffic）；并发撞唯一约束视为已留，不阻断改名。
-			// 别名与改名同事务，改一半必回滚。
+			// Rename: keep the old name as an alias (P2 missed traffic). An existing alias with the
+			// same name is not overwritten (when a name changes owner the original attribution is
+			// kept, and the current username match takes precedence over aliases — see
+			// saveUserTraffic); a concurrent unique-constraint hit counts as already present and
+			// does not block the rename.
+			// The alias and the rename share one transaction, so a half-finished change always rolls back.
 			if renamedFrom != "" {
 				var cnt int64
 				if err := tx.Model(&storage.UserAlias{}).
@@ -314,10 +322,13 @@ func (h *Handler) deleteUser(c *gin.Context) {
 		replyFind(c, err)
 		return
 	}
-	// 设备/IP 记录是安全态（非账目流水），随用户一并清掉不留孤儿行。
-	// 计费历史（traffic_logs 记账明细）不删不改（口径 quota.go）：删除用户前
-	// 先把 user_id 置空解除归属，避免 DB 级联（旧库 CASCADE 约束）把账目历史
-	// 一并删掉——删除用户只摘归属，账目留存。事务包裹：摘除与删行原子。
+	// Device/IP records are a security state (not an accounting ledger), so they are cleared with
+	// the user rather than left as orphan rows.
+	// Billing history (the traffic_logs accounting detail) is neither deleted nor altered (per
+	// quota.go): before deleting a user, user_id is nulled first to release the attribution, so a
+	// DB-level cascade (an older DB's CASCADE constraint) cannot wipe the accounting history along
+	// with it — deleting a user only detaches attribution; the ledger is retained. Wrapped in a
+	// transaction: detaching and deleting the row are atomic.
 	err = h.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("user_id = ?", u.ID).Delete(&storage.SubDevice{}).Error; err != nil {
 			return err
@@ -335,7 +346,7 @@ func (h *Handler) deleteUser(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"deleted": u.ID})
 }
 
-// resetSubToken 重置订阅令牌：旧链接立即失效（对齐安全设计 §4）。
+// resetSubToken resets the subscription token: the old link stops working immediately (per Security Design §4).
 func (h *Handler) resetSubToken(c *gin.Context) {
 	u, err := h.findUser(c.Param("id"))
 	if err != nil {
@@ -351,7 +362,7 @@ func (h *Handler) resetSubToken(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
-	// 令牌换发=旧链接作废，设备/IP 记录随之清空（老设备需重新在册）。
+	// A reissued token voids the old link, so device/IP records are cleared too (older devices must re-register).
 	if err := h.db.Where("user_id=?", u.ID).Delete(&storage.SubDevice{}).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
@@ -375,10 +386,10 @@ func (h *Handler) findUser(id string) (storage.User, error) {
 	return u, nil
 }
 
-// errUsernameTaken 表示用户名重复。
+// errUsernameTaken indicates a duplicate username.
 var errUsernameTaken = errors.New("username already exists")
 
-// ensureUsernameFree 检查用户名未被其他用户占用。
+// ensureUsernameFree checks that the username is not already taken by another user.
 func (h *Handler) ensureUsernameFree(username string, selfID uint) error {
 	var cnt int64
 	q := h.db.Model(&storage.User{}).Where("username=?", username)
@@ -396,12 +407,12 @@ func (h *Handler) ensureUsernameFree(username string, selfID uint) error {
 
 func quotaOrDefault(p *int64) int64 {
 	if p == nil {
-		return 0 // 0 = 不限
+		return 0 // 0 = unlimited
 	}
 	return *p
 }
 
-// resetCycleOrDefault 归一化重置周期：空/缺席=none，非法值报错。
+// resetCycleOrDefault normalizes the reset cycle: empty/absent means none, and an invalid value is an error.
 func resetCycleOrDefault(p *string) (string, error) {
 	if p == nil || *p == "" {
 		return quota.CycleNone, nil

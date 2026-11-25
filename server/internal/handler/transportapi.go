@@ -10,8 +10,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// listTransportStatus 区域传输判定（GET /api/transport-status，E-17）：
-// 区域内各传输形态的存活聚合与换线建议；window_sec 可调判定窗口（30-3600）。
+// listTransportStatus regional transport verdict (GET /api/transport-status, E-17):
+// survival aggregation and switchover suggestions for each transport form inside a
+// region; window_sec adjusts the judgement window (30-3600).
 func (h *Handler) listTransportStatus(c *gin.Context) {
 	opts := transport.Options{}
 	if v := c.Query("window_sec"); v != "" {

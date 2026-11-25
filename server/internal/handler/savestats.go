@@ -11,10 +11,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 节省报表（SAVE-7）：save_stats 按日汇总回读，折算费用按节点流量单价
-// 现算（仅按流量计费节点有边际成本，与成本看板同口径）。
+// Savings report (SAVE-7): save_stats read back as daily aggregates; the converted
+// cost is computed on the fly from each node's traffic unit price (only
+// pay-per-traffic nodes have marginal cost, same basis as the cost dashboard).
 
-// saveStats GET /api/save-stats?days=30 —— 按日行 + 全网合计。
+// saveStats GET /api/save-stats?days=30 -- per-day rows plus fleet total.
 func (h *Handler) saveStats(c *gin.Context) {
 	days := 30
 	if v := c.Query("days"); v != "" {

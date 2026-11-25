@@ -1,8 +1,12 @@
-// 自建订阅下发（ferry-sub-filters，2026-11-21 用户拍板）：GET /sub/x/:token。
-// 护栏与主订阅 /sub/:token 完全一致（限流、设备校验、用量头、三格式 UA 协商），
-// 差异只在 token 来源与节点集定制：token 查 subscriptions 表；节点候选集用
-// 主订阅相同的 SQL 条件查出全量后，在内存中应用 per-sub filter 与 config。
-// 主订阅路径不动，老客户端零感知。
+// Custom subscription delivery (ferry-sub-filters, decided by the user on 2026-11-21):
+// GET /sub/x/:token.
+// The guardrails are identical to the main subscription /sub/:token (rate limiting,
+// device checks, usage headers, three-format UA negotiation); the only differences
+// are the token source and the node-set customization: the token is looked up in the
+// subscriptions table; the node candidate set is fetched in full with the same SQL
+// conditions as the main subscription, and then per-sub filter and config are applied
+// in memory.
+// The main subscription path is untouched, so old clients see nothing.
 package handler
 
 import (
@@ -19,14 +23,19 @@ import (
 	"gorm.io/gorm"
 )
 
-// subscriptionFiltered 处理 GET /sub/x/:token：
-//   - token 查 subscriptions 表，未找到或停用 → 404（subMissLimiter 记失败，
-//     与主订阅防枚举同口径，不泄露「存在但不是你的」）；
-//   - 关联用户未找到（订阅悬挂）或停用 → 空列表照常返回（不是 403），
-//     与主订阅对到期/超限用户的口径一致；停用用户不进设备校验（不给停用账号记设备）；
-//   - 节点候选集与主订阅相同 SQL 条件，内存中应用 filter（region/labels/protocol
-//     三白名单），再按 config（sort/max_nodes/remark_template/include_rtt）定制；
-//   - 配额降档与主订阅同口径（生效中的联动行按其快照档线只出低成本档）。
+// subscriptionFiltered handles GET /sub/x/:token:
+//   - the token is looked up in the subscriptions table; missing or disabled -> 404
+//     (subMissLimiter records the failure, same as the main subscription's
+//     anti-enumeration stance; it does not leak "exists but not yours");
+//   - a missing linked user (dangling subscription) or a disabled one -> the empty
+//     list is returned as usual (not a 403), consistent with the main subscription's
+//     handling of expired/over-quota users; disabled users skip device checks (no
+//     devices are recorded for a disabled account);
+//   - the node candidate set uses the same SQL conditions as the main subscription;
+//     the filter (region/labels/protocol three-way whitelist) is applied in memory,
+//     then config (sort/max_nodes/remark_template/include_rtt) customizes the result;
+//   - quota downgrade follows the main subscription's semantics (active linkage rows
+//     serve only the low-cost tier per their snapshot tier line).
 func (h *Handler) subscriptionFiltered(c *gin.Context) {
 	token, ip := c.Param("token"), c.ClientIP()
 	if !h.subMissLimiter.Allow(ip) || !h.subLimiter.Allow(token) {
@@ -59,12 +68,13 @@ func (h *Handler) subscriptionFiltered(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
-	// 关联用户停用：照常返回空列表（非 403），用量头仍带（客户端能看到状态）。
+	// Linked user disabled: return the empty list as usual (not a 403); usage headers
+	// are still attached so the client can see its status.
 	if !u.Enabled {
 		h.subXDeliver(c, u, trafficUsage{}, []sub.Entry{})
 		return
 	}
-	// 设备/IP 校验（hwid+IP 口径与主订阅完全一致）。
+	// Device/IP checks (hwid+IP semantics identical to the main subscription).
 	if err := h.subDeviceCheck(c, &u, c.GetHeader("X-Client-Hwid"), ip, c.Request.UserAgent()); err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
@@ -78,7 +88,8 @@ func (h *Handler) subscriptionFiltered(c *gin.Context) {
 	}
 	entries := []sub.Entry{}
 	if sub.UserActive(&u, usage.Rx+usage.Tx, time.Now()) {
-		// 候选集与主订阅相同条件；落地不下发，provisioning 不出订阅。
+		// The candidate set uses the same conditions as the main subscription; landing
+		// nodes are not delivered, and provisioning nodes stay out of the subscription.
 		var nodes []storage.Node
 		if err := h.db.Where("enabled = ? AND role IN (?, ?) AND pool_state = ? AND status != ?",
 			true, "entry", "both", pool.StateActive, "provisioning").
@@ -91,9 +102,10 @@ func (h *Handler) subscriptionFiltered(c *gin.Context) {
 		for _, n := range nodes {
 			entries = append(entries, sub.Entry{Node: n, RttMs: rtt[n.ID]})
 		}
-		// per-sub 三维度过滤（内存）；labels 解析失败视为无标签，不 500。
+		// Per-sub three-dimension filtering (in memory); a labels parse failure counts as
+		// no labels and never becomes a 500.
 		entries = sub.ApplyFilter(entries, subFilterOf(s.Filter))
-		// 配额联动降档（SAVE-6，与主订阅同口径）。
+		// Quota-linked downgrade (SAVE-6, same semantics as the main subscription).
 		action, err := quota.ActiveAction(h.db, u.ID)
 		if err != nil {
 			fail(c, http.StatusInternalServerError, err)
@@ -114,8 +126,9 @@ func (h *Handler) subscriptionFiltered(c *gin.Context) {
 	h.subXDeliver(c, u, usage, entries)
 }
 
-// subXDeliver 组装自建订阅响应：目标协商、用量头、三格式打包（与主订阅同口径，
-// 主订阅路径不复用本函数以免其行为被改动）。
+// subXDeliver assembles the custom subscription response: target negotiation, usage
+// headers, three-format packing (same semantics as the main subscription; the main
+// subscription path does not reuse this function so its behavior cannot drift).
 func (h *Handler) subXDeliver(c *gin.Context, u storage.User, usage trafficUsage, entries []sub.Entry) {
 	target := c.Query("target")
 	if target == "" {
@@ -124,12 +137,14 @@ func (h *Handler) subXDeliver(c *gin.Context, u storage.User, usage trafficUsage
 	c.Header("Subscription-Userinfo", userinfoHeader(u, usage))
 	c.Header("Profile-Update-Interval", "24")
 	c.Header("Profile-Title", u.Username)
-	// TOUCH-7 容灾注释常附：客户端缓存自带备用入口与公告地址。
+	// TOUCH-7 contingency notes are always attached: the client cache carries its own
+	// backup entries and notice address.
 	notes := h.outageNotes()
 	switch target {
 	case "v2ray":
-		// per-sub sort 已在 ApplyConfig 内排好（缺省走区域分组序），
-		// 用 Ordered 版避免 PackV2Ray 内部再次重排覆盖 sort 配置。
+		// The per-sub sort was already applied inside ApplyConfig (the default is the
+		// region-grouped order); the Ordered variant avoids PackV2Ray re-sorting
+		// internally and overriding the sort config.
 		body, err := sub.PackV2RayOrdered(entries, notes)
 		if err != nil {
 			fail(c, http.StatusInternalServerError, err)
@@ -144,7 +159,7 @@ func (h *Handler) subXDeliver(c *gin.Context, u storage.User, usage trafficUsage
 		}
 		c.Data(http.StatusOK, "text/yaml; charset=utf-8", []byte(body))
 	case "singbox":
-		// sing-box 纯 JSON 无注释位，容灾注释不带（与主订阅一致）。
+		// sing-box is plain JSON with no comment position, so contingency notes are omitted (consistent with the main subscription).
 		body, err := sub.PackSingBox(entries)
 		if err != nil {
 			fail(c, http.StatusInternalServerError, err)
@@ -156,8 +171,8 @@ func (h *Handler) subXDeliver(c *gin.Context, u storage.User, usage trafficUsage
 	}
 }
 
-// subFilterOf 解析落库 filter 文本；解析失败（历史脏数据）按不过滤处理，
-// 不让一条坏行打断下发。
+// subFilterOf parses the stored filter text; a parse failure (legacy dirty data) is
+// treated as no filtering, so one bad row never interrupts delivery.
 func subFilterOf(raw string) sub.Filter {
 	f, err := sub.ParseFilter(raw)
 	if err != nil {
@@ -167,7 +182,7 @@ func subFilterOf(raw string) sub.Filter {
 	return f
 }
 
-// subConfigOf 解析落库 config 文本；解析失败按缺省（沿用现状）处理。
+// subConfigOf parses the stored config text; a parse failure falls back to the default (status quo).
 func subConfigOf(raw string) sub.Config {
 	cfg, err := sub.ParseConfig(raw)
 	if err != nil {

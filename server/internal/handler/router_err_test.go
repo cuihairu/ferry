@@ -10,8 +10,9 @@ import (
 	"gorm.io/gorm"
 )
 
-// TestHealthProbeUnwritable 覆盖自检写探针失败 → db_writable=false 且
-// status degraded，仍回 200（探活方不误杀）。
+// TestHealthProbeUnwritable covers a failed self-check write probe ->
+// db_writable=false and status degraded, still returning 200 (so liveness
+// probes do not kill the instance by mistake).
 func TestHealthProbeUnwritable(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	db.Callback().Create().Before("gorm:create").Register("t:healthprobe", func(tx *gorm.DB) {
@@ -40,8 +41,9 @@ func TestHealthProbeUnwritable(t *testing.T) {
 	}
 }
 
-// TestStatusListDBErrors 覆盖维度状态灯与探测存证列表取数失败 500，以及
-// 探测列表合法 limit 生效。
+// TestStatusListDBErrors covers read failures on the dimension status lights and
+// the probe report list returning 500, plus a valid limit being honored on the
+// probe list.
 func TestStatusListDBErrors(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	regQueryFail("t:dimlist", db, (*[]storage.DimensionStatus)(nil))

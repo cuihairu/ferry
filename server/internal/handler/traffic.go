@@ -13,11 +13,12 @@ import (
 	"gorm.io/gorm"
 )
 
-// maxTrafficBatch 限制单批记账条数，防误传大载荷。
+// maxTrafficBatch caps the number of accounting rows per batch, guarding against accidentally oversized payloads.
 const maxTrafficBatch = 1000
 
-// usageQuery 返回用户已用流量的窗口化查询（P1-4）：reset_cycle 为
-// day/week/month 时只算当前窗口内的记录，none=全量累计。
+// usageQuery returns the windowed query for a user's used traffic (P1-4): when
+// reset_cycle is day/week/month only records inside the current window count,
+// none = all-time total.
 func (h *Handler) usageQuery(userID uint, cycle string, now time.Time) *gorm.DB {
 	q := h.db.Model(&storage.TrafficLog{}).Where("user_id = ?", userID)
 	if since := quota.WindowStart(cycle, now); !since.IsZero() {
@@ -26,7 +27,7 @@ func (h *Handler) usageQuery(userID uint, cycle string, now time.Time) *gorm.DB 
 	return q
 }
 
-// recordTraffic 写入用户级流量记账（P0-9），单条或批量共用 items 数组。
+// recordTraffic writes user-level traffic accounting (P0-9); single and batch both use the items array.
 func (h *Handler) recordTraffic(c *gin.Context) {
 	var in model.TrafficLogBatchInput
 	if err := c.ShouldBindJSON(&in); err != nil {
@@ -83,7 +84,7 @@ func (h *Handler) recordTraffic(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"recorded": len(rows)})
 }
 
-// checkIDsExist 校验引用的 id 集合都存在，报出首个缺失值。
+// checkIDsExist verifies that every referenced id exists, reporting the first missing value.
 func (h *Handler) checkIDsExist(model any, ids map[uint]bool, field string) error {
 	if len(ids) == 0 {
 		return nil
@@ -115,14 +116,14 @@ func keysOf(ids map[uint]bool) []uint {
 	return out
 }
 
-// userTrafficDay 是按日聚合的一行。
+// userTrafficDay is one per-day aggregated row.
 type userTrafficDay struct {
 	Date string `json:"date"`
 	Rx   int64  `json:"rx"`
 	Tx   int64  `json:"tx"`
 }
 
-// userTrafficSummary 是 GET /api/users/:id/traffic 的响应（P0-10）。
+// userTrafficSummary is the response of GET /api/users/:id/traffic (P0-10).
 type userTrafficSummary struct {
 	UserID     uint             `json:"user_id"`
 	TotalRx    int64            `json:"total_rx"`
@@ -131,7 +132,7 @@ type userTrafficSummary struct {
 	Days       []userTrafficDay `json:"days"`
 }
 
-// userTraffic 按用户汇总用量并给出按日明细；日分组在 Go 侧做，避开 DATE() 三方言扫描差异。
+// userTraffic aggregates usage for a user with per-day detail; day grouping is done in Go to avoid the DATE() scan differences across three SQL dialects.
 func (h *Handler) userTraffic(c *gin.Context) {
 	u, err := h.findUser(c.Param("id"))
 	if err != nil {

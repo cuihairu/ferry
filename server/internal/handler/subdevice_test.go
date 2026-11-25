@@ -12,8 +12,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// getSubAt 以指定 UA/来源地址/hwid 请求订阅端点（httptest 缺省 RemoteAddr
-// 固定，P2-4 设备/IP 面测试用多来源地址模拟多设备）。hwid 空串=不带该头。
+// getSubAt requests the subscription endpoint with a given UA/remote addr/hwid
+// (httptest defaults RemoteAddr to a fixed value; P2-4 device/IP-dimension tests
+// simulate multiple devices via multiple remote addrs). Empty hwid = omit the header.
 func getSubAt(t *testing.T, r *gin.Engine, path, ua, remoteAddr, hwid string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, path, nil)
@@ -44,27 +45,29 @@ func TestSubscriptionDeviceLimit(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	path, _ := createLimitedUser(t, r, "dev", 2, 0)
 
-	// 两台设备在册内。
+	// Two devices fit within the limit.
 	if rec := getSubAt(t, r, path, "v2rayNG/1.8", "10.0.0.1:1111", "hwid-aaa"); rec.Code != http.StatusOK {
 		t.Fatalf("device 1: %d %s", rec.Code, rec.Body)
 	}
 	if rec := getSubAt(t, r, path, "v2rayNG/1.8", "10.0.0.2:1111", "hwid-bbb"); rec.Code != http.StatusOK {
 		t.Fatalf("device 2: %d %s", rec.Code, rec.Body)
 	}
-	// 第三台超限 403。
+	// A third device exceeds the limit: 403.
 	rec := getSubAt(t, r, path, "v2rayNG/1.8", "10.0.0.3:1111", "hwid-ccc")
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("device 3 want 403: %d %s", rec.Code, rec.Body)
 	}
-	// 已在册设备不受收紧影响（老设备放行）。
+	// Already-registered devices are unaffected by the tightening (old devices pass).
 	if rec := getSubAt(t, r, path, "v2rayNG/1.8", "10.0.0.1:1111", "hwid-aaa"); rec.Code != http.StatusOK {
 		t.Fatalf("known device: %d %s", rec.Code, rec.Body)
 	}
-	// 未带 hwid 的请求不受 hwid 面限制（客户端未上报，该面不生效）。
+	// Requests without hwid skip the hwid-dimension limit (client never reported it,
+	// so that dimension does not apply).
 	if rec := getSubAt(t, r, path, "v2rayNG/1.8", "10.0.0.9:1111", ""); rec.Code != http.StatusOK {
 		t.Fatalf("no-hwid request: %d %s", rec.Code, rec.Body)
 	}
-	// 告警按用户按日去重：同日多次超限只落一条。
+	// Alerts dedupe per user per day: multiple over-limit hits on the same day
+	// write only one event.
 	if rec := getSubAt(t, r, path, "v2rayNG/1.8", "10.0.0.4:1111", "hwid-ddd"); rec.Code != http.StatusForbidden {
 		t.Fatalf("device 4 want 403: %d %s", rec.Code, rec.Body)
 	}
@@ -81,14 +84,14 @@ func TestSubscriptionIPLimit(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	path, _ := createLimitedUser(t, r, "ipuser", 0, 1)
 
-	// 同一 IP 重复访问不受限。
+	// Repeated hits from the same IP are not limited.
 	if rec := getSubAt(t, r, path, "v2rayNG/1.8", "10.1.0.1:1000", ""); rec.Code != http.StatusOK {
 		t.Fatalf("ip 1 first: %d %s", rec.Code, rec.Body)
 	}
 	if rec := getSubAt(t, r, path, "v2rayNG/1.8", "10.1.0.1:2000", ""); rec.Code != http.StatusOK {
 		t.Fatalf("ip 1 again: %d %s", rec.Code, rec.Body)
 	}
-	// 新 IP 超限 403。
+	// A new IP exceeds the limit: 403.
 	if rec := getSubAt(t, r, path, "v2rayNG/1.8", "10.1.0.2:1000", ""); rec.Code != http.StatusForbidden {
 		t.Fatalf("ip 2 want 403: %d %s", rec.Code, rec.Body)
 	}
@@ -100,7 +103,8 @@ func TestSubscriptionIPLimit(t *testing.T) {
 		t.Fatalf("device_limit events = %d, want 1", n)
 	}
 
-	// 窗口外旧行不占名额：手工插一条 25h 前的 IP 行，新 IP 应放行（旧行顺带清理）。
+	// Rows outside the window don't occupy quota: manually insert an IP row from
+	// 25h ago, and a new IP should be allowed (old row pruned in passing).
 	var uid float64
 	if err := db.Model(&storage.User{}).Select("id").Where("username = 'ipuser'").Scan(&uid).Error; err != nil {
 		t.Fatal(err)
@@ -110,7 +114,8 @@ func TestSubscriptionIPLimit(t *testing.T) {
 		FirstSeen: old, LastSeen: old}).Error; err != nil {
 		t.Fatal(err)
 	}
-	// 先清掉在册的 10.1.0.1 让名额腾出——直接删行（窗口测试只看旧行是否放行）。
+	// First clear the registered 10.1.0.1 to free the slot — delete the row
+	// directly (the window test only checks whether old rows pass).
 	if err := db.Where("kind = 'ip' AND last_seen > ?", time.Now().Add(-time.Hour)).
 		Delete(&storage.SubDevice{}).Error; err != nil {
 		t.Fatal(err)
@@ -127,18 +132,18 @@ func TestSubscriptionIPLimit(t *testing.T) {
 	}
 }
 
-// TestSubDevicePruneUnlimited 覆盖无 IP 上限用户的窗口清理（P1-7）：
-// IPLimit=0 时旧 IP 行此前从不清理、sub_devices 无限增长；修后新 IP 到访
-// 即顺带清窗，表体量有界。
+// TestSubDevicePruneUnlimited covers window pruning for users with no IP limit (P1-7):
+// with IPLimit=0 old IP rows were never pruned and sub_devices grew without bound;
+// after the fix, a new IP visit prunes the window in passing, keeping the table bounded.
 func TestSubDevicePruneUnlimited(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
-	path, id := createLimitedUser(t, r, "unlim", 0, 0) // 设备/IP 双不限
+	path, id := createLimitedUser(t, r, "unlim", 0, 0) // no device/IP limit at all
 	old := time.Now().Add(-25 * time.Hour)
 	if err := db.Create(&storage.SubDevice{UserID: uint(id), Kind: "ip", Key: "10.9.9.1",
 		FirstSeen: old, LastSeen: old}).Error; err != nil {
 		t.Fatal(err)
 	}
-	// 新 IP 到访 → 旧行应被清理，只留新行。
+	// New IP visit → old rows should be pruned, leaving only the new row.
 	if rec := getSubAt(t, r, path, "v2rayNG/1.8", "10.1.0.5:1000", ""); rec.Code != http.StatusOK {
 		t.Fatalf("new ip: %d %s", rec.Code, rec.Body)
 	}
@@ -169,7 +174,7 @@ func TestSubDeviceResetTokenClears(t *testing.T) {
 	if cnt != 0 {
 		t.Fatalf("sub_devices after reset = %d, want 0", cnt)
 	}
-	// 新令牌可用。
+	// The new token works.
 	var u map[string]any
 	if err := db.Raw("SELECT sub_token FROM users WHERE id = ?", uint(id)).Scan(&u).Error; err != nil {
 		t.Fatal(err)
@@ -187,7 +192,7 @@ func TestSubDeviceLimitValidation(t *testing.T) {
 	if rec := doJSON(t, r, "POST", "/api/users", map[string]any{"username": "bad2", "ip_limit": 1001}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("ip_limit 1001: %d", rec.Code)
 	}
-	// 设备清单端点。
+	// Device list endpoint.
 	path, id := createLimitedUser(t, r, "list", 0, 0)
 	if rec := getSubAt(t, r, path, "v2rayNG/1.8", "10.3.0.1:1000", "hwid-q"); rec.Code != http.StatusOK {
 		t.Fatalf("sub: %d %s", rec.Code, rec.Body)
@@ -198,13 +203,14 @@ func TestSubDeviceLimitValidation(t *testing.T) {
 	}
 	var rows []map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &rows)
-	if len(rows) != 2 { // ip + hwid 各一条
+	if len(rows) != 2 { // one row each for ip + hwid
 		t.Fatalf("devices rows = %d, want 2", len(rows))
 	}
 }
 
-// TestPanelMeDeviceUsage 覆盖 panelMe 设备面用量（P2-4 可见性闭环）：订阅请求
-// 超限 403 时用户在面板能看到在册数与上限——hwid 在册数与 24h 窗口 IP 数。
+// TestPanelMeDeviceUsage covers panelMe device-dimension usage (P2-4 visibility loop):
+// when subscription requests get the over-limit 403, the user can see registered counts
+// and limits in the panel — registered hwid count and 24h-window IP count.
 func TestPanelMeDeviceUsage(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	token := panelToken(t, r, "me-dev")

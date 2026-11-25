@@ -12,11 +12,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// upgradeAckTimeout 覆盖 agent 侧受理判断（下载在后台进行，不在此等待）。
+// upgradeAckTimeout covers the agent-side acceptance decision (download runs in the background, not awaited here).
 const upgradeAckTimeout = 15 * time.Second
 
-// nodeUpgrade 下发自升级指令（POST /api/nodes/:id/upgrade {version, url, sha256?}）：
-// agent 即时应答受理/拒绝，实际升级结果经 hello 版本变化体现。
+// nodeUpgrade issues a self-upgrade command (POST /api/nodes/:id/upgrade {version, url, sha256?}):
+// the agent replies accept/reject immediately; the actual upgrade result shows up as a hello version change.
 func (h *Handler) nodeUpgrade(c *gin.Context) {
 	n, err := h.findNode(c.Param("id"))
 	if err != nil {

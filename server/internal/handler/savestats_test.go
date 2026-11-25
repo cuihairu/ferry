@@ -10,12 +10,12 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestSaveStatsAPI 覆盖节省报表回读（SAVE-7）：save_stats 按日行 +
-// 折算费用（仅按流量计费节点有单价）+ 全网合计 + days 过滤。
+// TestSaveStatsAPI covers the savings report read-back (SAVE-7): save_stats per-day
+// rows + converted cost (only pay-per-traffic nodes have a unit price) + fleet total + days filtering.
 func TestSaveStatsAPI(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 
-	// 两台节点：一台按流量计费带单价（分/GB），一台包月无边际成本
+	// two nodes: one pay-per-traffic with a unit price (cents/GB), one flat monthly with no marginal cost
 	for _, name := range []string{"metered", "flat"} {
 		if rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
 			"name": name, "address": name + ".example.com", "port": 443, "protocol": "vless",
@@ -30,12 +30,12 @@ func TestSaveStatsAPI(t *testing.T) {
 
 	today := time.Now().UTC()
 	seed := []storage.NodeTrafficLog{
-		// metered 今日：直连 2GB + 拦截 0.5GB → (2.5GB × 30分) = 75 分
+		// metered today: direct 2GB + blocked 0.5GB -> (2.5GB x 30 cents) = 75 cents
 		{NodeID: 1, Proc: "xray", DirectBytes: 2_000_000_000, BlockedBytes: 500_000_000,
 			RecordedAt: today.Add(-2 * time.Hour)},
-		// flat 今日：直连 1GB，无单价不折算
+		// flat today: direct 1GB, no unit price so no conversion
 		{NodeID: 2, Proc: "xray", DirectBytes: 1_000_000_000, RecordedAt: today.Add(-2 * time.Hour)},
-		// metered 40 天前：days=30 过滤外
+		// metered 40 days ago: outside the days=30 filter
 		{NodeID: 1, Proc: "xray", DirectBytes: 999, RecordedAt: today.AddDate(0, 0, -40)},
 	}
 	if err := db.Create(&seed).Error; err != nil {
@@ -72,7 +72,7 @@ func TestSaveStatsAPI(t *testing.T) {
 	if res.Days != 30 || len(res.Rows) != 2 {
 		t.Fatalf("days=%d rows=%d, want 30/2（40 天前过滤外）: %+v", res.Days, len(res.Rows), res.Rows)
 	}
-	// 行序 day ASC, node_id ASC：metered(1) 在前
+	// row order day ASC, node_id ASC: metered(1) comes first
 	metered, flat := res.Rows[0], res.Rows[1]
 	if metered.Name != "metered" || metered.DirectBytes != 2_000_000_000 || metered.CostCents != 75 {
 		t.Fatalf("metered row = %+v, want 2GB/75 分", metered)
@@ -84,7 +84,7 @@ func TestSaveStatsAPI(t *testing.T) {
 		t.Fatalf("total mismatch: %+v", res.Total)
 	}
 
-	// 非法 days 400
+	// invalid days -> 400
 	if rec := doJSON(t, r, "GET", "/api/save-stats?days=0", nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("days=0 should 400: %d", rec.Code)
 	}

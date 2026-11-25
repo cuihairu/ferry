@@ -5,8 +5,9 @@ import (
 	"encoding/base64"
 )
 
-// RandomToken 生成 256 位随机令牌（base64url 无填充），用于节点接入与用户订阅链接；
-// 导出供恢复流水线 L3 开新机复用同一签发口径。
+// RandomToken generates a 256-bit random token (base64url, no padding), used for node
+// onboarding and user subscription links; exported so the recovery pipeline L3 can reuse
+// the same issuance policy when opening a new machine.
 func RandomToken() (string, error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {

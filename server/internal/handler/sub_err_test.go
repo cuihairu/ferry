@@ -16,8 +16,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// subFixture 起路由并建一个有效订阅用户（配额 1000、2030 到期），返回
-// 路由、库与订阅令牌。
+// subFixture starts a router and creates a valid subscription user (quota 1000,
+// expiring in 2030), returning the router, the db and the subscription token.
 func subFixture(t *testing.T) (*gin.Engine, *gorm.DB, string) {
 	t.Helper()
 	r, db := newTestRouterWithDB(t)
@@ -39,22 +39,22 @@ func subFixture(t *testing.T) (*gin.Engine, *gorm.DB, string) {
 	return r, db, u.SubToken
 }
 
-// TestSubUserErrors 覆盖订阅链用户查询失败与停用用户按 404 处理。
+// TestSubUserErrors covers subscription-chain user query failures and disabled users being treated as 404.
 func TestSubUserErrors(t *testing.T) {
-	// 未知令牌 → 404（防枚举，不计失败次数之外的其它路径）。
+	// Unknown token -> 404 (anti-enumeration; only the failure-count path, no other routes).
 	r, _, _ := subFixture(t)
 	if rec := getSub(t, r, "/sub/no-such-token", "v2rayNG/1.8"); rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown token: %d", rec.Code)
 	}
 
-	// 用户查询库故障（非查无）→ 500。
+	// User query db failure (not a record-miss) -> 500.
 	r2, db2, tok2 := subFixture(t)
 	regQueryFail("t:subuser", db2, (*storage.User)(nil))
 	if rec := getSub(t, r2, "/sub/"+tok2, "v2rayNG/1.8"); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("user query fail: %d %s", rec.Code, rec.Body)
 	}
 
-	// 停用用户 → 404（令牌视同吊销）。
+	// Disabled user -> 404 (the token counts as revoked).
 	r3, db3, tok3 := subFixture(t)
 	if err := db3.Model(&storage.User{}).Where("sub_token = ?", tok3).
 		Update("enabled", false).Error; err != nil {
@@ -65,9 +65,9 @@ func TestSubUserErrors(t *testing.T) {
 	}
 }
 
-// TestSubDBErrors 覆盖用量、入口列表、联动降档、延迟聚合四处取数失败分支。
+// TestSubDBErrors covers the four data-fetch failure branches: usage, entry list, linkage downgrade, RTT aggregation.
 func TestSubDBErrors(t *testing.T) {
-	// 用量取数失败 → 500（Scan 走 Row 回调链而非 Query 链，按 Model 注错）。
+	// Usage fetch failure -> 500 (Scan goes through the Row callback chain rather than the Query chain, so the error is injected by Model).
 	r, db, tok := subFixture(t)
 	db.Callback().Row().Before("gorm:row").Register("t:subusage", func(tx *gorm.DB) {
 		if _, ok := tx.Statement.Model.(*storage.TrafficLog); ok {
@@ -78,21 +78,21 @@ func TestSubDBErrors(t *testing.T) {
 		t.Fatalf("usage query fail: %d %s", rec.Code, rec.Body)
 	}
 
-	// 入口列表取数失败 → 500。
+	// Entry list fetch failure -> 500.
 	r2, db2, tok2 := subFixture(t)
 	regQueryFail("t:subnodes", db2, (*[]storage.Node)(nil))
 	if rec := getSub(t, r2, "/sub/"+tok2, "v2rayNG/1.8"); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("nodes query fail: %d %s", rec.Code, rec.Body)
 	}
 
-	// 联动降档取数失败 → 500（注错返回非查无错误）。
+	// Linkage downgrade fetch failure -> 500 (the injected error is not a record-miss error).
 	r3, db3, tok3 := subFixture(t)
 	regQueryFail("t:subaction", db3, (*storage.QuotaAction)(nil))
 	if rec := getSub(t, r3, "/sub/"+tok3, "v2rayNG/1.8"); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("action query fail: %d %s", rec.Code, rec.Body)
 	}
 
-	// 延迟聚合取数失败 → 退化成无延迟，订阅仍 200（聚合查询同为 Scan，按 Model 注错）。
+	// RTT aggregation fetch failure -> degrades to no latency, the subscription still returns 200 (the aggregation query is also a Scan, so the error is injected by Model).
 	r4, db4, tok4 := subFixture(t)
 	db4.Callback().Row().Before("gorm:row").Register("t:subrtt", func(tx *gorm.DB) {
 		if _, ok := tx.Statement.Model.(*storage.ProbeReport); ok {
@@ -104,7 +104,7 @@ func TestSubDBErrors(t *testing.T) {
 	}
 }
 
-// TestSubPackErrors 覆盖入口节点配置不可解析时三种 target 打包失败 → 500。
+// TestSubPackErrors covers packing failure for all three targets -> 500 when an entry node's config is unparseable.
 func TestSubPackErrors(t *testing.T) {
 	r, db, tok := subFixture(t)
 	node := storage.Node{
@@ -125,8 +125,8 @@ func TestSubPackErrors(t *testing.T) {
 	}
 }
 
-// TestSubRttRemark 覆盖入口延迟聚合命中：有近期探测结论时链接备注带
-// (Nms)，无探测数据时省略括注。
+// TestSubRttRemark covers entry latency aggregation hits: link remarks carry (Nms)
+// when recent probe verdicts exist, and omit the parenthesis without probe data.
 func TestSubRttRemark(t *testing.T) {
 	nodeCfg := `{"uuid":"u-1","tls":true,"sni":"s.com","net":"ws","path":"/wss","host":"cdn.example.com"}`
 	decode := func(rec *httptest.ResponseRecorder) string {
@@ -135,7 +135,7 @@ func TestSubRttRemark(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// 链接片段按 URI 编码（区域/括号等非 ASCII 与保留字符），先还原再比对。
+		// Link fragments are URI-encoded (non-ASCII such as regions/parentheses plus reserved chars), so unescape before comparing.
 		out, err := url.PathUnescape(string(raw))
 		if err != nil {
 			t.Fatal(err)
@@ -143,7 +143,7 @@ func TestSubRttRemark(t *testing.T) {
 		return out
 	}
 
-	// 无探测数据：无括注延迟。
+	// No probe data: no latency parenthesis.
 	r, db, tok := subFixture(t)
 	n := storage.Node{Name: "rtt-a", Address: "a.example.com", Port: 443, Protocol: "vless",
 		Config: nodeCfg, Enabled: true, Role: "entry", PoolState: "active", Status: "online"}
@@ -158,7 +158,7 @@ func TestSubRttRemark(t *testing.T) {
 		t.Fatalf("no probe data should have no rtt remark: %s", decode(rec))
 	}
 
-	// 有近期探测结论：备注带 (42ms)。
+	// Recent probe verdicts: remarks carry (42ms).
 	r2, db2, tok2 := subFixture(t)
 	if err := db2.Create(&storage.Node{Name: "rtt-b", Address: "b.example.com", Port: 443,
 		Protocol: "vless", Config: nodeCfg, Enabled: true, Role: "entry",

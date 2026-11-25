@@ -12,11 +12,12 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestQuotaLinkAPI 覆盖管理端三态：默认读、设置回读、非法配置拒绝。
+// TestQuotaLinkAPI covers the three admin-side states: default read, put
+// roundtrip, and rejection of an invalid configuration.
 func TestQuotaLinkAPI(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 
-	// 默认：关、流量档 90%
+	// default: off, traffic tier 90%
 	rec := doJSON(t, r, "GET", "/api/quota-link", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get default: %d %s", rec.Code, rec.Body)
@@ -32,7 +33,7 @@ func TestQuotaLinkAPI(t *testing.T) {
 		t.Fatalf("default setting = %+v", out.Setting)
 	}
 
-	// 设置回读
+	// put roundtrip
 	in := quota.LinkSetting{Enabled: true, TrafficPercent: 95, CostCents: 2000, MaxPriceCents: 500}
 	if rec := doJSON(t, r, "PUT", "/api/quota-link", in); rec.Code != http.StatusOK {
 		t.Fatalf("put: %d %s", rec.Code, rec.Body)
@@ -45,14 +46,16 @@ func TestQuotaLinkAPI(t *testing.T) {
 		t.Fatalf("roundtrip = %+v, want %+v", out.Setting, in)
 	}
 
-	// 启用但零触发阈值：400
+	// enabled with a zero trigger threshold: 400
 	if rec := doJSON(t, r, "PUT", "/api/quota-link", quota.LinkSetting{Enabled: true}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("no-trigger enable should 400: %d %s", rec.Code, rec.Body)
 	}
 }
 
-// TestSubscriptionDowngrade 是 SAVE-6 的订阅出口语义：生效中的联动行让该
-// 用户订阅只出低成本档入口（快照档线），释放后恢复完整列表；他人不受影响。
+// TestSubscriptionDowngrade is SAVE-6's subscription egress semantics: an active
+// linkage row makes the user's subscription expose only the low-cost tier entry
+// (snapshot tier cap), and the full list is restored after release; other users
+// are unaffected.
 func TestSubscriptionDowngrade(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 
@@ -77,7 +80,8 @@ func TestSubscriptionDowngrade(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &u2)
 	bystanderTok := u2["sub_token"].(string)
 
-	// 两个入口：cheap 包月（低成本档），pricey 按流量 800 分/GB（超快照档线 500）
+	// two entries: cheap on monthly billing (low-cost tier), pricey on traffic
+	// billing at 800 cents/GB (above the snapshot cap of 500)
 	mkNode := func(name, billing, token string) {
 		t.Helper()
 		rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
@@ -126,12 +130,12 @@ func TestSubscriptionDowngrade(t *testing.T) {
 		return n
 	}
 
-	// 无联动：完整列表
+	// no linkage: the full list
 	if links := subLinks(t, tok); countHost(links, "pricey.example.com") != 1 || countHost(links, "cheap.example.com") != 1 {
 		t.Fatalf("full list expected, got %v", links)
 	}
 
-	// 生效中联动行（快照档线 500 分/GB）：只出 cheap
+	// active linkage row (snapshot cap 500 cents/GB): only cheap
 	now := time.Now()
 	if err := db.Create(&storage.QuotaAction{
 		UserID: uid, Trigger: quota.LinkTriggerCost,
@@ -144,12 +148,12 @@ func TestSubscriptionDowngrade(t *testing.T) {
 	if countHost(links, "pricey.example.com") != 0 || countHost(links, "cheap.example.com") != 1 {
 		t.Fatalf("downgraded list should only have cheap, got %v", links)
 	}
-	// 旁人完整列表不受影响
+	// a bystander's full list is unaffected
 	if links := subLinks(t, bystanderTok); countHost(links, "pricey.example.com") != 1 {
 		t.Fatalf("bystander should keep full list, got %v", links)
 	}
 
-	// 释放 → 恢复完整列表
+	// release -> the full list is restored
 	if err := db.Model(&storage.QuotaAction{}).Where("user_id = ?", uid).
 		Updates(map[string]any{"released_at": now.Add(time.Minute), "release_reason": "阈值回落"}).Error; err != nil {
 		t.Fatal(err)

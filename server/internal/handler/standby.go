@@ -10,13 +10,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 面板主从同步（P2-1）主面板侧：机器对机器的快照下发端点。
+// Panel primary/standby sync (P2-1), primary-panel side: a machine-to-machine snapshot delivery endpoint.
 
-// standbySnapshot 下发当前库快照（GET /api/standby/snapshot）：机器鉴权走
-// X-Standby-Token 对齐 FERRY_STANDBY_TOKEN（与 dash 管理会话无关，供
-// standby 实例周期拉取）；未配置 token = 同步面关闭，恒 403。产档复用
-// backup.Snapshot（VACUUM INTO + 主密钥加密，restore.sh 可直接恢复），
-// 落临时目录 serve 后即删——不进 backups 表、不占滚动保留位。
+// standbySnapshot serves the current database snapshot (GET /api/standby/snapshot): machine auth
+// uses X-Standby-Token matched against FERRY_STANDBY_TOKEN (independent of the dash admin session,
+// polled periodically by the standby instance); no token configured means the sync plane is off, always 403.
+// Production reuses backup.Snapshot (VACUUM INTO + master-key encryption, directly restorable by
+// restore.sh), written to a temp directory and deleted right after serving -- never recorded in the
+// backups table and never taking a rolling retention slot.
 func (h *Handler) standbySnapshot(c *gin.Context) {
 	if h.cfg.StandbyToken == "" || c.GetHeader("X-Standby-Token") != h.cfg.StandbyToken {
 		fail(c, http.StatusForbidden, errors.New("standby sync disabled or token mismatch"))

@@ -21,30 +21,31 @@ import (
 	"gorm.io/gorm"
 )
 
-// 面板 Web 证书管理（P1-7，对齐 3x-ui getWebCertFiles 的上传/自签口径；
-// ACME 留给部署层）。证书与私钥 PEM 存 settings KV，随 SQLite 备份迁移；
-// 面板启动时读取，切换证书需重启生效。
+// Panel web certificate management (P1-7, aligned with 3x-ui getWebCertFiles'
+// upload/self-sign terms; ACME is left to the deployment layer). The cert and
+// key PEM live in the settings KV and migrate with the SQLite backup; they are
+// read at panel startup, so switching certificates takes effect on restart.
 
 const (
 	settingKeyWebTLSCert = "web_tls_cert"
 	settingKeyWebTLSKey  = "web_tls_key"
 
-	// maxPEMBytes 限制单个 PEM 上传体积，防误传大文件。
+	// maxPEMBytes caps a single uploaded PEM size, guarding against a fat file uploaded by mistake.
 	maxPEMBytes = 64 << 10
 )
 
-// webCertStatus 是证书状态视图（不含私钥）。
+// webCertStatus is the certificate status view (no private key).
 type webCertStatus struct {
 	Configured bool       `json:"configured"`
-	Valid      bool       `json:"valid"` // 证书与私钥配对可用
+	Valid      bool       `json:"valid"` // cert and key pair up and are usable
 	Subject    string     `json:"subject,omitempty"`
 	DNSNames   []string   `json:"dns_names,omitempty"`
 	NotAfter   *time.Time `json:"not_after,omitempty"`
 	SelfSigned bool       `json:"self_signed,omitempty"`
-	Error      string     `json:"error,omitempty"` // 配置存在但不可用时的原因
+	Error      string     `json:"error,omitempty"` // reason when configured but unusable
 }
 
-// loadWebCertPEM 读取证书与私钥 PEM；两者齐备返回 ok=true。
+// loadWebCertPEM reads the cert and key PEM; ok=true when both are present.
 func loadWebCertPEM(db *gorm.DB) (certPEM, keyPEM string, ok bool, err error) {
 	certPEM, certOK, err := storage.GetSetting(db, settingKeyWebTLSCert)
 	if err != nil {
@@ -57,8 +58,9 @@ func loadWebCertPEM(db *gorm.DB) (certPEM, keyPEM string, ok bool, err error) {
 	return certPEM, keyPEM, certOK && keyOK, nil
 }
 
-// WebTLSCert 加载面板 TLS 证书（启动用）：未配置 ok=false；
-// 已配置但配对失败报错，启动中止以免静默降级 HTTP。
+// WebTLSCert loads the panel TLS certificate (startup use): ok=false when
+// unconfigured; a configured pair that fails to match returns an error and
+// aborts startup instead of silently degrading to HTTP.
 func WebTLSCert(db *gorm.DB) (*tls.Certificate, bool, error) {
 	certPEM, keyPEM, ok, err := loadWebCertPEM(db)
 	if err != nil || !ok {
@@ -71,7 +73,7 @@ func WebTLSCert(db *gorm.DB) (*tls.Certificate, bool, error) {
 	return &pair, true, nil
 }
 
-// getWebCert 查看证书状态（GET /admin/web-cert）。
+// getWebCert views the certificate status (GET /admin/web-cert).
 func (h *Handler) getWebCert(c *gin.Context) {
 	certPEM, keyPEM, configured, err := loadWebCertPEM(h.db)
 	if err != nil {
@@ -85,7 +87,8 @@ func (h *Handler) getWebCert(c *gin.Context) {
 	c.JSON(http.StatusOK, st)
 }
 
-// fillWebCertStatus 解析证书填充状态视图；配对失败写 Error 保持 Valid=false。
+// fillWebCertStatus parses the certificate and fills the status view; a pairing
+// failure writes Error and keeps Valid=false.
 func fillWebCertStatus(st *webCertStatus, certPEM, keyPEM string) {
 	pair, err := tls.X509KeyPair([]byte(certPEM), []byte(keyPEM))
 	if err != nil {
@@ -105,7 +108,8 @@ func fillWebCertStatus(st *webCertStatus, certPEM, keyPEM string) {
 	st.SelfSigned = bytes.Equal(leaf.RawIssuer, leaf.RawSubject)
 }
 
-// putWebCert 上传证书与私钥（PUT /admin/web-cert）：校验配对后保存，重启生效。
+// putWebCert uploads the certificate and private key (PUT /admin/web-cert):
+// saves after validating the pair; takes effect on restart.
 func (h *Handler) putWebCert(c *gin.Context) {
 	var in struct {
 		CertPEM string `json:"cert_pem"`
@@ -138,8 +142,9 @@ func (h *Handler) putWebCert(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"saved": true})
 }
 
-// selfSignWebCert 自签证书（POST /admin/web-cert/selfsign）：ECC P-256，
-// host 支持域名或 IP，days 缺省 365、上限 3650。
+// selfSignWebCert self-signs a certificate (POST /admin/web-cert/selfsign):
+// ECC P-256; host accepts a domain name or an IP, days defaults to 365 with a
+// cap of 3650.
 func (h *Handler) selfSignWebCert(c *gin.Context) {
 	var in struct {
 		Host string `json:"host"`
@@ -180,7 +185,8 @@ func (h *Handler) selfSignWebCert(c *gin.Context) {
 	c.JSON(http.StatusOK, st)
 }
 
-// deleteWebCert 清除证书（DELETE /admin/web-cert），面板回落 HTTP（重启生效）。
+// deleteWebCert clears the certificate (DELETE /admin/web-cert); the panel falls
+// back to HTTP (takes effect on restart).
 func (h *Handler) deleteWebCert(c *gin.Context) {
 	for _, key := range []string{settingKeyWebTLSCert, settingKeyWebTLSKey} {
 		if err := h.db.Where("key = ?", key).Delete(&storage.Setting{}).Error; err != nil {
@@ -191,7 +197,8 @@ func (h *Handler) deleteWebCert(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"deleted": true})
 }
 
-// generateSelfSignedPEM 生成自签证书与私钥 PEM（ECC P-256，服务器认证用途）。
+// generateSelfSignedPEM produces a self-signed certificate and private key PEM
+// (ECC P-256, server authentication use).
 func generateSelfSignedPEM(host string, days int) (string, string, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {

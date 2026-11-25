@@ -20,13 +20,13 @@ func TestEffectiveDownMbps(t *testing.T) {
 		effective      int
 		accepted       bool
 	}{
-		{0, 50, 50, true},      // 无套餐以实测为准
-		{100, 0, 100, false},   // 无效实测保留套餐
-		{100, 110, 100, false}, // 偏差 10% 保留套餐
-		{100, 50, 50, true},    // 偏差 50% 采纳实测
-		{100, 200, 200, true},  // 虚标低套餐采纳实测
-		{100, 130, 100, false}, // 边界 30% 不采纳
-		{100, 131, 131, true},  // 超过 30% 采纳
+		{0, 50, 50, true},      // no plan: measured wins
+		{100, 0, 100, false},   // invalid measurement keeps the plan
+		{100, 110, 100, false}, // 10% deviation keeps the plan
+		{100, 50, 50, true},    // 50% deviation adopts the measured value
+		{100, 200, 200, true},  // overstated low plan adopts the measured value
+		{100, 130, 100, false}, // 30% boundary is not adopted
+		{100, 131, 131, true},  // over 30% is adopted
 	}
 	for _, c := range cases {
 		eff, acc := effectiveDownMbps(c.plan, c.measured)
@@ -51,7 +51,7 @@ func TestSpeedtestBytes(t *testing.T) {
 		t.Fatalf("content-type = %q", ct)
 	}
 
-	// 两次相同 n 字节一致（确定性），且不可压缩（随机性 sanity）
+	// two runs of the same n return identical bytes (determinism) and are incompressible (randomness sanity)
 	rec2 := doJSON(t, r, "GET", "/api/speedtest/bytes?n=65536", nil)
 	if rec2.Body.String() != rec.Body.String() {
 		t.Fatal("bytes not deterministic")
@@ -77,7 +77,7 @@ func TestAgentWSCalibrate(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &node)
 	token := node["token"].(string)
 	id := int(node["id"].(float64))
-	// 套餐 100M（E-9 列暂无 API，测试直写）
+	// plan 100M (the E-9 column has no API yet, so the test writes it directly)
 	if err := db.Model(&storage.Node{}).Where("id=?", id).
 		Updates(map[string]any{"bw_down_mbps": 100, "meta_init": true}).Error; err != nil {
 		t.Fatal(err)
@@ -101,7 +101,7 @@ func TestAgentWSCalibrate(t *testing.T) {
 		t.Fatalf("expected hello_ack, got %s", env.Type)
 	}
 
-	// 实测 50M：偏差 50% → 采纳实测
+	// measured 50M: 50% deviation -> adopt the measured value
 	cal, _ := agentproto.NewEnvelope("cal-1", agentproto.MsgCalibrate, agentproto.Calibrate{
 		MeasuredDownMbps: 50, Bytes: 4 << 20, Seconds: 0.64,
 	})
@@ -127,7 +127,7 @@ func TestAgentWSCalibrate(t *testing.T) {
 		t.Fatalf("calibration not recorded: %+v", n)
 	}
 
-	// 实测 95M：偏差 5% → 保留套餐，但实测值照记
+	// measured 95M: 5% deviation -> keep the plan, but still record the measured value
 	cal2, _ := agentproto.NewEnvelope("cal-2", agentproto.MsgCalibrate, agentproto.Calibrate{
 		MeasuredDownMbps: 95, Bytes: 4 << 20, Seconds: 0.34,
 	})

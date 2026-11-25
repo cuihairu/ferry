@@ -14,24 +14,31 @@ import (
 	"gorm.io/gorm"
 )
 
-// errRedeemFailed 是兑换失败的统一文案：不区分码不存在/已用/禁用/过期，防枚举（《支付设计》§3.3）。
+// errRedeemFailed is the single message for any failed redemption: it does not
+// distinguish missing/used/disabled/expired codes, preventing enumeration
+// (Payment Design §3.3).
 var errRedeemFailed = errors.New("兑换失败")
 
-// errCardCodeUnusable 表示兑换失败根因是卡密本身不可用（不存在/已用/禁用，
-// redeemTx 步骤 1 原子核销行数为 0）。只对这类失败累计 fail_count（PAY-5
-// 防探测）；用户不存在/批次过期等其他失败原因不归罪于卡密——否则一枚可用
-// 卡密被无效 user_id 反复提交会累计满 5 次自动禁用（P2 兑换失败可恶意禁卡
-// 修复：失败只按卡密自身不可用计数，非卡密故障不误伤可用卡）。
+// errCardCodeUnusable means the redemption failed because the card code itself
+// is unusable (missing/used/disabled, i.e. the atomic write-off in redeemTx
+// step 1 touched 0 rows). Only such failures accrue fail_count (PAY-5 probing
+// protection); other failure reasons like a missing user or an expired batch
+// are not blamed on the card — otherwise submitting one usable card code
+// repeatedly against an invalid user_id would reach 5 hits and auto-disable it
+// (P2 fix for malicious card disabling via failed redemption: only the card's
+// own unavailability counts, so non-card faults do not harm usable cards).
 var errCardCodeUnusable = errors.New("card code unusable")
 
-// redeemInput 是兑换请求载荷。user_id 在 P0 由调用方显式给定，
-// 用户门户就绪后改为从会话取（届时收紧为不可传）。
+// redeemInput is the redemption request payload. user_id is passed explicitly
+// by the caller in P0 and will come from the session once the user portal is
+// ready (it will then be tightened to be non-optional).
 type redeemInput struct {
 	Code   string `json:"code"`
 	UserID uint   `json:"user_id"`
 }
 
-// redeem 兑换卡密（PAY-4）：原子核销 → 事务写三账（provider=card）→ 执行权益。
+// redeem redeems a card code (PAY-4): atomic write-off -> transactional three-
+// ledger write (provider=card) -> grant fulfilment.
 func (h *Handler) redeem(c *gin.Context) {
 	var in redeemInput
 	if err := c.ShouldBindJSON(&in); err != nil {
@@ -54,8 +61,9 @@ func (h *Handler) redeem(c *gin.Context) {
 	if err != nil {
 		if errors.Is(err, errRedeemFailed) {
 			h.redeemLimiter.RecordFailure(ip)
-			// 只按卡密自身不可用累计失败（P2：用户不存在等非卡密故障不
-			// 归罪于卡密，防可用卡被无效 user_id 反复提交恶意禁卡）。
+			// Only the card's own unavailability accrues failures (P2: non-card
+			// faults such as a missing user are not blamed on the card, so an
+			// invalid user_id cannot maliciously disable a usable card).
 			if errors.Is(err, errCardCodeUnusable) {
 				h.bumpCardFailCount(code)
 			}
@@ -69,11 +77,13 @@ func (h *Handler) redeem(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
-// redeemTx 执行一次兑换。任一步失败整体回滚，码回到未用状态。
+// redeemTx performs a single redemption. Any failed step rolls the whole thing
+// back and leaves the code unused.
 func (h *Handler) redeemTx(code string, userID uint, now time.Time) (gin.H, error) {
 	var out gin.H
 	err := h.db.Transaction(func(tx *gorm.DB) error {
-		// 1. 原子核销：条件更新行数为 0 即不可兑换（不存在/已用/禁用）。
+		// 1. Atomic write-off: 0 rows from the conditional update means the code
+		// cannot be redeemed (missing/used/disabled).
 		res := tx.Model(&storage.CardCode{}).
 			Where("code = ? AND status = ?", code, "unused").
 			Updates(map[string]any{"status": "used", "used_by": userID, "used_at": now})
@@ -81,8 +91,9 @@ func (h *Handler) redeemTx(code string, userID uint, now time.Time) (gin.H, erro
 			return res.Error
 		}
 		if res.RowsAffected == 0 {
-			// 卡密自身不可用（不存在/已用/禁用）：归罪于卡密，调用方据此
-			// 累计 fail_count（P2 防恶意禁卡，其余失败原因不计）。
+			// The card itself is unusable (missing/used/disabled): blame it, so
+			// the caller accrues fail_count (P2 anti-malicious-disable; other
+			// failure reasons do not count).
 			return fmt.Errorf("%w: %w", errRedeemFailed, errCardCodeUnusable)
 		}
 		var codeRow storage.CardCode
@@ -93,11 +104,11 @@ func (h *Handler) redeemTx(code string, userID uint, now time.Time) (gin.H, erro
 		if err := tx.First(&batch, codeRow.BatchID).Error; err != nil {
 			return err
 		}
-		// 过期批次：核销已随事务回滚。
+		// Expired batch: the write-off already rolled back with the transaction.
 		if batch.ExpiredAt != nil && batch.ExpiredAt.Before(now) {
 			return errRedeemFailed
 		}
-		// 2. 用户校验。
+		// 2. Validate the user.
 		var u storage.User
 		if err := tx.First(&u, userID).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -105,19 +116,24 @@ func (h *Handler) redeemTx(code string, userID uint, now time.Time) (gin.H, erro
 			}
 			return err
 		}
-		// 3. 三账：订单（card/0/paid）→ 流水（external_id=码 id，唯一约束兜底幂等）→ 发放。
+		// 3. Three ledgers: order (card/0/paid) -> transaction
+		// (external_id = card code id, the unique constraint backstops idempotency)
+		// -> grant.
 		orderNo := fmt.Sprintf("card-%d-%d", codeRow.ID, now.UnixNano())
 		order := storage.PaymentOrder{
 			OrderNo: orderNo, UserID: userID, Provider: "card", AmountCents: 0,
 			Product: "卡密 " + batch.Name, Status: "paid", PaidAt: &now, CreatedAt: now,
-			DistributorID: batch.DistributorID, // DS-1：归属随卡批次带入，三账串联
+			DistributorID: batch.DistributorID, // DS-1: attribution comes with the card batch, tying the three ledgers together
 		}
 		if err := tx.Create(&order).Error; err != nil {
 			return err
 		}
-		// DS-1 代理落账：代理批次且有面价 → sale（留痕不进余额）+ commission
-		//（面价×佣金比例，进余额）两行，同 order_no 与三账串联；自营批次不落。
-		// 代理停用不影响落账——卡已售出权益必兑现，分润照记账目保留。
+		// DS-1 distributor booking: a distributor batch with a listed price gets
+		// two rows, sale (trace only, not balance) + commission (price x
+		// commission ratio, into balance), sharing order_no with the three
+		// ledgers; self-run batches book nothing. A deactivated distributor does
+		// not stop booking — a sold card must always be honoured and the payout
+		// keeps its ledger rows.
 		if batch.DistributorID > 0 && batch.PriceCents > 0 {
 			var dist storage.Distributor
 			if err := tx.First(&dist, batch.DistributorID).Error; err != nil {
@@ -146,7 +162,7 @@ func (h *Handler) redeemTx(code string, userID uint, now time.Time) (gin.H, erro
 		if err := tx.Create(&txn).Error; err != nil {
 			return err
 		}
-		// 4. 执行权益并写发放记录。
+		// 4. Fulfil the grant and write the grant record.
 		if err := applyGrant(tx, orderNo, &u, batch.GrantType, batch.GrantValue, now,
 			map[string]any{"code": code, "batch_id": batch.ID}); err != nil {
 			return err
@@ -160,18 +176,24 @@ func (h *Handler) redeemTx(code string, userID uint, now time.Time) (gin.H, erro
 	return out, err
 }
 
-// grantSnapshot 是发放前后的权益快照。
+// grantSnapshot is the entitlement snapshot before and after a grant.
 type grantSnapshot struct {
 	QuotaBytes int64      `json:"quota_bytes"`
 	ExpiresAt  *time.Time `json:"expires_at"`
 }
 
-// applyGrant 在事务内执行权益并写发放记录（卡密兑换与在线支付回调共用）：
-// add_quota 加配额；其余按 extend_days 口径延到期（无到期自当下起算）。
-// extra 并入快照（卡密的码/批次、在线支付的 trade_id 等），失败回滚整个事务。
-// 写回按读时值做乐观守卫、只写本发放涉及的列，守卫落空（并发退款回收等
-// 他方改行）重读重算至多三轮，响应侧 u 随重读保鲜——单侧守卫不够，裸写
-// 会把对方已提交的变更静默覆盖回旧值（codex 深审 P2 丢更新竞态）。
+// applyGrant fulfils the entitlement and writes the grant record inside the
+// transaction (shared by card redemption and the online payment callback):
+// add_quota raises the quota; everything else extends expiry on the extend_days
+// convention (starting from now when there is no expiry). extra is merged into
+// the snapshot (card code/batch, the online payment trade_id, etc.); a failure
+// rolls back the whole transaction. The write-back is optimistically guarded on
+// the values read and only writes the columns this grant touches; when the guard
+// misses (a concurrent refund reclamation or other writer touching the row) it
+// rereads and recomputes up to three times, refreshing u with the reread — a
+// one-sided guard is not enough, and a plain write would silently overwrite the
+// other party's committed change back to the stale value (codex deep review P2
+// lost-update race).
 func applyGrant(tx *gorm.DB, orderNo string, u *storage.User, grantType string, grantValue int64, now time.Time, extra map[string]any) error {
 	before := grantSnapshot{QuotaBytes: u.QuotaBytes, ExpiresAt: u.ExpiresAt}
 	after := before
@@ -213,7 +235,8 @@ func applyGrant(tx *gorm.DB, orderNo string, u *storage.User, grantType string, 
 		if attempt == 2 {
 			return errors.New("apply grant: concurrent user update contention")
 		}
-		// 守卫失守：他方并发改行（如退款回收），重读后按新值重算再试。
+		// Guard missed: another writer changed the row concurrently (e.g. a
+		// refund reclamation); reread, recompute against the new values, retry.
 		if err := tx.First(u, u.ID).Error; err != nil {
 			return err
 		}
@@ -234,8 +257,10 @@ func applyGrant(tx *gorm.DB, orderNo string, u *storage.User, grantType string, 
 	if err := tx.Create(&grant).Error; err != nil {
 		return err
 	}
-	// 事件触发（NT-2）：发放到账落一条 system 站内信，与发放同事务原子；
-	// 站外投递走同一事件接口（HERALD-4），同事务原子（orderNo 做去重键）。
+	// Event trigger (NT-2): an in-app system message for the credited grant,
+	// atomic with the grant in the same transaction; out-of-app delivery goes
+	// through the same event interface (HERALD-4), also atomic (orderNo is the
+	// dedup key).
 	if err := tx.Create(&storage.Notification{
 		UserID: int64(u.ID), Type: storage.NotifSystem,
 		Title: grantNotifTitle(grantType, grantValue), CreatedAt: now,
@@ -252,7 +277,8 @@ func applyGrant(tx *gorm.DB, orderNo string, u *storage.User, grantType string, 
 	return err
 }
 
-// grantNotifTitle 发放到账通知文案：流量给人类可读量级，时长给天数。
+// grantNotifTitle is the credited-grant notification copy: traffic as a human
+// readable magnitude, duration as days.
 func grantNotifTitle(grantType string, value int64) string {
 	if grantType == "add_quota" {
 		return fmt.Sprintf("流量已到账：+%s", humanBytes(value))
@@ -260,7 +286,8 @@ func grantNotifTitle(grantType string, value int64) string {
 	return fmt.Sprintf("时长已到账：+%d 天", value)
 }
 
-// humanBytes 字节量级 humanize（GB 向上取整对齐购买口径，不足 1GB 按 MB）。
+// humanBytes humanizes a byte magnitude (GB rounded up to match the purchase
+// convention, below 1GB in MB).
 func humanBytes(n int64) string {
 	const gb = 1 << 30
 	const mb = 1 << 20
@@ -274,8 +301,9 @@ func humanBytes(n int64) string {
 	}
 }
 
-// normalizeCardCode 归一化输入：统一大写、去杂字符后还原 XXXX-XXXX-XXXX 分组，
-// 与存储格式对齐（带横线与不带横线的粘贴都能匹配）。
+// normalizeCardCode normalizes the input: uppercased and stripped of stray
+// characters, then regrouped as XXXX-XXXX-XXXX to match the stored format (so
+// pastes with and without dashes both match).
 func normalizeCardCode(s string) string {
 	var b strings.Builder
 	for _, r := range strings.ToUpper(strings.TrimSpace(s)) {
@@ -285,13 +313,15 @@ func normalizeCardCode(s string) string {
 	}
 	raw := b.String()
 	if len(raw) != 12 {
-		return raw // 非法长度自然核销失败
+		return raw // a wrong length simply fails the write-off on its own
 	}
 	return raw[:4] + "-" + raw[4:8] + "-" + raw[8:]
 }
 
-// bumpCardFailCount 兑换失败时对已存在码行累计失败次数（未知码无行可计）；
-// unused 码计满 5 次自动禁用，原子完成避免读改写（PAY-5）。
+// bumpCardFailCount accrues failure counts on an existing code row when a
+// redemption fails (an unknown code has no row to count); an unused code that
+// reaches 5 hits is auto-disabled. Done atomically to avoid read-modify-write
+// (PAY-5).
 func (h *Handler) bumpCardFailCount(code string) {
 	_ = h.db.Model(&storage.CardCode{}).
 		Where("code = ?", code).
@@ -299,5 +329,5 @@ func (h *Handler) bumpCardFailCount(code string) {
 			"fail_count": gorm.Expr("fail_count + 1"),
 			"status": gorm.Expr(
 				"CASE WHEN status = 'unused' AND fail_count + 1 >= 5 THEN 'disabled' ELSE status END"),
-		}).Error // 计数失败不影响统一失败文案
+		}).Error // a counting failure must not affect the unified failure message
 }

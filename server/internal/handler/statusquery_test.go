@@ -1,9 +1,10 @@
 package handler
 
-// 状态查询面缝隙批：dimension-status、transport-status、节点流量与配置
-// 历史、GET /api/token（whoami）此前零测试覆盖；loginlog 纯函数边界
-// （sameNetwork 网段粒度与解析回退、UA 截断）一并补齐。判定逻辑本体
-// 已由 transport 包自测，本文件只测 handler 层参数与形状。
+// Status query surface gap batch: dimension-status, transport-status, node traffic and
+// config history, and GET /api/token (whoami) had zero test coverage; the loginlog pure-
+// function edges (sameNetwork subnet granularity and parse fallback, UA truncation) are
+// filled in here too. The verdict logic itself is self-tested by the transport package;
+// this file only tests handler-level parameters and shapes.
 
 import (
 	"encoding/json"
@@ -17,7 +18,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestDimensionStatusList 覆盖状态灯列表：排序 scope,key 升序。
+// TestDimensionStatusList covers the status light list: ordered by scope,key ascending.
 func TestDimensionStatusList(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	base := time.Now()
@@ -45,8 +46,9 @@ func TestDimensionStatusList(t *testing.T) {
 	}
 }
 
-// TestTransportStatusEndpoint 覆盖区域传输判定端点：空库回空数组、
-// window_sec 参数钳制、窗口内有新鲜结论时聚合出建议。
+// TestTransportStatusEndpoint covers the region transport verdict endpoint: empty db
+// returns an empty array, window_sec parameter clamping, and a recommendation
+// aggregated when fresh verdicts exist inside the window.
 func TestTransportStatusEndpoint(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	if rec := doJSON(t, r, "GET", "/api/transport-status", nil); rec.Code != http.StatusOK {
@@ -84,8 +86,8 @@ func TestTransportStatusEndpoint(t *testing.T) {
 	}
 }
 
-// TestNodeTrafficLogsQuery 覆盖节点流量查询：只回本节点、新在前、
-// limit 钳制与无效 id。
+// TestNodeTrafficLogsQuery covers node traffic queries: only the given node's rows,
+// newest first, limit clamping and invalid ids.
 func TestNodeTrafficLogsQuery(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	now := time.Now()
@@ -131,7 +133,7 @@ func TestNodeTrafficLogsQuery(t *testing.T) {
 	}
 }
 
-// TestNodeConfigsQuery 覆盖配置下发历史查询：新在前、limit 钳制与无效 id。
+// TestNodeConfigsQuery covers config delivery history queries: newest first, limit clamping and invalid ids.
 func TestNodeConfigsQuery(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	for _, row := range []storage.NodeConfig{
@@ -163,8 +165,8 @@ func TestNodeConfigsQuery(t *testing.T) {
 	}
 }
 
-// TestGetCurrentUser 覆盖 whoami（GET /api/token）：管理员 JWT 回其
-// subject、API Token 回 admin、无凭据 401。
+// TestGetCurrentUser covers whoami (GET /api/token): admin JWT returns its subject,
+// API Token returns admin, no credentials returns 401.
 func TestGetCurrentUser(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	rec := doJSON(t, r, "GET", "/api/token", nil)
@@ -209,18 +211,18 @@ func TestGetCurrentUser(t *testing.T) {
 	}
 }
 
-// TestSameNetwork 覆盖网段判定：v4 /24、v6 /64 粒度与解析失败回退。
+// TestSameNetwork covers subnet verdicts: v4 /24 and v6 /64 granularity, plus parse-failure fallback.
 func TestSameNetwork(t *testing.T) {
 	cases := []struct {
 		a, b string
 		want bool
 	}{
-		{"10.1.0.1", "10.1.0.200", true},                  // 同 /24
-		{"10.1.0.1", "10.2.0.1", false},                   // 跨 /24
-		{"2001:db8:1:1::1", "2001:db8:1:1:ffff::1", true}, // 同 /64
-		{"2001:db8:1:1::1", "2001:db8:1:2::1", false},     // 跨 /64
+		{"10.1.0.1", "10.1.0.200", true},                  // same /24
+		{"10.1.0.1", "10.2.0.1", false},                   // across /24
+		{"2001:db8:1:1::1", "2001:db8:1:1:ffff::1", true}, // same /64
+		{"2001:db8:1:1::1", "2001:db8:1:2::1", false},     // across /64
 		{"10.1.0.1", "2001:db8::1", false},                // v4 vs v6
-		{"abc", "abc", true},                              // 解析失败回退整串
+		{"abc", "abc", true},                              // parse failure falls back to whole string
 		{"abc", "abd", false},
 	}
 	for _, c := range cases {
@@ -230,7 +232,7 @@ func TestSameNetwork(t *testing.T) {
 	}
 }
 
-// TestLoginLogUALimit 覆盖 UA 截断：超 255 字符落库截断，不影响登录。
+// TestLoginLogUALimit covers UA truncation: user agents over 255 chars are truncated in the db, without affecting login.
 func TestLoginLogUALimit(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	seedAdmin(t, db, "root", "pw-root")

@@ -19,7 +19,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// seedAdmin 建一个管理员账号（bcrypt 口径与 AdminLogin 一致）。
+// seedAdmin creates an admin account (same bcrypt convention as AdminLogin).
 func seedAdmin(t *testing.T, db *gorm.DB, name, password string) storage.User {
 	t.Helper()
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
@@ -36,7 +36,7 @@ func seedAdmin(t *testing.T, db *gorm.DB, name, password string) storage.User {
 	return u
 }
 
-// adminLogin 以指定 IP/UA 走登录端点（UA 固定供审计断言）。
+// adminLogin hits the login endpoint with the given IP/UA (UA is fixed for audit assertions).
 func adminLogin(t *testing.T, r *gin.Engine, ip, username, password, code string) *httptest.ResponseRecorder {
 	t.Helper()
 	buf := bytes.NewBufferString(`{"username":"` + username + `","password":"` + password + `"`)
@@ -53,7 +53,7 @@ func adminLogin(t *testing.T, r *gin.Engine, ip, username, password, code string
 	return rec
 }
 
-// doJSONAuth 带管理员令牌发请求（2FA 与审计端点均在鉴权组内）。
+// doJSONAuth sends a request with the admin token (2FA and audit endpoints all live in the authed group).
 func doJSONAuth(t *testing.T, r *gin.Engine, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	var buf bytes.Buffer
@@ -70,7 +70,7 @@ func doJSONAuth(t *testing.T, r *gin.Engine, method, path string, body any) *htt
 	return rec
 }
 
-// doJSONAuthID 带指定管理员 ID 的令牌发请求（多管理员用例按 ID 各发一把）。
+// doJSONAuthID sends a request with a token for the given admin ID (multi-admin cases each use their own).
 func doJSONAuthID(t *testing.T, r *gin.Engine, method, path string, body any, adminID uint) *httptest.ResponseRecorder {
 	t.Helper()
 	var buf bytes.Buffer
@@ -87,7 +87,7 @@ func doJSONAuthID(t *testing.T, r *gin.Engine, method, path string, body any, ad
 	return rec
 }
 
-// loginBody 解析登录响应的 token/错误码。
+// loginBody parses the login response's token/error code.
 func loginBody(t *testing.T, rec *httptest.ResponseRecorder) (token, code string) {
 	t.Helper()
 	var out struct {
@@ -100,7 +100,7 @@ func loginBody(t *testing.T, rec *httptest.ResponseRecorder) (token, code string
 	return out.Token, out.Code
 }
 
-// totpNow 生成当前时刻的合法 TOTP 码。
+// totpNow generates a valid TOTP code for the current moment.
 func totpNow(t *testing.T, secret string) string {
 	t.Helper()
 	code, err := totp.GenerateCode(secret, time.Now())
@@ -110,8 +110,8 @@ func totpNow(t *testing.T, secret string) string {
 	return code
 }
 
-// badTotpCode 挑一个确定非法的 6 位码（按校验参数实测，避开 ±1 周期容差
-// 撞上的万分位抖动）。
+// badTotpCode picks a definitely invalid 6-digit code (tested against the real validation
+// parameters, avoiding the rare wobble where the ±1 period skew happens to match).
 func badTotpCode(t *testing.T, secret string) string {
 	t.Helper()
 	for _, cand := range []string{"000000", "111111", "222222", "123456", "654323", "999999"} {
@@ -125,21 +125,21 @@ func badTotpCode(t *testing.T, secret string) string {
 	return ""
 }
 
-// TestTwoFABindLoginRecovery 覆盖绑定→校验→恢复码→解绑全链路：setup 产出
-// 密钥与 otpauth URL，enable 校验 TOTP 后落密文密钥与 8 枚恢复码；绑定后
-// 登录须 TOTP 或恢复码（缺码 totp_required、错码 totp_invalid），恢复码
-// 用一个销一个；解绑后登录恢复直过。
+// TestTwoFABindLoginRecovery covers the full bind->verify->recovery->unbind flow: setup produces
+// the secret and otpauth URL; enable persists the sealed secret and 8 recovery codes after verifying
+// a TOTP; once bound, login requires a TOTP or recovery code (missing code totp_required, wrong code
+// totp_invalid) and recovery codes burn on use; after unbinding, login passes directly again.
 func TestTwoFABindLoginRecovery(t *testing.T) {
 	r, db := newTestRouterCfg(t, func(cfg *config.Config) { cfg.SecretKey = "test-master-key" })
 	seedAdmin(t, db, "root", "pw-root")
 
-	// 未绑定状态。
+	// Unbound state.
 	if rec := doJSONAuth(t, r, "GET", "/admin/2fa", nil); rec.Code != http.StatusOK ||
 		!strings.Contains(rec.Body.String(), `"enabled":false`) {
 		t.Fatalf("status unbound: %d %s", rec.Code, rec.Body)
 	}
 
-	// setup：密钥与 otpauth URL。
+	// setup: secret and otpauth URL.
 	rec := doJSONAuth(t, r, "POST", "/admin/2fa/setup", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("setup: %d %s", rec.Code, rec.Body)
@@ -155,7 +155,7 @@ func TestTwoFABindLoginRecovery(t *testing.T) {
 		t.Fatalf("otpauth url = %q", setup.URL)
 	}
 
-	// 错码拒绝，正确码完成绑定并回 8 枚恢复码。
+	// A wrong code is rejected; a correct one completes the binding and returns 8 recovery codes.
 	if rec := doJSONAuth(t, r, "POST", "/admin/2fa/enable", map[string]any{"code": badTotpCode(t, setup.Secret)}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("enable wrong code: %d %s", rec.Code, rec.Body)
 	}
@@ -178,7 +178,7 @@ func TestTwoFABindLoginRecovery(t *testing.T) {
 			t.Fatalf("recovery code %q not in xxxx-xxxx form", code)
 		}
 	}
-	// 密钥密文落库、暂存键清空、恢复码哈希行就位。
+	// The secret is persisted sealed, the staging key cleared, and the recovery code hash rows in place.
 	var u storage.User
 	db.First(&u, "username = ?", "root")
 	if !u.TOTPEnabled || !strings.HasPrefix(u.TOTPSecret, "v1:") {
@@ -193,7 +193,7 @@ func TestTwoFABindLoginRecovery(t *testing.T) {
 		t.Fatalf("recovery rows = %d, want %d", codeRows, RecoveryCodeCount)
 	}
 
-	// 登录二次校验：缺码、错码、正确码、恢复码、恢复码重放。
+	// Login second factor: missing code, wrong code, correct code, recovery code, recovery code replay.
 	if rec := adminLogin(t, r, "192.0.2.10", "root", "pw-root", ""); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("missing code: %d", rec.Code)
 	} else if _, code := loginBody(t, rec); code != "totp_required" {
@@ -214,7 +214,7 @@ func TestTwoFABindLoginRecovery(t *testing.T) {
 		t.Fatalf("recovery replay should fail: %d", rec.Code)
 	}
 
-	// 解绑：密码错拒绝，密码对清密钥与恢复码，登录回到直过。
+	// Unbind: a wrong password is rejected; the right one clears the secret and recovery codes, and login passes directly again.
 	if rec := doJSONAuth(t, r, "POST", "/admin/2fa/disable", map[string]any{"password": "bad"}); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("disable wrong password: %d", rec.Code)
 	}
@@ -235,8 +235,8 @@ func TestTwoFABindLoginRecovery(t *testing.T) {
 	}
 }
 
-// TestTwoFASetupNeedsMasterKey 覆盖加密面拒绝：主密钥未配置时绑定明确
-// 报错（密钥永不明文落库）。
+// TestTwoFASetupNeedsMasterKey covers the encryption-surface rejection: binding reports a clear
+// error when the master key is unconfigured (the secret is never stored in plaintext).
 func TestTwoFASetupNeedsMasterKey(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	seedAdmin(t, db, "root", "pw-root")
@@ -246,8 +246,8 @@ func TestTwoFASetupNeedsMasterKey(t *testing.T) {
 	}
 }
 
-// TestLoginUnboundDirectPass 覆盖未绑定直过：无 2FA 管理员不带 totp 字段
-// 登录照常成功，且成功落一行登录审计（IP/UA/结果齐）。
+// TestLoginUnboundDirectPass covers the unbound direct pass: an admin without 2FA logs in
+// successfully without the totp field, and one login audit row is persisted (IP/UA/result all present).
 func TestLoginUnboundDirectPass(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	seedAdmin(t, db, "root", "pw-root")
@@ -267,8 +267,8 @@ func TestLoginUnboundDirectPass(t *testing.T) {
 	}
 }
 
-// TestLoginLogsQuery 覆盖审计落行与分页：失败/成功各落行，管理端分页
-// 列表新→旧排序、total 与页容量正确。
+// TestLoginLogsQuery covers audit rows and pagination: failures and successes each get a row, and
+// the admin paginated list is ordered new->old with a correct total and page size.
 func TestLoginLogsQuery(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	seedAdmin(t, db, "root", "pw-root")
@@ -314,13 +314,14 @@ func TestLoginLogsQuery(t *testing.T) {
 	}
 }
 
-// TestLoginAlerts 覆盖两类 Herald 告警：新网段成功登录（同日去重）与
-// 连续失败达阈值（同 IP 同日至多一条），未配 Herald 也落本地 outbox。
+// TestLoginAlerts covers the two Herald alert kinds: a successful login from a new network
+// segment (deduplicated per day) and consecutive failures reaching the threshold (at most one
+// per IP per day); the local outbox is written even when Herald is unconfigured.
 func TestLoginAlerts(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	seedAdmin(t, db, "root", "pw-root")
 
-	// 基线成功→同网段再成功（不告警）→异网段成功（告警一次）→再次异网段（同日去重）。
+	// Baseline success -> another success on the same segment (no alert) -> a different segment succeeds (one alert) -> yet another segment (deduplicated same day).
 	if rec := adminLogin(t, r, "10.1.0.1", "root", "pw-root", ""); rec.Code != http.StatusOK {
 		t.Fatalf("baseline login: %d", rec.Code)
 	}
@@ -333,7 +334,7 @@ func TestLoginAlerts(t *testing.T) {
 	if rec := adminLogin(t, r, "10.3.0.1", "root", "pw-root", ""); rec.Code != http.StatusOK {
 		t.Fatalf("second new-net login: %d", rec.Code)
 	}
-	// 连续失败 5 次（恰达阈值），触发连续失败告警。
+	// 5 consecutive failures (exactly at the threshold), triggering the consecutive-failure alert.
 	for i := 0; i < 5; i++ {
 		if rec := adminLogin(t, r, "10.9.9.9", "root", "wrong", ""); rec.Code != http.StatusUnauthorized {
 			t.Fatalf("failed login %d: %d", i, rec.Code)
@@ -355,10 +356,11 @@ func TestLoginAlerts(t *testing.T) {
 	}
 }
 
-// TestTwoFAPendingKeyPerAdmin 覆盖 P2「2FA 全局单键互覆盖」修复：绑定中暂存
-// 密钥按管理员 ID 分键——一个管理员发起绑定不再冲掉另一个的暂存密钥，各自
-// enable 用各自密钥校验成功。修复前单键 "admin_2fa_pending" 跨管理员共用，
-// B 的 setup 覆盖 A 的暂存密钥，A 的 enable 因密钥不符被拒（绑定中断）。
+// TestTwoFAPendingKeyPerAdmin covers the P2 fix for "one global 2FA key clobbering": the
+// pending-binding secret is keyed by admin ID — one admin starting a binding no longer clobbers
+// another's staged secret, and each admin's enable validates with their own secret. Before the
+// fix, the single "admin_2fa_pending" key was shared across admins: B's setup overwrote A's
+// staged secret, and A's enable was rejected on a secret mismatch (binding broken off).
 func TestTwoFAPendingKeyPerAdmin(t *testing.T) {
 	r, db := newTestRouterCfg(t, func(cfg *config.Config) { cfg.SecretKey = "test-master-key" })
 	seedAdmin(t, db, "admin-a", "pw-a")
@@ -371,7 +373,7 @@ func TestTwoFAPendingKeyPerAdmin(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A 发起绑定 → B 发起绑定（不应冲掉 A 的暂存密钥）。
+	// A starts a binding -> B starts a binding (must not clobber A's staged secret).
 	setupSecret := func(adminID uint) string {
 		t.Helper()
 		rec := doJSONAuthID(t, r, "POST", "/admin/2fa/setup", nil, adminID)
@@ -389,11 +391,11 @@ func TestTwoFAPendingKeyPerAdmin(t *testing.T) {
 	secretA := setupSecret(a.ID)
 	secretB := setupSecret(b.ID)
 
-	// A 用 A 的码 enable：应成功（修复前被 B 的密钥覆盖而失败）。
+	// A enables with A's code: should succeed (before the fix it failed because B's secret overwrote it).
 	if rec := doJSONAuthID(t, r, "POST", "/admin/2fa/enable", map[string]any{"code": totpNow(t, secretA)}, a.ID); rec.Code != http.StatusOK {
 		t.Fatalf("A enable: %d %s", rec.Code, rec.Body)
 	}
-	// B 用 B 的码 enable：应成功。
+	// B enables with B's code: should succeed.
 	if rec := doJSONAuthID(t, r, "POST", "/admin/2fa/enable", map[string]any{"code": totpNow(t, secretB)}, b.ID); rec.Code != http.StatusOK {
 		t.Fatalf("B enable: %d %s", rec.Code, rec.Body)
 	}
@@ -407,7 +409,7 @@ func TestTwoFAPendingKeyPerAdmin(t *testing.T) {
 	if !a.TOTPEnabled || !b.TOTPEnabled {
 		t.Fatalf("both admins should be enabled: A=%v B=%v", a.TOTPEnabled, b.TOTPEnabled)
 	}
-	// 各自暂存键已清，且互不残留。
+	// Each admin's staging key is cleared, with nothing left over from the other.
 	if _, ok, _ := storage.GetSetting(db, twofaPendingKey(a.ID)); ok {
 		t.Fatal("A pending should be cleared after enable")
 	}

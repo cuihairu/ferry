@@ -12,10 +12,10 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// 补齐管理端零覆盖口（十三批）：活动列表、DNS 凭证/前置更新、证书编排器
-// 构造口径。
+// Filling in the admin endpoints with zero coverage (thirteenth batch): campaign listing,
+// DNS provider/front update, and the cert orchestrator construction.
 
-// TestListCampaigns 活动列表端：建两行按 id DESC 返回。
+// TestListCampaigns campaign listing endpoint: two rows created, returned in id DESC order.
 func TestListCampaigns(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	now := time.Now()
@@ -42,8 +42,8 @@ func TestListCampaigns(t *testing.T) {
 	}
 }
 
-// TestUpdateDNSProvider 凭证更新端：改名/停用保留原 key、换 key 明文重封、
-// 非法 id 与不存在行 404。
+// TestUpdateDNSProvider provider update endpoint: renaming/disabling keeps the original key, key
+// rotation re-seals the plaintext, and an invalid id or missing row gives 404.
 func TestUpdateDNSProvider(t *testing.T) {
 	r, db := newTestRouterWithMasterKey(t)
 	rec := doJSON(t, r, "POST", "/api/dns-providers", map[string]any{
@@ -60,7 +60,7 @@ func TestUpdateDNSProvider(t *testing.T) {
 	}
 	id := strconv.FormatUint(uint64(pv.ID), 10)
 
-	// 保留原 key：改名换型并停用。
+	// Keep the original key: rename, change type, and disable.
 	rec = doJSON(t, r, "PUT", "/api/dns-providers/"+id, map[string]any{
 		"name": "cf-alt", "type": "cloudflare", "enabled": false,
 	})
@@ -87,7 +87,7 @@ func TestUpdateDNSProvider(t *testing.T) {
 		t.Fatalf("key must be preserved: %q err=%v", plain, err)
 	}
 
-	// 换 key：明文重封落库。
+	// Replace the key: the plaintext is re-sealed and persisted.
 	rec = doJSON(t, r, "PUT", "/api/dns-providers/"+id, map[string]any{
 		"name": "cf-alt", "type": "cloudflare", "api_key": "new-secret",
 	})
@@ -109,8 +109,8 @@ func TestUpdateDNSProvider(t *testing.T) {
 	}
 }
 
-// TestUpdateDNSFront 前置更新端：整包更新落库、坏备份 IP 拒、指向不存在
-// 的凭证 400、非法 id 与不存在行 404。
+// TestUpdateDNSFront front update endpoint: a full-package update is persisted, a bad backup IP is
+// rejected, a nonexistent provider gives 400, and an invalid id or missing row gives 404.
 func TestUpdateDNSFront(t *testing.T) {
 	r, db := newTestRouterWithMasterKey(t)
 	store := secret.NewStore("test-master-key")
@@ -168,8 +168,8 @@ func TestUpdateDNSFront(t *testing.T) {
 	}
 }
 
-// TestGetCertManager 证书编排器构造口径：bin/home/webroot 随配置、CA 固定
-// letsencrypt。
+// TestGetCertManager cert orchestrator construction: bin/home/webroot follow the config, CA is
+// pinned to letsencrypt.
 func TestGetCertManager(t *testing.T) {
 	cfg := config.Default()
 	cfg.AcmeBin = "/usr/bin/acme.sh"

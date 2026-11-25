@@ -1,10 +1,12 @@
 package handler
 
-// 管理员两步验证（安全设计 §1，P1）：TOTP 对齐 3x-ui 做法——dash 设置页
-// 绑定，登录二次校验（6 位 TOTP 或一次性恢复码），未绑定者登录行为不变。
-// 密钥经 secret_store 加密落库（R24 口径：主密钥不入库、不回显），恢复码
-// 只存 sha256、用一个销一个；绑定分两步（setup 加密暂存 settings → enable
-// 校验一次 TOTP 才落用户行），避免二维码没扫成留下的半绑定态。
+// Admin two-factor authentication (Security Design §1, P1): TOTP follows the 3x-ui approach —
+// bound on the dash settings page, re-checked at login (6-digit TOTP or a one-time recovery code);
+// unbound admins keep their current login behavior.
+// The secret is encrypted via secret_store before being persisted (R24 rule: the master key is
+// never stored and never echoed back); recovery codes store only sha256 and are burned on use.
+// Binding happens in two steps (setup encrypts and stages the secret in settings -> enable verifies
+// one TOTP before writing the user row), avoiding a half-bound state left behind by an unscanned QR code.
 
 import (
 	"crypto/rand"
@@ -23,26 +25,27 @@ import (
 )
 
 const (
-	// twofaIssuer 是 otpauth URL 的 issuer 展示名。
+	// twofaIssuer is the issuer display name in the otpauth URL.
 	twofaIssuer = "ferry"
-	// RecoveryCodeCount 是绑定完成时生成的一次性恢复码数量。
+	// RecoveryCodeCount is the number of one-time recovery codes generated when binding completes.
 	RecoveryCodeCount = 8
 )
 
-// twofaPendingKey 返回指定管理员的绑定中密钥暂存键（settings 键，值为加密
-// 密文）。P2 修复：原单键 "admin_2fa_pending" 跨管理员共用，一个管理员发起
-// 绑定会冲掉另一个的暂存密钥，互覆盖导致后者 enable 校验失败；改按管理员
-// ID 分键，各管各的绑定流程。
+// twofaPendingKey returns the pending-binding key storage key for a given admin (a settings key
+// whose value is an encrypted ciphertext). P2 fix: the original single key "admin_2fa_pending" was
+// shared across admins, so one admin starting a binding would clobber another's staged secret, and
+// the mutual overwrite made the latter's enable verification fail; keys are now partitioned by admin
+// ID, so each admin's binding flow is independent.
 func twofaPendingKey(userID uint) string {
 	return fmt.Sprintf("admin_2fa_pending:%d", userID)
 }
 
-// twofaOpts 是 TOTP 校验参数（RFC 6238 标准 30s/6 位/SHA1，±1 周期容差）。
+// twofaOpts are the TOTP validation parameters (RFC 6238 standard 30s/6 digits/SHA1, with ±1 period skew).
 func twofaOpts() totp.ValidateOpts {
 	return totp.ValidateOpts{Period: 30, Skew: 1, Digits: otp.DigitsSix, Algorithm: otp.AlgorithmSHA1}
 }
 
-// adminUser 取当前令牌对应的管理员账号；查不到回 401（令牌过期后用户被删）。
+// adminUser fetches the admin account behind the current token; a miss returns 401 (the user was deleted after the token expired).
 func (h *Handler) adminUser(c *gin.Context) (storage.User, bool) {
 	var u storage.User
 	if err := h.db.First(&u, "id = ?", c.GetString("adminUserID")).Error; err != nil {
@@ -52,7 +55,7 @@ func (h *Handler) adminUser(c *gin.Context) (storage.User, bool) {
 	return u, true
 }
 
-// twofaStatus 返回当前绑定状态（dash 设置页卡片渲染用）。
+// twofaStatus returns the current binding state (for rendering the dash settings page card).
 func (h *Handler) twofaStatus(c *gin.Context) {
 	u, ok := h.adminUser(c)
 	if !ok {
@@ -61,9 +64,10 @@ func (h *Handler) twofaStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"enabled": u.TOTPEnabled})
 }
 
-// twofaSetup 生成 TOTP 密钥，加密暂存 settings 并返回密钥串与 otpauth URL
-// （二维码由 dash 前端按 URL 渲染）。主密钥未配置时明确拒绝——密钥永不明文
-// 落库（对齐《安全设计》§3 加密面口径）。
+// twofaSetup generates a TOTP secret, stages it encrypted in settings, and returns the secret
+// string plus the otpauth URL (the dash frontend renders the QR code from the URL). It rejects
+// outright when the master key is unconfigured — the secret is never stored in plaintext
+// (matching the Security Design §3 encryption-surface rule).
 func (h *Handler) twofaSetup(c *gin.Context) {
 	u, ok := h.adminUser(c)
 	if !ok {
@@ -90,8 +94,9 @@ func (h *Handler) twofaSetup(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"secret": key.Secret(), "otpauth_url": key.URL()})
 }
 
-// twofaEnable 用一次 TOTP 确认绑定：校验通过才把暂存密钥落到用户行，并生成
-// 一次性恢复码（明文仅本次响应返回，落库只存哈希）。
+// twofaEnable confirms binding with one TOTP: only on success is the staged secret written to the
+// user row, and one-time recovery codes are generated (the plaintext is returned in this response
+// only; only the hash is persisted).
 func (h *Handler) twofaEnable(c *gin.Context) {
 	var in struct {
 		Code string `json:"code"`
@@ -100,8 +105,8 @@ func (h *Handler) twofaEnable(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误：code 必填"})
 		return
 	}
-	// 先取当前管理员（adminAuthMiddleware 已回库复核），按管理员分键读暂存
-	// 密钥——P2 修复后各管理员绑定流程互不覆盖。
+	// Fetch the current admin first (adminAuthMiddleware already re-checked the DB), then read the
+	// staged secret with the per-admin key — after the P2 fix, admins' binding flows no longer clobber each other.
 	u, ok := h.adminUser(c)
 	if !ok {
 		return
@@ -124,7 +129,7 @@ func (h *Handler) twofaEnable(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "验证码错误或已过期"})
 		return
 	}
-	// 旧码全清（重绑定轮换），再落新码。
+	// Clear all old codes (rotation on re-binding), then persist the new ones.
 	h.db.Where("user_id = ?", u.ID).Delete(&storage.RecoveryCode{})
 	u.TOTPSecret = sealed
 	u.TOTPEnabled = true
@@ -150,7 +155,8 @@ func (h *Handler) twofaEnable(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"recovery_codes": codes})
 }
 
-// twofaDisable 解绑：密码确认后清密钥与恢复码（防会话被盗后顺手拆保护）。
+// twofaDisable unbinds: after password confirmation, the secret and recovery codes are cleared
+// (so a stolen session cannot casually strip the protection).
 func (h *Handler) twofaDisable(c *gin.Context) {
 	var in struct {
 		Password string `json:"password"`
@@ -178,8 +184,9 @@ func (h *Handler) twofaDisable(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// checkTwoFA 是登录的二次因子关（密码校验通过后调用）：未绑定直过；绑定者
-// 须 6 位 TOTP（±1 周期容差）或一枚未用恢复码（命中即销毁，防重放）。
+// checkTwoFA is the login's second-factor gate (called after the password check passes): unbound
+// admins pass through; bound admins need a 6-digit TOTP (±1 period skew) or one unused recovery
+// code (destroyed on a match, preventing replay).
 func (h *Handler) checkTwoFA(u *storage.User, code string) bool {
 	if !u.TOTPEnabled {
 		return true
@@ -189,7 +196,7 @@ func (h *Handler) checkTwoFA(u *storage.User, code string) bool {
 	if len(normalized) == 6 && isDigits(normalized) {
 		secretPlain, err := h.secrets.Decrypt(u.TOTPSecret)
 		if err != nil {
-			return false // 主密钥已换且旧密钥未置：按校验失败处理，不静默放行
+			return false // the master key was rotated and the old secret never sealed: treat as validation failure rather than failing open
 		}
 		valid, verr := totp.ValidateCustom(code, secretPlain, time.Now(), twofaOpts())
 		return verr == nil && valid
@@ -197,7 +204,7 @@ func (h *Handler) checkTwoFA(u *storage.User, code string) bool {
 	return h.consumeRecoveryCode(u.ID, normalized)
 }
 
-// isDigits 报告全为 ASCII 数字（空串为 false）。
+// isDigits reports whether the whole string is ASCII digits (an empty string is false).
 func isDigits(s string) bool {
 	if s == "" {
 		return false
@@ -210,8 +217,8 @@ func isDigits(s string) bool {
 	return true
 }
 
-// consumeRecoveryCode 比对并销毁一枚恢复码：UPDATE 带 used_at IS NULL 条件，
-// RowsAffected=1 即本次消费成功（并发重放只有一方成功）。
+// consumeRecoveryCode matches and burns a recovery code: the UPDATE carries a used_at IS NULL
+// condition, and RowsAffected=1 means this consumption succeeded (under concurrent replay only one side wins).
 func (h *Handler) consumeRecoveryCode(userID uint, normalized string) bool {
 	if normalized == "" {
 		return false
@@ -222,7 +229,7 @@ func (h *Handler) consumeRecoveryCode(userID uint, normalized string) bool {
 	return res.Error == nil && res.RowsAffected == 1
 }
 
-// newRecoveryCode 产出一枚 8 位十六进制恢复码（xxxx-xxxx，crypto/rand）。
+// newRecoveryCode produces an 8-digit hex recovery code (xxxx-xxxx, from crypto/rand).
 func newRecoveryCode() (string, error) {
 	b := make([]byte, 4)
 	if _, err := rand.Read(b); err != nil {
@@ -232,13 +239,13 @@ func newRecoveryCode() (string, error) {
 	return hx[:4] + "-" + hx[4:], nil
 }
 
-// normalizeRecoveryCode 归一化录入形态：去空格/连字符/下划线、转小写。
+// normalizeRecoveryCode normalizes typed input: strip spaces/hyphens/underscores and lowercase.
 func normalizeRecoveryCode(code string) string {
 	r := strings.NewReplacer("-", "", " ", "", "_", "")
 	return strings.ToLower(r.Replace(strings.TrimSpace(code)))
 }
 
-// hashRecoveryCode 恢复码只存 sha256（一次性随机凭据，比对走本函数口径）。
+// hashRecoveryCode stores only sha256 for a recovery code (a one-time random credential; matching goes through this function).
 func hashRecoveryCode(code string) string {
 	sum := sha256.Sum256([]byte(normalizeRecoveryCode(code)))
 	return hex.EncodeToString(sum[:])

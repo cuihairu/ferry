@@ -1,7 +1,9 @@
-// 自建订阅端到端测试（ferry-sub-filters）：CRUD 与护栏（越权 404、上限 409、
-// 严格 JSON 400、重置 token）、/sub/x/:token 三格式 UA 协商黄金断言（v2ray
-// base64 解码后逐节点比对）、max_nodes 截断、停用用户/订阅防枚举、限流，
-// 以及主订阅 /sub/:token 不受影响的回归锚。
+// End-to-end tests for self-built subscriptions (ferry-sub-filters): CRUD and
+// guards (cross-user 404, cap 409, strict JSON 400, token reset), /sub/x/:token
+// three-format UA negotiation golden assertions (v2ray base64 decoded and
+// compared node by node), max_nodes truncation, disabled user/subscription
+// anti-enumeration, rate limiting, plus the regression anchor that the main
+// subscription /sub/:token is unaffected.
 package handler
 
 import (
@@ -17,7 +19,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// panelUserOf 建用户并返回订阅令牌（面板身份）。
+// panelUserOf creates a user and returns the subscription token (panel identity).
 func panelUserOf(t *testing.T, r *gin.Engine, name string, extra map[string]any) string {
 	t.Helper()
 	body := map[string]any{"username": name, "quota_bytes": int64(1 << 40)}
@@ -33,8 +35,9 @@ func panelUserOf(t *testing.T, r *gin.Engine, name string, extra map[string]any)
 	return u["sub_token"].(string)
 }
 
-// seedEntryNodes 直插三个入口节点（labels 不在 NodeInput，直插绕过 API）：
-// hk-vless / hk-hy（香港）+ us-vmess（美国）。
+// seedEntryNodes inserts three entry nodes directly (labels are not part of
+// NodeInput, so direct insertion bypasses the API):
+// hk-vless / hk-hy (Hong Kong) + us-vmess (US).
 func seedEntryNodes(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	nodes := []storage.Node{
@@ -55,7 +58,7 @@ func seedEntryNodes(t *testing.T, db *gorm.DB) {
 	}
 }
 
-// createSubX 经面板身份建一个自建订阅，返回其 token。
+// createSubX creates a self-built subscription via the panel identity and returns its token.
 func createSubX(t *testing.T, r *gin.Engine, panelToken, name, filter, config string) string {
 	t.Helper()
 	body := map[string]any{"name": name}
@@ -74,8 +77,9 @@ func createSubX(t *testing.T, r *gin.Engine, panelToken, name, filter, config st
 	return s.Token
 }
 
-// newRawJSON 发原始 JSON 文本请求（面板身份），保留拼写错误原文不被
-// map[string]any 修正，专测严格解码（未知字段 400）。
+// newRawJSON sends a raw JSON text request (panel identity), keeping the misspelled
+// body verbatim instead of having map[string]any normalize it; used to test strict
+// decoding (unknown fields give 400).
 func newRawJSON(t *testing.T, r *gin.Engine, method, path, body, token string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -86,7 +90,7 @@ func newRawJSON(t *testing.T, r *gin.Engine, method, path, body, token string) *
 	return rec
 }
 
-// vmessHosts 从 v2ray 订阅文本里解出各 vmess:// 载荷的 add 主机。
+// vmessHosts extracts the add host of each vmess:// payload from v2ray subscription text.
 func vmessHosts(text string) []string {
 	var hosts []string
 	for _, line := range strings.Split(text, "\n") {
@@ -116,13 +120,14 @@ func containsHost(hosts []string, want string) bool {
 	return false
 }
 
-// TestSubXCRUDAndGuards 覆盖 CRUD 主链与护栏：创建/列表/更新/删除/重置 token、
-// 严格 JSON（未知字段 400）、name 必填、每用户上限 409、禁用订阅 404。
+// TestSubXCRUDAndGuards covers the CRUD main chain and the guards: create/list/update/
+// delete/token reset, strict JSON (unknown fields 400), required name, per-user cap 409,
+// and disabled subscription 404.
 func TestSubXCRUDAndGuards(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	panel := panelUserOf(t, r, "sx-crud", nil)
 
-	// 创建：filter/config 缺省存 "{}"，enabled 缺省 true，token 服务端生成。
+	// Create: filter/config default to "{}", enabled defaults to true, token generated server-side.
 	rec := doJSONToken(t, r, panel, "POST", "/api/subscriptions", map[string]any{"name": "香港专用"})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create: %d %s", rec.Code, rec.Body)
@@ -135,7 +140,7 @@ func TestSubXCRUDAndGuards(t *testing.T) {
 		t.Fatalf("created sub = %+v", s)
 	}
 
-	// 列表：本人可见 token 明文。
+	// List: the owner can see the token in plaintext.
 	rec = doJSONToken(t, r, panel, "GET", "/api/subscriptions", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list: %d %s", rec.Code, rec.Body)
@@ -146,7 +151,7 @@ func TestSubXCRUDAndGuards(t *testing.T) {
 		t.Fatalf("list = %+v", list)
 	}
 
-	// 更新：name/filter/enabled；无字段时幂等返回当前值。
+	// Update: name/filter/enabled; with no fields it idempotently returns the current values.
 	rec = doJSONToken(t, r, panel, "PATCH", "/api/subscriptions/1",
 		map[string]any{"name": "改名", "filter": map[string]any{"regions": []string{"香港"}}})
 	if rec.Code != http.StatusOK {
@@ -156,7 +161,7 @@ func TestSubXCRUDAndGuards(t *testing.T) {
 		t.Fatalf("patch empty: %d %s", rec.Code, rec.Body)
 	}
 
-	// 严格模式：未知 filter/config/顶层字段、坏 JSON、空 name 均 400。
+	// Strict mode: unknown filter/config/top-level fields, malformed JSON, and empty name all give 400.
 	for _, tc := range []struct {
 		name string
 		body string
@@ -172,7 +177,7 @@ func TestSubXCRUDAndGuards(t *testing.T) {
 		}
 	}
 
-	// 每用户上限：补到 10 个后第 11 个 409。
+	// Per-user cap: after filling up to 10, the 11th gives 409.
 	for i := 0; i < 9; i++ {
 		rec := doJSONToken(t, r, panel, "POST", "/api/subscriptions", map[string]any{"name": "批量"})
 		if rec.Code != http.StatusCreated {
@@ -183,7 +188,7 @@ func TestSubXCRUDAndGuards(t *testing.T) {
 		t.Fatalf("limit: %d %s", rec.Code, rec.Body)
 	}
 
-	// 禁用订阅后下发 404（防枚举，同未知令牌口径）。
+	// After disabling, delivery returns 404 (anti-enumeration, same policy as an unknown token).
 	if rec := doJSONToken(t, r, panel, "PATCH", "/api/subscriptions/1", map[string]any{"enabled": false}); rec.Code != http.StatusOK {
 		t.Fatalf("disable: %d %s", rec.Code, rec.Body)
 	}
@@ -192,7 +197,7 @@ func TestSubXCRUDAndGuards(t *testing.T) {
 	}
 	_ = doJSONToken(t, r, panel, "PATCH", "/api/subscriptions/1", map[string]any{"enabled": true})
 
-	// 重置 token：旧令牌 404、新令牌可下发。
+	// Reset token: the old token gives 404, the new one delivers.
 	rec = doJSONToken(t, r, panel, "POST", "/api/subscriptions/1/reset-token", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("reset: %d %s", rec.Code, rec.Body)
@@ -209,7 +214,7 @@ func TestSubXCRUDAndGuards(t *testing.T) {
 		t.Fatalf("new token after reset: %d %s", rec.Code, rec.Body)
 	}
 
-	// 删除：删后再查 404，列表回到 9。
+	// Delete: fetching again after the delete gives 404, and the list is back to 9.
 	if rec := doJSONToken(t, r, panel, "DELETE", "/api/subscriptions/1", nil); rec.Code != http.StatusOK {
 		t.Fatalf("delete: %d %s", rec.Code, rec.Body)
 	}
@@ -224,7 +229,8 @@ func TestSubXCRUDAndGuards(t *testing.T) {
 	}
 }
 
-// TestSubXCrossUser404 越权：他人订阅 id 的改/删/重置一律 404（不泄露存在性）。
+// TestSubXCrossUser404 cross-user access: patch/delete/reset on another user's
+// subscription id always give 404 (existence is not leaked).
 func TestSubXCrossUser404(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	alice := panelUserOf(t, r, "sx-alice", nil)
@@ -240,7 +246,7 @@ func TestSubXCrossUser404(t *testing.T) {
 	if rec := doJSONToken(t, r, bob, "POST", "/api/subscriptions/1/reset-token", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("cross reset: %d", rec.Code)
 	}
-	// 越权失败后原值未动：名字未改、令牌未换。
+	// After the cross-user failures the originals are untouched: name unchanged, token not swapped.
 	var list []storage.Subscription
 	rec := doJSONToken(t, r, alice, "GET", "/api/subscriptions", nil)
 	_ = json.Unmarshal(rec.Body.Bytes(), &list)
@@ -249,9 +255,10 @@ func TestSubXCrossUser404(t *testing.T) {
 	}
 }
 
-// TestSubXDeliveryFilterAndConfig 端到端黄金断言：filter（region+protocol）
-// 命中、config（remark_template/include_rtt/max_nodes）生效、三格式 UA 协商
-// 输出比对、主订阅回归锚（全量三节点不受影响）。
+// TestSubXDeliveryFilterAndConfig end-to-end golden assertions: filter (region+protocol)
+// matching, config (remark_template/include_rtt/max_nodes) in effect, three-format UA
+// negotiation output comparison, and the main-subscription regression anchor (all three
+// nodes unaffected).
 func TestSubXDeliveryFilterAndConfig(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	seedEntryNodes(t, db)
@@ -259,13 +266,13 @@ func TestSubXDeliveryFilterAndConfig(t *testing.T) {
 		"expires_at": "2030-01-01T00:00:00Z",
 	})
 
-	// 只含香港 + hysteria2；备注模板关 RTT；max_nodes=3。
+	// Only Hong Kong + hysteria2; remark template with RTT off; max_nodes=3.
 	subToken := createSubX(t, r, panel, "香港 hy2 专用",
 		`{"regions":["香港"],"protocols":["hysteria2"]}`,
 		`{"remark_template":"{region}/{name}/{rtt}ms","include_rtt":false,"sort":"name","max_nodes":3}`)
 	path := "/sub/x/" + subToken
 
-	// v2ray（默认 UA）：base64 解码逐节点比对——只有 hk-hy 一条。
+	// v2ray (default UA): base64-decode and compare node by node — only hk-hy is present.
 	rec := getSub(t, r, path, "v2rayNG/1.8")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("v2ray: %d %s", rec.Code, rec.Body)
@@ -286,15 +293,16 @@ func TestSubXDeliveryFilterAndConfig(t *testing.T) {
 			t.Fatalf("filtered node leaked %q:\n%s", leak, text)
 		}
 	}
-	// 备注模板：include_rtt=false → {rtt} 置空，模板 "香港/hk-hy/ms"；
-	// 协议内片段经 url.PathEscape，"/" 与中文被转义。
+	// Remark template: include_rtt=false → {rtt} is emptied; the template renders as
+	// {region}/{name}/{rtt}ms, so protocol-internal fragments pass url.PathEscape and
+	// "/" plus non-ASCII region text get escaped.
 	if !strings.Contains(text, "hk-hy%2Fms") {
 		t.Fatalf("remark template not applied:\n%s", text)
 	}
-	if !strings.Contains(text, "%E9%A6%99%E6%B8%AF") { // 香港
+	if !strings.Contains(text, "%E9%A6%99%E6%B8%AF") { // percent-encoded region text
 		t.Fatalf("region placeholder not replaced:\n%s", text)
 	}
-	// 护栏头与主订阅一致。
+	// Guard headers match the main subscription.
 	if info := rec.Header().Get("Subscription-Userinfo"); !strings.Contains(info, "upload=") {
 		t.Fatalf("userinfo header = %q", info)
 	}
@@ -302,18 +310,18 @@ func TestSubXDeliveryFilterAndConfig(t *testing.T) {
 		t.Fatalf("profile headers = %v", rec.Header())
 	}
 
-	// clash UA：YAML 只含 hysteria2 代理。
+	// clash UA: the YAML only has the hysteria2 proxy.
 	body := getSub(t, r, path, "clash-verge/2.0").Body.String()
 	if !strings.Contains(body, "type: hysteria2") || strings.Contains(body, "type: vless") || strings.Contains(body, "vmess") {
 		t.Fatalf("clash filter:\n%s", body)
 	}
 
-	// singbox 显式 target：JSON 只含 hk-hy outbound。
+	// Explicit singbox target: the JSON only has the hk-hy outbound.
 	if b := getSub(t, r, path+"?target=singbox", "curl/8.0").Body.String(); !strings.Contains(b, "hk-hy") || strings.Contains(b, "us-vmess") {
 		t.Fatalf("singbox filter:\n%s", b)
 	}
 
-	// sing-box/Stash UA：JSON 只含 hk-hy outbound（SHOP-2，UA 协商接 singbox）。
+	// sing-box/Stash UA: the JSON only has the hk-hy outbound (SHOP-2, UA negotiation serves singbox).
 	for _, ua := range []string{"sing-box/1.8.0", "Stash/2.0"} {
 		if b := getSub(t, r, path, ua).Body.String(); !strings.Contains(b, "hk-hy") || strings.Contains(b, "us-vmess") {
 			t.Fatalf("singbox UA %s filter:\n%s", ua, b)
@@ -323,14 +331,14 @@ func TestSubXDeliveryFilterAndConfig(t *testing.T) {
 		t.Fatalf("bad target: %d", rec.Code)
 	}
 
-	// 回归锚：主订阅 /sub/:token 仍全量三节点（行为不受本特性影响）。
+	// Regression anchor: the main subscription /sub/:token still has all three nodes (behavior unaffected by this feature).
 	mainRec := getSub(t, r, "/sub/"+panel, "v2rayNG/1.8")
 	if mainRec.Code != http.StatusOK {
 		t.Fatalf("main sub: %d", mainRec.Code)
 	}
 	mainRaw, _ := base64.StdEncoding.DecodeString(mainRec.Body.String())
 	mainText := string(mainRaw)
-	// 明文链接按主机断言（vless/hysteria2 主机在明文，vmess 主机在 base64 载荷）。
+	// Assert plaintext links by host (vless/hysteria2 hosts are in plaintext, the vmess host is in the base64 payload).
 	for _, want := range []string{"a.example.com", "b.example.com", "vless://", "hysteria2://"} {
 		if !strings.Contains(mainText, want) {
 			t.Fatalf("main sub missing %q:\n%s", want, mainText)
@@ -341,8 +349,8 @@ func TestSubXDeliveryFilterAndConfig(t *testing.T) {
 	}
 }
 
-// TestSubXMaxNodesTruncate max_nodes 截断：三个香港入口、上限 2、name 序
-// → 恰好前两个（按名字序截断）。
+// TestSubXMaxNodesTruncate max_nodes truncation: three Hong Kong entry nodes, cap 2,
+// sorted by name → exactly the first two (truncated in name order).
 func TestSubXMaxNodesTruncate(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	for _, n := range []storage.Node{
@@ -370,18 +378,19 @@ func TestSubXMaxNodesTruncate(t *testing.T) {
 	}
 }
 
-// TestSubXUserStates 用户态分支：未知令牌 404、停用用户空列表（照常返回非
-// 403）、到期用户空列表、订阅悬挂（用户行已删）404。
+// TestSubXUserStates user-state branches: unknown token 404, disabled user empty list
+// (returned normally, not 403), expired user empty list, orphaned subscription (user row
+// deleted) 404.
 func TestSubXUserStates(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	seedEntryNodes(t, db)
 
-	// 未知令牌 404。
+	// Unknown token: 404.
 	if rec := getSub(t, r, "/sub/x/nope", "v2rayNG/1.8"); rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown token: %d", rec.Code)
 	}
 
-	// 停用用户：照常 200 空列表（非 403），用量头仍在。
+	// Disabled user: 200 with an empty list as usual (not 403), usage headers still present.
 	panel := panelUserOf(t, r, "sx-disabled", nil)
 	subToken := createSubX(t, r, panel, "停用用户", "", "")
 	if rec := doJSON(t, r, "PUT", "/api/users/1", map[string]any{"enabled": false}); rec.Code != http.StatusOK {
@@ -398,7 +407,7 @@ func TestSubXUserStates(t *testing.T) {
 		t.Fatal("userinfo header missing for disabled user")
 	}
 
-	// 到期用户：空列表同口径。
+	// Expired user: same policy, empty list.
 	panel2 := panelUserOf(t, r, "sx-expired", map[string]any{"expires_at": "2020-01-01T00:00:00Z"})
 	subToken2 := createSubX(t, r, panel2, "到期用户", `{"regions":["香港"]}`, "")
 	rec = getSub(t, r, "/sub/x/"+subToken2, "v2rayNG/1.8")
@@ -409,7 +418,7 @@ func TestSubXUserStates(t *testing.T) {
 		t.Fatalf("expired user got nodes:\n%s", string(raw))
 	}
 
-	// 订阅悬挂（用户行已删）：视同吊销 404。
+	// Orphaned subscription (user row deleted): treated as revoked, 404.
 	panel3 := panelUserOf(t, r, "sx-gone", nil)
 	subToken3 := createSubX(t, r, panel3, "悬挂", "", "")
 	var u3 storage.User
@@ -422,8 +431,9 @@ func TestSubXUserStates(t *testing.T) {
 	}
 }
 
-// TestSubXRateLimit 限流（与主订阅共用同一限流器口径）：同 token 30 次/分钟
-// 放行、31 次 429；同 IP 连续未知令牌后锁定 429。
+// TestSubXRateLimit rate limiting (shares the main subscription's limiter): the same
+// token gets 30/minute allowed and the 31st gives 429; the same IP locks at 429 after
+// consecutive unknown tokens.
 func TestSubXRateLimit(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	panel := panelUserOf(t, r, "sx-ratelimit", nil)
@@ -437,7 +447,7 @@ func TestSubXRateLimit(t *testing.T) {
 	if rec := getSub(t, r, "/sub/x/"+subToken, "v2rayNG/1.8"); rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("第 31 次应 429: %d", rec.Code)
 	}
-	// 未知令牌按 IP 记失败：连续命中后锁定，第 21 个起 429。
+	// Unknown tokens count failures per IP: after consecutive hits it locks, 429 from the 21st.
 	for i := 0; i < 20; i++ {
 		if rec := getSub(t, r, "/sub/x/enum-x-probe", "v2rayNG/1.8"); rec.Code != http.StatusNotFound {
 			t.Fatalf("未知令牌第 %d 次应 404: %d", i+1, rec.Code)

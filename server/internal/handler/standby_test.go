@@ -12,10 +12,11 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// 面板主从同步（P2-1）主面板端点测试：令牌门槛（未配置/不符恒 403）、
-// 下发产物 = 主密钥加密的 sqlite 库（standby 解密后可开）。
+// Panel master/standby sync (P2-1) primary-panel endpoint tests: the token
+// gate (unconfigured/mismatched always 403), and the artifact issued = a
+// master-key-encrypted sqlite db (openable by standby after decryption).
 
-// TestStandbySnapshot 覆盖快照端点的鉴权与产物形态。
+// TestStandbySnapshot covers the snapshot endpoint's authentication and artifact shape.
 func TestStandbySnapshot(t *testing.T) {
 	dir := t.TempDir()
 	key := "standby-master"
@@ -35,18 +36,18 @@ func TestStandbySnapshot(t *testing.T) {
 		return rec
 	}
 
-	// 未配置 token：同步面关闭，带不带 header 都 403。
+	// No token configured: the sync surface is off; 403 with or without header.
 	if rec := get("", "tok"); rec.Code != http.StatusForbidden {
 		t.Fatalf("no token configured: %d", rec.Code)
 	}
 	if rec := get("", ""); rec.Code != http.StatusForbidden {
 		t.Fatalf("no token no header: %d", rec.Code)
 	}
-	// 令牌不符：403。
+	// Token mismatch: 403.
 	if rec := get("tok", "wrong"); rec.Code != http.StatusForbidden {
 		t.Fatalf("wrong token: %d", rec.Code)
 	}
-	// 令牌一致：200，产物解密后是 sqlite 库（含业务表结构）。
+	// Token match: 200, the decrypted artifact is a sqlite db (with business table schema).
 	rec := get("tok", "tok")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("valid token: %d %s", rec.Code, rec.Body)
@@ -59,7 +60,7 @@ func TestStandbySnapshot(t *testing.T) {
 	if len(raw) < 16 || string(raw[:15]) != "SQLite format 3" {
 		t.Fatal("snapshot is not a sqlite db")
 	}
-	// 落盘确认可开（standby 侧将做的事）。
+	// Write to disk to confirm it opens (what the standby side will do).
 	p := filepath.Join(dir, "snap.db")
 	if err := os.WriteFile(p, raw, 0o600); err != nil {
 		t.Fatal(err)

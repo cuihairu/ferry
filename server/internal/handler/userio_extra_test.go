@@ -7,7 +7,8 @@ import (
 	"testing"
 )
 
-// TestImportBadResetCycle 导入行带非法重置周期：整批拒绝并说明合法取值。
+// TestImportBadResetCycle: an import row carries an invalid reset cycle: the
+// whole batch is rejected and the legal values are stated.
 func TestImportBadResetCycle(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	body := `{"users":[{"username":"bad-cycle","reset_cycle":"bogus"}]}`

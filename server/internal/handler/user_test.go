@@ -9,7 +9,7 @@ import (
 func TestUserCRUD(t *testing.T) {
 	r := newTestRouter(t)
 
-	// 创建：生成订阅令牌，默认启用、配额 0（不限）
+	// Create: a sub token is generated, the account is enabled by default, quota 0 (unlimited)
 	rec := doJSON(t, r, "POST", "/api/users", map[string]any{
 		"username": "alice", "quota_bytes": 1073741824,
 		"expires_at": "2030-01-01T00:00:00Z",
@@ -26,15 +26,15 @@ func TestUserCRUD(t *testing.T) {
 	if len(token) < 40 {
 		t.Fatalf("sub_token too short: %q", token)
 	}
-	_ = u["id"].(float64) // 详情用例走字面 id
+	_ = u["id"].(float64) // the detail case uses the literal id
 
-	// 重名拒绝
+	// Duplicate username rejected
 	rec = doJSON(t, r, "POST", "/api/users", map[string]any{"username": "alice"})
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("duplicate username: %d %s", rec.Code, rec.Body)
 	}
 
-	// 列表与详情
+	// List and detail
 	if rec := doJSON(t, r, "GET", "/api/users", nil); rec.Code != http.StatusOK {
 		t.Fatalf("list users: %d", rec.Code)
 	}
@@ -43,7 +43,7 @@ func TestUserCRUD(t *testing.T) {
 		t.Fatalf("get user: %d", rec.Code)
 	}
 
-	// 更新：配额、到期清除、停用
+	// Update: quota, clear expiry, disable
 	rec = doJSON(t, r, "PUT", "/api/users/1", map[string]any{
 		"quota_bytes": 0, "clear_expire": true, "enabled": false,
 	})
@@ -59,7 +59,7 @@ func TestUserCRUD(t *testing.T) {
 		t.Fatalf("expires_at should be cleared: %v", fresh["expires_at"])
 	}
 
-	// 改名冲突与改名成功
+	// Rename conflict and a successful rename
 	rec = doJSON(t, r, "POST", "/api/users", map[string]any{"username": "bob"})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create bob: %d %s", rec.Code, rec.Body)
@@ -73,7 +73,7 @@ func TestUserCRUD(t *testing.T) {
 		t.Fatalf("rename: %d %s", rec.Code, rec.Body)
 	}
 
-	// 重置订阅令牌：旧令牌失效，新令牌不同
+	// Reset the sub token: the old token stops working, and the new one differs
 	rec = doJSON(t, r, "POST", "/api/users/1/sub-token", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("reset sub token: %d %s", rec.Code, rec.Body)
@@ -84,7 +84,7 @@ func TestUserCRUD(t *testing.T) {
 		t.Fatal("sub_token must change on reset")
 	}
 
-	// 删除：用户 404，计费历史（traffic_logs）保留（P2 修复，见 userdelete_test.go）
+	// Delete: the user then 404s, and the billing history (traffic_logs) is retained (P2 fix, see userdelete_test.go)
 	if rec := doJSON(t, r, "DELETE", "/api/users/1", nil); rec.Code != http.StatusOK {
 		t.Fatalf("delete user: %d", rec.Code)
 	}
@@ -96,20 +96,20 @@ func TestUserCRUD(t *testing.T) {
 func TestUserValidation(t *testing.T) {
 	r := newTestRouter(t)
 
-	// 空用户名
+	// Blank username
 	if rec := doJSON(t, r, "POST", "/api/users", map[string]any{"username": "  "}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("blank username: %d", rec.Code)
 	}
-	// 负配额
+	// Negative quota
 	if rec := doJSON(t, r, "POST", "/api/users", map[string]any{"username": "x", "quota_bytes": -1}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("negative quota: %d", rec.Code)
 	}
-	// 非法 id
+	// Invalid id
 	if rec := doJSON(t, r, "GET", "/api/users/abc", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("bad id: %d", rec.Code)
 	}
 
-	// 显式停用创建不被 default:true 吞掉
+	// An explicit disable on create is not swallowed by default:true
 	rec := doJSON(t, r, "POST", "/api/users", map[string]any{"username": "off", "enabled": false})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create disabled user: %d %s", rec.Code, rec.Body)
@@ -124,7 +124,7 @@ func TestUserValidation(t *testing.T) {
 func TestUserResetCycle(t *testing.T) {
 	r := newTestRouter(t)
 
-	// 创建带周期
+	// Create with a cycle
 	rec := doJSON(t, r, "POST", "/api/users", map[string]any{
 		"username": "cycled", "quota_bytes": 1000, "reset_cycle": "day",
 	})
@@ -136,14 +136,14 @@ func TestUserResetCycle(t *testing.T) {
 	if u["reset_cycle"] != "day" {
 		t.Fatalf("reset_cycle = %v, want day", u["reset_cycle"])
 	}
-	// 缺席默认 none
+	// Absent defaults to none
 	rec = doJSON(t, r, "POST", "/api/users", map[string]any{"username": "plain"})
 	_ = json.Unmarshal(rec.Body.Bytes(), &u)
 	if u["reset_cycle"] != "none" {
 		t.Fatalf("default reset_cycle = %v, want none", u["reset_cycle"])
 	}
 
-	// 更新改周期
+	// Update changes the cycle
 	rec = doJSON(t, r, "PUT", "/api/users/1", map[string]any{"reset_cycle": "month"})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("patch: %d %s", rec.Code, rec.Body)
@@ -153,7 +153,7 @@ func TestUserResetCycle(t *testing.T) {
 		t.Fatalf("patched reset_cycle = %v, want month", u["reset_cycle"])
 	}
 
-	// 非法值 400
+	// Invalid value gives 400
 	rec = doJSON(t, r, "PUT", "/api/users/1", map[string]any{"reset_cycle": "yearly"})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad cycle: %d %s", rec.Code, rec.Body)

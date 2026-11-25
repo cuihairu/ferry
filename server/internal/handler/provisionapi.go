@@ -11,21 +11,25 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 供给执行（OS-2）管理端：模板 plan/apply 受控触发与 job 留痕查询。
-// 执行在后台 goroutine 跑（tofu 一轮可达分钟级），接口立即返回 running job；
-// 密钥只在 server 侧解密传入执行环境变量，接口与日志不落明文。
+// Admin side of provisioning execution (OS-2): controlled triggering of template
+// plan/apply and querying the job trail. Execution runs in a background
+// goroutine (one tofu round can take minutes) and the API returns the running
+// job immediately; keys are decrypted only on the server side and passed into
+// the execution environment, never in API responses or logs.
 
 func (h *Handler) getProvisionManager() *provision.Manager {
-	// Shared：与恢复/补充循环（main.go 装配）共用同一实例，Execute 串行
-	// 才覆盖「手动触发 × 后台流水线」交叉。
+	// Shared: the same instance as the recovery/backfill loops (wired in
+	// main.go); only serialized Execute covers "manual trigger x background
+	// pipeline" crossings.
 	return provision.Shared(h.db, h.cfg.TofuBin, h.cfg.TofuWorkdir, nil)
 }
 
 type provisionRunInput struct {
-	Name string `json:"name"` // 实例名（label），空用模板名
+	Name string `json:"name"` // instance name (label); falls back to the template name when empty
 }
 
-// runProvision 是 plan/apply 共用入口：模板与凭证校验 → 后台执行 → running job。
+// runProvision is the shared entry point for plan/apply: template and credential
+// validation -> background execution -> running job.
 func (h *Handler) runProvision(c *gin.Context, action string) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -56,7 +60,7 @@ func (h *Handler) runProvision(c *gin.Context, action string) {
 		return
 	}
 	var in provisionRunInput
-	_ = c.ShouldBindJSON(&in) // name 可选
+	_ = c.ShouldBindJSON(&in) // name is optional
 	name := in.Name
 	if name == "" {
 		name = tpl.Name
@@ -65,9 +69,11 @@ func (h *Handler) runProvision(c *gin.Context, action string) {
 	m := h.getProvisionManager()
 	var job storage.ProvisionJob
 	if action == "apply" {
-		// OS-3：apply 预签发节点并渲染 cloud-init（token 预写入 agent.json，
-		// 开机装 agent 后首连 hello 即注册）；准备同步秒级，执行入后台。
-		// 同一条 PrepareLaunch 路径与 BR-1 恢复开新机共用。
+		// OS-3: apply pre-mints the node and renders cloud-init (the token is
+		// written into agent.json ahead of time, so the first hello right after
+		// the agent is installed at boot registers it); preparation is
+		// synchronous and takes seconds, execution goes to the background. The
+		// same PrepareLaunch path is shared with BR-1 recovery provisioning.
 		prep, err := m.PrepareLaunch(provision.LaunchParams{
 			Template: tpl, Provider: prov, Store: h.secrets,
 			InstanceName: name,
@@ -85,7 +91,7 @@ func (h *Handler) runProvision(c *gin.Context, action string) {
 			m.FinishJob(p.Job.ID, status, log)
 		}(prep)
 	} else {
-		// plan：不动实例与节点。
+		// plan: touches neither instances nor nodes.
 		job = storage.ProvisionJob{TemplateID: tpl.ID, TemplateName: tpl.Name, Action: "plan", Status: "running"}
 		if err := h.db.Create(&job).Error; err != nil {
 			fail(c, http.StatusInternalServerError, err)
@@ -105,7 +111,8 @@ func (h *Handler) runProvision(c *gin.Context, action string) {
 func (h *Handler) applyTemplate(c *gin.Context) { h.runProvision(c, "apply") }
 func (h *Handler) planTemplate(c *gin.Context)  { h.runProvision(c, "plan") }
 
-// listProvisionJobs 返回供给执行留痕（新在前，默认 50 条）。
+// listProvisionJobs returns the provisioning execution trail (newest first, 50
+// rows by default).
 func (h *Handler) listProvisionJobs(c *gin.Context) {
 	limit := 50
 	if v := c.Query("limit"); v != "" {
@@ -124,7 +131,8 @@ func (h *Handler) listProvisionJobs(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
-// listRecoveries 返回封禁恢复流水线状态（BR-1，新在前，默认 50 条）。
+// listRecoveries returns ban-recovery pipeline states (BR-1, newest first, 50
+// rows by default).
 func (h *Handler) listRecoveries(c *gin.Context) {
 	limit := 50
 	if v := c.Query("limit"); v != "" {
@@ -143,7 +151,8 @@ func (h *Handler) listRecoveries(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
-// listRecoveryActions 返回一条流水线的动作留痕（BR-5 回放，级别升序）。
+// listRecoveryActions returns one pipeline's action trail (BR-5 replay, levels
+// ascending).
 func (h *Handler) listRecoveryActions(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id < 1 {

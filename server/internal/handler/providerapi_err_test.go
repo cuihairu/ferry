@@ -11,14 +11,20 @@ import (
 	"gorm.io/gorm"
 )
 
-// 二十七批补口：供给配置（OS-1）各 400/404/500 口径——提供商列表取数失败、
-// 录入坏绑定/缺字段/显式停用/落库失败、更新定位 404（坏 id 与查无与库故障
-// 同口径）/坏绑定/类型与开关分支/无主密钥换机密/保存失败、删除定位与落删
-// 失败、模板校验规则、列表取数失败、建档坏绑定/角色缺省/落库失败、改档
-// 定位 404/坏绑定/校验失败/带宽月费分支/保存失败、删档定位与落删失败。
-// 留白：模板列表成功路径已在既有 TestTemplateAPI 覆盖，此处只补错误分支。
+// Batch twenty-seven gap fill: the 400/404/500 conventions of provisioning
+// config (OS-1) — provider list read failure; entry with bad bind/missing
+// fields/explicit disable/persist failure; update lookup 404 (bad id, not-found
+// and DB failure share one convention) / bad bind / type and switch branches /
+// rotating the secret without a master key / save failure; delete lookup and
+// delete-persist failures; template validation rules; list read failure;
+// template creation with bad bind / role defaulting / persist failure; template
+// update lookup 404 / bad bind / validation failure / bandwidth and monthly-cost
+// branches / save failure; template delete lookup and delete-persist failures.
+// Left out: the template list success path is already covered by the existing
+// TestTemplateAPI; only the error branches are added here.
 
-// isProviderModel 判断语句是否落在提供商表上（Find 链 Model 是切片指针）。
+// isProviderModel reports whether the statement targets the provider table
+// (Find chains pass Model as a slice pointer).
 func isProviderModel(v any) bool {
 	switch v.(type) {
 	case *storage.Provider, []storage.Provider, *[]storage.Provider:
@@ -27,7 +33,7 @@ func isProviderModel(v any) bool {
 	return false
 }
 
-// isTplModel 判断语句是否落在机型模板表上。
+// isTplModel reports whether the statement targets the machine template table.
 func isTplModel(v any) bool {
 	switch v.(type) {
 	case *storage.ProvisionTemplate, []storage.ProvisionTemplate, *[]storage.ProvisionTemplate:
@@ -36,8 +42,8 @@ func isTplModel(v any) bool {
 	return false
 }
 
-// failProvidersCreates / failProvidersUpdates / failProvidersDeletes 让提供商
-// 行的建/改/删语句失败。
+// failProvidersCreates / failProvidersUpdates / failProvidersDeletes make the
+// provider rows' create/update/delete statements fail.
 func failProvidersCreates(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	db.Callback().Create().Before("gorm:create").Register("test:provider_create", func(tx *gorm.DB) {
@@ -65,7 +71,8 @@ func failProvidersDeletes(t *testing.T, db *gorm.DB) {
 	})
 }
 
-// failTplCreates / failTplUpdates / failTplDeletes 让模板行的建/改/删语句失败。
+// failTplCreates / failTplUpdates / failTplDeletes make the template rows'
+// create/update/delete statements fail.
 func failTplCreates(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	db.Callback().Create().Before("gorm:create").Register("test:tpl_create", func(tx *gorm.DB) {
@@ -93,7 +100,8 @@ func failTplDeletes(t *testing.T, db *gorm.DB) {
 	})
 }
 
-// seedProvider 直落一行提供商（密文字段塞占位，接口只回掩码视图）。
+// seedProvider inserts one provider row directly (the secret field holds a
+// placeholder; the API only returns the masked view).
 func seedProvider(t *testing.T, db *gorm.DB, name string) uint {
 	t.Helper()
 	row := storage.Provider{Name: name, Type: "vultr", AccessKey: "v1:sealed", Enabled: true}
@@ -103,12 +111,12 @@ func seedProvider(t *testing.T, db *gorm.DB, name string) uint {
 	return row.ID
 }
 
-// itoaUint 格式化行 id 供路径参数拼用。
+// itoaUint formats a row id for use in a path parameter.
 func itoaUint(v uint64) string {
 	return strconv.FormatUint(v, 10)
 }
 
-// TestListProvidersFindFail 提供商列表取数失败冒 500。
+// TestListProvidersFindFail a provider list read failure surfaces 500.
 func TestListProvidersFindFail(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	closeSQL(t, db)
@@ -117,7 +125,8 @@ func TestListProvidersFindFail(t *testing.T) {
 	}
 }
 
-// TestCreateProviderErrors 录入：坏绑定、缺字段、显式停用与落库失败。
+// TestCreateProviderErrors entry: bad bind, missing fields, explicit disable and
+// persist failure.
 func TestCreateProviderErrors(t *testing.T) {
 	r, _ := newTestRouterWithMasterKey(t)
 	if rec := doJSON(t, r, http.MethodPost, "/api/providers", "not json"); rec.Code != http.StatusBadRequest {
@@ -136,7 +145,8 @@ func TestCreateProviderErrors(t *testing.T) {
 		}
 	}
 
-	// 显式停用入库（Enabled 带 default:true，需显式补写才落 false）。
+	// explicit disable persists (Enabled carries default:true, so false only
+	// lands via an explicit write-back).
 	r, db := newTestRouterWithMasterKey(t)
 	if rec := doJSON(t, r, http.MethodPost, "/api/providers", map[string]any{
 		"name": "off-p", "type": "vultr", "access_key": "sk-1", "enabled": false,
@@ -148,7 +158,7 @@ func TestCreateProviderErrors(t *testing.T) {
 		t.Fatalf("not persisted disabled: %+v err=%v", row, err)
 	}
 
-	// 停用补写失败 500。
+	// disable write-back failure 500.
 	r, db = newTestRouterWithMasterKey(t)
 	failProvidersUpdates(t, db)
 	if rec := doJSON(t, r, http.MethodPost, "/api/providers", map[string]any{
@@ -157,7 +167,7 @@ func TestCreateProviderErrors(t *testing.T) {
 		t.Fatalf("write-back: %d %s", rec.Code, rec.Body)
 	}
 
-	// 落库失败 500。
+	// persist failure 500.
 	r, db = newTestRouterWithMasterKey(t)
 	failProvidersCreates(t, db)
 	if rec := doJSON(t, r, http.MethodPost, "/api/providers", map[string]any{
@@ -167,8 +177,9 @@ func TestCreateProviderErrors(t *testing.T) {
 	}
 }
 
-// TestUpdateProviderErrors 更新：定位 404（坏 id/查无/库故障同口径）、坏
-// 绑定、类型与开关分支、无主密钥换机密 500、保存失败 500。
+// TestUpdateProviderErrors update: lookup 404 (bad id/not-found/DB failure share
+// one convention), bad bind, type and switch branches, rotating the secret
+// without a master key 500, save failure 500.
 func TestUpdateProviderErrors(t *testing.T) {
 	r, _ := newTestRouterWithMasterKey(t)
 	if rec := doJSON(t, r, http.MethodPut, "/api/providers/abc", map[string]any{"name": "x"}); rec.Code != http.StatusNotFound ||
@@ -182,13 +193,13 @@ func TestUpdateProviderErrors(t *testing.T) {
 		t.Fatalf("bind: %d %s", rec.Code, rec.Body)
 	}
 
-	// 查无此提供商 404。
+	// no such provider 404.
 	r, _ = newTestRouterWithMasterKey(t)
 	if rec := doJSON(t, r, http.MethodPut, "/api/providers/9999", map[string]any{"name": "x"}); rec.Code != http.StatusNotFound {
 		t.Fatalf("missing: %d %s", rec.Code, rec.Body)
 	}
 
-	// 库故障定位失败同口径 404。
+	// DB-failure lookup failure shares the convention, 404.
 	r, db = newTestRouterWithMasterKey(t)
 	seedProvider(t, db, "upd-db")
 	closeSQL(t, db)
@@ -196,7 +207,7 @@ func TestUpdateProviderErrors(t *testing.T) {
 		t.Fatalf("db down: %d %s", rec.Code, rec.Body)
 	}
 
-	// 类型与开关分支生效。
+	// type and switch branches take effect.
 	r, db = newTestRouterWithMasterKey(t)
 	id = seedProvider(t, db, "upd-f")
 	if rec := doJSON(t, r, http.MethodPut, "/api/providers/"+itoaUint(uint64(id)),
@@ -211,7 +222,8 @@ func TestUpdateProviderErrors(t *testing.T) {
 		t.Fatalf("not persisted: %+v", row)
 	}
 
-	// 无主密钥实例换机密 500（内部错误不外泄细节）。
+	// rotating the secret on an instance without a master key 500 (internal
+	// error, no details leaked).
 	r2, db2 := newTestRouterWithDB(t)
 	pid := seedProvider(t, db2, "noseal")
 	if rec := doJSON(t, r2, http.MethodPut, "/api/providers/"+itoaUint(uint64(pid)),
@@ -219,7 +231,7 @@ func TestUpdateProviderErrors(t *testing.T) {
 		t.Fatalf("seal: %d %s", rec.Code, rec.Body)
 	}
 
-	// 保存失败 500。
+	// save failure 500.
 	r, db = newTestRouterWithMasterKey(t)
 	id = seedProvider(t, db, "upd-save")
 	failProvidersUpdates(t, db)
@@ -229,15 +241,16 @@ func TestUpdateProviderErrors(t *testing.T) {
 	}
 }
 
-// TestDeleteProviderErrors 删除：定位 404、无引用成功删除与落删失败 500
-// （有模板拒删的 409 已在既有 TestProviderAPI 覆盖）。
+// TestDeleteProviderErrors delete: lookup 404, unreferenced delete succeeds, and
+// delete-persist failure 500 (the 409 for templates blocking deletion is already
+// covered by the existing TestProviderAPI).
 func TestDeleteProviderErrors(t *testing.T) {
 	r, _ := newTestRouterWithMasterKey(t)
 	if rec := doJSON(t, r, http.MethodDelete, "/api/providers/abc", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("bad id: %d %s", rec.Code, rec.Body)
 	}
 
-	// 无模板引用成功删除。
+	// no template references: delete succeeds.
 	r, db := newTestRouterWithMasterKey(t)
 	id := seedProvider(t, db, "del-ok")
 	if rec := doJSON(t, r, http.MethodDelete, "/api/providers/"+itoaUint(uint64(id)), nil); rec.Code != http.StatusOK ||
@@ -250,7 +263,7 @@ func TestDeleteProviderErrors(t *testing.T) {
 		t.Fatalf("providers left: %d", n)
 	}
 
-	// 落删失败 500。
+	// delete-persist failure 500.
 	r, db = newTestRouterWithMasterKey(t)
 	id = seedProvider(t, db, "del-fail")
 	failProvidersDeletes(t, db)
@@ -259,10 +272,12 @@ func TestDeleteProviderErrors(t *testing.T) {
 	}
 }
 
-// TestValidateTemplateRules 模板校验规则逐分支直测（含既有 API 用例已过
-// 的 provider_id/方向/配置三分支，规则口径一并锁定）。
+// TestValidateTemplateRules tests each template validation branch directly
+// (including the provider_id/direction/config branches already exercised by the
+// existing API tests, locking in the rule conventions as a whole).
 func TestValidateTemplateRules(t *testing.T) {
-	// 每个用例重建入参：provider-zero 会写穿共享指针，基线不能复用。
+	// Rebuild the input per case: provider-zero writes through the shared
+	// pointer, so a baseline cannot be reused.
 	fresh := func() templateInput {
 		pid := uint(1)
 		return templateInput{Name: "t", ProviderID: &pid, BillingType: "包月"}
@@ -291,7 +306,7 @@ func TestValidateTemplateRules(t *testing.T) {
 	}
 }
 
-// TestListTemplatesFindFail 模板列表取数失败冒 500。
+// TestListTemplatesFindFail a template list read failure surfaces 500.
 func TestListTemplatesFindFail(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	closeSQL(t, db)
@@ -300,17 +315,19 @@ func TestListTemplatesFindFail(t *testing.T) {
 	}
 }
 
-// TestCreateTemplateErrors 建档：坏绑定与角色缺省落 entry、落库失败。
+// TestCreateTemplateErrors creation: bad bind, role defaulting to entry, and
+// persist failure.
 func TestCreateTemplateErrors(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	pid := seedProvider(t, db, "tpl-p")
 
-	// 坏绑定 400。
+	// bad bind 400.
 	if rec := doJSON(t, r, http.MethodPost, "/api/provision-templates", "not json"); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bind: %d %s", rec.Code, rec.Body)
 	}
 
-	// 不带角色建档：缺省 role=entry（direction 缺省分支既有用例已过）。
+	// create without a role: role defaults to entry (the direction default
+	// branch is already exercised by the existing cases).
 	if rec := doJSON(t, r, http.MethodPost, "/api/provision-templates", map[string]any{
 		"name": "no-role", "provider_id": pid, "plan": "s-1", "region": "hkg", "billing_type": "按流量",
 	}); rec.Code != http.StatusOK {
@@ -324,7 +341,7 @@ func TestCreateTemplateErrors(t *testing.T) {
 		t.Fatalf("defaults: %+v", row)
 	}
 
-	// 落库失败 500。
+	// persist failure 500.
 	r, db = newTestRouterWithDB(t)
 	pid = seedProvider(t, db, "tpl-p2")
 	failTplCreates(t, db)
@@ -335,8 +352,8 @@ func TestCreateTemplateErrors(t *testing.T) {
 	}
 }
 
-// TestUpdateTemplateErrors 改档：定位 404、坏绑定、校验失败、带宽与月费
-// 分支生效、保存失败。
+// TestUpdateTemplateErrors update: lookup 404, bad bind, validation failure,
+// bandwidth and monthly-cost branches taking effect, save failure.
 func TestUpdateTemplateErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doJSON(t, r, http.MethodPut, "/api/provision-templates/abc",
@@ -352,7 +369,7 @@ func TestUpdateTemplateErrors(t *testing.T) {
 		t.Fatalf("missing: %d %s", rec.Code, rec.Body)
 	}
 
-	// 库故障定位失败同口径 404。
+	// DB-failure lookup failure shares the convention, 404.
 	r, db = newTestRouterWithDB(t)
 	seedProvider(t, db, "tpl-db")
 	closeSQL(t, db)
@@ -369,7 +386,7 @@ func TestUpdateTemplateErrors(t *testing.T) {
 		t.Fatalf("seed tpl: %d %s", rec.Code, rec.Body)
 	}
 
-	// 坏绑定与校验失败 400。
+	// bad bind and validation failure 400.
 	if rec := doJSON(t, r, http.MethodPut, "/api/provision-templates/1", "not json"); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bind: %d %s", rec.Code, rec.Body)
 	}
@@ -378,7 +395,8 @@ func TestUpdateTemplateErrors(t *testing.T) {
 		t.Fatalf("validate: %d %s", rec.Code, rec.Body)
 	}
 
-	// 带宽与月费分支生效（既有用例只带过流量单价）。
+	// bandwidth and monthly-cost branches take effect (the existing cases only
+	// carried the traffic unit price).
 	if rec := doJSON(t, r, http.MethodPut, "/api/provision-templates/1", map[string]any{
 		"name": "row-t2", "provider_id": pid, "billing_type": "包月",
 		"bw_mbps": 300, "monthly_cost_cents": 900,
@@ -393,7 +411,7 @@ func TestUpdateTemplateErrors(t *testing.T) {
 		t.Fatalf("not persisted: %+v", row)
 	}
 
-	// 保存失败 500。
+	// save failure 500.
 	r, db = newTestRouterWithDB(t)
 	pid = seedProvider(t, db, "tpl-u3")
 	if rec := doJSON(t, r, http.MethodPost, "/api/provision-templates", map[string]any{
@@ -408,7 +426,7 @@ func TestUpdateTemplateErrors(t *testing.T) {
 	}
 }
 
-// TestDeleteTemplateErrors 删档：定位 404 与落删失败 500。
+// TestDeleteTemplateErrors delete: lookup 404 and delete-persist failure 500.
 func TestDeleteTemplateErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doJSON(t, r, http.MethodDelete, "/api/provision-templates/abc", nil); rec.Code != http.StatusNotFound {

@@ -11,8 +11,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// failNthCount 让第 n 次 Count 查询失败（Count 目标都是 *int64，用序号区分
-// 订阅链设备/IP 面的多次计数）。
+// failNthCount makes the n-th Count query fail (Count targets are all *int64, so the
+// ordinal distinguishes the subscription chain's device/IP-facet count calls).
 func failNthCount(name string, db *gorm.DB, n int) {
 	calls := 0
 	db.Callback().Query().Before("gorm:query").Register(name, func(tx *gorm.DB) {
@@ -25,8 +25,8 @@ func failNthCount(name string, db *gorm.DB, n int) {
 	})
 }
 
-// failTouchCreate 让指定 kind 的设备/IP 落库失败（非唯一索引冲突，走
-// 非 dup 错误分支）。
+// failTouchCreate makes landing a device/IP record of the given kind fail (not a
+// unique-index conflict, so it takes the non-dup error branch).
 func failTouchCreate(name string, db *gorm.DB, kind string) {
 	db.Callback().Create().Before("gorm:create").Register(name, func(tx *gorm.DB) {
 		if d, ok := tx.Statement.Dest.(*storage.SubDevice); ok && d.Kind == kind {
@@ -35,8 +35,9 @@ func failTouchCreate(name string, db *gorm.DB, kind string) {
 	})
 }
 
-// TestSubDeviceCheckDBErrors 覆盖订阅链设备/IP 面各计数与落库失败分支：
-// 订阅端统一按 403 拒访（客户端看不到库错细节）。
+// TestSubDeviceCheckDBErrors covers the subscription chain's device/IP-facet count and
+// landing failure branches: the subscription endpoint uniformly rejects with 403 (the
+// client never sees db error details).
 func TestSubDeviceCheckDBErrors(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -70,12 +71,13 @@ func TestSubDeviceCheckDBErrors(t *testing.T) {
 	}
 }
 
-// TestSubDeviceLimitAlertError 覆盖超限告警去重计数失败时静默跳过（仍 403），
-// 以及超限拒访按限值文案回报。
+// TestSubDeviceLimitAlertError covers the over-limit alert's dedup count failing and
+// being skipped silently (still 403), and the over-limit rejection reporting the
+// limit value in its message.
 func TestSubDeviceLimitAlertError(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	path, _ := createLimitedUser(t, r, "sd-alert", 0, 1)
-	// 首个 IP 落一行，第二个新 IP 触发上限判定。
+	// The first IP lands a row; the second new IP triggers the limit verdict.
 	if rec := getSubAt(t, r, path, "v2rayNG/1.8", "10.1.1.1:1111", ""); rec.Code != http.StatusOK {
 		t.Fatalf("first ip: %d %s", rec.Code, rec.Body)
 	}
@@ -89,15 +91,15 @@ func TestSubDeviceLimitAlertError(t *testing.T) {
 	}
 }
 
-// TestUserDevicesErrors 覆盖设备列表的用户定位失败、无记录回空表、
-// 明细取数失败分支。
+// TestUserDevicesErrors covers the device list's user-lookup failure, the empty list
+// returned when there are no records, and the detail-fetch failure branch.
 func TestUserDevicesErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doJSON(t, r, "GET", "/api/users/999/devices", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("missing user: %d", rec.Code)
 	}
 
-	// 无记录 → 200 空表（不返回 null）。
+	// No records -> 200 with an empty list (not null).
 	r2, _ := newTestRouterWithDB(t)
 	_, uid := createLimitedUser(t, r2, "sd-list", 0, 0)
 	rec := doJSON(t, r2, "GET", "/api/users/"+strconv.Itoa(int(uid))+"/devices", nil)
@@ -105,7 +107,7 @@ func TestUserDevicesErrors(t *testing.T) {
 		t.Fatalf("empty list: %d %s", rec.Code, rec.Body)
 	}
 
-	// 明细取数失败 → 500。
+	// Detail fetch failure -> 500.
 	r3, db3 := newTestRouterWithDB(t)
 	_, uid3 := createLimitedUser(t, r3, "sd-err", 0, 0)
 	regQueryFail("t:devrows", db3, (*[]storage.SubDevice)(nil))

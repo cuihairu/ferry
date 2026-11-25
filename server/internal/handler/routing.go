@@ -18,19 +18,23 @@ import (
 	"gorm.io/gorm"
 )
 
-// rulelibAckTimeout 与 config.push 同口径：覆盖 agent 侧落盘 + reload 最坏耗时。
+// rulelibAckTimeout uses the same budget as config.push: it covers the worst
+// case for the agent-side write plus reload.
 const rulelibAckTimeout = 60 * time.Second
 
-// rulelibNameRe 限制规则库文件名：防路径穿越，只允许单个文件名。
+// rulelibNameRe constrains rule library file names: it guards against path
+// traversal by allowing only a single bare file name.
 var (
 	rulelibNameRe    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 	rulelibTraversal = regexp.MustCompile(`\.\.`)
 )
 
-// adsSettingKey 是广告拦截开关的设置键（SAVE-4）：缺省开，"0"/"false" 关。
+// adsSettingKey is the setting key for the ad blocking switch (SAVE-4): on by
+// default, "0"/"false" turns it off.
 const adsSettingKey = "routing_ads_enabled"
 
-// adsEnabled 读广告拦截开关；未设置按开（设计默认用开源名单）。
+// adsEnabled reads the ad blocking switch; unset means on (the design default
+// ships with the open source rule lists).
 func adsEnabled(db *gorm.DB) bool {
 	v, ok, err := storage.GetSetting(db, adsSettingKey)
 	if err != nil || !ok {
@@ -39,7 +43,8 @@ func adsEnabled(db *gorm.DB) bool {
 	return v != "0" && v != "false"
 }
 
-// routingSets 按开关组装渲染用清单：广告拦截关时滤掉 AdBlock。
+// routingSets assembles the rule set list used for rendering according to the
+// switch: AdBlock is filtered out when ad blocking is off.
 func (h *Handler) routingSets() []routing.RuleSet {
 	sets := routing.Sets()
 	if !adsEnabled(h.db) {
@@ -48,17 +53,19 @@ func (h *Handler) routingSets() []routing.RuleSet {
 	return sets
 }
 
-// renderRoutingConfig 返回节点配置模板合成分流规则段后的完整配置（SAVE-1）。
-// 只做渲染不落库：下发走既有 POST /api/nodes/:id/config。
+// renderRoutingConfig returns the full config produced by merging the split-rule
+// sections into the node's config template (SAVE-1). It only renders and never
+// persists: delivery goes through the existing POST /api/nodes/:id/config.
 func (h *Handler) renderRoutingConfig(c *gin.Context) {
 	var n storage.Node
 	if err := h.db.First(&n, c.Param("id")).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
 		return
 	}
-	// routing 规则段是 xray 内核语法（routing.rules / outbounds tag）；
-	// hysteria2 内核配置是 YAML，分流规则不套用 xray 语法，直接渲染会
-	// 产出无效配置——如实报错而不是拼出误导结果（hy2 批）。
+	// The routing rule section is xray kernel syntax (routing.rules / outbounds
+	// tags); the hysteria2 kernel config is YAML, and split rules do not follow
+	// xray syntax, so rendering it directly would produce an invalid config —
+	// report it honestly instead of stitching out a misleading result (hy2 batch).
 	if n.Protocol == "hysteria2" {
 		fail(c, http.StatusBadRequest, errors.New("routing merge only supports xray kernel config; "+
 			"hysteria2 config is YAML and must be pushed as-is via POST /api/nodes/:id/config"))
@@ -79,8 +86,10 @@ func (h *Handler) renderRoutingConfig(c *gin.Context) {
 	})
 }
 
-// putAdsEnabled 广告/追踪拦截开关（PUT /api/routing/ads {enabled}）：
-// 关掉后渲染的配置不再含屏蔽规则段，已下发配置不动（重渲染重发才生效）。
+// putAdsEnabled is the ad/tracker blocking switch (PUT /api/routing/ads
+// {enabled}): once off, rendered configs no longer contain the blocking rule
+// sections; already-pushed configs are left untouched (re-render and re-push
+// for it to take effect).
 func (h *Handler) putAdsEnabled(c *gin.Context) {
 	var in struct {
 		Enabled *bool `json:"enabled"`
@@ -100,9 +109,11 @@ func (h *Handler) putAdsEnabled(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"enabled": *in.Enabled})
 }
 
-// pushRuleLib 向节点分发一份规则库数据文件（geoip.dat/geosite.dat 等）：
-// 原始请求体即文件内容，经 config.push 通道（kind=rulelib:<name>）落盘到
-// agent 资产目录并触发 reload。每次推送在 node_configs 留版本快照。
+// pushRuleLib distributes a rule library data file to a node (geoip.dat/
+// geosite.dat etc.): the raw request body is the file content, which goes over
+// the config.push channel (kind=rulelib:<name>), is written into the agent's
+// asset directory and triggers a reload. Every push leaves a version snapshot in
+// node_configs.
 func (h *Handler) pushRuleLib(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -177,11 +188,12 @@ func (h *Handler) pushRuleLib(c *gin.Context) {
 		status = "applied"
 	}
 	h.finishNodeConfig(&row, status, ack.Reverted, ack.Validated, ack.Error)
-	row.Payload = "" // 版本史不回带文件内容
+	row.Payload = "" // the version history does not carry file contents
 	c.JSON(http.StatusOK, row)
 }
 
-// listRuleLib 返回节点的规则库版本史（node_configs 快照，不含文件内容）。
+// listRuleLib returns a node's rule library version history (node_configs
+// snapshots, without file contents).
 func (h *Handler) listRuleLib(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

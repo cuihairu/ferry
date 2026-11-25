@@ -11,8 +11,9 @@ import (
 	"github.com/cuihairu/ferry/server/internal/config"
 )
 
-// TestPanelSupportSnapshotExpiry 客服快照带到期日期：开通用户的快照备注
-// 含「长期有效」之外的到期日（同步进 servify 客户资料）。
+// TestPanelSupportSnapshotExpiry the support snapshot carries an expiry date: an
+// enabled user's snapshot notes include a real expiry date instead of the indefinite
+// placeholder (synced into the servify customer profile).
 func TestPanelSupportSnapshotExpiry(t *testing.T) {
 	var notes atomic.Value
 	mux := http.NewServeMux()
@@ -38,7 +39,7 @@ func TestPanelSupportSnapshotExpiry(t *testing.T) {
 		c.SupportURL = srv.URL
 		c.SupportServiceKey = "sk-test"
 	})
-	// 到期用户（仍启用）：快照备注应带到期日。
+	// User with an expiry date (still enabled): the snapshot notes should carry that date.
 	rec := doJSON(t, r, "POST", "/api/users", map[string]any{
 		"username": "exp-user", "quota_bytes": 1 << 30, "expires_at": "2026-12-31T00:00:00Z",
 	})

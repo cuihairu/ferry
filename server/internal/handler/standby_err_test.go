@@ -9,8 +9,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// namedDialector 只覆盖方言名（命中 standby 的 sqlite 限定分支），其余能力
-// 沿用原方言实现。
+// namedDialector overrides only the dialect name (to hit standby's sqlite-only
+// branch); the other capabilities fall back to the original dialect.
 type namedDialector struct {
 	gorm.Dialector
 	name string
@@ -18,7 +18,7 @@ type namedDialector struct {
 
 func (n namedDialector) Name() string { return n.name }
 
-// standbyGet 用配置了 standby 令牌的路由调快照端点。
+// standbyGet calls the snapshot endpoint on a router configured with a standby token.
 func standbyGet(t *testing.T, r http.Handler, token string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest("GET", "/api/standby/snapshot", nil)
@@ -30,7 +30,7 @@ func standbyGet(t *testing.T, r http.Handler, token string) *httptest.ResponseRe
 	return rec
 }
 
-// TestStandbySnapshotNotSQLite 覆盖非 sqlite 方言 → 500（快照只支持 sqlite）。
+// TestStandbySnapshotNotSQLite covers a non-sqlite dialect -> 500 (snapshots only support sqlite).
 func TestStandbySnapshotNotSQLite(t *testing.T) {
 	r, db := newTestRouterCfg(t, func(c *config.Config) { c.StandbyToken = "st" })
 	db.Dialector = namedDialector{Dialector: db.Dialector, name: "mysql"}
@@ -39,8 +39,8 @@ func TestStandbySnapshotNotSQLite(t *testing.T) {
 	}
 }
 
-// TestStandbySnapshotSnapshotFail 覆盖产档失败 → 500：库句柄已关，
-// VACUUM INTO 报错由端点原样转 500。
+// TestStandbySnapshotSnapshotFail covers snapshot production failure -> 500: the db
+// handle is closed, and the VACUUM INTO error is passed through as 500.
 func TestStandbySnapshotSnapshotFail(t *testing.T) {
 	r, db := newTestRouterCfg(t, func(c *config.Config) { c.StandbyToken = "st" })
 	closeSQL(t, db)

@@ -11,18 +11,19 @@ import (
 	"gorm.io/gorm"
 )
 
-// 三十四批补口：两步验证（P1）错误口径——状态/解绑查无管理员 401、setup
-// 落库失败、enable 坏绑定与空码/取暂存库故障/尚未发起绑定/暂存不可解/
-// 校验通过后查无管理员/用户行保存失败/恢复码落库失败、disable 坏绑定/
-// 查无/密码错误/保存失败、checkTwoFA 旧密文解不开按失败、isDigits 与
-// consumeRecoveryCode 空值短路。
-// 留白：totp.Generate 与 newRecoveryCode 的 crypto/rand 错误、sealSecret
-// 已判 Enabled 后再失败（AES-GCM 有主密钥恒成功）不硬凑。
+// Thirty-fourth batch gap fill: two-factor (P1) error paths — status/disable with a missing admin
+// 401, setup staging persist failure, enable bad binding and empty code / staged-secret read fault /
+// binding never initiated / staged secret undecryptable / admin missing after validation passed /
+// user row save failure / recovery code persist failure, disable bad binding / missing admin /
+// wrong password / save failure, checkTwoFA failing closed on an undecryptable old ciphertext,
+// and isDigits / consumeRecoveryCode empty-value short circuits.
+// Left out on purpose: crypto/rand errors from totp.Generate and newRecoveryCode, and a
+// sealSecret failure after Enabled has already been judged (AES-GCM with a master key always succeeds) — not forced in.
 
-// base32TestSecret 是合法 base32 测试密钥（仅用于生成不参与校验的码）。
+// base32TestSecret is a valid base32 test secret (only used to generate codes that skip validation).
 const base32TestSecret = "JBSWY3DPEHPK3PXP"
 
-// isRecoveryCodeModel 判断语句是否落在恢复码表上。
+// isRecoveryCodeModel reports whether a statement lands on the recovery code table.
 func isRecoveryCodeModel(v any) bool {
 	switch v.(type) {
 	case *storage.RecoveryCode, []storage.RecoveryCode, *[]storage.RecoveryCode:
@@ -31,8 +32,8 @@ func isRecoveryCodeModel(v any) bool {
 	return false
 }
 
-// seedPendingTOTP 直落一枚可校验的绑定中密钥（供 enable 走通校验段）；
-// 按管理员 ID 分键落暂存（P2 分键后 enable 按自身 ID 读）。
+// seedPendingTOTP writes a verifiable pending-binding secret directly (so enable gets through its
+// validation segment); it is staged under the per-admin ID key (after the P2 key split, enable reads by its own ID).
 func seedPendingTOTP(t *testing.T, db *gorm.DB, master string, adminID uint) string {
 	t.Helper()
 	gen, err := totp.Generate(totp.GenerateOpts{Issuer: twofaIssuer, AccountName: "pending"})
@@ -49,7 +50,7 @@ func seedPendingTOTP(t *testing.T, db *gorm.DB, master string, adminID uint) str
 	return gen.Secret()
 }
 
-// TestTwoFAMissingAdmin 令牌指向不存在的管理员：状态与解绑 401。
+// TestTwoFAMissingAdmin the token points at a nonexistent admin: status and disable both 401.
 func TestTwoFAMissingAdmin(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doJSONAuth(t, r, http.MethodGet, "/admin/2fa", nil); rec.Code != http.StatusUnauthorized {
@@ -61,7 +62,7 @@ func TestTwoFAMissingAdmin(t *testing.T) {
 	}
 }
 
-// TestTwoFASetupErrors setup 暂存落库失败 500。
+// TestTwoFASetupErrors setup staging persist failure gives 500.
 func TestTwoFASetupErrors(t *testing.T) {
 	r, db := newTestRouterCfg(t, func(cfg *config.Config) { cfg.SecretKey = "test-master-key" })
 	seedAdmin(t, db, "root", "pw-root")
@@ -71,8 +72,8 @@ func TestTwoFASetupErrors(t *testing.T) {
 	}
 }
 
-// TestTwoFAEnableValidation enable 的校验面：坏绑定/空码、取暂存库故障、
-// 尚未发起绑定与暂存不可解。
+// TestTwoFAEnableValidation enable's validation surface: bad binding/empty code, staged-secret
+// read fault, binding never initiated, and an undecryptable staged secret.
 func TestTwoFAEnableValidation(t *testing.T) {
 	r, db := newTestRouterCfg(t, func(cfg *config.Config) { cfg.SecretKey = "test-master-key" })
 	seedAdmin(t, db, "root", "pw-root")
@@ -83,19 +84,19 @@ func TestTwoFAEnableValidation(t *testing.T) {
 	if rec := doJSONAuth(t, r, http.MethodPost, "/admin/2fa/enable", map[string]any{}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("empty code: %d %s", rec.Code, rec.Body)
 	}
-	// 尚未发起绑定（无暂存密钥）→ 400。
+	// Binding never initiated (no staged secret) -> 400.
 	if rec := doJSONAuth(t, r, http.MethodPost, "/admin/2fa/enable",
 		map[string]any{"code": totpNow(t, base32TestSecret)}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("no pending: %d %s", rec.Code, rec.Body)
 	}
-	// 取暂存库故障 → 500。
+	// Staged-secret read fault -> 500.
 	failQueryOn(t, db, "test:pending_q", isSettingModel)
 	if rec := doJSONAuth(t, r, http.MethodPost, "/admin/2fa/enable",
 		map[string]any{"code": totpNow(t, base32TestSecret)}); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("get setting: %d %s", rec.Code, rec.Body)
 	}
 
-	// 暂存不可解（不是带版本的密文）→ 500。
+	// Staged secret undecryptable (not a versioned ciphertext) -> 500.
 	r, db = newTestRouterCfg(t, func(cfg *config.Config) { cfg.SecretKey = "test-master-key" })
 	root := seedAdmin(t, db, "root", "pw-root")
 	if err := db.Create(&storage.Setting{Key: twofaPendingKey(root.ID), Value: "garbage"}).Error; err != nil {
@@ -107,10 +108,10 @@ func TestTwoFAEnableValidation(t *testing.T) {
 	}
 }
 
-// TestTwoFAEnableDBFails enable 的落库段：用户行保存失败与恢复码落库失败。
+// TestTwoFAEnableDBFails enable's persistence segment: user row save failure and recovery code persist failure.
 func TestTwoFAEnableDBFails(t *testing.T) {
 	master := "test-master-key"
-	// 用户行保存失败（校验已过）。
+	// User row save failure (validation already passed).
 	r, db := newTestRouterCfg(t, func(cfg *config.Config) { cfg.SecretKey = master })
 	root := seedAdmin(t, db, "root", "pw-root")
 	plain := seedPendingTOTP(t, db, master, root.ID)
@@ -120,7 +121,7 @@ func TestTwoFAEnableDBFails(t *testing.T) {
 		t.Fatalf("save user: %d %s", rec.Code, rec.Body)
 	}
 
-	// 恢复码落库失败（用户行已保存）。
+	// Recovery code persist failure (user row already saved).
 	r, db = newTestRouterCfg(t, func(cfg *config.Config) { cfg.SecretKey = master })
 	root = seedAdmin(t, db, "root", "pw-root")
 	plain = seedPendingTOTP(t, db, master, root.ID)
@@ -131,7 +132,7 @@ func TestTwoFAEnableDBFails(t *testing.T) {
 	}
 }
 
-// TestTwoFAEnableMissingAdmin enable 校验通过后令牌账号已不存在 → 401。
+// TestTwoFAEnableMissingAdmin the token's account no longer exists after enable validation passed -> 401.
 func TestTwoFAEnableMissingAdmin(t *testing.T) {
 	r, db := newTestRouterCfg(t, func(cfg *config.Config) { cfg.SecretKey = "test-master-key" })
 	plain := seedPendingTOTP(t, db, "test-master-key", 1)
@@ -141,7 +142,7 @@ func TestTwoFAEnableMissingAdmin(t *testing.T) {
 	}
 }
 
-// TestTwoFADisableErrors 解绑：坏绑定、密码错误与保存失败。
+// TestTwoFADisableErrors unbinding: bad binding, wrong password, and save failure.
 func TestTwoFADisableErrors(t *testing.T) {
 	r, db := newTestRouterCfg(t, func(cfg *config.Config) { cfg.SecretKey = "test-master-key" })
 	seedAdmin(t, db, "root", "pw-root")
@@ -159,8 +160,8 @@ func TestTwoFADisableErrors(t *testing.T) {
 	}
 }
 
-// TestTwoFAHelpers 助手短路：TOTP 密文解不开按校验失败（不静默放行）、
-// isDigits 三态与空恢复码不消费。
+// TestTwoFAHelpers helper short circuits: an undecryptable TOTP ciphertext fails closed (no fail
+// open), isDigits tri-state, and an empty recovery code is never consumed.
 func TestTwoFAHelpers(t *testing.T) {
 	_, db := newTestRouterCfg(t, func(cfg *config.Config) { cfg.SecretKey = "test-master-key" })
 	h := &Handler{db: db, secrets: secret.NewStore("")}
@@ -177,7 +178,7 @@ func TestTwoFAHelpers(t *testing.T) {
 	if h.consumeRecoveryCode(1, "") {
 		t.Fatal("empty code must not consume")
 	}
-	// 一次性恢复码命中即销：同码第二次不再命中。
+	// A one-time recovery code is burned on its first hit: the same code no longer matches the second time.
 	u = storage.User{}
 	if err := db.Create(&storage.RecoveryCode{UserID: 7, CodeHash: hashRecoveryCode("abcd-efgh")}).Error; err != nil {
 		t.Fatal(err)

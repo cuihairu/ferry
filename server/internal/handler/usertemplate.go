@@ -12,29 +12,33 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 用户模板（P1-5，对齐 Marzban user_template 的默认配额/时长口径）：
-// 单套默认模板存 settings KV，新建用户 use_template=true 时补全缺省字段。
+// User template (P1-5, aligned with Marzban user_template's default
+// quota/duration terms): a single default template stored in the settings KV;
+// creating a user with use_template=true fills in absent fields.
 
-// settingKeyUserTemplate 是用户模板的 settings 键。
+// settingKeyUserTemplate is the settings key for the user template.
 const settingKeyUserTemplate = "user_template"
 
-// userTemplate 是默认模板载荷：quota_bytes=默认配额（0 不限）、
-// expire_days=默认时长（0 不限期）、reset_cycle=默认重置周期。
+// userTemplate is the default template payload: quota_bytes=default quota
+// (0 unlimited), expire_days=default duration (0 no expiry),
+// reset_cycle=default reset cycle.
 type userTemplate struct {
 	QuotaBytes int64  `json:"quota_bytes"`
 	ExpireDays int    `json:"expire_days"`
 	ResetCycle string `json:"reset_cycle"`
-	// BwUpMbps/BwDownMbps 默认用户级带宽限额（P2-3，0=不限）。
+	// BwUpMbps/BwDownMbps default per-user bandwidth limits (P2-3, 0=unlimited).
 	BwUpMbps   int `json:"bw_up_mbps"`
 	BwDownMbps int `json:"bw_down_mbps"`
 }
 
-// defaultUserTemplate 返回全部缺省的模板（未配置或存量损坏时兜底）。
+// defaultUserTemplate returns the all-defaults template (fallback when
+// unconfigured or when stored data is corrupt).
 func defaultUserTemplate() userTemplate {
 	return userTemplate{ResetCycle: quota.CycleNone}
 }
 
-// loadUserTemplate 读取模板；未配置或存量 JSON 损坏按默认值兜底（不阻断创建）。
+// loadUserTemplate reads the template; unconfigured or corrupt stored JSON
+// falls back to defaults (never blocks creation).
 func (h *Handler) loadUserTemplate() (userTemplate, error) {
 	tpl := defaultUserTemplate()
 	raw, ok, err := storage.GetSetting(h.db, settingKeyUserTemplate)
@@ -53,8 +57,9 @@ func (h *Handler) loadUserTemplate() (userTemplate, error) {
 	return tpl, nil
 }
 
-// validateUserBw 校验用户级带宽限额（P2-3）：允许 0=不限；负值与超
-// 100000Mbps 视为脏值拒绝（防误录把节点带宽写爆）。
+// validateUserBw validates per-user bandwidth limits (P2-3): 0=unlimited is
+// allowed; negatives and values over 100000Mbps are treated as dirty and
+// rejected (so a mistyped entry cannot blow out the node bandwidth).
 func validateUserBw(up, down *int) error {
 	if derefInt(up) < 0 || derefInt(down) < 0 || derefInt(up) > 100000 || derefInt(down) > 100000 {
 		return errors.New("bw_up_mbps/bw_down_mbps must be 0-100000 (0 = unlimited)")
@@ -62,7 +67,7 @@ func validateUserBw(up, down *int) error {
 	return nil
 }
 
-// derefInt 取值，nil 回 0（=不限）。
+// derefInt dereferences, with nil mapping to 0 (= unlimited).
 func derefInt(v *int) int {
 	if v == nil {
 		return 0
@@ -70,7 +75,7 @@ func derefInt(v *int) int {
 	return *v
 }
 
-// getUserTemplate 查看默认模板（GET /api/user-template）。
+// getUserTemplate views the default template (GET /api/user-template).
 func (h *Handler) getUserTemplate(c *gin.Context) {
 	tpl, err := h.loadUserTemplate()
 	if err != nil {
@@ -80,7 +85,7 @@ func (h *Handler) getUserTemplate(c *gin.Context) {
 	c.JSON(http.StatusOK, tpl)
 }
 
-// putUserTemplate 保存默认模板（PUT /api/user-template）。
+// putUserTemplate saves the default template (PUT /api/user-template).
 func (h *Handler) putUserTemplate(c *gin.Context) {
 	var in userTemplate
 	if err := c.ShouldBindJSON(&in); err != nil {
@@ -114,8 +119,9 @@ func (h *Handler) putUserTemplate(c *gin.Context) {
 	c.JSON(http.StatusOK, in)
 }
 
-// applyUserTemplate 把模板填入创建请求中缺席的字段（显式字段优先）。
-// 时长按 now+expire_days 日历天推算，expire_days<=0 表示不限期。
+// applyUserTemplate fills template values into the create request's absent
+// fields (explicit fields win). Duration is derived as now+expire_days
+// calendar days; expire_days<=0 means no expiry.
 func applyUserTemplate(in *model.UserInput, tpl userTemplate, now time.Time) {
 	if in.QuotaBytes == nil {
 		q := tpl.QuotaBytes
@@ -129,7 +135,8 @@ func applyUserTemplate(in *model.UserInput, tpl userTemplate, now time.Time) {
 		t := now.AddDate(0, 0, tpl.ExpireDays)
 		in.ExpiresAt = &t
 	}
-	// 带宽限额（P2-3）：模板配了正值才补默认（0=不限不覆盖显式 0）。
+	// Bandwidth limits (P2-3): only a positive template value fills the
+	// default (0=unlimited must not override an explicit 0).
 	if in.BwUpMbps == nil && tpl.BwUpMbps > 0 {
 		v := tpl.BwUpMbps
 		in.BwUpMbps = &v

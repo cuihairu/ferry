@@ -10,22 +10,23 @@ import (
 	"gorm.io/gorm"
 )
 
-// TestUserTemplateErrors 覆盖默认模板错误面：读取库故障、坏载荷、
-// 缺 reset_cycle 回落缺省周期、保存库故障。
+// TestUserTemplateErrors covers the default template error surface: read db
+// failure, bad payload, missing reset_cycle falling back to the default cycle,
+// and save db failure.
 func TestUserTemplateErrors(t *testing.T) {
-	// 读取库故障 → 500。
+	// Read db failure -> 500.
 	r, db := newTestRouterWithDB(t)
 	regQueryFail("t:tplsetting", db, (*storage.Setting)(nil))
 	if rec := doJSON(t, r, "GET", "/api/user-template", nil); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("get template: %d %s", rec.Code, rec.Body)
 	}
 
-	// 坏载荷 → 400。
+	// Bad payload -> 400.
 	if rec := doRaw(t, r, "PUT", "/api/user-template", "{bad"); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad json: %d", rec.Code)
 	}
 
-	// 缺 reset_cycle 落缺省周期（不回填用户输入原样）。
+	// Missing reset_cycle lands the default cycle (no verbatim echo of the user input).
 	rec := doJSON(t, r, "PUT", "/api/user-template", map[string]any{"quota_bytes": 1024})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("put template: %d %s", rec.Code, rec.Body)
@@ -38,7 +39,7 @@ func TestUserTemplateErrors(t *testing.T) {
 		t.Fatalf("default cycle = %q", in.ResetCycle)
 	}
 
-	// 保存库故障 → 500（SetSetting 走 Save 的 Update 链）。
+	// Save db failure -> 500 (SetSetting goes through Save's Update chain).
 	db.Callback().Update().Before("gorm:update").Register("t:tplsave", func(tx *gorm.DB) {
 		if _, ok := tx.Statement.Model.(*storage.Setting); ok {
 			tx.AddError(errors.New("db down"))
@@ -49,8 +50,9 @@ func TestUserTemplateErrors(t *testing.T) {
 	}
 }
 
-// TestUserTemplateDegradedRows 覆盖存量 settings 脏值回落缺省模板：
-// JSON 不可解、reset_cycle 空、带宽脏值三态均按缺省模板兜底不阻断。
+// TestUserTemplateDegradedRows covers stored settings dirty values degrading to
+// the default template: unparseable JSON, empty reset_cycle and dirty bandwidth
+// values all fall back to the default template without blocking.
 func TestUserTemplateDegradedRows(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
@@ -58,9 +60,9 @@ func TestUserTemplateDegradedRows(t *testing.T) {
 		wantCycle string
 		wantQuota int64
 	}{
-		{"bad json", "{bad", "none", 0},                                  // 整体坏 → 全缺省
-		{"empty cycle", `{"quota_bytes":1,"reset_cycle":""}`, "none", 1}, // 只补周期，其余保留
-		{"bad bw", `{"quota_bytes":1,"bw_up_mbps":-1}`, "none", 0},       // 带宽脏 → 整体回缺省
+		{"bad json", "{bad", "none", 0},                                  // whole payload bad -> all defaults
+		{"empty cycle", `{"quota_bytes":1,"reset_cycle":""}`, "none", 1}, // only the cycle is filled in, the rest kept
+		{"bad bw", `{"quota_bytes":1,"bw_up_mbps":-1}`, "none", 0},       // dirty bandwidth -> whole payload back to defaults
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r, db := newTestRouterWithDB(t)

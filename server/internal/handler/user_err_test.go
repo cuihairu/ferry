@@ -12,13 +12,15 @@ import (
 	"gorm.io/gorm"
 )
 
-// 二十四批补口：用户 CRUD 各 400/404/500 口径——校验失败（坏绑定/空名/超长/
-// 负配额/非法带宽/非法设备数/非法周期）、模板与落库故障、改名冲突与回落
-// 再查失败、删用户与重置令牌的两段清理各自失败。
-// 四十九批补口：落库侧唯一冲突文本（isDup）的 409 归类按注入错误直测。
-// 留白：RandomToken 的 crypto/rand 错误不硬凑。
+// Twenty-fourth batch gap fill: the user CRUD 400/404/500 paths — validation failures (bad
+// binding/blank name/overlong/negative quota/bad bandwidth/bad device count/bad cycle), template
+// and persistence faults, rename conflicts and the re-find fallback failing, and the two cleanup
+// stages of user deletion and token reset each failing on their own.
+// Forty-ninth batch gap fill: the 409 classification of storage-side unique-conflict text (isDup)
+// tested directly with an injected error.
+// Left out on purpose: crypto/rand errors from RandomToken are not forced in.
 
-// isUserModel 判断语句是否落在用户表上（Find 链 Model 是切片指针）。
+// isUserModel reports whether a statement lands on the users table (a Find chain's Model is a slice pointer).
 func isUserModel(v any) bool {
 	switch v.(type) {
 	case *storage.User, []storage.User, *[]storage.User:
@@ -27,7 +29,7 @@ func isUserModel(v any) bool {
 	return false
 }
 
-// isSubDeviceModel 判断语句是否落在设备记录表上。
+// isSubDeviceModel reports whether a statement lands on the device record table.
 func isSubDeviceModel(v any) bool {
 	switch v.(type) {
 	case *storage.SubDevice, []storage.SubDevice, *[]storage.SubDevice:
@@ -36,8 +38,8 @@ func isSubDeviceModel(v any) bool {
 	return false
 }
 
-// failUserQueriesAt 第 n 次（1 起）针对用户表的查询失败：改名冲突与回落
-// 再查用次序定向。
+// failUserQueriesAt makes the n-th (1-based) query against the users table fail: used to target the
+// rename conflict and the re-find fallback by order.
 func failUserQueriesAt(t *testing.T, db *gorm.DB, n int) {
 	t.Helper()
 	seen := 0
@@ -52,7 +54,7 @@ func failUserQueriesAt(t *testing.T, db *gorm.DB, n int) {
 	})
 }
 
-// failUserCreates 让用户行创建失败。
+// failUserCreates makes user row creation fail.
 func failUserCreates(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	db.Callback().Create().Before("gorm:create").Register("test:user_create", func(tx *gorm.DB) {
@@ -62,7 +64,7 @@ func failUserCreates(t *testing.T, db *gorm.DB) {
 	})
 }
 
-// failUserUpdates 让用户行更新失败（偏好回写/改名/补写停用）。
+// failUserUpdates makes user row updates fail (preference write-back / rename / explicit disable).
 func failUserRowUpdates(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	db.Callback().Update().Before("gorm:update").Register("test:user_update", func(tx *gorm.DB) {
@@ -72,7 +74,7 @@ func failUserRowUpdates(t *testing.T, db *gorm.DB) {
 	})
 }
 
-// failUserDeletes 让用户行删除失败。
+// failUserDeletes makes user row deletion fail.
 func failUserDeletes(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	db.Callback().Delete().Before("gorm:delete").Register("test:user_delete", func(tx *gorm.DB) {
@@ -82,7 +84,7 @@ func failUserDeletes(t *testing.T, db *gorm.DB) {
 	})
 }
 
-// failSubDeviceDeletes 让设备记录删除失败。
+// failSubDeviceDeletes makes device record deletion fail.
 func failSubDeviceDeletes(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	db.Callback().Delete().Before("gorm:delete").Register("test:subdevice_delete", func(tx *gorm.DB) {
@@ -92,7 +94,7 @@ func failSubDeviceDeletes(t *testing.T, db *gorm.DB) {
 	})
 }
 
-// seedUser 经 API 建用户并返回行 id。
+// seedUser creates a user via the API and returns its row id.
 func seedUser(t *testing.T, r *gin.Engine, db *gorm.DB, name string) uint {
 	t.Helper()
 	rec := doJSON(t, r, http.MethodPost, "/api/users",
@@ -107,9 +109,9 @@ func seedUser(t *testing.T, r *gin.Engine, db *gorm.DB, name string) uint {
 	return u.ID
 }
 
-// TestUserListGetErrors 列表查询失败与单个读取的 404/500。
+// TestUserListGetErrors list query failure and the 404/500 of single-user reads.
 func TestUserListGetErrors(t *testing.T) {
-	// 列表查询失败。
+	// List query failure.
 	r, db := newTestRouterWithDB(t)
 	closeSQL(t, db)
 	if rec := doJSON(t, r, http.MethodGet, "/api/users", nil); rec.Code != http.StatusInternalServerError {
@@ -125,7 +127,7 @@ func TestUserListGetErrors(t *testing.T) {
 	}
 }
 
-// TestCreateUserErrors 创建的校验、模板故障与落库失败口径。
+// TestCreateUserErrors creation's validation, template fault, and persistence failure paths.
 func TestCreateUserErrors(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -153,7 +155,7 @@ func TestCreateUserErrors(t *testing.T) {
 		})
 	}
 
-	// 模板读取故障（拆设置表）。
+	// Template read fault (drop the settings table).
 	r, db := newTestRouterWithDB(t)
 	if err := db.Migrator().DropTable(&storage.Setting{}); err != nil {
 		t.Fatalf("drop settings: %v", err)
@@ -164,7 +166,7 @@ func TestCreateUserErrors(t *testing.T) {
 		t.Fatalf("template: %d %s", rec.Code, rec.Body)
 	}
 
-	// 落库创建失败（唯一性预检已过）。
+	// Storage-side creation failure (the uniqueness precheck already passed).
 	r, db = newTestRouterWithDB(t)
 	failUserCreates(t, db)
 	rec = doJSON(t, r, http.MethodPost, "/api/users", map[string]any{"username": "create-fail"})
@@ -172,7 +174,7 @@ func TestCreateUserErrors(t *testing.T) {
 		t.Fatalf("create: %d %s", rec.Code, rec.Body)
 	}
 
-	// 唯一性预检本身故障（500，非冲突）。
+	// The uniqueness precheck itself fails (500, not a conflict).
 	r, db = newTestRouterWithDB(t)
 	failUserQueriesAt(t, db, 1)
 	rec = doJSON(t, r, http.MethodPost, "/api/users", map[string]any{"username": "chk-fail"})
@@ -180,7 +182,7 @@ func TestCreateUserErrors(t *testing.T) {
 		t.Fatalf("ensureUsernameFree: %d %s", rec.Code, rec.Body)
 	}
 
-	// 显式停用补写失败。
+	// The explicit-disable write-back fails.
 	r, db = newTestRouterWithDB(t)
 	failUserRowUpdates(t, db)
 	rec = doJSON(t, r, http.MethodPost, "/api/users",
@@ -190,7 +192,7 @@ func TestCreateUserErrors(t *testing.T) {
 	}
 }
 
-// TestUpdateUserErrors 更新的定位 404、校验、改名冲突与回落再查失败。
+// TestUpdateUserErrors update's lookup 404, validation, rename conflict, and re-find fallback failure.
 func TestUpdateUserErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	for _, id := range []string{"abc", "9999"} {
@@ -226,7 +228,7 @@ func TestUpdateUserErrors(t *testing.T) {
 		})
 	}
 
-	// 合法多字段 PATCH：带宽/设备/IP/到期/周期/停用一次带齐，逐分支落库。
+	// A valid multi-field PATCH: bandwidth/device/IP/expiry/cycle/disable sent together, each branch persisted.
 	r, db := newTestRouterWithDB(t)
 	seedUser(t, r, db, "upd-fields")
 	rec := doJSON(t, r, http.MethodPut, "/api/users/1", map[string]any{
@@ -250,7 +252,7 @@ func TestUpdateUserErrors(t *testing.T) {
 		t.Fatalf("assigned = %+v", upd)
 	}
 
-	// 改名冲突 409（他人占用）。
+	// Rename conflict 409 (taken by another user).
 	r, db = newTestRouterWithDB(t)
 	seedUser(t, r, db, "rename-a")
 	seedUser(t, r, db, "rename-b")
@@ -259,7 +261,7 @@ func TestUpdateUserErrors(t *testing.T) {
 		t.Fatalf("rename conflict: %d %s", rec.Code, rec.Body)
 	}
 
-	// 唯一性预检的库故障（第 2 次查询）。
+	// DB fault in the uniqueness precheck (the 2nd query).
 	r, db = newTestRouterWithDB(t)
 	seedUser(t, r, db, "chk-a")
 	seedUser(t, r, db, "chk-b")
@@ -269,7 +271,7 @@ func TestUpdateUserErrors(t *testing.T) {
 		t.Fatalf("ensureUsernameFree: %d %s", rec.Code, rec.Body)
 	}
 
-	// 更新语句失败 500；清到期分支。
+	// The update statement fails with 500; the clear-expiry branch.
 	r, db = newTestRouterWithDB(t)
 	seedUser(t, r, db, "upd-quota")
 	failUserRowUpdates(t, db)
@@ -284,7 +286,7 @@ func TestUpdateUserErrors(t *testing.T) {
 		t.Fatalf("clear expire: %d %s", rec.Code, rec.Body)
 	}
 
-	// 回落再查失败（第 3 次查询：定位 1 → 更新 → 复查）。
+	// The re-find fallback fails (the 3rd query: lookup 1 -> update -> re-check).
 	r, db = newTestRouterWithDB(t)
 	seedUser(t, r, db, "upd-refind")
 	failUserQueriesAt(t, db, 2)
@@ -294,7 +296,7 @@ func TestUpdateUserErrors(t *testing.T) {
 	}
 }
 
-// TestDeleteUserErrors 删除的定位 404 与两段清理各自失败。
+// TestDeleteUserErrors delete's lookup 404 and each of the two cleanup stages failing.
 func TestDeleteUserErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	for _, id := range []string{"abc", "9999"} {
@@ -304,7 +306,7 @@ func TestDeleteUserErrors(t *testing.T) {
 		}
 	}
 
-	// 设备记录清理失败。
+	// Device record cleanup failure.
 	r, db := newTestRouterWithDB(t)
 	seedUser(t, r, db, "del-dev")
 	failSubDeviceDeletes(t, db)
@@ -313,7 +315,7 @@ func TestDeleteUserErrors(t *testing.T) {
 		t.Fatalf("subdevice cleanup: %d %s", rec.Code, rec.Body)
 	}
 
-	// 用户行删除失败。
+	// User row deletion failure.
 	r, db = newTestRouterWithDB(t)
 	seedUser(t, r, db, "del-user")
 	failUserDeletes(t, db)
@@ -323,7 +325,7 @@ func TestDeleteUserErrors(t *testing.T) {
 	}
 }
 
-// TestResetSubTokenErrors 令牌换发的定位 404、换发失败与设备清理失败。
+// TestResetSubTokenErrors token reset's lookup 404, the reset write failing, and device cleanup failing.
 func TestResetSubTokenErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	for _, id := range []string{"abc", "9999"} {
@@ -333,7 +335,7 @@ func TestResetSubTokenErrors(t *testing.T) {
 		}
 	}
 
-	// 换发写库失败。
+	// The reset write fails.
 	r, db := newTestRouterWithDB(t)
 	seedUser(t, r, db, "reset-a")
 	failUserRowUpdates(t, db)
@@ -342,7 +344,7 @@ func TestResetSubTokenErrors(t *testing.T) {
 		t.Fatalf("reset update: %d %s", rec.Code, rec.Body)
 	}
 
-	// 设备记录清理失败。
+	// Device record cleanup failure.
 	r, db = newTestRouterWithDB(t)
 	seedUser(t, r, db, "reset-b")
 	failSubDeviceDeletes(t, db)
@@ -351,7 +353,7 @@ func TestResetSubTokenErrors(t *testing.T) {
 		t.Fatalf("reset cleanup: %d %s", rec.Code, rec.Body)
 	}
 
-	// 成功路径：令牌换新且旧行作废。
+	// Success path: the token is replaced and the old one voided.
 	r, db = newTestRouterWithDB(t)
 	seedUser(t, r, db, "reset-ok")
 	rec = doJSON(t, r, http.MethodPost, "/api/users/1/sub-token", nil)
@@ -360,11 +362,12 @@ func TestResetSubTokenErrors(t *testing.T) {
 	}
 }
 
-// TestUserDupTextErrors 覆盖落库侧唯一冲突文本归类 409：常规路径由
-// ensureUsernameFree 前置拦截，此处按注入的唯一冲突错误直测 isDup 分支
-// （并发建/改同名只在落库侧暴露）。
+// TestUserDupTextErrors covers storage-side unique-conflict text being classified as 409: the
+// normal path is intercepted up front by ensureUsernameFree, so here the isDup branch is tested
+// directly with an injected unique-conflict error (concurrent create/rename of the same name only
+// surfaces on the storage side).
 func TestUserDupTextErrors(t *testing.T) {
-	// 建号：预检放行（新名），落库注入唯一冲突文本 → 409。
+	// Create: the precheck passes (new name), a unique-conflict text is injected on storage -> 409.
 	r, db := newTestRouterWithDB(t)
 	db.Callback().Create().Before("gorm:create").Register("test:user_dup_create", func(tx *gorm.DB) {
 		if isUserModel(tx.Statement.Dest) {
@@ -375,7 +378,7 @@ func TestUserDupTextErrors(t *testing.T) {
 		t.Fatalf("create dup: %d %s", rec.Code, rec.Body)
 	}
 
-	// 改名：预检放行（改到空闲名），落库注入唯一冲突文本 → 409。
+	// Rename: the precheck passes (renaming to a free name), a unique-conflict text is injected on storage -> 409.
 	r, db = newTestRouterWithDB(t)
 	seedUser(t, r, db, "dup-ren")
 	db.Callback().Update().Before("gorm:update").Register("test:user_dup_update", func(tx *gorm.DB) {
@@ -388,7 +391,7 @@ func TestUserDupTextErrors(t *testing.T) {
 	}
 }
 
-// TestIsDup 直测错误文本分类：nil 与不含关键词的错误都不算重复。
+// TestIsDup tests the error text classification directly: nil and errors without the keywords are not duplicates.
 func TestIsDup(t *testing.T) {
 	if isDup(nil) {
 		t.Fatal("nil should not be dup")

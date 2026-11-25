@@ -8,10 +8,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 配额联动（SAVE-6）管理端：配置查看/设置与降档留痕。
-// 联动判定由 quota.LinkLoop 周期执行，这里只读结果与改配置。
+// Admin side of quota linkage (SAVE-6): viewing/setting configuration and the
+// downgrade trail. The linkage decision runs periodically in quota.LinkLoop;
+// here we only read the results and change the configuration.
 
-// listQuotaLink 返回联动配置、降档留痕（生效中在前）与用户名映射。
+// listQuotaLink returns the linkage setting, the downgrade trail (active rows
+// first) and the user id to username mapping.
 func (h *Handler) listQuotaLink(c *gin.Context) {
 	setting, err := quota.LoadLinkSetting(h.db)
 	if err != nil {
@@ -42,7 +44,7 @@ func (h *Handler) listQuotaLink(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"setting": setting, "rows": rows, "names": names})
 }
 
-// putQuotaLink 设置联动配置。
+// putQuotaLink sets the linkage configuration.
 func (h *Handler) putQuotaLink(c *gin.Context) {
 	var in quota.LinkSetting
 	if err := c.ShouldBindJSON(&in); err != nil {

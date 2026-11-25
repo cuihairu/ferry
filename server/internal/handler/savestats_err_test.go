@@ -7,7 +7,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestSaveStatsDBErrors 覆盖两处取数失败 500：日统计明细与节点映射。
+// TestSaveStatsDBErrors covers two fetch-failure 500s: daily stat rows and node mapping.
 func TestSaveStatsDBErrors(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	regQueryFail("t:save_stats", db, (*[]storage.SaveStat)(nil))

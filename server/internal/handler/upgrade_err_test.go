@@ -10,8 +10,8 @@ import (
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
 
-// TestNodeUpgradeGuards 覆盖自升级入口的坏 id（节点不存在/非法）与
-// 坏载荷 400 分支。
+// TestNodeUpgradeGuards covers bad ids on the self-upgrade entry (missing/invalid node) and
+// the bad-payload 400 branches.
 func TestNodeUpgradeGuards(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	for _, id := range []string{"abc", "999"} {
@@ -20,14 +20,14 @@ func TestNodeUpgradeGuards(t *testing.T) {
 			t.Fatalf("node %s: %d, want 404", id, rec.Code)
 		}
 	}
-	// 坏载荷在节点定位之后校验：先落一个节点再发坏 JSON。
+	// The bad payload is validated after the node is located: persist a node first, then send bad JSON.
 	id, _ := createNodeFor(t, r, "upg-json")
 	if rec := doRaw(t, r, "POST", fmt.Sprintf("/api/nodes/%d/upgrade", id), "{bad"); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad json: %d", rec.Code)
 	}
 }
 
-// TestNodeUpgradeBadAck 覆盖 agent 回执载荷无法解码 → 502。
+// TestNodeUpgradeBadAck covers an agent ack payload that cannot be decoded -> 502.
 func TestNodeUpgradeBadAck(t *testing.T) {
 	r := newTestRouter(t)
 	id, token := createNodeFor(t, r, "upg-bad")
@@ -41,7 +41,7 @@ func TestNodeUpgradeBadAck(t *testing.T) {
 			map[string]any{"version": "v2", "url": "https://example.com/a"})
 	}()
 	env := readEnv(t, c)
-	// 同 ID 应答，载荷合法 JSON 但类型无法解进 UpgradeAck。
+	// Reply with the same ID; the payload is valid JSON but its type cannot decode into UpgradeAck.
 	bad := agentproto.Envelope{V: env.V, ID: env.ID, Type: agentproto.MsgUpgradeAck,
 		Payload: []byte(`"not-an-object"`)}
 	if err := c.WriteJSON(bad); err != nil {
@@ -57,14 +57,14 @@ func TestNodeUpgradeBadAck(t *testing.T) {
 	}
 }
 
-// TestNodeUpgradeTimeout 覆盖 agent 在线但不回执 → 504（hub 等待超时分
-// 支）。等待时长取自 upgradeAckTimeout 常量，本用例固有耗时约 15s。
+// TestNodeUpgradeTimeout covers an online agent that never acks -> 504 (the hub wait
+// timeout branch). The wait comes from the upgradeAckTimeout constant; this test inherently takes ~15s.
 func TestNodeUpgradeTimeout(t *testing.T) {
 	r := newTestRouter(t)
 	id, token := createNodeFor(t, r, "upg-to")
 	srv := httptest.NewServer(r)
 	defer srv.Close()
-	fakeAgent(t, srv.URL, "upg-to", token) // 握手后不应答
+	fakeAgent(t, srv.URL, "upg-to", token) // does not reply after the handshake
 
 	rec := doJSON(t, r, "POST", fmt.Sprintf("/api/nodes/%d/upgrade", id),
 		map[string]any{"version": "v2", "url": "https://example.com/a"})

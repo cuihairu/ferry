@@ -12,20 +12,20 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestNodeUpgrade 覆盖自升级指令下发（A-23）：离线 502、参数校验 400、
-// agent 受理 200、agent 拒绝 400。
+// TestNodeUpgrade covers issuing the self-upgrade command (A-23): offline 502, parameter
+// validation 400, agent acceptance 200, agent rejection 400.
 func TestNodeUpgrade(t *testing.T) {
 	r := newTestRouter(t)
 	id, token := createNodeFor(t, r, "upg-1")
 
-	// 离线 502
+	// offline 502
 	rec := doJSON(t, r, "POST", fmt.Sprintf("/api/nodes/%d/upgrade", id), map[string]any{
 		"version": "v2", "url": "https://example.com/ferry-agent",
 	})
 	if rec.Code != http.StatusBadGateway {
 		t.Fatalf("offline should 502: %d %s", rec.Code, rec.Body)
 	}
-	// 参数校验
+	// parameter validation
 	rec = doJSON(t, r, "POST", fmt.Sprintf("/api/nodes/%d/upgrade", id), map[string]any{"url": "https://x.com/a"})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("missing version should 400: %d", rec.Code)
@@ -45,7 +45,7 @@ func TestNodeUpgrade(t *testing.T) {
 	defer srv.Close()
 	c := fakeAgent(t, srv.URL, "upg-1", token)
 
-	// agent 受理 → 200
+	// agent accepts -> 200
 	done := make(chan *httptest.ResponseRecorder, 1)
 	go func() {
 		done <- doJSON(t, r, "POST", fmt.Sprintf("/api/nodes/%d/upgrade", id), map[string]any{
@@ -78,7 +78,7 @@ func TestNodeUpgrade(t *testing.T) {
 		t.Fatal("upgrade request timed out")
 	}
 
-	// agent 拒绝 → 400
+	// agent rejects -> 400
 	go func() {
 		done <- doJSON(t, r, "POST", fmt.Sprintf("/api/nodes/%d/upgrade", id), map[string]any{
 			"version": "v3", "url": "https://example.com/ferry-agent",
@@ -96,7 +96,7 @@ func TestNodeUpgrade(t *testing.T) {
 	}
 }
 
-// TestAgentWSHelloVersion 覆盖 agent 版本随 hello 落库（A-23 升级结果核对）。
+// TestAgentWSHelloVersion covers the agent version being persisted via hello (A-23 upgrade result check).
 func TestAgentWSHelloVersion(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	id, token := createNodeFor(t, r, "upg-2")
@@ -104,7 +104,7 @@ func TestAgentWSHelloVersion(t *testing.T) {
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 	c := fakeAgent(t, srv.URL, "upg-2", token)
-	_ = c.Close() // fakeAgent 已带版本，直接断言落库
+	_ = c.Close() // fakeAgent already carries a version, so just assert the persisted value
 
 	var node struct {
 		AgentVersion string

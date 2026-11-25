@@ -10,24 +10,27 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 面板客服入口（servify 真嵌验收）：把嵌入配置 + 访客 token 发给面板前端，
-// 组件直嵌（widget.js）由前端按需加载；未接客服（FERRY_SUPPORT_URL 空）时
-// 恒报 enabled=false，面板零组件零外呼。工单上下文走服务端同步（坐席只读），
-// service key 不进浏览器。
+// Panel support entry point (servify real-embed acceptance): sends the embed config
+// plus a guest token to the panel frontend, which loads the widget (widget.js) on demand;
+// when support is not wired up (FERRY_SUPPORT_URL empty) it always reports
+// enabled=false, so the panel renders no widget and makes no external calls. Ticket
+// context goes through server-side sync (read-only for agents), and the service key
+// never reaches the browser.
 
-// supportSessionID 是用户在 servify 侧的稳定会话标识：同用户跨页面/设备
-// 恢复同一会话（嵌入指南 §3.1）。
+// supportSessionID is the user's stable session identifier on the servify side: the same
+// user resumes the same session across pages/devices (embed guide section 3.1).
 func supportSessionID(uid uint) string {
 	return fmt.Sprintf("ferry_user_%d", uid)
 }
 
-// supportEmail 是 servify 客户去重键：ferry 用户无邮箱字段，用稳定合成地址。
+// supportEmail is the servify customer dedup key: ferry users have no email field, so a stable synthetic address is used.
 func supportEmail(uid uint) string {
 	return fmt.Sprintf("u%d@users.ferry.local", uid)
 }
 
-// panelSupport 返回面板客服嵌入配置（GET /api/panel/support）。
-// servify 不可达时降级为 enabled=false（客服是旁路，不拖垮面板）。
+// panelSupport returns the panel support embed config (GET /api/panel/support).
+// When servify is unreachable it degrades to enabled=false (support is a side channel
+// and must not drag the panel down).
 func (h *Handler) panelSupport(c *gin.Context) {
 	u, ok := h.panelUser(c)
 	if !ok {
@@ -44,7 +47,7 @@ func (h *Handler) panelSupport(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 8*time.Second)
 	defer cancel()
 
-	// 业务快照（坐席侧只读）：配额水位/到期/状态一次一覆盖。
+	// Business snapshot (read-only on the agent side): quota level / expiry / status overwritten once per request.
 	var usage trafficUsage
 	notes := ""
 	if err := h.usageQuery(u.ID, u.ResetCycle, time.Now()).
@@ -61,8 +64,9 @@ func (h *Handler) panelSupport(c *gin.Context) {
 		}
 		expiry := "长期有效"
 		if u.ExpiresAt != nil {
-			// 按服务器本地日历展示（与计费窗口/toucher 同一口径，避免非
-			// UTC 部署下客服看到「刚到期」而用户侧仍有效）。
+			// Show it on the server's local calendar (same policy as the billing
+			// window / toucher), so on a non-UTC deployment support does not see
+			// "just expired" while the user side is still valid.
 			expiry = u.ExpiresAt.Local().Format("2006-01-02")
 		}
 		notes = fmt.Sprintf("状态：%s；流量：%d/%d 字节（%d%%）；到期：%s",
@@ -73,7 +77,7 @@ func (h *Handler) panelSupport(c *gin.Context) {
 		Name:  u.Username,
 		Notes: notes,
 	}
-	// 上下文同步失败不挡聊天：token 照发，同步态回给面板供排查。
+	// A failed context sync must not block the chat: the token is issued anyway, and the sync state is reported back to the panel for troubleshooting.
 	contextSynced := cl.SyncCustomer(ctx, snap) == nil
 
 	token, expiresAt, err := cl.GuestToken(ctx, supportSessionID(u.ID))

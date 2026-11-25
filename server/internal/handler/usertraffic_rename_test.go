@@ -10,10 +10,13 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestUserRenameKeepsTraffic 覆盖 P2 用户改名流量漏计修复：xray 流量按
-// email（== users.username 约定）归属，改名后节点侧配置未重推期间旧
-// email 仍在上报——旧名留作别名，saveUserTraffic 仍按别名归属到原用户，
-// 不静默丢弃。修复前改名即断映射，旧名上报全部漏计。
+// TestUserRenameKeepsTraffic covers the P2 fix for lost traffic accounting on
+// user rename: xray traffic is attributed by email (== users.username
+// convention), and until the node-side config is re-pushed after a rename the
+// old email keeps reporting -- the old name stays as an alias and
+// saveUserTraffic still attributes it to the original user by alias instead of
+// silently dropping it. Before the fix a rename broke the mapping and every
+// report under the old name was lost.
 func TestUserRenameKeepsTraffic(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 
@@ -34,7 +37,7 @@ func TestUserRenameKeepsTraffic(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 改名 alice → alice2：旧名 alice 应留别名。
+	// Rename alice -> alice2: the old name alice should remain an alias.
 	idStr := strconv.FormatUint(uint64(alice.ID), 10)
 	if rec := doJSON(t, r, "PUT", "/api/users/"+idStr, map[string]any{"username": "alice2"}); rec.Code != http.StatusOK {
 		t.Fatalf("rename: %d %s", rec.Code, rec.Body)
@@ -47,13 +50,14 @@ func TestUserRenameKeepsTraffic(t *testing.T) {
 		t.Fatalf("alias user_id = %d; want %d", alias.UserID, alice.ID)
 	}
 
-	// 旧名 alice 的上报（节点配置未重推）：应按别名归属到 alice，不丢弃。
+	// A report under the old name alice (node config not re-pushed): should be
+	// attributed to alice via the alias, not dropped.
 	h := &Handler{db: db}
 	if err := h.saveUserTraffic(int64(node.ID), []agentproto.ProcTraffic{
 		{Proc: "xray", Rx: 300, Tx: 150, At: time.Now(),
 			Users: []agentproto.UserTraffic{
-				{Email: "alice", Rx: 200, Tx: 100}, // 旧名：别名归属
-				{Email: "alice2", Rx: 100, Tx: 50}, // 新名：当前用户名归属
+				{Email: "alice", Rx: 200, Tx: 100}, // old name: attributed via alias
+				{Email: "alice2", Rx: 100, Tx: 50}, // new name: attributed to the current username
 			}},
 	}); err != nil {
 		t.Fatalf("saveUserTraffic: %v", err)
@@ -66,7 +70,7 @@ func TestUserRenameKeepsTraffic(t *testing.T) {
 	if len(rows) != 2 {
 		t.Fatalf("traffic rows = %d, want 2 (旧名+新名都不丢)", len(rows))
 	}
-	// 两行都应归属 alice（改名不换用户）。
+	// Both rows should belong to alice (renaming does not change the user).
 	for _, row := range rows {
 		if row.UserID == nil || *row.UserID != alice.ID {
 			t.Fatalf("row user_id = %v; want %d (旧名漏计未修复)", row.UserID, alice.ID)

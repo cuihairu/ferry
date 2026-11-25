@@ -13,17 +13,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 系统状态（P1-8，对齐 3x-ui server/status 的内存/CPU/负载口径）：
-// 直接解析 /proc，不引入 gopsutil（小内存 VPS 零依赖）。
+// System status (P1-8, aligned with 3x-ui server/status's memory/CPU/load
+// metrics): parses /proc directly, no gopsutil (zero deps for small-memory VPS).
 
-// memUsage 是系统内存用量。
+// memUsage is system memory usage.
 type memUsage struct {
 	TotalBytes   int64   `json:"total_bytes"`
 	UsedBytes    int64   `json:"used_bytes"`
 	UsagePercent float64 `json:"usage_percent"`
 }
 
-// parseMemInfo 解析 /proc/meminfo：used = total - available（含可回收缓存口径）。
+// parseMemInfo parses /proc/meminfo: used = total - available (includes reclaimable caches).
 func parseMemInfo(data []byte) (memUsage, error) {
 	var total, available int64
 	haveTotal, haveAvail := false, false
@@ -64,7 +64,7 @@ func parseMemInfo(data []byte) (memUsage, error) {
 	}, nil
 }
 
-// parseLoadAvg 解析 /proc/loadavg 的 1/5/15 分钟负载。
+// parseLoadAvg parses the 1/5/15-minute loads from /proc/loadavg.
 func parseLoadAvg(data []byte) ([]float64, error) {
 	fields := strings.Fields(string(data))
 	if len(fields) < 3 {
@@ -81,7 +81,7 @@ func parseLoadAvg(data []byte) ([]float64, error) {
 	return out, nil
 }
 
-// parseUptime 解析 /proc/uptime（秒）。
+// parseUptime parses /proc/uptime (seconds).
 func parseUptime(data []byte) (int64, error) {
 	sec, _, found := strings.Cut(strings.TrimSpace(string(data)), " ")
 	if !found {
@@ -94,7 +94,7 @@ func parseUptime(data []byte) (int64, error) {
 	return int64(v), nil
 }
 
-// parseCPUStat 解析 /proc/stat 首行 cpu 汇总，返回 busy/total 累计 jiffies。
+// parseCPUStat parses the aggregate cpu line of /proc/stat, returning busy/total cumulative jiffies.
 func parseCPUStat(data []byte) (busy, total float64, err error) {
 	for _, line := range strings.Split(string(data), "\n") {
 		if !strings.HasPrefix(line, "cpu ") {
@@ -123,7 +123,7 @@ func parseCPUStat(data []byte) (busy, total float64, err error) {
 	return 0, 0, errors.New("cpu stat line not found")
 }
 
-// cpuPercent 两次采样计算窗口内 CPU 占用百分比。
+// cpuPercent computes the CPU usage percentage over the window from two samples.
 func cpuPercent(sample time.Duration) (float64, error) {
 	data1, err := os.ReadFile("/proc/stat")
 	if err != nil {
@@ -155,8 +155,9 @@ func percent(part, whole int64) float64 {
 	return float64(part) / float64(whole) * 100
 }
 
-// sysStatus 面板系统状态（GET /admin/status）：内存/负载/运行时长/CPU/
-// ferry 进程用量 + 节点与用户在线概况；/proc 缺失的项缺省（不阻断）。
+// sysStatus is the panel system status (GET /admin/status): memory/load/uptime/CPU,
+// ferry process usage + node/user online overviews; items missing from /proc are
+// omitted (non-blocking).
 func (h *Handler) sysStatus(c *gin.Context) {
 	out := gin.H{"now": time.Now()}
 

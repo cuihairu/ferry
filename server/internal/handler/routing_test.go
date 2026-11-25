@@ -30,7 +30,7 @@ func TestRoutingConfigRender(t *testing.T) {
 		return uint(n["id"].(float64))
 	}
 
-	// 空模板：生成最小骨架（规则 + direct 出站）
+	// empty template: minimal skeleton generated (rules + direct outbound)
 	id := mk(`{}`)
 	rec := doJSON(t, r, "GET", "/api/nodes/1/routing-config", nil)
 	if rec.Code != http.StatusOK {
@@ -60,7 +60,7 @@ func TestRoutingConfigRender(t *testing.T) {
 		t.Fatalf("sha256 与渲染结果不符")
 	}
 
-	// 坏模板：节点 API 本身拒绝非法 JSON，这里经 db 直种走渲染兜底 400
+	// bad template: the node API itself rejects invalid JSON, so seed via db directly to hit the render fallback 400
 	bad := storage.Node{Name: "bad-tmpl", Address: "b.example.com", Port: 443, Protocol: "vless", Config: "no-json", Enabled: true}
 	if err := db.Create(&bad).Error; err != nil {
 		t.Fatalf("seed bad node: %v", err)
@@ -70,7 +70,7 @@ func TestRoutingConfigRender(t *testing.T) {
 		t.Fatalf("bad template: %d %s", rec.Code, rec.Body)
 	}
 
-	// 不存在的节点：404
+	// missing node: 404
 	rec = doJSON(t, r, "GET", "/api/nodes/999/routing-config", nil)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("missing node: %d", rec.Code)
@@ -91,30 +91,30 @@ func TestRuleLibPush(t *testing.T) {
 	raw := func(method, path, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/octet-stream")
-		// 管理数据面（apiAuth）：与 doJSON 同带管理员 JWT。
+		// admin data plane (apiAuth): carries the admin JWT like doJSON does.
 		req.Header.Set("Authorization", "Bearer "+adminJWT(t))
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
 		return w
 	}
 
-	// 校验：缺 proc
+	// validation: missing proc
 	if rec := raw("POST", "/api/nodes/1/rulelib?name=geoip.dat", "data"); rec.Code != http.StatusBadRequest {
 		t.Fatalf("missing proc: %d", rec.Code)
 	}
-	// 校验：路径穿越文件名
+	// validation: path-traversal file name
 	if rec := raw("POST", "/api/nodes/1/rulelib?proc=xray&name=..%2Fgeoip.dat", "data"); rec.Code != http.StatusBadRequest {
 		t.Fatalf("traversal name: %d", rec.Code)
 	}
 	if rec := raw("POST", "/api/nodes/1/rulelib?proc=xray&name=geoip.dat%2Fx", "data"); rec.Code != http.StatusBadRequest {
 		t.Fatalf("path sep name: %d", rec.Code)
 	}
-	// 校验：空 body
+	// validation: empty body
 	if rec := raw("POST", "/api/nodes/1/rulelib?proc=xray&name=geoip.dat", ""); rec.Code != http.StatusBadRequest {
 		t.Fatalf("empty body: %d", rec.Code)
 	}
 
-	// 推送：测试 hub 无 agent 连接 → 502，但版本快照必须已落库
+	// push: the test hub has no agent connection -> 502, but the version snapshot must already be persisted
 	body := "fake-geoip-dat-bytes"
 	rec = raw("POST", "/api/nodes/1/rulelib?proc=xray&name=geoip.dat", body)
 	if rec.Code != http.StatusBadGateway {
@@ -137,7 +137,7 @@ func TestRuleLibPush(t *testing.T) {
 		t.Fatalf("offline push status = %s, want failed", rows[0].Status)
 	}
 
-	// 版本史：不含 payload 字段
+	// version history: contains no payload field
 	rec = doJSON(t, r, "GET", "/api/nodes/1/rulelib", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list rulelib: %d %s", rec.Code, rec.Body)
@@ -153,7 +153,7 @@ func TestRuleLibPush(t *testing.T) {
 		t.Fatalf("list = %v", list)
 	}
 
-	// 节点不存在：快照不落库，直接 404
+	// node missing: no snapshot persisted, straight to 404
 	rec = raw("POST", "/api/nodes/999/rulelib?proc=xray&name=geoip.dat", body)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("missing node push: %d", rec.Code)
@@ -164,22 +164,22 @@ func TestRuleLibPush(t *testing.T) {
 		t.Fatalf("missing node 不应落快照，got %d", cnt)
 	}
 
-	// 节点 id 非法：推送与版本史都 404
+	// invalid node id: both push and version history return 404
 	if rec := raw("POST", "/api/nodes/abc/rulelib?proc=xray&name=geoip.dat", body); rec.Code != http.StatusNotFound {
 		t.Fatalf("bad id push: %d", rec.Code)
 	}
 	if rec := doJSON(t, r, "GET", "/api/nodes/abc/rulelib", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("bad id list: %d", rec.Code)
 	}
-	// 版本史 limit 合法值生效
+	// version history: a valid limit value takes effect
 	rec = doJSON(t, r, "GET", "/api/nodes/1/rulelib?limit=5", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list limit: %d %s", rec.Code, rec.Body)
 	}
 }
 
-// TestRuleLibPushAck 覆盖规则库推送的应答链路：agent 回 OK ack → 快照
-// applied 且响应不回带文件内容；回不可解析 ack → 502 且快照 failed 带错因。
+// TestRuleLibPushAck covers the rule lib push ack path: agent replies with an
+// OK ack -> snapshot applied and the response carries no file content; an unparseable ack -> 502 with the snapshot failed and the cause recorded.
 func TestRuleLibPushAck(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	id, token := createNodeFor(t, r, "rl-ack")
@@ -187,7 +187,7 @@ func TestRuleLibPushAck(t *testing.T) {
 	defer srv.Close()
 	c := fakeAgent(t, srv.URL, "rl-ack", token)
 
-	// 应答器：首次回 OK ack，第二次回不可解析载荷（覆盖坏 ack 分支）。
+	// responder: first reply is an OK ack, the second an unparseable payload (covers the bad-ack branch).
 	go func() {
 		first := true
 		for {
@@ -222,7 +222,7 @@ func TestRuleLibPushAck(t *testing.T) {
 		return w
 	}
 
-	// 成功：ack OK → 200，快照 applied 且响应与版本史都不回带文件内容
+	// success: ack OK -> 200, snapshot applied, and neither the response nor the version history carries file content
 	rec := raw(fmt.Sprintf("/api/nodes/%d/rulelib?proc=xray&name=geosite.dat", id), "ack-bytes")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("ack push: %d %s", rec.Code, rec.Body)
@@ -238,7 +238,7 @@ func TestRuleLibPushAck(t *testing.T) {
 		t.Fatalf("applied snapshot = %+v", row)
 	}
 
-	// 坏 ack：载荷不可解析 → 502，快照 failed 且错因落库
+	// bad ack: unparseable payload -> 502, snapshot failed with the cause persisted
 	rec = raw(fmt.Sprintf("/api/nodes/%d/rulelib?proc=xray&name=geoip.dat", id), "bad-ack-bytes")
 	if rec.Code != http.StatusBadGateway {
 		t.Fatalf("bad ack push: %d %s", rec.Code, rec.Body)
@@ -252,8 +252,9 @@ func TestRuleLibPushAck(t *testing.T) {
 	}
 }
 
-// TestRoutingAdsToggle 覆盖广告/追踪拦截开关（SAVE-4）：默认开（渲染含
-// ad-block 规则与 block 出站）→ 关闭后渲染不含 → 非法请求 400 → 重开恢复。
+// TestRoutingAdsToggle covers the ad/tracking blocking toggle (SAVE-4): on by default (render
+// includes ad-block rules and the block outbound) -> off, render excludes them ->
+// invalid request 400 -> re-enable restores.
 func TestRoutingAdsToggle(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 
@@ -301,12 +302,12 @@ func TestRoutingAdsToggle(t *testing.T) {
 		return hasAdSet
 	}
 
-	// 默认开
+	// on by default
 	if !hasBlock() {
 		t.Fatal("ads block should be enabled by default")
 	}
 
-	// 关闭：渲染不再含屏蔽规则段与 block 出站
+	// disable: render no longer contains the blocking rule set or the block outbound
 	rec = doJSON(t, r, "PUT", "/api/routing/ads", map[string]any{"enabled": false})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("disable ads: %d %s", rec.Code, rec.Body)
@@ -318,12 +319,12 @@ func TestRoutingAdsToggle(t *testing.T) {
 		t.Fatalf("ads setting = %q ok=%v err=%v, want \"0\"", v, ok, err)
 	}
 
-	// 非法请求：缺 enabled 字段 400
+	// invalid request: missing enabled field -> 400
 	if rec := doJSON(t, r, "PUT", "/api/routing/ads", map[string]any{}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("missing enabled should 400: %d", rec.Code)
 	}
 
-	// 重开恢复
+	// re-enable restores
 	rec = doJSON(t, r, "PUT", "/api/routing/ads", map[string]any{"enabled": true})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("enable ads: %d %s", rec.Code, rec.Body)
