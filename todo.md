@@ -480,9 +480,9 @@
 -   [x] `F-0003` 将存在多个独立结果的任务拆分为多个 checkbox。
     - 备注（Task ID: F-0003 | Status: Done | Evidence: 原子任务粒度（957 个单点任务，无打包大任务） | Verification: 结构抽查 | Commit: c2498aa）
 -   [x] `F-0004` 为每个任务标明依赖任务 ID。
-    - 备注（Task ID: F-0004 | Status: Done | Evidence: 629 个未开工任务行全部内联标注「依赖：…」——备注明示依赖 75 行（如 F-9107→F-9106、F-0391→F-0341/F-0361）、模型/根定义区成员→区首或根任务 186 行（如 F-0342→F-0341）、其余 368 行标「无」（无跨任务前置）；347 既有已勾行以备注 Evidence 为既成记录，不回填虚构依赖 | Verification: python 全量扫描 todo.md：629/629 未勾行含依赖字段、引用 ID 全部存在于台账、依赖图无环 | Commit: 见本批提交）
+    - 备注（Task ID: F-0004 | Status: Done | Evidence: 629 个未开工任务行全部内联标注「依赖：…」——备注明示依赖 75 行（如 F-9107→F-9106、F-0391→F-0341/F-0361）、模型/根定义区成员→区首或根任务 186 行（如 F-0342→F-0341）、其余 368 行标「无」（无跨任务前置）；347 既有已勾行以备注 Evidence 为既成记录，不回填虚构依赖 | Verification: python 全量扫描 todo.md：629/629 未勾行含依赖字段、引用 ID 全部存在于台账、依赖图无环 | Commit: 2e9e3f4）
 -   [x] `F-0005` 为每个任务定义可验证的完成条件。
-    - 备注（Task ID: F-0005 | Status: Done | Evidence: 629 个未开工任务行全部内联「完成条件：需求落地+测试绿+证据行」——即头部口径「完成项=一行证据（落地日期+commit+测试）」的行级化声明；347 既有已勾行以备注 Verification 字段为完成条件已验证记录，任务定义从此自带验收口径 | Verification: python 全量扫描 todo.md：629/629 未勾行含完成条件字段 | Commit: 见本批提交）
+    - 备注（Task ID: F-0005 | Status: Done | Evidence: 629 个未开工任务行全部内联「完成条件：需求落地+测试绿+证据行」——即头部口径「完成项=一行证据（落地日期+commit+测试）」的行级化声明；347 既有已勾行以备注 Verification 字段为完成条件已验证记录，任务定义从此自带验收口径 | Verification: python 全量扫描 todo.md：629/629 未勾行含完成条件字段 | Commit: 2e9e3f4）
 -   [x] `F-0006` 为每个任务记录涉及的模块或目录。
     - 备注（Task ID: F-0006 | Status: Done | Evidence: 已勾任务备注均记模块/目录（如 F-0102 记 enroll.go+agentws+models.go:64） | Verification: 备注格式 | Commit: c2498aa）
 -   [x] `F-0007` 允许单个任务独立标记完成、阻塞、取消或不适用。
