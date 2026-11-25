@@ -898,9 +898,9 @@ External Client
 -   [x] `F-0333` 记录账号凭据变更审计。
     - 备注（Task ID: F-0333 | Status: Done | Evidence: auditMiddleware 覆盖 PUT /api/providers；TestAuditLogsCaptureWriteOps | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0334` 支持按账号授权可操作的资源范围。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0334 | 未满足原因：未满足：无按账号资源范围授权；scope/tenant/授权 在 provider+provision 0 命中。）
--   [ ] `F-0335` 为云账号操作增加最小权限说明。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0335 | 未满足原因：未满足：最小权限说明 0 命中（docs/ 与 Go 注释均无）。）
+    - 待补（F-0334 | 未满足原因：账号作用域字段已落地（Provider.Region F-0324，连接测试传入 cloudprov.Account.Region），但服务端"资源 ∈ 账号作用域"校验依赖 F-0341 CloudResource 模型与资源操作接口，尚无资源可授权。）
+-   [x] `F-0335` 为云账号操作增加最小权限说明。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0335 | Status: Done | Evidence: docs/design/cloud-account-least-privilege.md：Ferry 动作集↔厂商 IAM 基线表（Vultr/Hetzner/DO/AWS/阿里云/腾讯云，标签圈定资源范围）、凭据保护四条（加密/读取面/轮换/禁用）、F-0334 双层范围现状；providerapi.go 头注释与 cloudprov Capabilities.ForceStop 注释均指到该文档 | Verification: 文档落地+代码注释锚点（纯文档，无测试面） | Commit: b9cb57d）
 
 ## 3.3 Provider 资源同步
 
