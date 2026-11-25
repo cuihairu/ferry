@@ -10,7 +10,7 @@ import (
 	"github.com/cuihairu/ferry/packages/payment"
 )
 
-// TestCreateOrderValidation 订单号与金额必填：缺任一即拒绝，不触网。
+// TestCreateOrderValidation covers order number and amount being required: either missing is rejected, no network touched.
 func TestCreateOrderValidation(t *testing.T) {
 	e := newConfigured("http://127.0.0.1:1")
 	if _, err := e.CreateOrder(context.Background(), payment.Order{OrderNo: "", AmountCents: 100}); err == nil {
@@ -21,7 +21,7 @@ func TestCreateOrderValidation(t *testing.T) {
 	}
 }
 
-// TestCreateOrderRequestError 请求构造失败（非法字符进 URL）：原样上抛。
+// TestCreateOrderRequestError covers request construction failing (illegal characters in the URL): passed through as-is.
 func TestCreateOrderRequestError(t *testing.T) {
 	e := newConfigured("http://bad\nurl.example")
 	_, err := e.CreateOrder(context.Background(), payment.Order{OrderNo: "o1", AmountCents: 100})
@@ -30,7 +30,7 @@ func TestCreateOrderRequestError(t *testing.T) {
 	}
 }
 
-// TestCreateOrderNetworkError 网关不可达：包一层 create 错误。
+// TestCreateOrderNetworkError covers an unreachable gateway: wrapped as a create error.
 func TestCreateOrderNetworkError(t *testing.T) {
 	e := newConfigured("http://127.0.0.1:1")
 	_, err := e.CreateOrder(context.Background(), payment.Order{OrderNo: "o1", AmountCents: 100})
@@ -39,7 +39,7 @@ func TestCreateOrderNetworkError(t *testing.T) {
 	}
 }
 
-// TestCreateOrderBadJSON 网关回非 JSON：报响应非 JSON。
+// TestCreateOrderBadJSON covers a non-JSON gateway reply: errors with a non-JSON response message.
 func TestCreateOrderBadJSON(t *testing.T) {
 	srv, _ := newTestGateway(t, http.StatusOK, "<html>not json</html>")
 	e := newConfigured(srv.URL)
@@ -49,11 +49,11 @@ func TestCreateOrderBadJSON(t *testing.T) {
 	}
 }
 
-// TestCreateOrderTruncatedBody 响应声明长度与实际不符：读取中断报错。
+// TestCreateOrderTruncatedBody covers the declared response length not matching the actual body: a short read errors.
 func TestCreateOrderTruncatedBody(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Length", "1000")
-		_, _ = w.Write([]byte("{}")) // 只给一部分即断开
+		_, _ = w.Write([]byte("{}")) // disconnect after only part of it
 	}))
 	defer srv.Close()
 	e := newConfigured(srv.URL)
@@ -62,14 +62,14 @@ func TestCreateOrderTruncatedBody(t *testing.T) {
 	}
 }
 
-// TestVerifyConfiguredCheck 未配置凭证的实例直接拒回调。
+// TestVerifyConfiguredCheck covers an instance without configured credentials rejecting callbacks outright.
 func TestVerifyConfiguredCheck(t *testing.T) {
 	if _, err := (&Epusdt{}).Verify(context.Background(), []byte("order_id=o1")); err == nil {
 		t.Fatal("unconfigured gateway must reject callbacks")
 	}
 }
 
-// TestVerifyBadForm 回调体不是表单：报回调非表单。
+// TestVerifyBadForm covers a callback body that is not a form: errors with a bad-form message.
 func TestVerifyBadForm(t *testing.T) {
 	e := newConfigured("http://127.0.0.1:1")
 	_, err := e.Verify(context.Background(), []byte("%%%%not-a-form%%%%"))

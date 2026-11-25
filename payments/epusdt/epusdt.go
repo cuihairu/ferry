@@ -1,13 +1,13 @@
-// Package epusdt 对接开源 epusdt 系 USDT(TRC20) 收款网关（PAY-8，
-// 协议口径：assimon/epusdt）。下单走 create-transaction 拿收银台地址，
-// 异步回调按「参数名 ASCII 升序 k=v& 拼接 + api_token 后取 md5」验签，
-// status=2 视为支付成功。
+// Package epusdt integrates the open-source epusdt family of USDT(TRC20) collection
+// gateways (PAY-8, protocol spec: assimon/epusdt). Ordering calls create-transaction to
+// get the checkout URL; async callbacks are verified by "parameter names in ASCII
+// ascending order joined as k=v& plus api_token, then md5", and status=2 means paid.
 //
-// 配置（环境变量，未配置时 Provider 返回未启用错误）：
+// Configuration (env vars; when unset the Provider returns a not-enabled error):
 //
-//	FERRY_EPUSDT_URL        网关基址，如 https://pay.example.com
-//	FERRY_EPUSDT_TOKEN      网关 api_token（下单签名与回调验签共用）
-//	FERRY_EPUSDT_NOTIFY_URL 回调通知地址（须对外可达，如 https://panel.example.com/api/pay/epusdt/notify）
+//	FERRY_EPUSDT_URL        gateway base URL, e.g. https://pay.example.com
+//	FERRY_EPUSDT_TOKEN      gateway api_token (shared by order signing and callback verification)
+//	FERRY_EPUSDT_NOTIFY_URL callback notify URL (must be publicly reachable, e.g. https://panel.example.com/api/pay/epusdt/notify)
 package epusdt
 
 import (
@@ -30,28 +30,28 @@ import (
 	"github.com/cuihairu/ferry/packages/payment"
 )
 
-// 环境变量名与协议常量。
+// Env var names and protocol constants.
 const (
 	EnvURL       = "FERRY_EPUSDT_URL"
 	EnvToken     = "FERRY_EPUSDT_TOKEN"
 	EnvNotifyURL = "FERRY_EPUSDT_NOTIFY_URL"
 	createPath   = "/api/v1/order/create-transaction"
-	statusPaid   = "2" // 回调 status=2 支付成功（epusdt 订单状态口径）
+	statusPaid   = "2" // callback status=2 means paid (epusdt order state spec)
 	httpTimeout  = 10 * time.Second
 )
 
-// Epusdt 是 epusdt 网关的 payment.Provider 实现。
+// Epusdt is the payment.Provider implementation for the epusdt gateway.
 type Epusdt struct {
-	baseURL   string // 网关基址，无尾斜杠
+	baseURL   string // gateway base URL, no trailing slash
 	token     string
 	notifyURL string
 	client    *http.Client
 }
 
-// 编译期契约校验。
+// Compile-time contract check.
 var _ payment.Provider = (*Epusdt)(nil)
 
-// NewFromEnv 从环境变量装配；缺失项在 CreateOrder/Verify 时报未配置。
+// NewFromEnv assembles from environment variables; missing pieces error as unconfigured in CreateOrder/Verify.
 func NewFromEnv() *Epusdt {
 	return &Epusdt{
 		baseURL:   strings.TrimRight(os.Getenv(EnvURL), "/"),
@@ -63,7 +63,7 @@ func NewFromEnv() *Epusdt {
 
 func init() { payment.Register(NewFromEnv()) }
 
-// Name 实现 payment.Provider。
+// Name implements payment.Provider.
 func (e *Epusdt) Name() string { return "epusdt" }
 
 func (e *Epusdt) configured() error {
@@ -73,7 +73,7 @@ func (e *Epusdt) configured() error {
 	return nil
 }
 
-// createResp 是 epusdt 下单响应信封（仅取用到的字段）。
+// createResp is the epusdt order response envelope (only the fields used).
 type createResp struct {
 	StatusCode int    `json:"statusCode"`
 	Message    string `json:"message"`
@@ -86,9 +86,9 @@ type createResp struct {
 	} `json:"data"`
 }
 
-// CreateOrder 创建收款订单：调 create-transaction 换收银台地址。
-// 金额口径：Order.AmountCents 为人民币分，epusdt 按 amount（元，两位小数）
-// 自动折算 USDT 并处理汇率波动。
+// CreateOrder creates a collection order: calls create-transaction to get the checkout URL.
+// Amount spec: Order.AmountCents is RMB cents; epusdt takes amount (yuan, two decimals)
+// and converts to USDT automatically, absorbing exchange-rate movement.
 func (e *Epusdt) CreateOrder(ctx context.Context, o payment.Order) (payment.Receipt, error) {
 	if err := e.configured(); err != nil {
 		return payment.Receipt{}, err
@@ -134,8 +134,8 @@ func (e *Epusdt) CreateOrder(ctx context.Context, o payment.Order) (payment.Rece
 	return rcpt, nil
 }
 
-// Verify 验证异步回调：表单参数重算签名 → status 必须=2 → 汇出结论。
-// 回调关键参数：order_id / trade_id / amount（元）/ status / signature。
+// Verify validates an async callback: recompute the signature over the form params → status must equal 2 → emit the verdict.
+// Callback key params: order_id / trade_id / amount (yuan) / status / signature.
 func (e *Epusdt) Verify(_ context.Context, raw []byte) (payment.Callback, error) {
 	if err := e.configured(); err != nil {
 		return payment.Callback{}, err
@@ -163,8 +163,9 @@ func (e *Epusdt) Verify(_ context.Context, raw []byte) (payment.Callback, error)
 	}, nil
 }
 
-// sign 按 epusdt 规则签名：参数名 ASCII 升序、空值跳过、k=v& 拼接后
-// 直接接 api_token，取 32 位小写 md5（signature 自身不参与）。
+// sign signs per the epusdt rules: parameter names in ASCII ascending order, empty
+// values skipped, joined as k=v& then api_token appended directly, taking the 32-char
+// lowercase md5 (signature itself does not participate).
 func (e *Epusdt) sign(vals url.Values) string {
 	keys := make([]string, 0, len(vals))
 	for k := range vals {
@@ -182,12 +183,12 @@ func (e *Epusdt) sign(vals url.Values) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// centsToYuan 分 → 元字符串（两位小数）。
+// centsToYuan converts cents → yuan string (two decimals).
 func centsToYuan(cents int64) string {
 	return strconv.FormatFloat(float64(cents)/100, 'f', 2, 64)
 }
 
-// yuanToCents 元字符串 → 分（四舍五入到分位）。
+// yuanToCents converts a yuan string → cents (rounded to the cent).
 func yuanToCents(yuan string) (int64, error) {
 	f, err := strconv.ParseFloat(strings.TrimSpace(yuan), 64)
 	if err != nil {
