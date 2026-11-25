@@ -438,7 +438,8 @@
 - 状态=完成｜落地=2026-11-03｜原因：用户已认可排入（本轮指令按 todo 顺序推进）；agent 心跳已带流量载荷，在线面随流量上报刷新即可
 - [ ] G1 订阅格式补 mihomo/xray-json（报告 P2 观察项）：触发条件=出现 clash-meta 拒载或 xray-json 消费方的真实反馈
 - [ ] G7 OIDC/LDAP 登录（报告 P2 观察项）：触发条件=多管理员规模化且 P2-2 配额面被真实使用
-- [ ] G3 用户 LIMITED/EXPIRED 拆态（报告 P2 观察项）：触发条件=客服排障反复需要区分到期与超限来源
+- [x] G3 用户 LIMITED/EXPIRED 拆态（报告 P2 观察项）：2026-11-25 落地（ferry-g1357 巡检单，观察项门槛按用户令解除）——`sub.UserStateOf` 单一判定点：到期（`ExpiresAt`）与超限（`QuotaBytes>0` 且周期用量≥配额）两条独立判定，Status 按 disabled > expired > limited > active 取主因；用户列表/详情/导出、panel /me、bot summary、分销商客户行的输出补 status/expired/limited（active/over_quota 收窄为配额腿，保持兼容）；dash 用户表增「状态」列（已到期/已超限/已停用/正常）
+- 状态=完成｜落地=2026-11-25｜落地 commit=712aa7d feat: split user state into expired and limited｜测试证据：server 全量 go test ./... 39 包 ok/0 FAIL（sub 三条路径 到期不超限/超限未到期/两者并存 + 停用优先 + 不限流；handler TestUserStateSplitFields 经 /api/users 详情断言三路径与停用；TestUserCRUD 断言 status=disabled；panel/bot 断言 status=active）；gofmt 与 go vet 干净
 - 观察结论：G4/G5/G9/G10（节点预算/滚动重置/编队三层/mTLS CA）均已成文裁决，维持不重开；G11 直连支付、G13 发版仍卡外部材料/用户指令，解锁条件见既有行
 
 ## 巡检结论（PATROL1103，2026-11-03）
