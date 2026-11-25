@@ -685,9 +685,8 @@ External Client
     - 备注（Task ID: F-0204 | Status: Done | Evidence: Node.Role entry/landing/both(models.go:95)+Node.Direction out/in/both(models.go:96)+validateNodeInput 校验(node.go:366-377) | Verification: TestNodeMetaInput(默认值/回读/非法枚举 400) | Commit: 8335a58）
 -   [x] `F-0205` 明确管理状态与运行健康状态分离。
     - 备注（Task ID: F-0205 | Status: Done | Evidence: Enabled :71/Status :77/PoolState :104 分离；TestNodeCRUD+TestSweepSuspendAndResume | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0206` 明确 `disabled`、`maintenance`、`offline`、`unhealthy`
-    - 待补（F-0206 | 未满足原因：仅 disabled(Enabled:86)+offline(Status:92) 两态；maintenance 全仓 0 命中；unhealthy 仅为 ProbeReport.Verdict 折叠入 PoolState(suspended)，非 Node 独立状态。）
-    的区别。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0206` 明确 `disabled`、`maintenance`、`offline`、`unhealthy` 的区别。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 完成（F-0206 | 四态分立并文档化于 models.go Node 注释：disabled=Enabled(false)；maintenance=Maintenance(bool) 计划窗口，退出调度但保留探测，pool 告警静默；offline=Status(agent 连接性)；unhealthy=PoolState(suspended) 探测摘除。维护态排除出 alloc Sweep/sub 订阅/standby 候选，健康判定与恢复照常。 | Verification: TestNodeStateSeparation/TestMaintenanceTracksHealthQuietly/TestSweepSkipsMaintenance | Commit: 0859ea7）
 -   [ ] `F-0207` 为 Node 关联 Region、ISP、ASN 和 Provider 信息。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0207 | 未满足原因：Region(98)+ISP(101) 有；ASN 全仓 0 命中；Node 无 ProviderID/FK（ProviderID:495 属 ProvisionTemplate 非 Node）。）
 -   [ ] `F-0208` 为 Node 关联可选的云资源 ID。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
