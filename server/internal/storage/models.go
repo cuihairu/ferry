@@ -612,6 +612,7 @@ type CertTask struct {
 	NotAfter      *time.Time `json:"not_after"`                            // certificate expiry (backfilled after issuance)
 	LastError     string     `gorm:"size:512" json:"last_error,omitempty"`
 	LastAttempt   *time.Time `json:"last_attempt"`
+	Attempts      int        `json:"attempts"` // issuance/renewal attempt count (capped by cert.MaxAttempts; reset on success)
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
 }

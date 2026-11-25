@@ -236,7 +236,14 @@ func advance(db *gorm.DB, rec storage.Recovery, node storage.Node, now time.Time
 			Level: rec.Level, Action: a.Name(), State: ActionRunning,
 			StartedAt: now, UpdatedAt: now,
 		}, logger)
-		go runAction(db, a, rec, node, logger)
+		// F-0042: the action goroutine carries the level wait window as its own
+		// deadline, so a timeout genuinely cancels the work instead of only
+		// abandoning the result.
+		actCtx, cancel := context.WithTimeout(context.Background(), opts.LevelTimeout)
+		go func() {
+			defer cancel()
+			runAction(actCtx, db, a, rec, node, logger)
+		}()
 		return nil
 	case ActionSkipped, ActionFailed:
 		// Unregistered/failed action: this level is hopeless, advance immediately.
@@ -279,8 +286,8 @@ func advanceNext(db *gorm.DB, rec storage.Recovery, now time.Time, logger *log.L
 
 // runAction runs one level action and writes back the result; late results are dropped
 // when the pipeline is already terminal (trace rows finish by recovery+level+running, dropped too).
-func runAction(db *gorm.DB, a Action, rec storage.Recovery, node storage.Node, logger *log.Logger) {
-	err := a.Run(context.Background(), node)
+func runAction(ctx context.Context, db *gorm.DB, a Action, rec storage.Recovery, node storage.Node, logger *log.Logger) {
+	err := a.Run(ctx, node)
 	now := time.Now()
 	updates := map[string]any{"action_state": ActionOK, "updated_at": now}
 	traceState, detail := ActionOK, ""

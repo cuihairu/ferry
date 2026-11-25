@@ -25,6 +25,11 @@ type Replenisher struct {
 	Launch func(name string) LaunchParams
 }
 
+// LaunchTimeout bounds one background replenish launch (F-0042: no unbounded background work);
+// the derived context also dies with the sweep context, so shutdown cancels an in-flight launch.
+// Var so tests can shorten it.
+var LaunchTimeout = 15 * time.Minute
+
 // Enabled: when no template is configured the safety net stays off.
 func (r *Replenisher) Enabled() bool { return r != nil && r.TemplateID > 0 && r.Launch != nil }
 
@@ -84,7 +89,9 @@ func (r *Replenisher) Sweep(ctx context.Context, logger *log.Logger) (bool, erro
 	}
 	logger.Printf("replenish: pool empty, launching %s from template %d", name, r.TemplateID)
 	go func() {
-		status, logTail := r.Manager.Execute(context.Background(), prep.Params)
+		runCtx, cancel := context.WithTimeout(ctx, LaunchTimeout)
+		defer cancel()
+		status, logTail := r.Manager.Execute(runCtx, prep.Params)
 		r.Manager.FinishJob(prep.Job.ID, status, logTail)
 		logger.Printf("replenish: %s finished with %s", name, status)
 	}()

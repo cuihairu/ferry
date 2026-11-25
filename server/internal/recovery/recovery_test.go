@@ -640,7 +640,7 @@ func TestRunActionTruncatesAndLateDrop(t *testing.T) {
 
 	// Over-long error: last_err is truncated to the last 500 characters (keeping the tail scene).
 	long := errors.New(strings.Repeat("x", 600))
-	runAction(db, &fakeAction{name: "fake", err: long}, rec, node, lg)
+	runAction(context.Background(), db, &fakeAction{name: "fake", err: long}, rec, node, lg)
 	got := loadRecovery(t, db, node.ID)
 	if got.ActionState != ActionFailed || len(got.LastErr) != 500 {
 		t.Fatalf("truncated = state %s errLen %d", got.ActionState, len(got.LastErr))
@@ -651,7 +651,7 @@ func TestRunActionTruncatesAndLateDrop(t *testing.T) {
 		Update("state", StateDone).Error; err != nil {
 		t.Fatal(err)
 	}
-	runAction(db, &fakeAction{name: "fake", err: errors.New("late")}, got, node, lg)
+	runAction(context.Background(), db, &fakeAction{name: "fake", err: errors.New("late")}, got, node, lg)
 	if got := loadRecovery(t, db, node.ID); got.State != StateDone {
 		t.Fatalf("late result overwrote terminal state: %+v", got)
 	}

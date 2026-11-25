@@ -32,6 +32,14 @@ const RenewBefore = 30 * 24 * time.Hour
 // FailBackoff is the retry backoff after a failed issuance (avoids hammering the CA rate limit without backoff).
 const FailBackoff = time.Hour
 
+// MaxAttempts caps automatic issuance/renewal retries: a task that failed this many times stays
+// failed until an admin retries (F-0042: background tasks need a retry ceiling, not infinite retry).
+const MaxAttempts = 5
+
+// IssueTimeout bounds one issuance/renewal run (acme.sh can hang on DNS propagation or CA
+// outage; without a bound a stuck tool blocks the serial sweep, F-0042). Var so tests shorten it.
+var IssueTimeout = 10 * time.Minute
+
 // Runner executes one tool command: args are the command line, env the extra environment variables (credential channel).
 type Runner func(ctx context.Context, args []string, env map[string]string) (string, error)
 

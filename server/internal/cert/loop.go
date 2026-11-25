@@ -68,14 +68,20 @@ func Sweep(ctx context.Context, db *gorm.DB, m *Manager, store *secret.Store, no
 	return nil
 }
 
-// dueForRetry is the failure backoff: retry only once FailBackoff has elapsed since the last attempt.
+// dueForRetry is the failure backoff: retry only once FailBackoff has elapsed since the last attempt,
+// and stop retrying once the attempt ceiling is reached (the task waits for a manual re-issue).
 func dueForRetry(task storage.CertTask, now time.Time) bool {
+	if task.Attempts >= MaxAttempts {
+		return false
+	}
 	return task.LastAttempt == nil || now.Sub(*task.LastAttempt) >= FailBackoff
 }
 
 // runIssue drives one issuance: dns-01 looks up the DNS provider credential on the fly (BR-2 channel) and decrypts it
 // into the environment; success backfills expiry and ok, failure records failed and sends a notice on the state flip.
 func runIssue(ctx context.Context, db *gorm.DB, m *Manager, store *secret.Store, n *notify.Notifier, task storage.CertTask, now time.Time, logger *log.Logger) error {
+	ctx, cancel := context.WithTimeout(ctx, IssueTimeout)
+	defer cancel()
 	env := map[string]string{}
 	providerType := ""
 	if task.Method == MethodDNS01 {
@@ -115,10 +121,16 @@ func runIssue(ctx context.Context, db *gorm.DB, m *Manager, store *secret.Store,
 	return finishIssue(db, task, now, StateOK, "", n, logger)
 }
 
-// finishIssue backfills the task terminal state; a flip to failed sends one notice.
+// finishIssue backfills the task terminal state; a flip to failed sends one notice, and a failure
+// that reaches the attempt ceiling sends an extra exhausted notice (admin must re-issue manually).
 func finishIssue(db *gorm.DB, task storage.CertTask, now time.Time, state, lastErr string, n *notify.Notifier, logger *log.Logger) error {
 	flip := state == StateFailed && task.State != StateFailed
 	updates := map[string]any{"state": state, "last_error": lastErr, "last_attempt": now, "updated_at": now}
+	if state == StateFailed {
+		updates["attempts"] = task.Attempts + 1
+	} else {
+		updates["attempts"] = 0
+	}
 	if task.NotAfter != nil {
 		updates["not_after"] = task.NotAfter
 	}
@@ -129,24 +141,37 @@ func finishIssue(db *gorm.DB, task storage.CertTask, now time.Time, state, lastE
 		logger.Printf("cert failed: task=%d %s", task.ID, task.Domain)
 		sendAlert(n, "cert_issue_failed", task, lastErr)
 	}
+	if state == StateFailed && task.Attempts+1 >= MaxAttempts {
+		logger.Printf("cert retries exhausted: task=%d %s (%d attempts)", task.ID, task.Domain, task.Attempts+1)
+		sendAlert(n, "cert_issue_exhausted", task, fmt.Sprintf("已连续失败 %d 次，自动重试停止，需人工排查后重发", task.Attempts+1))
+	}
 	return nil
 }
 
-// runRenew drives one renewal: success refreshes the expiry, failure flips to failed and notifies.
+// runRenew drives one renewal: success refreshes the expiry, failure flips to failed and notifies
+// (same attempt ceiling as issuance: past MaxAttempts the sweep stops retrying until a manual re-issue).
 func runRenew(ctx context.Context, db *gorm.DB, m *Manager, n *notify.Notifier, task storage.CertTask, now time.Time, logger *log.Logger) error {
+	ctx, cancel := context.WithTimeout(ctx, IssueTimeout)
+	defer cancel()
 	out, err := m.Renew(ctx, task.Domain)
 	updates := map[string]any{"last_attempt": now, "updated_at": now}
 	if err != nil {
 		logger.Printf("cert renew task=%d %s: %s", task.ID, task.Domain, tail(out, 200))
 		updates["state"] = StateFailed
 		updates["last_error"] = tail(out, 400)
+		updates["attempts"] = task.Attempts + 1
 		if err := db.Model(&storage.CertTask{}).Where("id = ?", task.ID).Updates(updates).Error; err != nil {
 			return err
 		}
 		logger.Printf("cert renew failed: task=%d %s", task.ID, task.Domain)
 		sendAlert(n, "cert_renew_failed", task, tail(out, 400))
+		if task.Attempts+1 >= MaxAttempts {
+			logger.Printf("cert retries exhausted: task=%d %s (%d attempts)", task.ID, task.Domain, task.Attempts+1)
+			sendAlert(n, "cert_renew_exhausted", task, fmt.Sprintf("已连续失败 %d 次，自动重试停止，需人工排查后重发", task.Attempts+1))
+		}
 		return nil
 	}
+	updates["attempts"] = 0
 	if notAfter, err := m.Expiry(task.Domain); err == nil {
 		updates["not_after"] = notAfter
 	} else {
@@ -230,7 +255,9 @@ func IssueNow(ctx context.Context, db *gorm.DB, m *Manager, store *secret.Store,
 		return err
 	}
 	go func() {
-		if err := runIssue(ctx, db, m, store, notify.FromDB(db), task, time.Now(), logger); err != nil {
+		// The request context dies with the HTTP response; the background issuance
+		// needs its own bounded context (runIssue applies the per-attempt timeout).
+		if err := runIssue(context.Background(), db, m, store, notify.FromDB(db), task, time.Now(), logger); err != nil {
 			logger.Printf("cert issue now: task=%d %v", task.ID, err)
 		}
 	}()
