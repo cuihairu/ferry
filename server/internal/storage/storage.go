@@ -70,6 +70,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&UserAlias{},
 		&Subscription{},
 		&SubDevice{},
+		&Plan{},
 		&Node{},
 		&TrafficLog{},
 		&CardBatch{},

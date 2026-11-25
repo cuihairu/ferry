@@ -75,6 +75,27 @@ type SubDevice struct {
 	LastSeen  time.Time `json:"last_seen"`
 }
 
+// Plan is a sellable package template (F-0101): a named bundle of the same
+// user-limit fields the user surface exposes (quota / reset cycle / bandwidth
+// / device-ip caps), maintained once and applied to users in bulk instead of
+// retyping per-user values. ExpiresDays>0 sets ExpiresAt = apply time + days;
+// 0 leaves user expiry untouched.
+type Plan struct {
+	ID          uint      `gorm:"primaryKey" json:"id"`
+	Name        string    `gorm:"size:64;uniqueIndex" json:"name"`
+	Note        string    `gorm:"size:255" json:"note"`
+	Enabled     bool      `gorm:"default:true" json:"enabled"`
+	QuotaBytes  int64     `gorm:"default:0" json:"quota_bytes"` // 0 = unlimited
+	ResetCycle  string    `gorm:"size:8;default:none" json:"reset_cycle"`
+	ExpiresDays int       `gorm:"default:0" json:"expires_days"`
+	BwUpMbps    int       `gorm:"default:0" json:"bw_up_mbps"`
+	BwDownMbps  int       `gorm:"default:0" json:"bw_down_mbps"`
+	DeviceLimit int       `gorm:"default:0" json:"device_limit"`
+	IPLimit     int       `gorm:"default:0" json:"ip_limit"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 // Node is one proxy node. Token is used for agent outbound connection authentication.
 type Node struct {
 	ID       uint   `gorm:"primaryKey" json:"id"`
