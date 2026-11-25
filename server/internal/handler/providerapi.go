@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cuihairu/ferry/server/internal/cloudprov"
 	"github.com/cuihairu/ferry/server/internal/storage"
@@ -27,6 +28,11 @@ type providerView struct {
 	HasAccessKey bool   `json:"has_access_key"`
 	Note         string `json:"note"`   // F-0323 account remark
 	Region       string `json:"region"` // F-0324 account scope
+	// Rotation state (F-0330): the version counter and whether a previous
+	// key is still held in the grace window.
+	KeyVersion  int        `json:"key_version"`
+	PrevKeyHeld bool       `json:"prev_key_held"`
+	PrevSetAt   *time.Time `json:"prev_set_at,omitempty"`
 }
 
 type providerInput struct {
@@ -43,6 +49,7 @@ func providerViewOf(r storage.Provider) providerView {
 	return providerView{
 		ID: r.ID, Name: r.Name, Type: r.Type, Enabled: r.Enabled,
 		HasAccessKey: r.AccessKey != "", Note: r.Note, Region: r.Region,
+		KeyVersion: r.KeyVersion, PrevKeyHeld: r.PrevAccessKey != "", PrevSetAt: r.PrevSetAt,
 	}
 }
 
@@ -78,7 +85,7 @@ func (h *Handler) createProvider(c *gin.Context) {
 	if in.Enabled != nil {
 		enabled = *in.Enabled
 	}
-	row := storage.Provider{Name: in.Name, Type: in.Type, AccessKey: sealed, Enabled: enabled}
+	row := storage.Provider{Name: in.Name, Type: in.Type, AccessKey: sealed, Enabled: enabled, KeyVersion: 1}
 	if in.Note != nil {
 		row.Note = *in.Note
 	}
@@ -135,7 +142,11 @@ func (h *Handler) updateProvider(c *gin.Context) {
 			fail(c, http.StatusInternalServerError, err)
 			return
 		}
+		// Plain replace (not a rotation, F-0330): no grace copy is kept.
 		row.AccessKey = sealed
+		row.KeyVersion++
+		row.PrevAccessKey = ""
+		row.PrevSetAt = nil
 	}
 	// Absent note/region keep their current values (F-0323/F-0324).
 	if in.Note != nil {
@@ -223,6 +234,84 @@ func (h *Handler) testProviderConnection(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "mode": "adapter",
 		"api_version": caps.APIVersion, "capabilities": caps})
+}
+
+// RotationGrace is how long the previous credential stays in the grace
+// window after a rotation (F-0330): provision jobs started with the old key
+// can finish while new work uses the new key. Vendors must allow two live
+// keys for this window; revoking early is an explicit second step.
+const RotationGrace = 24 * time.Hour
+
+// rotateProviderCredential rotates a provider's credential with a grace
+// window (F-0330): the current ciphertext moves to PrevAccessKey, the new
+// plaintext is sealed into AccessKey, KeyVersion bumps, and PrevSetAt opens
+// the grace window. Supply always uses AccessKey (the active key); the
+// previous key is retained only for certification until revoke.
+func (h *Handler) rotateProviderCredential(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
+		return
+	}
+	var row storage.Provider
+	if err := h.db.First(&row, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
+		return
+	}
+	var in struct {
+		AccessKey string `json:"access_key"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	if in.AccessKey == "" {
+		fail(c, http.StatusBadRequest, errors.New("access_key is required"))
+		return
+	}
+	sealed, err := h.sealSecret(in.AccessKey)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	now := time.Now()
+	updates := map[string]any{
+		"prev_access_key": row.AccessKey,
+		"access_key":      sealed,
+		"key_version":     row.KeyVersion + 1,
+		"prev_set_at":     now,
+	}
+	if err := h.db.Model(&storage.Provider{}).Where("id = ?", row.ID).Updates(updates).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	if err := h.db.First(&row, row.ID).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, providerViewOf(row))
+}
+
+// revokePreviousCredential closes the grace window early (F-0330): the
+// previous ciphertext is dropped so only the active key remains. Supply and
+// connection tests never read it; revocation is a distinct, audited write.
+func (h *Handler) revokePreviousCredential(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
+		return
+	}
+	res := h.db.Model(&storage.Provider{}).Where("id = ? AND prev_access_key <> ''", id).
+		Updates(map[string]any{"prev_access_key": "", "prev_set_at": nil})
+	if res.Error != nil {
+		fail(c, http.StatusInternalServerError, res.Error)
+		return
+	}
+	if res.RowsAffected == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "no previous credential to revoke"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
 // sealSecret encrypts a secret; it returns an actionable error when the master key is not configured.

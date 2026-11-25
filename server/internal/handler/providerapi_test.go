@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/cuihairu/ferry/server/internal/cloudprov"
@@ -375,5 +376,75 @@ func TestProviderTestConnection(t *testing.T) {
 	rec = doJSON(t, r, "POST", "/api/providers/"+utoa(id)+"/test", nil)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("disabled test = %d %s", rec.Code, rec.Body)
+	}
+}
+
+// TestProviderCredentialRotation covers F-0330: rotation keeps the previous
+// key through the grace window, bumps the version, and an explicit revoke
+// drops it; a plain credential replace keeps no grace copy.
+func TestProviderCredentialRotation(t *testing.T) {
+	r, db := newTestRouterWithMasterKey(t)
+	store := secret.NewStore("test-master-key")
+
+	rec := doJSON(t, r, "POST", "/api/providers", map[string]any{
+		"name": "rot-acct", "type": "vultr", "access_key": "sk-v1",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create = %d %s", rec.Code, rec.Body)
+	}
+	body := mustJSON(t, rec)
+	id := uint(body["id"].(float64))
+	if body["key_version"].(float64) != 1 || body["prev_key_held"] != false {
+		t.Fatalf("initial view = %v", body)
+	}
+
+	// Rotate: v2 becomes active, v1 is held in the grace window.
+	rec = doJSON(t, r, "POST", "/api/providers/"+utoa(id)+"/rotate", map[string]any{
+		"access_key": "sk-v2",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("rotate = %d %s", rec.Code, rec.Body)
+	}
+	body = mustJSON(t, rec)
+	if body["key_version"].(float64) != 2 || body["prev_key_held"] != true || body["prev_set_at"] == nil {
+		t.Fatalf("rotated view = %v", body)
+	}
+	var row storage.Provider
+	if err := db.First(&row, id).Error; err != nil {
+		t.Fatal(err)
+	}
+	if plain, err := store.Decrypt(row.AccessKey); err != nil || plain != "sk-v2" {
+		t.Fatalf("active key = %q err=%v", plain, err)
+	}
+	if plain, err := store.Decrypt(row.PrevAccessKey); err != nil || plain != "sk-v1" {
+		t.Fatalf("grace key = %q err=%v", plain, err)
+	}
+	// The view never leaks either ciphertext.
+	if raw := rec.Body.String(); strings.Contains(raw, row.AccessKey) || strings.Contains(raw, row.PrevAccessKey) {
+		t.Fatalf("rotation view leaks ciphertext: %s", raw)
+	}
+
+	// Rotate requires a key.
+	if rec = doJSON(t, r, "POST", "/api/providers/"+utoa(id)+"/rotate", map[string]any{}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("empty rotate = %d", rec.Code)
+	}
+
+	// Early revoke drops the grace copy.
+	rec = doJSON(t, r, "POST", "/api/providers/"+utoa(id)+"/revoke-previous", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("revoke = %d %s", rec.Code, rec.Body)
+	}
+	if rec = doJSON(t, r, "POST", "/api/providers/"+utoa(id)+"/revoke-previous", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("double revoke = %d", rec.Code)
+	}
+
+	// Plain replace keeps no grace copy but still bumps the version.
+	rec = doJSON(t, r, "PUT", "/api/providers/"+utoa(id), map[string]any{"access_key": "sk-v3"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("replace = %d %s", rec.Code, rec.Body)
+	}
+	body = mustJSON(t, rec)
+	if body["key_version"].(float64) != 3 || body["prev_key_held"] != false {
+		t.Fatalf("replace view = %v", body)
 	}
 }

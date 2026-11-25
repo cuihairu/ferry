@@ -572,9 +572,17 @@ type Provider struct {
 	Note string `gorm:"size:255" json:"note"`
 	// Region is the account's operating scope: a region or tenant identifier
 	// the credentials are scoped to (F-0324; empty = whole account).
-	Region    string    `gorm:"size:64" json:"region"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Region string `gorm:"size:64" json:"region"`
+	// Credential rotation (F-0330): PrevAccessKey keeps the previous
+	// ciphertext through the grace window (vendors allow two live keys, so
+	// in-flight consumers keep working until it is revoked), KeyVersion
+	// bumps on every credential change, PrevSetAt marks when the grace
+	// window opened.
+	PrevAccessKey string     `gorm:"size:512" json:"-"` // ciphertext, never surfaced
+	KeyVersion    int        `json:"key_version"`
+	PrevSetAt     *time.Time `json:"prev_set_at,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
 }
 
 // ProvisionTemplate is a machine template (OS-1): dash enters it, OS-2 renders HCL supply,

@@ -186,6 +186,9 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.DELETE("/providers/:id", h.deleteProvider)
 		// Connection test (F-0328): local credential check + adapter probe.
 		api.POST("/providers/:id/test", h.testProviderConnection)
+		// Credential rotation (F-0330): grace-window rotation + early revoke.
+		api.POST("/providers/:id/rotate", h.rotateProviderCredential)
+		api.POST("/providers/:id/revoke-previous", h.revokePreviousCredential)
 		api.POST("/provision-templates/:id/apply", h.applyTemplate)
 		api.POST("/provision-templates/:id/plan", h.planTemplate)
 		api.GET("/provision-jobs", h.listProvisionJobs)
