@@ -60,6 +60,9 @@ func Resolve(db *gorm.DB, userID, planID uint) (storage.PolicyConstraints, []sto
 		if c.Output != "" {
 			eff.Output = c.Output
 		}
+		if c.PathGroupID != 0 {
+			eff.PathGroupID = c.PathGroupID // F-0270 group pin, deeper scope wins
+		}
 	}
 	return eff, rows, nil
 }

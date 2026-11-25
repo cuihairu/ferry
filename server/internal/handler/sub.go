@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/pathhealth"
 	"github.com/cuihairu/ferry/server/internal/policy"
 	"github.com/cuihairu/ferry/server/internal/pool"
 	"github.com/cuihairu/ferry/server/internal/quota"
@@ -122,6 +123,31 @@ func (h *Handler) subscription(c *gin.Context) {
 		entries = make([]sub.Entry, 0, len(nodes))
 		for _, n := range nodes {
 			entries = append(entries, sub.Entry{Node: n, RttMs: rtt[n.ID]})
+		}
+		// Group↔subscription policy link (F-0270): a policy chain pinning a
+		// path group serves only the resolved serving path's entry node --
+		// the group picks the path (default first, then candidates by
+		// position, health-aware); the entry must still pass the constraints
+		// above. Nothing usable resolves to an empty subscription.
+		if eff.PathGroupID != 0 {
+			resolved, err := pathhealth.ResolveGroupPath(h.db, eff.PathGroupID, time.Now())
+			if err != nil {
+				fail(c, http.StatusInternalServerError, err)
+				return
+			}
+			passing := map[uint]bool{}
+			for _, n := range nodes {
+				passing[n.ID] = true
+			}
+			filtered := entries[:0]
+			if resolved != nil && passing[resolved.EntryNodeID] {
+				for _, e := range entries {
+					if e.Node.ID == resolved.EntryNodeID {
+						filtered = append(filtered, e)
+					}
+				}
+			}
+			entries = filtered
 		}
 		// Output shaping (F-0286): compact caps the delivered list to the
 		// probe-sorted best ten.

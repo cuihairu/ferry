@@ -6,6 +6,7 @@
 package pathhealth
 
 import (
+	"errors"
 	"time"
 
 	"github.com/cuihairu/ferry/packages/agentproto"
@@ -212,4 +213,89 @@ func Availability(db *gorm.DB, groupID uint, now time.Time) (*float64, error) {
 	}
 	pct := float64(healthy) / float64(len(reports)) * 100
 	return &pct, nil
+}
+
+// ResolvedPath is a group's current serving choice (F-0270): the path the
+// group resolves to, with its health and entry node.
+type ResolvedPath struct {
+	GroupID     uint   `json:"group_id"`
+	PathID      uint   `json:"path_id"`
+	EntryNodeID uint   `json:"entry_node_id"`
+	Health      string `json:"health"`
+}
+
+// ResolveGroupPath picks a group's serving path (F-0270). The default path
+// leads when it is an active member, then the remaining candidates by
+// Position; excluded members never serve. Among the usable (not off) members
+// the first healthy-or-unknown path wins, with a degraded one as the last
+// resort. A missing, disabled or fully unusable group resolves to nil (empty
+// delivery) rather than an error.
+func ResolveGroupPath(db *gorm.DB, groupID uint, now time.Time) (*ResolvedPath, error) {
+	var group storage.PathGroup
+	if err := db.First(&group, groupID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if !group.Enabled {
+		return nil, nil
+	}
+	var members []storage.PathGroupMember
+	if err := db.Where("group_id = ? AND excluded = ?", groupID, false).
+		Order("position ASC, id ASC").Find(&members).Error; err != nil {
+		return nil, err
+	}
+	// Order the walk: the group default first, then position order.
+	ordered := make([]uint, 0, len(members))
+	if group.DefaultPathID != nil && *group.DefaultPathID != 0 {
+		for _, m := range members {
+			if m.PathID == *group.DefaultPathID {
+				ordered = append(ordered, m.PathID)
+				break
+			}
+		}
+	}
+	for _, m := range members {
+		if group.DefaultPathID != nil && m.PathID == *group.DefaultPathID {
+			continue
+		}
+		ordered = append(ordered, m.PathID)
+	}
+	if len(ordered) == 0 {
+		return nil, nil
+	}
+	var paths []storage.Path
+	if err := db.Where("id IN ?", ordered).Find(&paths).Error; err != nil {
+		return nil, err
+	}
+	byID := make(map[uint]storage.Path, len(paths))
+	for _, p := range paths {
+		byID[p.ID] = p
+	}
+	health := Evaluate(db, paths, now)
+	var fallback *storage.Path
+	for _, id := range ordered {
+		p, ok := byID[id]
+		if !ok {
+			continue
+		}
+		s := health[p.ID]
+		if s == Off {
+			continue // disabled path or gone endpoint: never serves
+		}
+		if s == Degraded {
+			if fallback == nil {
+				d := p
+				fallback = &d
+			}
+			continue
+		}
+		return &ResolvedPath{GroupID: groupID, PathID: p.ID, EntryNodeID: p.EntryNodeID, Health: s}, nil
+	}
+	if fallback != nil {
+		return &ResolvedPath{GroupID: groupID, PathID: fallback.ID,
+			EntryNodeID: fallback.EntryNodeID, Health: health[fallback.ID]}, nil
+	}
+	return nil, nil
 }

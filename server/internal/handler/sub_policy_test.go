@@ -6,9 +6,20 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
+
+// decoded unpacks a v2ray subscription body (base64 text).
+func decoded(t *testing.T, rec *httptest.ResponseRecorder) string {
+	t.Helper()
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(rec.Body.String()))
+	if err != nil {
+		t.Fatalf("body not base64: %v (%s)", err, rec.Body)
+	}
+	return string(raw)
+}
 
 // TestSubscriptionPolicyFilter covers the delivery-side enforcement of
 // F-0288/F-0291 (region + health constraints) and F-0286 (compact output):
@@ -55,20 +66,11 @@ func TestSubscriptionPolicyFilter(t *testing.T) {
 		t.Fatalf("create policy: %d %s", rec.Code, rec.Body)
 	}
 
-	decoded := func(rec *httptest.ResponseRecorder) string {
-		t.Helper()
-		raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(rec.Body.String()))
-		if err != nil {
-			t.Fatalf("body not base64: %v (%s)", err, rec.Body)
-		}
-		return string(raw)
-	}
-
 	body := getSub(t, r, "/sub/"+token, "v2rayNG/1.8")
 	if body.Code != http.StatusOK {
 		t.Fatalf("sub fetch: %d %s", body.Code, body.Body)
 	}
-	raw := decoded(body)
+	raw := decoded(t, body)
 	if strings.Contains(raw, "hk-offline.example.com") {
 		t.Fatalf("policy-violating node leaked into subscription: %s", raw)
 	}
@@ -85,7 +87,105 @@ func TestSubscriptionPolicyFilter(t *testing.T) {
 		t.Fatalf("delete policy: %d %s", rec.Code, rec.Body)
 	}
 	body = getSub(t, r, "/sub/"+token, "v2rayNG/1.8")
-	if !strings.Contains(decoded(body), "hk-offline.example.com") {
+	if !strings.Contains(decoded(t, body), "hk-offline.example.com") {
 		t.Fatalf("unconstrained subscription missing hk node: %s", body.Body)
+	}
+}
+
+// TestSubscriptionGroupDelivery covers F-0270's delivery side: a policy chain
+// pinning a path group serves only the resolved serving path's entry node --
+// a degraded default loses to the healthy candidate -- and removing the pin
+// restores the full list.
+func TestSubscriptionGroupDelivery(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	rec := doJSON(t, r, "POST", "/api/users", map[string]any{
+		"username": "grpsub", "quota_bytes": 1000000, "expires_at": "2030-01-01T00:00:00Z",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create user: %d %s", rec.Code, rec.Body)
+	}
+	token := mustJSON(t, rec)["sub_token"].(string)
+
+	mkNode := func(name, role string) storage.Node {
+		n := storage.Node{Name: name, Token: name, Address: name + ".example.com", Port: 443,
+			Protocol: "vless", Config: `{"uuid":"u-1","tls":true,"sni":"s.com","net":"ws","path":"/wss","host":"cdn.example.com"}`,
+			Role: role, Enabled: true, Status: "online", PoolState: "active"}
+		if err := db.Create(&n).Error; err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	entryA := mkNode("gentry-a", "entry")
+	entryB := mkNode("gentry-b", "entry")
+	landA := mkNode("gland-a", "landing")
+	landB := mkNode("gland-b", "landing")
+
+	pathA := storage.Path{Name: "gpath-a", EntryNodeID: entryA.ID, LandingNodeID: landA.ID}
+	pathB := storage.Path{Name: "gpath-b", EntryNodeID: entryB.ID, LandingNodeID: landB.ID}
+	if err := db.Create(&pathA).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&pathB).Error; err != nil {
+		t.Fatal(err)
+	}
+	group := storage.PathGroup{Name: "gsub", Direction: "out", DefaultPathID: &pathA.ID}
+	if err := db.Create(&group).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []storage.PathGroupMember{
+		{GroupID: group.ID, PathID: pathA.ID, Position: 0},
+		{GroupID: group.ID, PathID: pathB.ID, Position: 1},
+	} {
+		if err := db.Create(&m).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The default path's landing probes sick; the candidate's is healthy.
+	now := time.Now()
+	verdict := func(prober, target uint, v string) {
+		if err := db.Create(&storage.ProbeReport{
+			NodeID: prober, TargetKind: "peer", TargetNodeID: &target,
+			Verdict: v, ProbedAt: now.Add(-time.Minute),
+		}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	verdict(entryA.ID, landA.ID, "sick")
+	verdict(entryB.ID, landB.ID, "healthy")
+
+	// System policy pins the group.
+	rec = doJSON(t, r, "POST", "/api/policies", map[string]any{
+		"scope":       "system",
+		"constraints": map[string]any{"path_group_id": group.ID},
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create policy: %d %s", rec.Code, rec.Body)
+	}
+
+	body := getSub(t, r, "/sub/"+token, "v2rayNG/1.8")
+	if body.Code != http.StatusOK {
+		t.Fatalf("sub fetch: %d %s", body.Code, body.Body)
+	}
+	raw := decoded(t, body)
+	if strings.Contains(raw, "gentry-a.example.com") {
+		t.Fatalf("degraded default leaked into subscription: %s", raw)
+	}
+	if !strings.Contains(raw, "gentry-b.example.com") {
+		t.Fatalf("healthy candidate missing from subscription: %s", raw)
+	}
+
+	// Removing the pin restores the full entry list.
+	var pol storage.Policy
+	if err := db.Where("scope = ?", "system").First(&pol).Error; err != nil {
+		t.Fatal(err)
+	}
+	if rec = doJSON(t, r, "DELETE", "/api/policies/"+utoa(pol.ID), nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete policy: %d %s", rec.Code, rec.Body)
+	}
+	body = getSub(t, r, "/sub/"+token, "v2rayNG/1.8")
+	raw = decoded(t, body)
+	if !strings.Contains(raw, "gentry-a.example.com") || !strings.Contains(raw, "gentry-b.example.com") {
+		t.Fatalf("unpinned subscription missing entries: %s", raw)
 	}
 }

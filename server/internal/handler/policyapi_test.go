@@ -140,3 +140,91 @@ func TestPolicyAPI(t *testing.T) {
 		t.Fatalf("system policy survived delete: %d", left)
 	}
 }
+
+// TestPolicyGroupLink covers F-0270's API surface: the path_group_id pin is
+// validated against existing groups, rides the resolve view, and the
+// simulate/explain endpoint shows which member the group would serve.
+func TestPolicyGroupLink(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	// Unknown group reference: rejected.
+	if rec := doJSON(t, r, "POST", "/api/policies", map[string]any{
+		"scope":       "system",
+		"constraints": map[string]any{"path_group_id": 99999},
+	}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("unknown group = %d %s", rec.Code, rec.Body)
+	}
+
+	// One entry path in one group, as the group default.
+	entry := storage.Node{Name: "grpg-entry", Token: "grpg-entry", Address: "grpg.example.com",
+		Port: 443, Role: "entry", Enabled: true, Status: "online", PoolState: "active"}
+	if err := db.Create(&entry).Error; err != nil {
+		t.Fatal(err)
+	}
+	landing := storage.Node{Name: "grpg-land", Token: "grpg-land", Port: 443,
+		Role: "landing", Enabled: true, Status: "online", PoolState: "active"}
+	if err := db.Create(&landing).Error; err != nil {
+		t.Fatal(err)
+	}
+	path := storage.Path{Name: "grpg-path", EntryNodeID: entry.ID, LandingNodeID: landing.ID}
+	if err := db.Create(&path).Error; err != nil {
+		t.Fatal(err)
+	}
+	rec := doJSON(t, r, "POST", "/api/path-groups", map[string]any{"name": "grpg", "direction": "out"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create group: %d %s", rec.Code, rec.Body)
+	}
+	gid := uint(mustJSON(t, rec)["id"].(float64))
+	rec = doJSON(t, r, "POST", "/api/path-groups/"+utoa(gid)+"/members", map[string]any{"path_id": path.ID})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("add member: %d %s", rec.Code, rec.Body)
+	}
+	rec = doJSON(t, r, "PUT", "/api/path-groups/"+utoa(gid), map[string]any{"default_path_id": path.ID})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("set default: %d %s", rec.Code, rec.Body)
+	}
+
+	// Valid reference: accepted, rides the resolve view.
+	rec = doJSON(t, r, "POST", "/api/policies", map[string]any{
+		"scope":       "system",
+		"constraints": map[string]any{"path_group_id": gid},
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create policy: %d %s", rec.Code, rec.Body)
+	}
+	rec = doJSON(t, r, "GET", "/api/policies/resolve", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("resolve: %d %s", rec.Code, rec.Body)
+	}
+	if got := mustJSON(t, rec)["constraints"].(map[string]any)["path_group_id"].(float64); got != float64(gid) {
+		t.Fatalf("resolved path_group_id = %v want %d", got, gid)
+	}
+
+	// Simulate explains the current serving member (no probes: unknown).
+	rec = doJSON(t, r, "GET", "/api/policies/simulate", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("simulate: %d %s", rec.Code, rec.Body)
+	}
+	body := mustJSON(t, rec)
+	group := body["path_group"].(map[string]any)
+	if group["group_id"].(float64) != float64(gid) || group["path_id"].(float64) != float64(path.ID) ||
+		group["entry_node_id"].(float64) != float64(entry.ID) || group["health"] != "unknown" {
+		t.Fatalf("simulate path_group = %v", group)
+	}
+
+	// Deleting the group leaves the policy valid but unresolvable, and the
+	// validation refuses new references to it.
+	if rec = doJSON(t, r, "DELETE", "/api/path-groups/"+utoa(gid), nil); rec.Code != http.StatusOK {
+		t.Fatalf("delete group: %d %s", rec.Code, rec.Body)
+	}
+	rec = doJSON(t, r, "GET", "/api/policies/simulate", nil)
+	if rec.Code != http.StatusOK || mustJSON(t, rec)["path_group"] != nil {
+		t.Fatalf("simulate after group delete = %d %s", rec.Code, rec.Body)
+	}
+	if rec = doJSON(t, r, "POST", "/api/policies", map[string]any{
+		"scope":       "system",
+		"constraints": map[string]any{"path_group_id": gid},
+	}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("dangling group reference = %d %s", rec.Code, rec.Body)
+	}
+}

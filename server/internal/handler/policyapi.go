@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/cuihairu/ferry/server/internal/pathhealth"
 	"github.com/cuihairu/ferry/server/internal/policy"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
@@ -56,6 +58,14 @@ func (h *Handler) validatePolicyInput(in *policyInput, current storage.Policy) (
 	}
 	if _, err := storage.ParsePolicyConstraints(raw); err != nil {
 		return "", storage.Policy{}, err
+	}
+	// Group pin target (F-0270): the path group must exist when referenced.
+	pc, _ := storage.ParsePolicyConstraints(raw)
+	if pc.PathGroupID != 0 {
+		var g storage.PathGroup
+		if err := h.db.First(&g, pc.PathGroupID).Error; err != nil {
+			return "", storage.Policy{}, errors.New("path group not found")
+		}
 	}
 	enabled := true
 	if in.Enabled != nil {
@@ -202,12 +212,24 @@ func (h *Handler) simulatePolicy(c *gin.Context) {
 		return
 	}
 	kept, dropped := policy.ApplyConstraints(nodes, eff)
+	// Group pin resolution (F-0270): the explain view shows which member the
+	// group would serve right now.
+	var group *pathhealth.ResolvedPath
+	if eff.PathGroupID != 0 {
+		g, err := pathhealth.ResolveGroupPath(h.db, eff.PathGroupID, time.Now())
+		if err != nil {
+			fail(c, http.StatusInternalServerError, err)
+			return
+		}
+		group = g
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"constraints":   eff,
 		"policies":      rows,
 		"kept":          kept,
 		"dropped":       dropped,
 		"failover_free": policy.FreezeFailover(eff),
+		"path_group":    group,
 	})
 }
 

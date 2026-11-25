@@ -207,3 +207,85 @@ func TestGroupHealthAndAvailability(t *testing.T) {
 		t.Fatalf("no-data availability = %v err=%v", pct, err)
 	}
 }
+
+// TestResolveGroupPath covers F-0270's serving-path resolution: default
+// first, then candidates by position, health-aware, excluded never serves.
+func TestResolveGroupPath(t *testing.T) {
+	db := newTestDB(t)
+	entry := mkNode(t, db, "entry", "online", "active")
+	landA := mkNode(t, db, "land-a", "online", "active")
+	landB := mkNode(t, db, "land-b", "online", "active")
+	pathA := mkPath(t, db, entry.ID, landA.ID)
+	pathB := mkPath(t, db, entry.ID, landB.ID)
+
+	group := storage.PathGroup{Name: "rg", Direction: "out", DefaultPathID: &pathA.ID}
+	if err := db.Create(&group).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []storage.PathGroupMember{
+		{GroupID: group.ID, PathID: pathA.ID, Position: 0},
+		{GroupID: group.ID, PathID: pathB.ID, Position: 1},
+	} {
+		if err := db.Create(&m).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A's landing probes sick, B's healthy: the healthy candidate serves.
+	seedVerdict(t, db, entry.ID, landA.ID, agentproto.ProbeVerdictSick, time.Minute)
+	seedVerdict(t, db, entry.ID, landB.ID, agentproto.ProbeVerdictHealthy, time.Minute)
+
+	now := time.Now()
+	res, err := ResolveGroupPath(db, group.ID, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res == nil || res.PathID != pathB.ID || res.Health != Healthy || res.EntryNodeID != entry.ID {
+		t.Fatalf("degraded default resolved = %+v", res)
+	}
+
+	// A recovers (fresh healthy verdict): the default serves again.
+	seedVerdict(t, db, entry.ID, landA.ID, agentproto.ProbeVerdictHealthy, time.Minute)
+	if res, err = ResolveGroupPath(db, group.ID, now); err != nil || res == nil || res.PathID != pathA.ID {
+		t.Fatalf("healthy default resolved = %+v err=%v", res, err)
+	}
+
+	// A degrades again and B is excluded: the degraded default is the last
+	// resort (excluded members never serve).
+	seedVerdict(t, db, entry.ID, landA.ID, agentproto.ProbeVerdictSick, time.Minute)
+	if err := db.Model(&storage.PathGroupMember{}).
+		Where("group_id = ? AND path_id = ?", group.ID, pathB.ID).
+		Update("excluded", true).Error; err != nil {
+		t.Fatal(err)
+	}
+	res, err = ResolveGroupPath(db, group.ID, now)
+	if err != nil || res == nil || res.PathID != pathA.ID || res.Health != Degraded {
+		t.Fatalf("degraded fallback resolved = %+v err=%v", res, err)
+	}
+
+	// Every usable member gone (both paths disabled): nil.
+	if err := db.Model(&storage.Path{}).Where("id IN ?", []uint{pathA.ID, pathB.ID}).
+		Update("enabled", false).Error; err != nil {
+		t.Fatal(err)
+	}
+	if res, err = ResolveGroupPath(db, group.ID, now); err != nil || res != nil {
+		t.Fatalf("all-off group resolved = %+v err=%v", res, err)
+	}
+
+	// Disabled group: nil.
+	if err := db.Model(&storage.Path{}).Where("id IN ?", []uint{pathA.ID, pathB.ID}).
+		Update("enabled", true).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&storage.PathGroup{}).Where("id = ?", group.ID).
+		Update("enabled", false).Error; err != nil {
+		t.Fatal(err)
+	}
+	if res, err = ResolveGroupPath(db, group.ID, now); err != nil || res != nil {
+		t.Fatalf("disabled group resolved = %+v err=%v", res, err)
+	}
+
+	// Unknown group id: nil, not an error.
+	if res, err = ResolveGroupPath(db, 9999, now); err != nil || res != nil {
+		t.Fatalf("unknown group resolved = %+v err=%v", res, err)
+	}
+}

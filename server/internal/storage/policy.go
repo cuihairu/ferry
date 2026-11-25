@@ -62,6 +62,11 @@ type PolicyConstraints struct {
 	// Output (F-0286): subscription output shaping -- "compact" caps the
 	// delivered entry list to the probe-sorted best ten; empty/full delivers all.
 	Output string `json:"output,omitempty"`
+	// PathGroupID (F-0270): pins subscription delivery to one path group --
+	// the group resolves to its serving path (default first, then candidates
+	// by position, health-aware) and only that path's entry is delivered.
+	// 0 = unset/inherit.
+	PathGroupID uint `json:"path_group_id,omitempty"`
 }
 
 // ParsePolicyConstraints decodes and validates a constraint payload; unknown
