@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { auth } from './auth'
 
-// 三个一级页：登录 / 概览（用量与订阅链接）/ 兑换（PAY-7）。
+// Three top-level pages: login / overview (usage and subscription links) / redeem (PAY-7).
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
@@ -16,7 +16,7 @@ export const router = createRouter({
   ],
 })
 
-// 无令牌先去登录；已登录不回登录页。
+// Without a token, go to login first; an already-logged-in user never returns to the login page.
 router.beforeEach((to) => {
   if (to.path !== '/login' && !auth.token) return '/login'
   if (to.path === '/login' && auth.token) return '/'

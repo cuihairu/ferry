@@ -1,4 +1,4 @@
-/* Linear 风格暗色主题（用户面板）：与 dash 同一套 token 口径，自定组件不引 UI 库。 */
+/* Linear-style dark theme (user panel): the same token set as dash; custom components, no UI library. */
 :root {
   --ferry-bg: #0e1015;
   --ferry-bg-panel: #15171e;
@@ -33,7 +33,7 @@ body {
   box-sizing: border-box;
 }
 
-/* ---- 壳层 ---- */
+/* ---- Shell ---- */
 .shell {
   min-height: 100vh;
   display: flex;
@@ -106,7 +106,7 @@ body {
   font-size: 13px;
 }
 
-/* ---- 卡片 ---- */
+/* ---- Cards ---- */
 .card {
   background: var(--ferry-bg-panel);
   border: 1px solid var(--ferry-border);
@@ -139,7 +139,7 @@ body {
   font-weight: 500;
 }
 
-/* ---- 控件 ---- */
+/* ---- Controls ---- */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -223,7 +223,7 @@ body {
   align-items: center;
 }
 
-/* ---- 状态 ---- */
+/* ---- Status ---- */
 .tag {
   display: inline-flex;
   align-items: center;
@@ -272,7 +272,7 @@ body {
   background: var(--ferry-danger);
 }
 
-/* ---- 登录页 ---- */
+/* ---- Login page ---- */
 .login-wrap {
   min-height: 100vh;
   display: flex;
@@ -307,7 +307,7 @@ body {
   color: var(--ferry-text-muted);
 }
 
-/* ---- 壳层 ---- */
+/* ---- Shell ---- */
 .shell {
   min-height: 100vh;
 }
@@ -366,7 +366,7 @@ body {
   padding: 24px 20px 64px;
 }
 
-/* ---- 内容卡 ---- */
+/* ---- Content card ---- */
 .page {
   display: flex;
   flex-direction: column;
@@ -392,7 +392,7 @@ body {
   border: 1px solid rgba(242, 201, 76, 0.35);
 }
 
-/* ---- 键值行 ---- */
+/* ---- Key-value rows ---- */
 .kv {
   margin: 14px 0 0;
 }
@@ -415,7 +415,7 @@ body {
   text-align: right;
 }
 
-/* ---- 用量 ---- */
+/* ---- Usage ---- */
 .usage-row {
   display: flex;
   align-items: baseline;
@@ -428,7 +428,7 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* ---- 订阅链接 ---- */
+/* ---- Subscription links ---- */
 .link-block {
   margin-top: 12px;
 }
@@ -456,7 +456,7 @@ body {
   border: 1px solid var(--ferry-border);
 }
 
-/* ---- 订单 ---- */
+/* ---- Orders ---- */
 .order-head {
   display: flex;
   align-items: center;
@@ -471,7 +471,7 @@ body {
   white-space: nowrap;
 }
 
-/* 通知未读徽标（NT-1）：挂在导航链接内。 */
+/* Notification unread badge (NT-1): hangs inside the nav link. */
 .nav-link .badge {
   display: inline-block;
   min-width: 16px;
@@ -486,7 +486,7 @@ body {
   font-weight: 600;
 }
 
-/* 通知偏好表单（NT-2）。 */
+/* Notification preferences form (NT-2). */
 .pref-row {
   display: flex;
   align-items: center;

@@ -10,8 +10,8 @@ import {
 import type { CreateOrderResult, OrderStatus, PanelChannel, PanelProduct } from '../api'
 import { formatBytes } from '../utils/format'
 
-// 购买页（SHOP-1）：套餐卡片 + 渠道选择（按注册态置灰）+ 优惠码，
-// 下单后跳收银台并轮询订单状态，paid 即展示权益到账。
+// Purchase page (SHOP-1): plan cards + channel selection (greyed out by registration state) + coupon code;
+// after ordering it opens the cashier and polls the order status, showing entitlement arrival once paid.
 const loading = ref(false)
 const error = ref('')
 const products = ref<PanelProduct[]>([])
@@ -29,7 +29,7 @@ async function load() {
     const [ps, cs] = await Promise.all([getPanelProducts(), getPanelChannels()])
     products.value = ps
     channels.value = cs
-    // 缺省选中第一个可用渠道
+    // select the first available channel by default
     const first = cs.find((c) => c.enabled)
     if (first) selectedChannel.value = first.name
   } catch (e) {
@@ -40,7 +40,7 @@ async function load() {
 }
 onMounted(load)
 
-// ---- 选购态 ----
+// ---- Selection state ----
 const selectedProduct = ref<number>(0)
 const selectedChannel = ref('')
 const couponCode = ref('')
@@ -57,7 +57,7 @@ function amountText(cents: number): string {
   return `¥${(cents / 100).toFixed(2)}`
 }
 
-// ---- 下单与支付轮询 ----
+// ---- Ordering and payment polling ----
 const order = ref<CreateOrderResult | null>(null)
 const orderStatus = ref<OrderStatus | null>(null)
 let pollTimer: ReturnType<typeof setInterval> | null = null
@@ -89,7 +89,7 @@ function startPolling() {
       orderStatus.value = await getPanelOrderStatus(order.value.order_no)
       if (orderStatus.value.status !== 'pending') stopPolling()
     } catch {
-      /* 轮询失败不打断：下个周期再试 */
+      /* a failed poll does not break in: retry in the next cycle */
     }
   }, 3000)
 }
@@ -105,14 +105,14 @@ function goPay() {
   if (order.value?.pay_url) window.open(order.value.pay_url, '_blank', 'noopener')
 }
 
-// 轮询期间手动检查一次（收银台回来后点它立即刷新）。
+// Manually check once while polling (after returning from the cashier, clicking it refreshes immediately).
 async function checkNow() {
   if (!order.value) return
   try {
     orderStatus.value = await getPanelOrderStatus(order.value.order_no)
     if (orderStatus.value.status !== 'pending') stopPolling()
   } catch {
-    /* 保持现状 */
+    /* keep the current state */
   }
 }
 
@@ -130,7 +130,7 @@ function resetOrder() {
     <p v-else-if="error" class="error-text">{{ error }}</p>
     <p v-else-if="products.length === 0" class="muted">暂无可售套餐。</p>
     <template v-else>
-      <!-- 支付进行中/完成面板：盖在选购区之上，paid 或过期后可返回继续买 -->
+      <!-- In-progress / completed payment panel: sits above the selection area; once paid or expired the user can go back and keep buying -->
       <section v-if="order" class="card">
         <h2 class="card-title">订单支付</h2>
         <dl class="kv">

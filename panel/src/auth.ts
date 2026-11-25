@@ -1,15 +1,16 @@
 import { reactive } from 'vue'
 import type { Me } from './api'
 
-// P0 身份口径：订阅令牌即凭据，存 localStorage 随身携带（无密码无服务端会话，
-// 见 server/internal/handler/panel.go；P1-1 登录落地后此处换会话载体）。
+// P0 identity model: the subscription token is the credential, kept in localStorage and carried along
+// (no password, no server-side session, see server/internal/handler/panel.go; P1-1 will swap in a
+// session carrier once login lands).
 
 const STORAGE_KEY = 'ferry.panel.token'
 
 export const auth = reactive({
   token: localStorage.getItem(STORAGE_KEY) ?? '',
   user: null as Me | null,
-  unread: 0, // 站内信未读数（NT-1）：App 壳层拉取，通知页操作后同步
+  unread: 0, // in-app notification unread count (NT-1): fetched by the app shell, synced after actions on the notifications page
 })
 
 export function setToken(token: string): void {
@@ -28,7 +29,7 @@ export function logout(): void {
   localStorage.removeItem(STORAGE_KEY)
 }
 
-/** tokenFromInput 从裸令牌或完整订阅链接里解析令牌（用户最常见的两种复制形态）。 */
+/** tokenFromInput extracts the token from either a bare token or a full subscription link (the two most common copy formats). */
 export function tokenFromInput(input: string): string {
   const raw = input.trim()
   if (!raw) return ''

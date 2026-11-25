@@ -5,7 +5,7 @@ import type { NotificationRow } from '../api'
 import { auth } from '../auth'
 import { formatDate } from '../utils/format'
 
-// 通知中心（NT-1）：四类站内信（公告/到期/流量预警/系统），点卡片即已读。
+// Notification center (NT-1): four kinds of in-app messages (announcement/expiry/traffic warning/system); clicking a card marks it read.
 const loading = ref(false)
 const error = ref('')
 const rows = ref<NotificationRow[]>([])
@@ -23,7 +23,7 @@ async function load() {
 }
 onMounted(load)
 
-/** readOne 点卡片已读：已读的幂等跳过，失败不打扰（下次再点即可）。 */
+/** readOne marks a card read: already-read ones are skipped idempotently, and a failure stays silent (just click again). */
 async function readOne(n: NotificationRow) {
   if (n.read_at) return
   try {
@@ -31,7 +31,7 @@ async function readOne(n: NotificationRow) {
     n.read_at = new Date().toISOString()
     auth.unread = Math.max(0, auth.unread - 1)
   } catch {
-    /* 单条已读失败静默，列表不动 */
+    /* a single mark-read failure stays silent and leaves the list untouched */
   }
 }
 

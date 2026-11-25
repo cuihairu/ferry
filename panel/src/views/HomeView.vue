@@ -5,9 +5,9 @@ import type { ContactInfo, Me, SavingsSummary } from '../api'
 import { auth, setUser } from '../auth'
 import { formatDate, formatBytes, quotaText } from '../utils/format'
 
-// 概览：用量进度、配额与到期、订阅链接复制、通知偏好（NT-2）；
-// 「已为你省下」为 SAVE-8 本月分流直连/广告拦截的占比折算汇总；
-// 联系方式引导为 TOUCH-1（TG/邮箱至少一个必填，未绑定不可关闭）。
+// Overview: usage progress, quota and expiry, subscription link copy, notification preferences (NT-2);
+// "saved for you" is the SAVE-8 summary of this month's direct/interception traffic converted to cost;
+// the contact-info guidance is TOUCH-1 (at least one of TG/email required, not dismissable while unbound).
 const loading = ref(false)
 const error = ref('')
 const copied = ref('')
@@ -31,7 +31,7 @@ onMounted(async () => {
   loadContact()
 })
 
-// ---- 联系方式绑定（TOUCH-1）：TG/邮箱至少一个，未绑定引导不可关闭 ----
+// ---- Contact binding (TOUCH-1): at least one of TG/email; the guidance cannot be dismissed while unbound ----
 const contact = ref<ContactInfo | null>(null)
 const contactEmail = ref('')
 const contactChat = ref('')
@@ -45,7 +45,7 @@ async function loadContact() {
     contactEmail.value = contact.value.email
     contactChat.value = contact.value.tg_chat_id
   } catch {
-    /* 读取失败不弹引导（按已绑定处理，不打扰主流程） */
+    /* a failed read does not show the guidance (treated as bound, so the main flow is undisturbed) */
     contact.value = null
   }
 }
@@ -67,7 +67,7 @@ async function saveContact() {
   }
 }
 
-// 例行邮件退订只改偏好（TOUCH-1）：带上已绑项避免被「至少一项」挡回。
+// Unsubscribing from routine emails only changes the preference (TOUCH-1): the already-bound items are included to avoid being bounced back by "at least one required".
 async function saveRoutine() {
   if (!contact.value) return
   try {
@@ -77,17 +77,17 @@ async function saveRoutine() {
       routine_emails: contact.value.routine_emails,
     })
   } catch {
-    /* 失败静默：下次进入按服务端值回显 */
+    /* a failure stays silent: on the next visit the server values are shown again */
   }
 }
 
-// 已为你省下（SAVE-8）：读取失败静默隐藏卡片，不打扰主流程。
+// "Saved for you" (SAVE-8): a failed read silently hides the card without disturbing the main flow.
 const savings = ref<SavingsSummary | null>(null)
 async function loadSavings() {
   try {
     savings.value = await getSavings()
   } catch {
-    /* 保持隐藏 */
+    /* stay hidden */
   }
 }
 
@@ -114,7 +114,7 @@ async function copy(text: string, key: string) {
   try {
     await navigator.clipboard.writeText(text)
   } catch {
-    // 剪贴板不可用时退回选中复制：建临时 input 走 execCommand。
+    // When the clipboard is unavailable, fall back to copy-from-selection: build a temporary input and use execCommand.
     const el = document.createElement('input')
     el.value = text
     document.body.appendChild(el)
@@ -126,7 +126,7 @@ async function copy(text: string, key: string) {
   setTimeout(() => (copied.value = ''), 1600)
 }
 
-// ---- 通知偏好（NT-2）：到期提醒 / 流量预警与阈值，站内信通道 ----
+// ---- Notification preferences (NT-2): expiry reminders / traffic warning and threshold, in-app channel ----
 const prefExpiry = ref(true)
 const prefTraffic = ref(true)
 const prefPercent = ref(80)
@@ -143,7 +143,7 @@ async function loadPrefs() {
     prefTraffic.value = p.notify_traffic
     prefPercent.value = p.traffic_warn_percent
   } catch {
-    /* 偏好读取失败不打扰主流程，保持默认展示 */
+    /* a failed preference read does not disturb the main flow; keep the default display */
   }
 }
 

@@ -10,15 +10,15 @@ import {
 } from '../api'
 import type { SubConfig, SubFilter, SubscriptionRow } from '../api'
 
-// 自建订阅（ferry-sub-filters）：用户按三维度过滤 + per-sub 配置定制，
-// 生成独立 /sub/x/:token 地址。列表/创建/编辑/删除/重置令牌/复制链接。
+// Custom subscriptions (ferry-sub-filters): the user filters by three dimensions + customizes per-sub config,
+// producing a standalone /sub/x/:token address. List / create / edit / delete / reset token / copy link.
 const loading = ref(false)
 const error = ref('')
 const notice = ref('')
 const copiedId = ref(0)
 const subs = ref<SubscriptionRow[]>([])
 
-// 表单态：id=null 为新建，否则编辑。
+// Form state: id=null means creating, otherwise editing.
 interface FormState {
   id: number | null
   name: string
@@ -49,7 +49,7 @@ async function load() {
   }
 }
 
-// ---- 解析/序列化 filter/config ----
+// ---- Parse/serialize filter/config ----
 function parseFilter(raw: string): SubFilter {
   try {
     return JSON.parse(raw || '{}') as SubFilter
@@ -68,7 +68,7 @@ function splitCsv(s: string): string[] {
   return [...new Set(s.split(',').map((x) => x.trim()).filter(Boolean))]
 }
 
-// ---- 表单 ----
+// ---- Form ----
 function startCreate() {
   editing.value = {
     id: null,
@@ -169,7 +169,7 @@ async function resetToken(s: SubscriptionRow) {
   }
 }
 
-// ---- 链接 ----
+// ---- Links ----
 function subLink(s: SubscriptionRow): string {
   return `${window.location.origin}/sub/x/${s.token}`
 }
@@ -236,7 +236,7 @@ function toggleProtocol(p: string) {
     <p v-if="loading" class="muted">加载中…</p>
     <p v-else-if="!error && subs.length === 0 && !editing" class="muted">还没有自建订阅，点「新建订阅」创建。</p>
 
-    <!-- 创建/编辑表单 -->
+    <!-- create/edit form -->
     <section v-if="editing" class="card">
       <h2 class="card-title">{{ editing.id === null ? '新建订阅' : '编辑订阅' }}</h2>
       <div class="pref-row">
@@ -284,7 +284,7 @@ function toggleProtocol(p: string) {
       </div>
     </section>
 
-    <!-- 列表 -->
+    <!-- list -->
     <section v-for="s in subs" :key="s.id" class="card">
       <div class="order-head">
         <span>{{ s.name }}</span>

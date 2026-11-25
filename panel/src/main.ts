@@ -3,7 +3,7 @@ import './styles/theme.css'
 import App from './App.vue'
 import { router } from './router'
 
-// 暗色为主：与 dash 同一套 Linear 风格 token。
+// Dark-first: the same Linear-style token set as dash.
 document.documentElement.classList.add('dark')
 
 createApp(App).use(router).mount('#app')

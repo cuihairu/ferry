@@ -4,11 +4,11 @@ import { ApiError, get } from '../api'
 import type { OrderRow } from '../api'
 import { formatBytes, formatDate } from '../utils/format'
 
-// 订单中心（OD-1）：兑换与购买记录列表，发放记录按单归并。
+// Order center (OD-1): a list of redemption and purchase records, with grants merged per order.
 const loading = ref(false)
 const error = ref('')
 const orders = ref<OrderRow[]>([])
-// 来源筛选（运营设计 §记录范围）：'' 全量 / card 卡密兑换 / 渠道在线购买。
+// Source filter (operations design §record scope): '' = all / card = card redemption / online purchase through a channel.
 const provider = ref('')
 
 async function load() {

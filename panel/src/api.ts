@@ -1,6 +1,6 @@
 import { auth } from './auth'
 
-// API 客户端：统一解析后端 {error} 错误载荷，自动携带订阅令牌。
+// API client: uniformly parses the backend's {error} payload and automatically carries the subscription token.
 
 export class ApiError extends Error {
   status: number
@@ -43,9 +43,9 @@ export function del<T>(path: string): Promise<T> {
   return request<T>(path, { method: 'DELETE' })
 }
 
-// ---- 资源类型（对齐 server 的 JSON 载荷）----
+// ---- Resource types (aligned with the server's JSON payloads) ----
 
-/** Me 是 GET /api/panel/me 的响应：身份、用量与可用状态。 */
+/** Me is the GET /api/panel/me response: identity, usage and availability. */
 export interface Me {
   id: number
   username: string
@@ -62,7 +62,7 @@ export interface Me {
   ips: number
 }
 
-/** RedeemResult 是兑换成功后的权益回执。 */
+/** RedeemResult is the entitlement receipt after a successful redemption. */
 export interface RedeemResult {
   order_no: string
   grant_type: 'add_quota' | 'extend_days'
@@ -71,7 +71,7 @@ export interface RedeemResult {
   expires_at: string | null
 }
 
-/** PanelProduct 是 GET /api/panel/products 的单条：可售套餐（设价未过期有余量）。 */
+/** PanelProduct is one item of GET /api/panel/products: a sellable plan (priced, not expired, with remaining stock). */
 export interface PanelProduct {
   id: number
   name: string
@@ -85,7 +85,7 @@ export function getPanelProducts(): Promise<PanelProduct[]> {
   return get<PanelProduct[]>('/api/panel/products')
 }
 
-/** PanelChannel 是 GET /api/panel/channels 的单条：渠道注册态（SHOP-1）。 */
+/** PanelChannel is one item of GET /api/panel/channels: a payment channel's registration state (SHOP-1). */
 export interface PanelChannel {
   name: string
   enabled: boolean
@@ -95,7 +95,7 @@ export function getPanelChannels(): Promise<PanelChannel[]> {
   return get<PanelChannel[]>('/api/panel/channels')
 }
 
-/** CreateOrderResult 是 POST /api/panel/orders 的响应：订单锚点 + 收银台地址。 */
+/** CreateOrderResult is the POST /api/panel/orders response: the order anchor + the cashier URL. */
 export interface CreateOrderResult {
   order_no: string
   provider: string
@@ -110,7 +110,7 @@ export function createPanelOrder(p: { batch_id: number; provider: string; coupon
   return post<CreateOrderResult>('/api/panel/orders', p)
 }
 
-/** OrderStatus 是 GET /api/panel/orders/:order_no 的响应：单笔订单终态与发放。 */
+/** OrderStatus is the GET /api/panel/orders/:order_no response: a single order's final state and grants. */
 export interface OrderStatus {
   order_no: string
   provider: string
@@ -129,7 +129,7 @@ export function getPanelOrderStatus(orderNo: string): Promise<OrderStatus> {
   return get<OrderStatus>(`/api/panel/orders/${encodeURIComponent(orderNo)}`)
 }
 
-/** OrderRow 是 GET /api/panel/orders 的单条：订单 + 归并的发放记录。 */
+/** OrderRow is one item of GET /api/panel/orders: an order + its merged grant records. */
 export interface OrderRow {
   order_no: string
   provider: string
@@ -138,12 +138,12 @@ export interface OrderRow {
   status: string
   created_at: string
   paid_at: string | null
-  /** 退款时间（OD-2）：退款由管理员在渠道后台操作后在面板留痕。 */
+  /** Refund time (OD-2): the refund is executed by an admin in the channel back office, then recorded on the panel. */
   refund_at: string | null
   grants: Array<{ grant_type: string; grant_value: number }>
 }
 
-// ---- 通知中心（NT-1）----
+// ---- Notification center (NT-1) ----
 
 export interface NotificationRow {
   id: number
@@ -170,7 +170,7 @@ export function markAllRead(): Promise<{ updated: number }> {
   return post('/api/panel/notifications/read-all')
 }
 
-/** NotifyPrefs 是 GET/PUT /api/panel/notify-prefs 的载荷（NT-2）。 */
+/** NotifyPrefs is the GET/PUT /api/panel/notify-prefs payload (NT-2). */
 export interface NotifyPrefs {
   notify_expiry: boolean
   notify_traffic: boolean
@@ -185,7 +185,7 @@ export function updateNotifyPrefs(p: Partial<NotifyPrefs>): Promise<{ ok: boolea
   return put('/api/panel/notify-prefs', p)
 }
 
-/** SavingsSummary 是 GET /api/panel/savings 的响应（SAVE-8）：本月「已为你省下」。 */
+/** SavingsSummary is the GET /api/panel/savings response (SAVE-8): this month's "saved for you". */
 export interface SavingsSummary {
   window: string
   direct_bytes: number
@@ -197,7 +197,7 @@ export function getSavings(): Promise<SavingsSummary> {
   return get<SavingsSummary>('/api/panel/savings')
 }
 
-/** ContactInfo 是 GET/PUT /api/panel/contact 的载荷（TOUCH-1）。 */
+/** ContactInfo is the GET/PUT /api/panel/contact payload (TOUCH-1). */
 export interface ContactInfo {
   email: string
   tg_chat_id: string
@@ -214,16 +214,16 @@ export function updateContact(p: Partial<ContactInfo>): Promise<ContactInfo> {
   return put('/api/panel/contact', p)
 }
 
-// ---- 自建订阅（ferry-sub-filters，2026-11-21）----
+// ---- Custom subscriptions (ferry-sub-filters, 2026-11-21) ----
 
-/** SubFilter 是自建订阅的过滤维度（三维度全可选，空数组=该维度不过滤）。 */
+/** SubFilter is the filtering dimensions of a custom subscription (all three optional; an empty array = no filtering on that dimension). */
 export interface SubFilter {
   regions?: string[]
   labels?: string[]
   protocols?: string[]
 }
 
-/** SubConfig 是自建订阅的 per-sub 配置定制（缺省沿用现有行为）。 */
+/** SubConfig is the per-sub configuration customization of a custom subscription (defaults keep the existing behavior). */
 export interface SubConfig {
   remark_template?: string
   sort?: '' | 'region' | 'rtt' | 'name'
@@ -231,7 +231,7 @@ export interface SubConfig {
   include_rtt?: boolean
 }
 
-/** SubscriptionRow 是 /api/subscriptions 的记录：filter/config 为 JSON 原文。 */
+/** SubscriptionRow is a /api/subscriptions record: filter/config hold the raw JSON text. */
 export interface SubscriptionRow {
   id: number
   user_id: number

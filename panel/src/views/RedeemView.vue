@@ -4,7 +4,7 @@ import { ApiError, post } from '../api'
 import type { RedeemResult } from '../api'
 import { formatBytes, formatDate } from '../utils/format'
 
-// 兑换：输入卡密 → 成功展示权益回执；失败统一文案（防枚举，见 PAY-5）。
+// Redeem: enter a card code -> on success show the entitlement receipt; failures share one message (anti-enumeration, see PAY-5).
 const code = ref('')
 const loading = ref(false)
 const error = ref('')

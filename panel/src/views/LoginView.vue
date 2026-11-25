@@ -5,7 +5,7 @@ import { ApiError, get } from '../api'
 import type { Me } from '../api'
 import { logout, setToken, setUser, tokenFromInput } from '../auth'
 
-// 登录 = 校验订阅令牌（粘贴裸令牌或整条订阅链接都可）。
+// Login = verify the subscription token (pasting either a bare token or a full subscription link works).
 const router = useRouter()
 const input = ref('')
 const error = ref('')

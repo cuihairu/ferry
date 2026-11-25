@@ -1,9 +1,10 @@
 import { get } from './api'
 
-// 客服入口（servify 真嵌验收）：面板登录后按需加载外部组件（widget.js 直嵌，
-// 嵌入指南 §2 方案 A）。未配置时 /api/panel/support 回 enabled:false——
-// 不加载任何脚本、无外呼，面板保持零依赖。访客 token 由服务端按用户会话签发，
-// service key 只在 ferry 服务端出现。
+// Support entry (servify real-embed acceptance): after panel login the external widget is loaded on
+// demand (widget.js embedded directly, embed guide §2 option A). When unconfigured, /api/panel/support
+// replies enabled:false — no scripts are loaded and no outbound call is made, keeping the panel at zero
+// dependencies. The visitor token is issued by the server per user session, and the service key appears
+// only inside the ferry server.
 
 export interface SupportConfig {
   enabled: boolean
@@ -36,7 +37,7 @@ function loadScript(src: string): Promise<void> {
   })
 }
 
-// initSupport 拉嵌入配置并挂载组件；任何失败只 warn 不打扰面板主流程。
+// initSupport fetches the embed configuration and mounts the widget; any failure only warns and never disturbs the panel's main flow.
 export async function initSupport(): Promise<void> {
   let cfg: SupportConfig
   try {

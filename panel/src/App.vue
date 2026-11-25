@@ -6,17 +6,17 @@ import type { Me } from './api'
 import { auth, logout, setUser } from './auth'
 import { initSupport } from './support'
 
-// 壳层：顶栏品牌 + 一级导航 + 用户身份（P0-14 同款 Linear 暗色）。
+// Shell: top bar brand + primary navigation + user identity (the same Linear dark style as P0-14).
 const route = useRoute()
 const router = useRouter()
 
-/** refreshUnread 拉站内信未读数（NT-1）：进面板与每次换页时刷新（轻量轮询口径）。 */
+/** refreshUnread fetches the in-app notification unread count (NT-1): refreshed on panel entry and on every route change (lightweight polling). */
 async function refreshUnread() {
   if (!auth.token) return
   try {
     auth.unread = await getUnreadCount()
   } catch {
-    /* 未读数拉取失败不打扰主流程 */
+    /* a failed unread-count fetch does not disturb the main flow */
   }
 }
 
@@ -24,9 +24,9 @@ onMounted(async () => {
   if (!auth.token) return
   try {
     setUser(await get<Me>('/api/panel/me'))
-    void initSupport() // 客服组件按需挂载，失败只 warn（support.ts）
+    void initSupport() // the support widget mounts on demand; failures only warn (support.ts)
   } catch (e) {
-    // 404 = 令牌失效/用户停用；网络类错误保留令牌下次再试。
+    // 404 = invalid token / user disabled; network-class errors keep the token and retry next time.
     if (e instanceof ApiError && e.status === 404) doLogout()
   }
   refreshUnread()
