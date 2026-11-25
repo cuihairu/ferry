@@ -1,11 +1,11 @@
-// Package backup 本地周期备份（面板可用性 §2，P1）：SQLite VACUUM INTO
-// 在线一致性快照（.backup 同义口径，WAL 已合并）→ 配置了主密钥时打包
-// 加密（secret_store 派生钥 AES-256-GCM，主密钥不进备份包）→ 落档目录
-// 滚动保留 Keep 份（含手动落档，超窗连文件带行删，不留幽灵 path）→
-// backups 表落 scheduled 行。失败经 Herald backup_failed 告警（按日去重），
-// 不静默。外发位 S3_* 默认关闭零变化；显式开启经 S3Uploader（stdlib
-// SigV4 PUT，见 s3.go）真实外发，成功置 uploaded=1，失败告警且档保留。
-// postgres/mysql 方言本批未支持（走各自备份设施），周期备份会按日告警。
+// Package backup is local periodic backup (panel availability §2, P1): a SQLite VACUUM INTO
+// online consistent snapshot (.backup under the same policy, WAL already merged) -> packed and
+// encrypted when a master key is configured (secret_store derived key AES-256-GCM, the master key
+// never enters the backup archive) -> archived with Keep rolling retention (including manual
+// archives; out-of-window files and rows are both deleted, leaving no ghost paths) ->
+// a scheduled row lands in the backups table. Failures alert via Herald backup_failed (deduped per day),
+// never silent. The outbound slot S3_* is off by default with zero change; explicitly enabling it sends
+// for real via S3Uploader (stdlib SigV4 PUT, see s3.go), success sets uploaded=1, failure alerts and keeps the archive.
 package backup
 
 import (
@@ -25,40 +25,40 @@ import (
 	"gorm.io/gorm"
 )
 
-// 备份留痕 kind 与档名前缀。
+// Backup trail kinds and archive name prefixes.
 const (
-	KindManual    = "manual"    // 手动下载端点落档
-	KindScheduled = "scheduled" // 周期备份 Loop 落档
+	KindManual    = "manual"    // manual download endpoint archive
+	KindScheduled = "scheduled" // periodic backup Loop archive
 )
 
 const (
-	// TickSec 是调度检查周期（秒）：cron 触发粒度，实际触发延迟 ≤ 1 分钟。
+	// TickSec is the schedule check period (seconds): cron trigger granularity, the actual trigger delay is at most 1 minute.
 	TickSec = 60
-	// FreshHours 是 health 备份新鲜度阈值：距最近落档超过该时长视为不新鲜
-	//（每日频次下容错过一次失败，两天没有新档就要看告警）。
+	// FreshHours is the health backup-freshness threshold: newer than this long from the last archive counts as
+	// fresh (at a daily cadence one skipped failure is tolerated; two days without a new archive means look at the alert).
 	FreshHours = 48
 )
 
-// Uploader 是备份外发插件位（FERRY_BACKUP_S3_*，面板可用性 §2.2）：默认
-// 关闭；显式开启时由 main 注入 S3Uploader（stdlib SigV4 PUT）真实外发，
-// 测试可注入桩。开关已开但未注入实现时，Loop 只在日志明示「外发未注入 +
-// 数据范围=备份目录全部落档文件」，档不离开本机。
+// Uploader is the backup outbound plugin slot (FERRY_BACKUP_S3_*, panel availability §2.2): off by
+// default; when explicitly enabled main injects S3Uploader (stdlib SigV4 PUT) to send for real, and
+// tests can inject a stub. When the switch is on but no implementation is injected, Loop only states in the log "outbound not
+// injected + data scope = all archived files under the backup directory"; the archive does not leave this machine.
 type Uploader interface {
-	// Upload 把本地档文件外发；成功返回 nil 后对应行置 uploaded=1。
+	// Upload sends the local archive file outbound; on nil return the corresponding row is set to uploaded=1.
 	Upload(ctx context.Context, localPath string) error
 }
 
-// Options 是周期备份口径；零值回退默认（daily、保留 7 份）。
+// Options is the periodic backup policy; the zero value falls back to the default (daily, keep 7).
 type Options struct {
-	Dir       string   // 落档目录（FERRY_BACKUP_DIR）
-	Cron      string   // 调度：cron 表达式或 "daily"/"HH:MM" 别名（FERRY_BACKUP_CRON）
-	Keep      int      // 滚动保留份数（FERRY_BACKUP_KEEP）
-	S3Enabled bool     // 外发位开关（FERRY_BACKUP_S3_ENABLED，默认关闭）
-	S3        Uploader // 外发实现（开启时注入 S3Uploader，测试注入桩）
+	Dir       string   // archive directory (FERRY_BACKUP_DIR)
+	Cron      string   // schedule: a cron expression or the "daily"/"HH:MM" alias (FERRY_BACKUP_CRON)
+	Keep      int      // rolling retention count (FERRY_BACKUP_KEEP)
+	S3Enabled bool     // outbound switch (FERRY_BACKUP_S3_ENABLED, off by default)
+	S3        Uploader // outbound implementation (S3Uploader injected when enabled, a stub in tests)
 	Logger    *log.Logger
 
-	tick  time.Duration // 调度检查周期（未导出，测试注入；缺省 TickSec）
-	sched cron.Schedule // 调度注入（未导出，测试注入；缺省按 Cron 解析）
+	tick  time.Duration // schedule check period (unexported, injected by tests; defaults to TickSec)
+	sched cron.Schedule // schedule injection (unexported, injected by tests; defaults to parsing Cron)
 }
 
 func (o Options) normalize() Options {
@@ -77,12 +77,12 @@ func (o Options) normalize() Options {
 	return o
 }
 
-// dailyTimeRe 识别 "HH:MM" 别名（展开为每日该时刻的 cron 表达式）。
+// dailyTimeRe recognizes the "HH:MM" alias (expanded to a cron expression for that time daily).
 var dailyTimeRe = regexp.MustCompile(`^(\d{1,2}):(\d{2})$`)
 
-// ParseSchedule 把 FERRY_BACKUP_CRON 配置解析为 cron 调度：空/"daily"=每日
-// 午夜；"HH:MM"=每日该时刻；其余原样交给标准 5 段/@描述符解析，解析失败
-// 回退每日并在日志说明（配置错不静默，也不让备份停摆）。
+// ParseSchedule parses the FERRY_BACKUP_CRON setting into a cron schedule: empty / "daily" means daily
+// midnight; "HH:MM" means that time daily; anything else is handed to the standard 5-field / @descriptor parser, and a
+// parse failure falls back to daily with an explanation in the log (a bad config is neither silent nor does it stall the backup).
 func ParseSchedule(expr string, logger *log.Logger) cron.Schedule {
 	switch {
 	case expr == "" || expr == "daily":
@@ -102,11 +102,11 @@ func ParseSchedule(expr string, logger *log.Logger) cron.Schedule {
 	return sched
 }
 
-// Snapshot 生成一份当前数据库的一致性快照落档（SQLite VACUUM INTO 在线
-// 备份，WAL 已合并）：配置了主密钥时流式打包加密为 .enc（secret 派生钥，
-// 主密钥不进备份包），否则落明文 .db。P1-8：不再整库读入内存——明文走
-// 同目录原子 rename（零拷贝），加密走流式 EncryptBytesStream，大库（流量
-// 表增长）不 OOM。返回档路径与字节数。
+// Snapshot produces a consistent snapshot of the current database and archives it (SQLite VACUUM INTO online
+// backup, WAL already merged): when a master key is configured it is streamed, packed and encrypted to .enc (secret derived
+// key, the master key never enters the backup archive), otherwise it lands as plaintext .db. P1-8: no longer reading
+// the whole DB into memory - plaintext takes an atomic rename in the same directory (zero copy), encryption takes the
+// streaming EncryptBytesStream, so a large DB (growing traffic tables) does not OOM. Returns the archive path and byte count.
 func Snapshot(db *gorm.DB, dir string, store *secret.Store) (string, int64, error) {
 	if db.Dialector.Name() != "sqlite" {
 		return "", 0, errors.New("backup only supports sqlite (postgres/mysql use their own facilities)")
@@ -114,7 +114,7 @@ func Snapshot(db *gorm.DB, dir string, store *secret.Store) (string, int64, erro
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return "", 0, fmt.Errorf("backup dir: %w", err)
 	}
-	// VACUUM INTO 要求目标文件不存在；CreateTemp 抢一个目录内安全名再删。
+	// VACUUM INTO requires the target file not to exist; CreateTemp claims a safe name in the directory, then it is removed.
 	tmp, err := os.CreateTemp(dir, "ferry-tmp-*.db")
 	if err != nil {
 		return "", 0, err
@@ -133,7 +133,7 @@ func Snapshot(db *gorm.DB, dir string, store *secret.Store) (string, int64, erro
 		name += ".enc"
 	}
 	path := filepath.Join(dir, name)
-	// 明文：同目录原子 rename，零拷贝不占内存（P1-8）。
+	// Plaintext: an atomic rename in the same directory, zero copy and no memory pressure (P1-8).
 	if store == nil || !store.Enabled() {
 		if err := os.Rename(tmpPath, path); err != nil {
 			os.Remove(tmpPath)
@@ -145,7 +145,7 @@ func Snapshot(db *gorm.DB, dir string, store *secret.Store) (string, int64, erro
 		}
 		return path, info.Size(), nil
 	}
-	// 加密：流式加密 VACUUM 产物到最终档（P1-8），失败清残留档。
+	// Encrypted: stream-encrypt the VACUUM output into the final archive (P1-8), clearing leftovers on failure.
 	src, err := os.Open(tmpPath)
 	if err != nil {
 		os.Remove(tmpPath)
@@ -172,8 +172,8 @@ func Snapshot(db *gorm.DB, dir string, store *secret.Store) (string, int64, erro
 	return path, info.Size(), nil
 }
 
-// Loop 周期备份调度：按 TickSec 轮询 cron 下个触发点，到点跑一轮
-// （快照→落行→外发位→滚动清理），失败经 Herald backup_failed 告警。
+// Loop is the periodic backup schedule: it polls the next cron trigger at TickSec and, when it
+// comes, runs one round (snapshot -> row -> outbound slot -> rolling cleanup); failures alert via Herald backup_failed.
 func Loop(ctx context.Context, db *gorm.DB, opts Options, store *secret.Store) {
 	opts = opts.normalize()
 	sched := opts.sched
@@ -202,7 +202,7 @@ func Loop(ctx context.Context, db *gorm.DB, opts Options, store *secret.Store) {
 	}
 }
 
-// outboundState 是外发位的人类可读状态（启动日志与运行日志共用口径）。
+// outboundState is the human-readable outbound-slot state (shared by the startup and runtime logs).
 func outboundState(opts Options) string {
 	if !opts.S3Enabled {
 		return "disabled"
@@ -213,8 +213,8 @@ func outboundState(opts Options) string {
 	return "enabled (s3-compatible endpoint; scope = all files in backup dir)"
 }
 
-// run 跑一轮完整备份：快照落档 → backups 行 → 外发位（S3 已接入，
-// 2026-10-09 外发批；未配 uploader 只日志明示不外发）→ 滚动清理。
+// run executes one full backup round: snapshot archive -> backups row -> outbound slot (S3 wired in,
+// the 2026-10-09 outbound batch; no uploader configured means only the log states that nothing is sent) -> rolling cleanup.
 func run(ctx context.Context, db *gorm.DB, opts Options, store *secret.Store) error {
 	path, size, err := Snapshot(db, opts.Dir, store)
 	if err != nil {
@@ -226,8 +226,8 @@ func run(ctx context.Context, db *gorm.DB, opts Options, store *secret.Store) er
 	}
 	if opts.S3Enabled {
 		if opts.S3 != nil {
-			// 每次外发日志明示数据范围（开启态的固定披露口径）：外发的
-			// 是备份目录全部落档文件（面板库全量快照，配置主密钥时为加密档）。
+			// Each outbound log states the data scope (the fixed disclosure policy of the enabled state): what goes out
+			// is every archived file under the backup directory (a full snapshot of the panel DB, an encrypted archive when a master key is configured).
 			opts.Logger.Printf("backup: s3 outbound %s (data scope = all files in backup dir %s)", path, opts.Dir)
 			if uerr := opts.S3.Upload(ctx, path); uerr != nil {
 				opts.Logger.Printf("backup: s3 upload %s: %v", path, uerr)
@@ -246,8 +246,8 @@ func run(ctx context.Context, db *gorm.DB, opts Options, store *secret.Store) er
 	return nil
 }
 
-// Prune 滚动保留最近 keep 份档（manual/scheduled 不分），超窗的连文件带
-// 行删；窗口内但文件已丢失的行同样清掉，不留幽灵 path。
+// Prune keeps the keep most recent archives rolling (manual/scheduled alike), deleting out-of-window
+// files and rows together; rows in-window whose files are already lost are cleared too, leaving no ghost paths.
 func Prune(db *gorm.DB, keep int) {
 	if keep <= 0 {
 		keep = 7
@@ -272,23 +272,23 @@ func Prune(db *gorm.DB, keep int) {
 	}
 }
 
-// emitBackupFailed 落快照失败的 backup_failed 告警（severity=warning，
-// target=admin），口径见 emitBackupEvent。
+// emitBackupFailed lands a backup_failed alert for a snapshot failure (severity=warning,
+// target=admin); the policy is documented in emitBackupEvent.
 func emitBackupFailed(db *gorm.DB, cause error, logger *log.Logger) {
 	emitBackupEvent(db, "数据库备份失败",
 		fmt.Sprintf("周期备份未完成：%v；连续失败请检查磁盘与数据库状态，备份链路故障不静默", cause), logger)
 }
 
-// emitUploadFailed 落外发失败的 backup_failed 告警：与快照失败共用 kind
-// 与按日去重窗口（同日已告警则只补日志），本地档保留由 run 侧保证。
+// emitUploadFailed lands a backup_failed alert for an outbound failure: it shares the kind and the per-day
+// dedup window with snapshot failures (already alerted today means only a log is added), and the local archive is kept by run.
 func emitUploadFailed(db *gorm.DB, cause error, logger *log.Logger) {
 	emitBackupEvent(db, "备份外发失败",
 		fmt.Sprintf("备份档外发未完成（本地档已保留）：%v；请检查 FERRY_BACKUP_S3_* 配置与端点可达性", cause), logger)
 }
 
-// emitBackupEvent 落 backup_failed 告警（severity=warning，target=admin），
-// 本地按日自查重（同日已有该 kind 事件则跳过——持续故障每日至多一条，
-// 不刷屏），dedup_key 再兜底供 Herald 侧窗口合并；Emit 失败只记日志。
+// emitBackupEvent lands a backup_failed alert (severity=warning, target=admin), with a local per-day
+// self-dedup (an existing event of that kind today is skipped - a continuing failure yields at most one a day,
+// no spam), plus a dedup_key fallback for Herald-side window merging; an Emit failure only logs.
 func emitBackupEvent(db *gorm.DB, title, body string, logger *log.Logger) {
 	var n int64
 	if err := db.Model(&storage.Event{}).Where("kind = ? AND created_at >= ?",

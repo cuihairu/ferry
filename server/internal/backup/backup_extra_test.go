@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// TestNormalizeDefaults 覆盖 Options.normalize 的缺省补全（Dir/Keep/Logger/tick）。
+// TestNormalizeDefaults covers the default completion of Options.normalize (Dir/Keep/Logger/tick).
 func TestNormalizeDefaults(t *testing.T) {
 	o := Options{}.normalize()
 	if o.Dir != "backups" || o.Keep != 7 || o.Logger == nil {
@@ -24,7 +24,7 @@ func TestNormalizeDefaults(t *testing.T) {
 	if o.tick != TickSec*time.Second {
 		t.Fatalf("tick default = %v", o.tick)
 	}
-	// 显式值保留。
+	// Explicit values are kept.
 	lg := log.New(os.Stderr, "", 0)
 	o = Options{Dir: "/x", Keep: 3, Logger: lg, tick: 5 * time.Second}.normalize()
 	if o.Dir != "/x" || o.Keep != 3 || o.Logger != lg || o.tick != 5*time.Second {
@@ -32,7 +32,7 @@ func TestNormalizeDefaults(t *testing.T) {
 	}
 }
 
-// TestParseScheduleBoundaries 覆盖 ParseSchedule 的空/daily/HH:MM/非法回退分支。
+// TestParseScheduleBoundaries covers ParseSchedule's empty / daily / HH:MM / invalid-fallback branches.
 func TestParseScheduleBoundaries(t *testing.T) {
 	lg := log.New(os.Stderr, "", 0)
 	cases := []string{"", "daily", "03:30", "30 3 * * *", "not a cron"}
@@ -42,16 +42,16 @@ func TestParseScheduleBoundaries(t *testing.T) {
 			t.Fatalf("schedule nil for %q", c)
 		}
 	}
-	// "25:00" 匹配 HH:MM 但 Sscanf 后转 "0 25 * * *" → 非法 → 回退 daily。
+	// "25:00" matches HH:MM but turns into "0 25 * * *" after Sscanf -> invalid -> falls back to daily.
 	if s := ParseSchedule("25:00", lg); s == nil {
 		t.Fatal("bad HH:MM should fall back")
 	}
 }
 
-// TestSnapshotErrors 覆盖 Snapshot 的目录/临时文件/写入失败分支。
+// TestSnapshotErrors covers Snapshot's directory / temp-file / write-failure branches.
 func TestSnapshotErrors(t *testing.T) {
 	db := openDB(t)
-	// 非 sqlite 已由 TestSnapshotUnsupportedDialect 覆盖；这里 dir 指向文件。
+	// Non-sqlite is already covered by TestSnapshotUnsupportedDialect; here dir points at a file.
 	fileDir := filepath.Join(t.TempDir(), "notdir")
 	if err := os.WriteFile(fileDir, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
@@ -59,13 +59,13 @@ func TestSnapshotErrors(t *testing.T) {
 	if _, _, err := Snapshot(db, fileDir, nil); err == nil {
 		t.Fatal("want error for dir-is-file")
 	}
-	// 空 master key 的 store 禁用：Snap 明文。
+	// A store with an empty master key is disabled: Snap goes plaintext.
 	dir := t.TempDir()
 	_, _, err := Snapshot(db, dir, secret.NewStore(""))
 	if err != nil {
 		t.Fatalf("snapshot: %v", err)
 	}
-	// 加密 store 成功加密（.enc 结尾）。
+	// An encrypted store encrypts successfully (.enc suffix).
 	store := secret.NewStore("master-extra")
 	path, _, err := Snapshot(db, dir, store)
 	if err != nil || !strings.HasSuffix(path, ".enc") {
@@ -73,7 +73,7 @@ func TestSnapshotErrors(t *testing.T) {
 	}
 }
 
-// TestPruneEdge 覆盖 Prune 的 keep<=0 默认、丢失文件清幽灵、空路径行。
+// TestPruneEdge covers Prune's keep<=0 default, clearing ghosts of lost files, and empty-path rows.
 func TestPruneEdge(t *testing.T) {
 	db := openDB(t)
 	dir := t.TempDir()
@@ -81,7 +81,7 @@ func TestPruneEdge(t *testing.T) {
 	if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// 三行：保留 1 份，超窗的删文件+行；丢失文件行清掉；空 path 行。
+	// Three rows: keep 1 archive, delete file + row for the out-of-window one; clear the lost-file row; the empty-path row.
 	rows := []storage.Backup{
 		{Kind: KindScheduled, Path: p, CreatedAt: time.Now()},
 		{Kind: KindScheduled, Path: filepath.Join(dir, "gone.db"), CreatedAt: time.Now().Add(-time.Hour)},
@@ -103,7 +103,7 @@ func TestPruneEdge(t *testing.T) {
 	if _, err := os.Stat(p); err != nil {
 		t.Fatalf("kept file removed: %v", err)
 	}
-	// keep<=0 默认 7，不清。
+	// keep<=0 defaults to 7 and does not clear.
 	Prune(db, 0)
 	if err := db.Find(&left).Error; err != nil {
 		t.Fatal(err)
@@ -113,7 +113,7 @@ func TestPruneEdge(t *testing.T) {
 	}
 }
 
-// TestEmitBackupEventDedup 覆盖 emitBackupEvent 的按日去重与 Emit 成功路径。
+// TestEmitBackupEventDedup covers emitBackupEvent's per-day dedup and the Emit success path.
 func TestEmitBackupEventDedup(t *testing.T) {
 	db := openDB(t)
 	lg := log.New(os.Stderr, "", 0)
@@ -125,7 +125,7 @@ func TestEmitBackupEventDedup(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("events = %d, want 1", n)
 	}
-	// 同日再发被去重。
+	// Sending again on the same day is deduped.
 	emitBackupEvent(db, "标题2", "正文2", lg)
 	db.Model(&storage.Event{}).Count(&n)
 	if n != 1 {
@@ -133,7 +133,7 @@ func TestEmitBackupEventDedup(t *testing.T) {
 	}
 }
 
-// TestRunS3Failure 覆盖 run 的 S3 上传失败（uploader 报错）仍保留本地档。
+// TestRunS3Failure covers run's S3 upload failure (the uploader errors) still keeping the local archive.
 func TestRunS3Failure(t *testing.T) {
 	db := openDB(t)
 	dir := t.TempDir()
@@ -157,7 +157,7 @@ type fixedSchedule struct{}
 
 func (fixedSchedule) Next(time.Time) time.Time { return time.Now().Add(time.Minute) }
 
-// TestSnapshotClosedDB 覆盖 VACUUM 在关闭库上失败的报错分支。
+// TestSnapshotClosedDB covers the error branch where VACUUM fails on a closed DB.
 func TestSnapshotClosedDB(t *testing.T) {
 	db := openDB(t)
 	sqlDB, err := db.DB()
@@ -165,13 +165,13 @@ func TestSnapshotClosedDB(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = sqlDB.Close()
-	// 关闭后 VACUUM 报错，Snap 返回错误。
+	// After closing, VACUUM errors and Snap returns an error.
 	if _, _, err := Snapshot(db, t.TempDir(), nil); err == nil {
 		t.Fatal("want error for closed db")
 	}
 }
 
-// TestS3UploaderMissingCreds 覆盖 Upload 未配凭据的拒绝分支。
+// TestS3UploaderMissingCreds covers Upload's rejection branch when no credentials are configured.
 func TestS3UploaderMissingCreds(t *testing.T) {
 	u, err := NewS3Uploader("http://localhost:9000", "", "", "", nil)
 	if err != nil {
@@ -182,7 +182,7 @@ func TestS3UploaderMissingCreds(t *testing.T) {
 	}
 }
 
-// TestNewS3UploaderInvalid 覆盖 NewS3Uploader 的端点校验分支。
+// TestNewS3UploaderInvalid covers NewS3Uploader's endpoint validation branches.
 func TestNewS3UploaderInvalid(t *testing.T) {
 	if _, err := NewS3Uploader("", "b", "a", "s", nil); err == nil {
 		t.Fatal("empty endpoint")
@@ -193,13 +193,13 @@ func TestNewS3UploaderInvalid(t *testing.T) {
 	if _, err := NewS3Uploader("http://", "b", "a", "s", nil); err == nil {
 		t.Fatal("missing host")
 	}
-	// 合法缺 scheme 补 https。
+	// A legal endpoint missing its scheme gets https filled in.
 	if _, err := NewS3Uploader("localhost:9000", "b", "a", "s", nil); err != nil {
 		t.Fatalf("default scheme: %v", err)
 	}
 }
 
-// TestOutboundStateEdge 覆盖 outboundState 三态。
+// TestOutboundStateEdge covers the three states of outboundState.
 func TestOutboundStateEdge(t *testing.T) {
 	if got := outboundState(Options{S3Enabled: false}); got != "disabled" {
 		t.Fatalf("disabled: %s", got)
@@ -212,7 +212,7 @@ func TestOutboundStateEdge(t *testing.T) {
 	}
 }
 
-// 确保 herald 常量与 gorm 引用不悬空（编译期验证）。
+// Keeps the herald constants and gorm references from dangling (compile-time check).
 var (
 	_ = herald.KindBackupFailed
 	_ = herald.SeverityWarning

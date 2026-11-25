@@ -1,11 +1,11 @@
 package backup
 
-// S3 兼容端点外发实现（FERRY_BACKUP_S3_*，面板可用性 §2.2）：stdlib 手写
-// AWS SigV4 单对象 PUT（path-style），零新依赖。默认关闭——未显式
-// FERRY_BACKUP_S3_ENABLED=1 时 main 不注入本实现，备份行为与关闭态零变化；
-// 显式开启后每轮把新落档 PUT 到 {endpoint}/{bucket}/{key}，成功才置
-// uploaded=1，失败经 backup_failed 告警且本地档保留。region 固定
-// us-east-1（S3 兼容端点普遍不校验，真 AWS 跨区桶需要时再开配置位）。
+// An S3-compatible endpoint outbound implementation (FERRY_BACKUP_S3_*, panel availability §2.2): a
+// hand-written AWS SigV4 single-object PUT in the stdlib (path-style), with zero new dependencies. Off by
+// default - when FERRY_BACKUP_S3_ENABLED=1 is not set explicitly, main does not inject this implementation
+// and backup behavior is unchanged from the disabled state; once explicitly enabled, each round PUTs the
+// new archive to {endpoint}/{bucket}/{key}, only success sets uploaded=1, and a failure alerts via backup_failed
+// while keeping the local archive. The region is fixed at us-east-1 (S3-compatible endpoints rarely validate it; add a config slot if a real AWS cross-region bucket needs it).
 
 import (
 	"context"
@@ -24,27 +24,27 @@ import (
 )
 
 const (
-	// s3Region 是 SigV4 签名 region（固定值，理由见文件头注记）。
+	// s3Region is the SigV4 signing region (a fixed value; the rationale is in the file header note).
 	s3Region = "us-east-1"
-	// s3UploadTimeout 限制单次外发时长：无配置位，慢链路也不挂死备份轮次。
+	// s3UploadTimeout bounds a single outbound duration: there is no config slot, so a slow chain must not hang the backup round.
 	s3UploadTimeout = 10 * time.Minute
 )
 
-// S3Uploader 把本地档外发到 S3 兼容端点（Uploader 实现）。零值不可用，
-// 经 NewS3Uploader 构造；payload 参与 SigV4 签名（严格端点同样接受）。
+// S3Uploader sends a local archive to an S3-compatible endpoint (an Uploader implementation). The zero
+// value is unusable; construct via NewS3Uploader; the payload participates in the SigV4 signature (a strict endpoint accepts it equally).
 type S3Uploader struct {
-	scheme    string // http/https（endpoint 缺 scheme 时缺省 https）
+	scheme    string // http/https (defaults to https when the endpoint lacks a scheme)
 	host      string // host[:port]
-	basePath  string // endpoint 自带路径前缀（如反代 /s3），可空
+	basePath  string // a path prefix carried by the endpoint itself (e.g. a reverse proxy /s3), may be empty
 	bucket    string
 	accessKey string
 	secretKey string
 	client    *http.Client
 }
 
-// NewS3Uploader 构造并解析 endpoint（缺 scheme 补 https；可带路径前缀与
-// 端口）。endpoint 缺失/不可解析即报错——开启但配置坏了不静默，启动日志
-// 可见；bucket/密钥留空留到 Upload 报错（走 backup_failed 告警，面板可见）。
+// NewS3Uploader constructs and parses the endpoint (a missing scheme gets https; a path prefix and
+// port are allowed). A missing / unparseable endpoint errors out immediately - enabled but misconfigured is not silent, and it is
+// visible in the startup log; an empty bucket/key is left to error in Upload (routing via the backup_failed alert, visible in the panel).
 func NewS3Uploader(endpoint, bucket, accessKey, secretKey string, client *http.Client) (*S3Uploader, error) {
 	ep := strings.TrimSpace(endpoint)
 	if ep == "" {
@@ -74,9 +74,9 @@ func NewS3Uploader(endpoint, bucket, accessKey, secretKey string, client *http.C
 	}, nil
 }
 
-// Upload 把 localPath 档 PUT 到 {endpoint}/{bucket}/{basename}（实现
-// Uploader）。流式哈希后原文件作请求体，档不整读进内存；任何错误都不动
-// 本地档（外发失败档保留由 run 侧口径保证）。
+// Upload PUTs the localPath archive to {endpoint}/{bucket}/{basename} (implementing
+// Uploader). After streaming the hash, the original file becomes the request body, so the archive is never read fully into memory; no error
+// touches the local archive (keeping the archive on outbound failure is run's policy). outbound logs, and snapshot archiving proceeds as usual.
 func (u *S3Uploader) Upload(ctx context.Context, localPath string) error {
 	if u.bucket == "" || u.accessKey == "" || u.secretKey == "" {
 		return errors.New("s3 bucket/access key/secret key not set")
@@ -101,7 +101,7 @@ func (u *S3Uploader) Upload(ctx context.Context, localPath string) error {
 		return err
 	}
 	if info, err := f.Stat(); err == nil {
-		req.ContentLength = info.Size() // 显式长度，避免 chunked 触发端点兼容问题
+		req.ContentLength = info.Size() // explicit length, avoiding chunked triggering endpoint compatibility issues
 	}
 	req.Header.Set("x-amz-date", amzDate)
 	req.Header.Set("x-amz-content-sha256", payloadHash)
@@ -118,8 +118,8 @@ func (u *S3Uploader) Upload(ctx context.Context, localPath string) error {
 	return nil
 }
 
-// s3CanonicalURI 拼 path-style 对象路径并逐段转义（S3 规则：段内转义、
-// 分隔符 / 不转义），endpoint 自带前缀路径同样处理。
+// s3CanonicalURI assembles the path-style object path escaping segment by segment (S3 rules: escape
+// inside a segment, do not escape the separator /); a prefix path carried by the endpoint is handled the same way.
 func s3CanonicalURI(basePath, bucket, key string) string {
 	segments := strings.Split(strings.Trim(basePath+"/"+bucket+"/"+key, "/"), "/")
 	for i, s := range segments {
@@ -128,9 +128,9 @@ func s3CanonicalURI(basePath, bucket, key string) string {
 	return "/" + strings.Join(segments, "/")
 }
 
-// s3SigV4 计算单对象 PUT 的 Authorization 头：canonical 请求只含
-// host/x-amz-content-sha256/x-amz-date 三个签名头、无查询串，派生钥按
-// date→region→service→terminator 四级 HMAC 链。
+// s3SigV4 computes the Authorization header of a single-object PUT: the canonical request contains
+// only the three signing headers host/x-amz-content-sha256/x-amz-date and no query string, and the derived key
+// follows the four-level HMAC chain date->region->service->terminator.
 func s3SigV4(method, canonicalURI, host, region, amzDate, payloadHash, accessKey, secretKey string) string {
 	date := amzDate[:8]
 	const signed = "host;x-amz-content-sha256;x-amz-date"

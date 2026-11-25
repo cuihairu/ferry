@@ -20,14 +20,14 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// s3Record 记录假端点收到的一次请求（SigV4 结构断言用）。
+// s3Record records one request received by the fake endpoint (for SigV4 structure assertions).
 type s3Record struct {
 	method, path, host, auth, amzDate, contentSHA string
 	body                                          []byte
 }
 
-// fakeS3 是 httptest 假 S3 端点：记录请求，status=0/2xx 回 200，其余回
-// 该状态码 + 错误体。
+// fakeS3 is an httptest fake S3 endpoint: it records requests, returning 200 for status=0/2xx and
+// that status code plus an error body otherwise.
 type fakeS3 struct {
 	status int
 	mu     sync.Mutex
@@ -63,7 +63,7 @@ func (f *fakeS3) all() []s3Record {
 	return append([]s3Record(nil), f.reqs...)
 }
 
-// newFakeS3 起假端点并返回其 URL 与客户端（同进程回环，不上真实网络）。
+// newFakeS3 starts the fake endpoint and returns its URL and a client (same-process loopback, no real network).
 func newFakeS3(t *testing.T, status int) (*fakeS3, *httptest.Server) {
 	t.Helper()
 	fake := &fakeS3{status: status}
@@ -72,11 +72,11 @@ func newFakeS3(t *testing.T, status int) (*fakeS3, *httptest.Server) {
 	return fake, srv
 }
 
-// quietLogger 吞掉运行日志（三态测试不污染输出）。
+// quietLogger swallows runtime logs (so the three-state test does not pollute output).
 func quietLogger() *log.Logger { return log.New(io.Discard, "", 0) }
 
-// TestRunS3DisabledNoNetwork 覆盖硬要求三态之一：未显式开启时行为与关闭
-// 态零变化——注入了外发实现也零网络请求、零外发日志，快照落档照常。
+// TestRunS3DisabledNoNetwork covers one of the hard-requirement three states: when not explicitly enabled, behavior is
+// unchanged from the disabled state - even with an outbound implementation injected there are zero network requests and zero
 func TestRunS3DisabledNoNetwork(t *testing.T) {
 	db := openDB(t)
 	dir := t.TempDir()
@@ -105,10 +105,10 @@ func TestRunS3DisabledNoNetwork(t *testing.T) {
 	}
 }
 
-// TestRunS3UploadSuccess 覆盖硬要求三态之二：显式开启 + 端点可用 → 每次外发
-// 日志明示数据范围，上传成功才置 uploaded=1；假端点同时校验 SigV4 请求
-// 结构（方法/path-style 路径/host 签名头/payload 哈希与实体一致/日期与
-// 凭证 scope 格式）。
+// TestRunS3UploadSuccess covers the second hard-requirement state: explicitly enabled + a reachable endpoint -> every
+// outbound log states the data scope, and uploaded=1 is set only on success; the fake endpoint also validates the SigV4 request
+// structure (method / path-style path / host signing header / payload hash matching the entity / date and
+// credential scope formats).
 func TestRunS3UploadSuccess(t *testing.T) {
 	db := openDB(t)
 	dir := t.TempDir()
@@ -167,9 +167,9 @@ func TestRunS3UploadSuccess(t *testing.T) {
 	}
 }
 
-// TestRunS3UploadFailureAlerts 覆盖硬要求三态之三：端点失败 → uploaded=0、
-// backup_failed 告警落 outbox（外发失败标题、本地档保留口径入文）、本地
-// 档保留，且该轮整体不算失败（滚动清理照常）。
+// TestRunS3UploadFailureAlerts covers the third hard-requirement state: an endpoint failure -> uploaded=0,
+// a backup_failed alert lands in the outbox (outbound-failure title, the local-archive-kept policy in the body), the
+// local archive is kept, and the round as a whole is not counted as a failure (rolling cleanup proceeds).
 func TestRunS3UploadFailureAlerts(t *testing.T) {
 	db := openDB(t)
 	dir := t.TempDir()
@@ -209,9 +209,9 @@ func TestRunS3UploadFailureAlerts(t *testing.T) {
 	}
 }
 
-// TestS3SigV4KnownAnswer 用 openssl 独立对拍的签名做已知答案校验：同一
-// canonical 请求/密钥链，两套实现（stdlib 与 openssl dgst HMAC 链）必须
-// 得出同一签名。
+// TestS3SigV4KnownAnswer runs a known-answer check against a signature cross-checked with openssl: the same
+// canonical request / key chain must produce the same signature in both implementations (stdlib and the openssl dgst HMAC chain).
+// derive the same signature.
 func TestS3SigV4KnownAnswer(t *testing.T) {
 	const payload = "ferry backup payload"
 	sum := sha256.Sum256([]byte(payload))
@@ -226,7 +226,7 @@ func TestS3SigV4KnownAnswer(t *testing.T) {
 	}
 }
 
-// TestS3CanonicalURI 覆盖 path-style 路径拼接与逐段转义（分隔符不转义）。
+// TestS3CanonicalURI covers path-style path assembly and per-segment escaping (separators are not escaped).
 func TestS3CanonicalURI(t *testing.T) {
 	cases := []struct{ base, bucket, key, want string }{
 		{"", "ferry-bk", "ferry-backup-20261009-030000.db", "/ferry-bk/ferry-backup-20261009-030000.db"},
@@ -240,8 +240,8 @@ func TestS3CanonicalURI(t *testing.T) {
 	}
 }
 
-// TestNewS3UploaderEndpoint 覆盖 endpoint 解析：缺 scheme 补 https、带路径
-// 前缀与端口、缺失/不可解析报错（开启但配置坏了不静默）。
+// TestNewS3UploaderEndpoint covers endpoint parsing: a missing scheme gets https, a path prefix and
+// port, and a missing / unparseable one errors (enabled but misconfigured is not silent).
 func TestNewS3UploaderEndpoint(t *testing.T) {
 	up, err := NewS3Uploader("s3.example.com", "bk", "ak", "sk", http.DefaultClient)
 	if err != nil {

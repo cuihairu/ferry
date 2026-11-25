@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// openDB 建临时 SQLite 库（含全部表，backups/events 参与断言）。
+// openDB builds a temporary SQLite DB (with all tables; backups/events participate in assertions).
 func openDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := storage.Open(storage.DriverSQLite, filepath.Join(t.TempDir(), "test.db"))
@@ -30,8 +30,8 @@ func openDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-// TestSnapshotManual 覆盖快照落档（无主密钥=明文 .db）：档可独立打开、
-// 表结构与数据完整、落档体积一致。
+// TestSnapshotManual covers snapshot archiving (no master key = plaintext .db): the archive opens
+// independently, its table schema and data are intact, and the archived size matches.
 func TestSnapshotManual(t *testing.T) {
 	db := openDB(t)
 	if err := db.Create(&storage.User{Username: "bk", QuotaBytes: 42}).Error; err != nil {
@@ -62,9 +62,9 @@ func TestSnapshotManual(t *testing.T) {
 	}
 }
 
-// TestSnapshotEncrypted 覆盖主密钥派生钥加密档：.enc 档不可直接当
-// SQLite 打开，DecryptBytes 还原后可打开查到数据（主密钥不进备份包，
-// 对齐《安全设计》§3 加密面口径）。
+// TestSnapshotEncrypted covers a master-key-derived encrypted archive: a .enc archive cannot be opened
+// as SQLite directly, and DecryptBytes restores it to something openable with the data visible (the master key never
+// enters the backup archive, aligned with the "security design" §3 encrypted-surface policy).
 func TestSnapshotEncrypted(t *testing.T) {
 	db := openDB(t)
 	if err := db.Create(&storage.User{Username: "enc", QuotaBytes: 7}).Error; err != nil {
@@ -103,8 +103,8 @@ func TestSnapshotEncrypted(t *testing.T) {
 	}
 }
 
-// TestSnapshotUnsupportedDialect 断言非 SQLite 方言直接报错（postgres/mysql
-// 走各自备份设施，周期备份会按 backup_failed 告警而非静默跳过）。
+// TestSnapshotUnsupportedDialect asserts a non-SQLite dialect errors outright (postgres/mysql
+// use their own backup facilities, and periodic backup alerts via backup_failed instead of silently skipping).
 func TestSnapshotUnsupportedDialect(t *testing.T) {
 	pg, err := gorm.Open(postgres.Open("host=127.0.0.1 port=1 user=x dbname=x sslmode=disable"),
 		&gorm.Config{DisableAutomaticPing: true})
@@ -116,9 +116,9 @@ func TestSnapshotUnsupportedDialect(t *testing.T) {
 	}
 }
 
-// TestPrune 覆盖滚动保留：超窗档连文件带行删；窗口内文件已丢的行也清
-// （不留幽灵 path）。预置 9 个真实档 + 1 条文件已丢的幽灵行，Keep=7：
-// 排序后幽灵行占最新一位被清，真实档保留最新 6 个（7-1），共 6 行 6 文件。
+// TestPrune covers rolling retention: out-of-window archives are deleted file and row together; in-window
+// rows whose files are already lost are cleared too (leaving no ghost paths). Nine real archives plus one ghost
+// row with a lost file are preset, Keep=7: after sorting the ghost row takes the newest slot and is cleared, and the real archives keep the newest 6 (7-1), leaving 6 rows and 6 files.
 func TestPrune(t *testing.T) {
 	db := openDB(t)
 	dir := t.TempDir()
@@ -156,8 +156,8 @@ func TestPrune(t *testing.T) {
 	}
 }
 
-// TestParseSchedule 覆盖别名与回退：daily=每日；HH:MM 展开为该时刻；
-// 非法表达式回退每日（配置错不静默也不停摆）。
+// TestParseSchedule covers the alias and fallback: daily means every day; HH:MM expands to that time;
+// an invalid expression falls back to daily (a bad config is neither silent nor a stall).
 func TestParseSchedule(t *testing.T) {
 	now := time.Date(2026, 10, 8, 10, 0, 0, 0, time.Local)
 	daily := ParseSchedule("daily", nil)
@@ -175,14 +175,14 @@ func TestParseSchedule(t *testing.T) {
 	if got := fallback.Next(now); got.Format("0102 15:04") != "1009 00:00" {
 		t.Fatalf("fallback next = %s, want daily", got)
 	}
-	std := ParseSchedule("30 3 * * 0", nil) // 标准 5 段：每周日 03:30
+	std := ParseSchedule("30 3 * * 0", nil) // standard 5 fields: Sundays at 03:30
 	if got := std.Next(now); got.Format("0102 15:04") != "1011 03:30" {
 		t.Fatalf("weekly next = %s, want Sunday 03:30", got)
 	}
 }
 
-// TestBackupFailedEmit 断言失败告警落 outbox（kind=backup_failed，按日
-// dedup），连续失败同日只一条，不静默。
+// TestBackupFailedEmit asserts a failure alert lands in the outbox (kind=backup_failed, deduped
+// per day), consecutive failures yield only one on the same day, never silent.
 func TestBackupFailedEmit(t *testing.T) {
 	db := openDB(t)
 	cause := errStub("vacuum into: disk full")
@@ -207,7 +207,7 @@ type errStub string
 
 func (e errStub) Error() string { return string(e) }
 
-// onceSchedule 立即触发一次后长期沉默（Loop 全链路测试的确定性调度）。
+// onceSchedule triggers once immediately and then stays silent for a long time (a deterministic schedule for the full-chain Loop test).
 type onceSchedule struct{ fired *bool }
 
 func (s onceSchedule) Next(t time.Time) time.Time {
@@ -218,9 +218,9 @@ func (s onceSchedule) Next(t time.Time) time.Time {
 	return t.Add(365 * 24 * time.Hour)
 }
 
-// TestLoopRunsOnceAndPrunes 覆盖 Loop 全链路（1s tick + 注入立即触发的
-// 调度）：到点跑一轮落 scheduled 行与档文件，滚动清理生效，context 取消
-// 即退出。预置 8 行占满窗口，新档落地后按 Keep=7 收敛为 7 行 7 文件。
+// TestLoopRunsOnceAndPrunes covers the full Loop chain (1s tick + an injected immediately-triggering
+// schedule): when due it runs one round landing a scheduled row and an archive file, rolling cleanup takes
+// effect, and a context cancel exits. Eight rows are preset to fill the window; after the new archive lands, it converges to 7 rows and 7 files by Keep=7.
 func TestLoopRunsOnceAndPrunes(t *testing.T) {
 	db := openDB(t)
 	dir := t.TempDir()
@@ -245,7 +245,7 @@ func TestLoopRunsOnceAndPrunes(t *testing.T) {
 		db.Model(&storage.Backup{}).Count(&n)
 		files, _ := os.ReadDir(dir)
 		if n == 7 && len(files) == 7 {
-			break // 8 旧 + 1 新 = 9 → Keep=7 收敛
+			break // 8 old + 1 new = 9 -> converges to Keep=7
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("loop did not converge: rows=%d files=%d", n, len(files))
@@ -262,12 +262,12 @@ func TestLoopRunsOnceAndPrunes(t *testing.T) {
 	}
 }
 
-// noopUploader 恒成功的上传桩：只为撑起「已注入」分支的状态文案。
+// noopUploader is an always-successful upload stub: it exists only to hold up the "already injected" branch's state text.
 type noopUploader struct{}
 
 func (noopUploader) Upload(context.Context, string) error { return nil }
 
-// TestOutboundState 外发位三态文案：关闭、开启未注入、开启已注入。
+// TestOutboundState covers the three outbound-slot state texts: disabled, enabled-not-injected, enabled-injected.
 func TestOutboundState(t *testing.T) {
 	if got := outboundState(Options{}); got != "disabled" {
 		t.Fatalf("disabled = %q", got)
@@ -280,16 +280,16 @@ func TestOutboundState(t *testing.T) {
 	}
 }
 
-// TestSnapshotLargeTableStreams 覆盖大库快照的流式路径（P1-8）：表体量超
-// 1MiB（跨流式缓冲边界）时明文与加密档都完整可还原。旧实现整库 ReadFile
-// 进内存、EncryptBytes 再翻一份，库越大内存越高；流式后内存有界，档仍是
-// 一致 SQLite 快照（VACUUM INTO 在线口径）。
+// TestSnapshotLargeTableStreams covers the streaming path of a large-DB snapshot (P1-8): when the table
+// size exceeds 1MiB (crossing the streaming buffer boundary) both the plaintext and encrypted archives restore fully.
+// The old implementation read the whole DB into memory with ReadFile and EncryptBytes made another copy, so memory
+// grew with the DB; streaming bounds memory, while the archive is still a consistent SQLite snapshot (VACUUM INTO online policy).
 func TestSnapshotLargeTableStreams(t *testing.T) {
 	db := openDB(t)
 	if err := db.Exec(`CREATE TABLE big_tbl (id INTEGER PRIMARY KEY, payload BLOB)`).Error; err != nil {
 		t.Fatal(err)
 	}
-	// 6000 行 × 256B = ~1.5MB（递归 CTE 一次插入）。
+	// 6000 rows x 256B = ~1.5MB (one insert via a recursive CTE).
 	if err := db.Exec(`INSERT INTO big_tbl (payload)
 		SELECT zeroblob(256) FROM (
 			WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM c WHERE x < 6000)
@@ -298,7 +298,7 @@ func TestSnapshotLargeTableStreams(t *testing.T) {
 	}
 	dir := t.TempDir()
 
-	// 明文：体积跨过 1MiB 流式缓冲（证明走了分块路径），档可独立打开且行数完整。
+	// Plaintext: the size crosses the 1MiB streaming buffer (proving the chunked path ran), the archive opens independently and the row count is complete.
 	path, size, err := Snapshot(db, dir, secret.NewStore(""))
 	if err != nil {
 		t.Fatalf("plain snapshot: %v", err)
@@ -322,7 +322,7 @@ func TestSnapshotLargeTableStreams(t *testing.T) {
 	}
 	assertBigRows(path)
 
-	// 加密：DecryptBytes（未改动的还原口径）可解流式产物，还原后行数完整。
+	// Encrypted: DecryptBytes (the unchanged restore policy) can decode the streamed output, with the row count complete after restore.
 	store := secret.NewStore("stream-master")
 	encPath, _, err := Snapshot(db, dir, store)
 	if err != nil {
