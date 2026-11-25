@@ -9,8 +9,8 @@ import (
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
 
-// TestWriteOpenFailsWithSlashRole 带路径分隔符的 role：拼出的目标路径父目录
-// 不存在，open 失败要报错（而不是静默成功）。
+// TestWriteOpenFailsWithSlashRole covers a role containing a path separator: the parent directory of the assembled target path
+// does not exist, so the open failure must error (instead of silently succeeding).
 func TestWriteOpenFailsWithSlashRole(t *testing.T) {
 	dir := t.TempDir()
 	err := Write(dir, "sub/role", mustEnv(t, "1", agentproto.MsgProbeReport))
@@ -19,8 +19,8 @@ func TestWriteOpenFailsWithSlashRole(t *testing.T) {
 	}
 }
 
-// TestDrainRotationResetsOffset 文件被轮转/重建（变小）：偏移复位从头消费，
-// 新内容不因旧偏移越过而被丢。
+// TestDrainRotationResetsOffset covers a file being rotated/recreated (smaller): the offset resets and consumption restarts,
+// so new content is not dropped because an old offset skipped past it.
 func TestDrainRotationResetsOffset(t *testing.T) {
 	dir := t.TempDir()
 	path := pathFor(dir, "probe")
@@ -42,7 +42,7 @@ func TestDrainRotationResetsOffset(t *testing.T) {
 		t.Fatalf("first drain = %v", got)
 	}
 
-	// 轮转：整体重写成更短的新内容
+	// rotate: rewrite the whole file with shorter new content
 	fresh := mustEnv(t, "s", agentproto.MsgProbeReport)
 	raw, err := json.Marshal(fresh)
 	if err != nil {
@@ -60,7 +60,7 @@ func TestDrainRotationResetsOffset(t *testing.T) {
 	}
 }
 
-// TestDrainSkipsEmptyLines 空行（含连续空行）跳过且不误发。
+// TestDrainSkipsEmptyLines covers empty lines (consecutive ones included) being skipped without a bogus send.
 func TestDrainSkipsEmptyLines(t *testing.T) {
 	dir := t.TempDir()
 	env := mustEnv(t, "e1", agentproto.MsgProbeReport)

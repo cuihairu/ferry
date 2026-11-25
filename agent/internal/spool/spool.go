@@ -1,9 +1,9 @@
-// Package spool 是核心与角色组件之间的本机 IPC（E-5/E-7）：
+// Package spool is the local IPC between the core and the role components (E-5/E-7):
 //
-// 角色进程（-role probe 等）不直连面板——同节点单连接归核心所有，
-// 第二条连接会把核心踢下线。角色把上报 Envelope 按行写进
-// <spool_dir>/<role>.out，核心 Watch 转发。崩溃的角色只丢自己的文件，
-// 心跳不受影响。
+// role processes (-role probe etc.) do not connect to the panel directly -- the single connection per node belongs to the core,
+// and a second one would kick the core offline. A role writes its report Envelopes line by line into
+// <spool_dir>/<role>.out, which the core's Watch forwards. A role that crashes only loses its own file;
+// the heartbeat is unaffected.
 package spool
 
 import (
@@ -19,15 +19,15 @@ import (
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
 
-// PollInterval 是 Watch 的扫描周期。
+// PollInterval is the Watch scan period.
 const PollInterval = 2 * time.Second
 
-// pathFor 返回角色的上报文件。
+// pathFor returns a role's report file.
 func pathFor(dir, role string) string {
 	return filepath.Join(dir, role+".out")
 }
 
-// Write 追加一条上报（原子 O_APPEND 写，核心按行消费）。
+// Write appends one report (an atomic O_APPEND write, consumed line by line by the core).
 func Write(dir, role string, env agentproto.Envelope) error {
 	if dir == "" || role == "" {
 		return fmt.Errorf("spool: dir and role are required")
@@ -50,13 +50,13 @@ func Write(dir, role string, env agentproto.Envelope) error {
 	return nil
 }
 
-// Watch 周期扫描 spool 目录并转发（阻塞到 ctx 取消）。
+// Watch scans the spool directory periodically and forwards (blocking until the ctx is cancelled).
 func Watch(ctx context.Context, dir string, send func(agentproto.Envelope) error) error {
 	w := &watcher{dir: dir, offsets: map[string]int64{}}
 	ticker := time.NewTicker(PollInterval)
 	defer ticker.Stop()
 	for {
-		// 转发失败（离线等）不丢数据：offset 不推进，下轮重发。
+		// a failed forward (offline etc.) loses no data: the offset does not advance and the next round resends.
 		_ = w.drain(send)
 		select {
 		case <-ctx.Done():
@@ -66,13 +66,13 @@ func Watch(ctx context.Context, dir string, send func(agentproto.Envelope) error
 	}
 }
 
-// watcher 记住每个文件的消费偏移；文件变小视为轮转过，从头读。
+// watcher remembers each file's consumption offset; a smaller file counts as rotated and is read from the start.
 type watcher struct {
 	dir     string
 	offsets map[string]int64
 }
 
-// drain 消费全部角色文件。send 报错即停（offset 不推进，下轮重发）。
+// drain consumes every role file. A send error stops it (the offset does not advance, so the next round resends).
 func (w *watcher) drain(send func(agentproto.Envelope) error) error {
 	entries, err := os.ReadDir(w.dir)
 	if err != nil {
@@ -107,12 +107,12 @@ func (w *watcher) drainFile(path string, send func(agentproto.Envelope) error) e
 	}
 	off := w.offsets[path]
 	if st.Size() < off {
-		off = 0 // 轮转/重建过
+		off = 0 // rotated/recreated
 	}
 	if _, err := f.Seek(off, 0); err != nil {
 		return err
 	}
-	// 只消费到最后一个 '\n' 为止：尾部半行是并发追加中的撕裂，下轮再读。
+	// consume only up to the last '\n': a trailing partial line is a tear from a concurrent append, read again next round.
 	rest := make([]byte, 0, 64*1024)
 	tmp := make([]byte, 32*1024)
 	for {
@@ -124,7 +124,7 @@ func (w *watcher) drainFile(path string, send func(agentproto.Envelope) error) e
 	}
 	cut := bytes.LastIndexByte(rest, '\n')
 	if cut < 0 {
-		return nil // 全是半行，等下轮
+		return nil // all partial lines, wait for the next round
 	}
 	newOff := off + int64(cut) + 1
 	for _, line := range bytes.Split(rest[:cut], []byte{'\n'}) {
@@ -133,7 +133,7 @@ func (w *watcher) drainFile(path string, send func(agentproto.Envelope) error) e
 		}
 		var env agentproto.Envelope
 		if err := json.Unmarshal(line, &env); err != nil {
-			// 坏行跳过（offset 照推进，否则永远卡住）。
+			// skip bad lines (the offset still advances, otherwise it would stall forever).
 			continue
 		}
 		if err := send(env); err != nil {

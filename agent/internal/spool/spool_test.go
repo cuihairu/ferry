@@ -46,7 +46,7 @@ func TestWriteAndDrain(t *testing.T) {
 		t.Fatalf("order/content wrong: %+v", got)
 	}
 
-	// 幂等：已消费的不重发
+	// idempotent: already consumed data is not resent
 	got = nil
 	if err := w.drain(func(e agentproto.Envelope) error {
 		got = append(got, e)
@@ -62,7 +62,7 @@ func TestWriteAndDrain(t *testing.T) {
 func TestPartialLineHeld(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "probe.out")
-	// 模拟并发追加撕裂：完整行 + 不带换行的半行
+	// simulating a concurrent-append tear: a complete line plus a partial line without a newline
 	if err := os.WriteFile(path, []byte("{\"v\":1,\"id\":\"a\",\"type\":\"x\"}\n{\"v\":1,\"id\":\"par"), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestPartialLineHeld(t *testing.T) {
 	if len(got) != 1 || got[0].ID != "a" {
 		t.Fatalf("partial line must wait: %+v", got)
 	}
-	// 补齐半行，下轮消费
+	// complete the partial line; it is consumed next round
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		t.Fatal(err)
@@ -110,7 +110,7 @@ func TestSendFailureRetries(t *testing.T) {
 	if err := w.drain(send); err == nil {
 		t.Fatal("drain must surface send error")
 	}
-	// offset 未推进：恢复后重发成功
+	// the offset has not advanced: after recovery the resend succeeds
 	var got []agentproto.Envelope
 	if err := w.drain(func(e agentproto.Envelope) error {
 		got = append(got, e)
@@ -142,10 +142,10 @@ func TestBadLineSkipped(t *testing.T) {
 	}
 }
 
-// TestWatchForwardsUntilCancel Watch 周期扫描转发：写盘后被扫描消费，
-// ctx 取消后返回 ctx.Err()；目录不存在时不崩（IsNotExist 视同空）。
+// TestWatchForwardsUntilCancel covers Watch's periodic scan-and-forward: what is written lands after a scan,
+// and once the ctx is cancelled Watch returns ctx.Err(); a missing directory does not crash it (IsNotExist counts as empty).
 func TestWatchForwardsUntilCancel(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "later") // Watch 起步时目录还不存在
+	dir := filepath.Join(t.TempDir(), "later") // the directory does not exist yet when Watch starts
 	got := make(chan agentproto.Envelope, 4)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -157,7 +157,7 @@ func TestWatchForwardsUntilCancel(t *testing.T) {
 			return nil
 		})
 	}()
-	// 目录此时还不存在：Watch 不得因此退出。
+	// the directory still does not exist: Watch must not exit because of it.
 	select {
 	case err := <-done:
 		t.Fatalf("Watch exited on missing dir: %v", err)
@@ -187,7 +187,7 @@ func TestWatchForwardsUntilCancel(t *testing.T) {
 	}
 }
 
-// TestWriteRejectsBadArgs 参数缺失直接拒，不静默吞。
+// TestWriteRejectsBadArgs covers missing arguments being refused outright, never silently swallowed.
 func TestWriteRejectsBadArgs(t *testing.T) {
 	env := agentproto.Envelope{V: agentproto.ProtocolVersion, ID: "e1", Type: "probe.report"}
 	if err := Write("", "probe", env); err == nil {
@@ -198,7 +198,7 @@ func TestWriteRejectsBadArgs(t *testing.T) {
 	}
 }
 
-// TestWriteDirNotDirectory spool 路径被普通文件占住：建目录失败即冒错。
+// TestWriteDirNotDirectory covers the spool path being blocked by a plain file: the mkdir failure surfaces as an error.
 func TestWriteDirNotDirectory(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "spool")
 	if err := os.WriteFile(dir, []byte("x"), 0o600); err != nil {
@@ -211,7 +211,7 @@ func TestWriteDirNotDirectory(t *testing.T) {
 	}
 }
 
-// TestWriteBadPayload 载荷是非法 JSON 字节：序列化阶段就拒，不落文件。
+// TestWriteBadPayload covers a payload of invalid JSON bytes: refused at serialization, never written to a file.
 func TestWriteBadPayload(t *testing.T) {
 	dir := t.TempDir()
 	env := agentproto.Envelope{V: agentproto.ProtocolVersion, Type: "probe.report",
@@ -225,7 +225,7 @@ func TestWriteBadPayload(t *testing.T) {
 	}
 }
 
-// TestDrainMissingDirIsNoop 目录还没建出来是常态（角色未起），不算错。
+// TestDrainMissingDirIsNoop covers a directory not yet created being the normal state (the role has not started), not an error.
 func TestDrainMissingDirIsNoop(t *testing.T) {
 	w := &watcher{dir: filepath.Join(t.TempDir(), "absent"), offsets: map[string]int64{}}
 	if err := w.drain(func(agentproto.Envelope) error { return nil }); err != nil {
@@ -233,7 +233,7 @@ func TestDrainMissingDirIsNoop(t *testing.T) {
 	}
 }
 
-// TestDrainDirReadError 目录路径被文件占住：ReadDir 报错并冒上去。
+// TestDrainDirReadError covers the directory path being blocked by a file: ReadDir errors and the error propagates up.
 func TestDrainDirReadError(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "spool")
 	if err := os.WriteFile(dir, []byte("x"), 0o600); err != nil {
@@ -245,7 +245,7 @@ func TestDrainDirReadError(t *testing.T) {
 	}
 }
 
-// TestDrainFileOpenRace 文件在 ReadDir 之后被删：容忍 IsNotExist 不打断整轮。
+// TestDrainFileOpenRace covers a file deleted after ReadDir: IsNotExist is tolerated without interrupting the whole round.
 func TestDrainFileOpenRace(t *testing.T) {
 	w := &watcher{dir: t.TempDir(), offsets: map[string]int64{}}
 	if err := w.drainFile(filepath.Join(w.dir, "gone.out"),
@@ -254,7 +254,7 @@ func TestDrainFileOpenRace(t *testing.T) {
 	}
 }
 
-// TestDrainSkipsNonSpoolFiles 目录里的子目录与非 .out 文件不参与消费。
+// TestDrainSkipsNonSpoolFiles covers subdirectories and non-.out files in the directory taking no part in consumption.
 func TestDrainSkipsNonSpoolFiles(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "sub.out"), 0o755); err != nil {
