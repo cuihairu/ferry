@@ -13,13 +13,13 @@ import (
 	"gorm.io/gorm"
 )
 
-// 价格关注与促销提醒（E-32，套餐与成本设计 §4.2）：关注条件盯一个牌价键
-// （商家/区域/配置档，与参考价表同词表），扫描周期从已导入价格表抓快照；
-// 命中降价或现价到位（target_price 跨越沿）经 Herald price_alert 提示——
-// 未配 Herald 落本地 outbox 站内可见。只提示，不改任何手录价。
+// Price watches and promotion reminders (E-32, plan & cost design §4.2): each watch targets one
+// price key (provider/region/spec, shared vocabulary with the reference table); every scan cycle
+// snapshots it from the imported price table; a drop or a target_price crossing fires a Herald
+// price_alert (no Herald → local outbox, visible in-panel). Hints only; manual prices are never changed.
 
-// CheckPriceWatches 单轮扫描：逐条启用关注抓牌价落快照并比对命中。
-// 未导入价格表时整轮 no-op（关注还查不到牌价，不算错）。
+// CheckPriceWatches runs one scan pass: for each enabled watch, fetch its quote, store a snapshot
+// and compare for hits. With no price table imported the pass is a no-op (quotes unresolvable; not an error).
 func CheckPriceWatches(db *gorm.DB, now time.Time, logger *log.Logger) error {
 	if logger == nil {
 		logger = log.Default()
@@ -43,14 +43,14 @@ func CheckPriceWatches(db *gorm.DB, now time.Time, logger *log.Logger) error {
 	return nil
 }
 
-// checkOneWatch 单条关注：抓牌价→落快照→与上一快照比对降价、与目标价
-// 比对到位（跨越沿才发，到位后维持不重复告警）。
+// checkOneWatch handles one watch: fetch quote → store snapshot → compare against the previous snapshot
+// for a drop and against the target price for a hit (only crossings fire; staying put does not re-alert).
 func checkOneWatch(db *gorm.DB, src costref.Source, w storage.PriceWatch, now time.Time) error {
 	quote, err := src.Lookup(context.Background(), costref.Query{
 		Provider: w.Provider, Region: w.Region, Spec: w.Spec,
 	})
 	if errors.Is(err, costref.ErrNotFound) {
-		return nil // 表里还没这个键，等价格表更新
+		return nil // key not in the table yet; wait for the price table update
 	}
 	if err != nil {
 		return err
@@ -95,8 +95,8 @@ func quoteURL(q costref.Quote) string {
 	return q.URL
 }
 
-// emitPriceAlert 发管理告警：同 kind+dedup_key 已有事件则跳过（同日至多
-// 一条口径，与 login_alert 一致）；未配 Herald 经 Emit 落本地 outbox 站内可见。
+// emitPriceAlert emits an admin alert: skips when an event with the same kind+dedup_key exists
+// (at most one per day, same policy as login_alert); without Herald configured it lands in the local outbox, visible in-panel.
 func emitPriceAlert(db *gorm.DB, title, body, dedup string) {
 	key := "price_alert:" + dedup
 	var n int64
@@ -120,7 +120,7 @@ func emitPriceAlert(db *gorm.DB, title, body, dedup string) {
 	}
 }
 
-// WatchLoop 周期扫描价格关注（main 装配；interval<=0 回落 1h）。
+// WatchLoop scans price watches on an interval (wired up in main; interval<=0 falls back to 1h).
 func WatchLoop(ctx context.Context, db *gorm.DB, interval time.Duration, logger *log.Logger) {
 	if logger == nil {
 		logger = log.Default()

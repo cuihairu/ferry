@@ -11,17 +11,17 @@ import (
 	"gorm.io/gorm"
 )
 
-// 成本参考库（E-31）接线：手录成本唯一权威（alloc/看板口径不变），
-// 参考价只产偏差提示永不改价；首形态=公开价格表（JSON 落 settings，
-// 面板导入维护），横扩在线来源=costref.Source 另实现（接库前核 license）。
+// Cost reference (E-31) wiring: manually entered cost is the sole authority (alloc/dashboard accounting unchanged);
+// reference prices only produce deviation hints and never change prices; first form = a public price table (JSON in
+// settings, imported via the dashboard); online sources later = separate costref.Source implementations (check license first).
 
-// SettingRefTable 是参考价表 settings 键（JSON []costref.Entry，空=未启用）。
+// SettingRefTable is the reference price table settings key (JSON []costref.Entry, empty = disabled).
 const SettingRefTable = "costref_static_table"
 
-// DefaultRefTolerancePct 缺省偏差容忍度：|手录-牌价|>30% 提示人工复核。
+// DefaultRefTolerancePct is the default deviation tolerance: |manual - quote| > 30% suggests manual review.
 const DefaultRefTolerancePct = 30
 
-// LoadRefSource 读价格表建来源；未导入回 (nil, nil)。
+// LoadRefSource reads the price table to build a source; returns (nil, nil) when none is imported.
 func LoadRefSource(db *gorm.DB) (costref.Source, error) {
 	data, ok, err := storage.GetSetting(db, SettingRefTable)
 	if err != nil {
@@ -33,7 +33,7 @@ func LoadRefSource(db *gorm.DB) (costref.Source, error) {
 	return costref.ParseTable([]byte(data))
 }
 
-// SaveRefTable 校验后落库（导入层拒脏表）；空串清空停用。
+// SaveRefTable validates and persists (the import layer rejects dirty tables); an empty string clears and disables.
 func SaveRefTable(db *gorm.DB, data []byte) error {
 	if len(strings.TrimSpace(string(data))) == 0 {
 		return storage.SetSetting(db, SettingRefTable, "")
@@ -44,8 +44,8 @@ func SaveRefTable(db *gorm.DB, data []byte) error {
 	return storage.SetSetting(db, SettingRefTable, string(data))
 }
 
-// NodeQuery 把节点映射成牌价键：商家=机房（必填）、区域、配置=套餐档
-// 「下行带宽-月流量」。映射是提示用启发式，节点侧字段以面板为准。
+// NodeQuery maps a node onto a price key: provider = datacenter (required), region, spec = plan tier
+// "downstream bandwidth - monthly traffic". The mapping is a hint heuristic; node-side fields follow the dashboard.
 func NodeQuery(n storage.Node) (costref.Query, error) {
 	if strings.TrimSpace(n.Datacenter) == "" {
 		return costref.Query{}, errors.New("node datacenter not set; cannot map price key")
@@ -57,8 +57,8 @@ func NodeQuery(n storage.Node) (costref.Query, error) {
 	}, nil
 }
 
-// SpecOf 拼套餐档位串「<下行>M-<月流量>G」，0 段省略；流量按十进制 GB
-// 与流量单价同口径（BytesPerGB）。
+// SpecOf joins the plan tier string "<down>M-<monthly traffic>G", omitting zero segments; traffic uses decimal GB,
+// the same unit as the traffic price (BytesPerGB).
 func SpecOf(bwDownMbps int, quotaBytes int64) string {
 	var parts []string
 	if bwDownMbps > 0 {
@@ -70,9 +70,9 @@ func SpecOf(bwDownMbps int, quotaBytes int64) string {
 	return strings.Join(parts, "-")
 }
 
-// CheckNode 单节点对账：手录月固定成本 vs 牌价（只比月固定，流量单价
-// 偏差提示随价格扫描批再接）。查不到牌价/币种不符/手录未填都回错误，
-// 由调用方分面提示。
+// CheckNode reconciles one node: manually entered monthly fixed cost vs the quote (monthly fixed only;
+// traffic price deviation hints come later with the price scan batch). Missing quote / currency mismatch /
+// unset manual cost all return errors for the caller to surface facet by facet.
 func CheckNode(src costref.Source, n storage.Node, tolerancePct int64) (costref.Quote, costref.Deviation, error) {
 	q, err := NodeQuery(n)
 	if err != nil {

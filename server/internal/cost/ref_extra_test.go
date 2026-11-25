@@ -7,18 +7,18 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestSaveRefTableEdge 覆盖 SaveRefTable 空串清空与脏表拒绝分支。
+// TestSaveRefTableEdge covers SaveRefTable's empty-string clear and dirty-table rejection branches.
 func TestSaveRefTableEdge(t *testing.T) {
 	db := newTestDB(t)
-	// 空串：写入空值（现有实现以 SetSetting("") 表达清空）。
+	// Empty string: writes an empty value (the current implementation expresses clearing as SetSetting("")).
 	if err := SaveRefTable(db, []byte("   ")); err != nil {
 		t.Fatalf("clear: %v", err)
 	}
-	// 脏表拒绝。
+	// Dirty table is rejected.
 	if err := SaveRefTable(db, []byte(`{"not":"a-table"}`)); err == nil {
 		t.Fatal("bad table should error")
 	}
-	// 好表落库。
+	// Good table is persisted.
 	good := []byte(`[{"provider":"vultr","region":"tokyo","spec":"500M-2G","monthly_cents":10000,"currency":"CNY"}]`)
 	if err := SaveRefTable(db, good); err != nil {
 		t.Fatalf("save good: %v", err)
@@ -26,7 +26,7 @@ func TestSaveRefTableEdge(t *testing.T) {
 	if v, ok, _ := storage.GetSetting(db, SettingRefTable); !ok || v == "" {
 		t.Fatal("setting missing after save")
 	}
-	// 再清空：值为空串（表达停用）。
+	// Clear again: value is the empty string (expresses disabled).
 	if err := SaveRefTable(db, nil); err != nil {
 		t.Fatalf("clear nil: %v", err)
 	}
@@ -35,9 +35,9 @@ func TestSaveRefTableEdge(t *testing.T) {
 	}
 }
 
-// TestCheckNodeLookupError 覆盖 CheckNode 在牌价查询失败时返回错误分支。
+// TestCheckNodeLookupError covers CheckNode's error branch when the quote lookup fails.
 func TestCheckNodeLookupError(t *testing.T) {
-	src := costref.NewStatic("pricelist", nil) // 空表 → ErrNotFound
+	src := costref.NewStatic("pricelist", nil) // empty table → ErrNotFound
 	n := storage.Node{Datacenter: "vultr", Region: "tokyo",
 		BwDownMbps: 500, MonthlyTrafficQuotaBytes: 2 * BytesPerGB,
 		MonthlyCostCents: 10000, Currency: "CNY"}

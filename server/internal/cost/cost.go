@@ -1,7 +1,7 @@
-// Package cost 成本看板与高成本告警（E-23）：节点流量花费（仅「按流量」
-// 计费有边际成本）、区域/运营商汇总、月度预估（自然月至今按日折算），
-// 流量花费超阈值节点单发告警提示切流；月固定成本是沉没成本只进汇总，
-// 不参与分配判定（与 alloc 口径一致）。
+// Package cost: cost dashboard and high-cost alerts (E-23): node traffic spend
+// (only traffic-billed nodes carry marginal cost), region/ISP rollups, monthly
+// projection (month-to-date, pro-rated by day); over-threshold nodes get a
+// single alert; fixed cost is sunk, summary-only, not in allocation (same accounting as alloc).
 package cost
 
 import (
@@ -18,25 +18,25 @@ import (
 	"gorm.io/gorm"
 )
 
-// 口径常量。
+// Accounting constants.
 const (
-	// BytesPerGB 十进制 GB（与流量单价「分/GB」同口径）。
+	// BytesPerGB is decimal GB (same unit as the traffic price in cents/GB).
 	BytesPerGB = 1_000_000_000
-	// settingThreshold 是阈值持久化键（分/月）。
+	// settingThreshold is the persistence key for the threshold (cents/month).
 	settingThreshold = "cost_alert_threshold_cents"
-	// DefaultThresholdCents 缺省阈值：¥50/月。
+	// DefaultThresholdCents is the default threshold: ¥50/month.
 	DefaultThresholdCents = 5000
-	// AlertKindHighCost 是高成本告警类别（复用 alerts 表）。
+	// AlertKindHighCost is the high-cost alert kind (reuses the alerts table).
 	AlertKindHighCost = "high_cost"
 )
 
-// 告警状态取值（与 handler 侧 alerts 表口径一致）。
+// Alert state values (consistent with the handler-side alerts table).
 const (
 	alertActive   = "active"
 	alertResolved = "resolved"
 )
 
-// NodeCost 是一个节点的月度成本视图。
+// NodeCost is the monthly cost view of one node.
 type NodeCost struct {
 	ID           uint   `json:"id"`
 	Name         string `json:"name"`
@@ -45,15 +45,15 @@ type NodeCost struct {
 	BillingType  string `json:"billing_type"`
 	MonthRxBytes int64  `json:"month_rx_bytes"`
 	MonthTxBytes int64  `json:"month_tx_bytes"`
-	// TrafficCostCents 月至今流量花费（分，仅按流量计费节点非零）。
+	// TrafficCostCents is month-to-date traffic spend in cents (nonzero only for traffic-billed nodes).
 	TrafficCostCents int64 `json:"traffic_cost_cents"`
-	// FixedCostCents 月固定成本（分，包月/固定带宽口径）。
+	// FixedCostCents is the monthly fixed cost in cents (monthly/flat-bandwidth billing).
 	FixedCostCents int64 `json:"fixed_cost_cents"`
-	// ProjectedCents 月度预估（分）：固定全月 + 流量按日折算。
+	// ProjectedCents is the monthly projection in cents: full-month fixed + traffic pro-rated by day.
 	ProjectedCents int64 `json:"projected_cents"`
 }
 
-// GroupCost 是区域/运营商维度的成本汇总。
+// GroupCost is a cost summary along the region/ISP dimension.
 type GroupCost struct {
 	Key            string `json:"key"`
 	Nodes          int    `json:"nodes"`
@@ -62,7 +62,7 @@ type GroupCost struct {
 	ProjectedCents int64  `json:"projected_cents"`
 }
 
-// Report 是成本看板数据。
+// Report is the cost dashboard data.
 type Report struct {
 	Nodes          []NodeCost  `json:"nodes"`
 	Regions        []GroupCost `json:"regions"`
@@ -71,7 +71,7 @@ type Report struct {
 	ThresholdCents int64       `json:"threshold_cents"`
 }
 
-// GetThreshold 读取告警阈值（分/月）；未设置或脏数据回缺省。
+// GetThreshold reads the alert threshold (cents/month); unset or dirty data falls back to the default.
 func GetThreshold(db *gorm.DB) (int64, error) {
 	raw, ok, err := storage.GetSetting(db, settingThreshold)
 	if err != nil || !ok {
@@ -84,7 +84,7 @@ func GetThreshold(db *gorm.DB) (int64, error) {
 	return cents, nil
 }
 
-// SaveThreshold 校验并持久化告警阈值（分/月）。
+// SaveThreshold validates and persists the alert threshold (cents/month).
 func SaveThreshold(db *gorm.DB, cents int64) error {
 	if cents < 0 {
 		return errors.New("threshold must be >= 0")
@@ -92,7 +92,7 @@ func SaveThreshold(db *gorm.DB, cents int64) error {
 	return storage.SetSetting(db, settingThreshold, fmt.Sprintf("%d", cents))
 }
 
-// Build 汇总自然月至今各节点流量与成本，按区域/运营商聚合。
+// Build aggregates month-to-date traffic and cost per node for the calendar month, grouped by region/ISP.
 func Build(db *gorm.DB, now time.Time) (*Report, error) {
 	threshold, err := GetThreshold(db)
 	if err != nil {
@@ -151,7 +151,7 @@ func Build(db *gorm.DB, now time.Time) (*Report, error) {
 	return rep, nil
 }
 
-// group 把节点成本计入维度汇总。
+// group adds a node's cost into a dimension summary.
 func group(by map[string]*GroupCost, key string, nc NodeCost) {
 	if key == "" {
 		key = "未知"
@@ -167,7 +167,7 @@ func group(by map[string]*GroupCost, key string, nc NodeCost) {
 	g.ProjectedCents += nc.ProjectedCents
 }
 
-// sortedGroups 汇总按预估降序（花销大头在前）。
+// sortedGroups sorts summaries by projected cost descending (biggest spenders first).
 func sortedGroups(by map[string]*GroupCost) []GroupCost {
 	out := make([]GroupCost, 0, len(by))
 	for _, g := range by {
@@ -177,8 +177,8 @@ func sortedGroups(by map[string]*GroupCost) []GroupCost {
 	return out
 }
 
-// monthElapsedFraction 自然月已过比例（0-1]；首小时内不外推（取 1，
-// 预估=月至今实际值，避免月初几小时预估爆炸）。
+// monthElapsedFraction returns the elapsed fraction of the calendar month (0-1];
+// no extrapolation in the first hour (use 1 so the projection equals month-to-date actual).
 func monthElapsedFraction(now time.Time) float64 {
 	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 	daysIn := time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, now.Location()).Sub(monthStart).Hours() / 24
@@ -192,7 +192,7 @@ func monthElapsedFraction(now time.Time) float64 {
 	return 1
 }
 
-// Loop 周期执行高成本告警检查直到 ctx 取消；超阈值节点单发，回落自动消解。
+// Loop runs the high-cost alert check on interval until ctx is cancelled; over-threshold
 func Loop(ctx context.Context, db *gorm.DB, interval time.Duration, logger *log.Logger) {
 	if logger == nil {
 		logger = log.Default()
@@ -215,9 +215,9 @@ func Loop(ctx context.Context, db *gorm.DB, interval time.Duration, logger *log.
 	}
 }
 
-// CheckAlerts 高成本告警：按流量计费节点月至今流量花费超阈值 → 活跃告警
-// 去重单发（重复只刷新消息）+ 通知；回落到阈值下自动消解。
-// 包月/固定带宽节点不参与流量成本告警（沉没成本口径）。
+// CheckAlerts implements high-cost alerts: a traffic-billed node over the threshold on
+// month-to-date traffic spend fires one deduplicated alert (repeats only refresh the
+// message) plus a notification, auto-resolving below threshold; fixed-billing nodes are excluded (sunk cost).
 func CheckAlerts(db *gorm.DB, now time.Time, logger *log.Logger) error {
 	rep, err := Build(db, now)
 	if err != nil {
@@ -243,8 +243,8 @@ func CheckAlerts(db *gorm.DB, now time.Time, logger *log.Logger) error {
 				return err
 			}
 			logger.Printf("cost alert: node %d %s: %s", nc.ID, nc.Name, msg)
-			// 告警激活即落事件（HERALD-3 余量）：活跃告警去重闸门沿用，
-			// 重复超阈只刷新消息不再发。失败只记日志不阻断告警。
+			// Emit a herald event as soon as the alert activates (HERALD-3 slack): the dedup
+			// gate still applies, repeats only refresh the message; failures log only.
 			if _, err := herald.Emit(db, herald.EmitInput{
 				Kind: herald.KindCostExceeded, Severity: herald.SeverityWarning,
 				Title:    fmt.Sprintf("节点 %s 流量花费超阈值", nc.Name),

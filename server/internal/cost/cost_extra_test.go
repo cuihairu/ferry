@@ -13,7 +13,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestGroupEmptyKey 区域/运营商为空：归入「未知」而不是落空键。
+// TestGroupEmptyKey covers empty region/ISP: grouped under the "unknown" key instead of an empty key.
 func TestGroupEmptyKey(t *testing.T) {
 	by := map[string]*GroupCost{}
 	group(by, "", NodeCost{TrafficCostCents: 1, FixedCostCents: 2, ProjectedCents: 3})
@@ -23,7 +23,7 @@ func TestGroupEmptyKey(t *testing.T) {
 	}
 }
 
-// TestGetThresholdDirtyValue 阈值存了脏数据（非数字/负数）：回缺省不报错。
+// TestGetThresholdDirtyValue covers a dirty stored threshold (non-numeric/negative): falls back to the default without error.
 func TestGetThresholdDirtyValue(t *testing.T) {
 	db := newTestDB(t)
 	for _, dirty := range []string{"abc", "-5"} {
@@ -37,8 +37,8 @@ func TestGetThresholdDirtyValue(t *testing.T) {
 	}
 }
 
-// TestBuildOnBrokenDB 底层连接已关：Build/CheckAlerts 原样上抛，Loop 记日志
-// 继续下一轮。
+// TestBuildOnBrokenDB covers a closed underlying connection: Build/CheckAlerts propagate the
+// error as-is while Loop logs it and continues to the next round.
 func TestBuildOnBrokenDB(t *testing.T) {
 	db := newTestDB(t)
 	sqlDB, err := db.DB()
@@ -58,18 +58,18 @@ func TestBuildOnBrokenDB(t *testing.T) {
 	var buf bytes.Buffer
 	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
 	defer cancel()
-	Loop(ctx, db, 0, log.New(&buf, "", 0)) // interval<=0 回落缺省；检查失败只记日志
+	Loop(ctx, db, 0, log.New(&buf, "", 0)) // interval<=0 falls back to the default; check failures only log
 	if !strings.Contains(buf.String(), "cost check") {
 		t.Fatalf("loop error not logged: %q", buf.String())
 	}
 }
 
-// TestCheckAlertsNotifiesWebhook 超阈节点告警激活时外发 webhook：发送失败
-// 只记日志，不影响告警本身。
+// TestCheckAlertsNotifiesWebhook covers webhook delivery when an over-threshold node's alert
+// activates: a send failure only logs and does not affect the alert itself.
 func TestCheckAlertsNotifiesWebhook(t *testing.T) {
 	db := newTestDB(t)
-	n := seedNode(t, db, "costly", "hk", "按流量", 1000, 0)    // 1000分/GB
-	seedTraffic(t, db, n.ID, 60_000_000_000, 0, time.Now()) // 60GB → 60000分 > 缺省 5000
+	n := seedNode(t, db, "costly", "hk", "按流量", 1000, 0)    // 1000 cents/GB
+	seedTraffic(t, db, n.ID, 60_000_000_000, 0, time.Now()) // 60GB → 60000 cents > default 5000
 	if err := storage.SetSetting(db, notify.KeyURL, "http://127.0.0.1:1/hook"); err != nil {
 		t.Fatal(err)
 	}

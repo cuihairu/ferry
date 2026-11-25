@@ -14,7 +14,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// newTestDB 建内存库并迁移。
+// newTestDB opens an in-memory database and migrates it.
 func newTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := storage.Open("sqlite", ":memory:")
@@ -44,18 +44,18 @@ func seedTraffic(t *testing.T, db *gorm.DB, node uint, rx, tx int64, at time.Tim
 	}
 }
 
-// TestBuild 覆盖成本核算：流量花费只算按流量节点、月度预估折算、维度汇总。
+// TestBuild covers cost accounting: traffic spend counted only for traffic-billed nodes, monthly
 func TestBuild(t *testing.T) {
 	db := newTestDB(t)
-	// 10GB × 100分/GB = 1000 分流量费；包月节点不计流量费。
+	// 10GB × 100 cents/GB = 1000 cents of traffic cost; monthly-billed nodes accrue none.
 	metered := seedNode(t, db, "metered", "hk", "按流量", 100, 0)
 	seedNode(t, db, "fixed", "hk", "包月", 0, 3000)
 	oversea := seedNode(t, db, "oversea", "us", "按流量", 50, 2000)
 
-	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC) // 月过一半
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC) // half the month elapsed
 	seedTraffic(t, db, metered.ID, 5e9, 5e9, now.Add(-time.Hour))
 	seedTraffic(t, db, oversea.ID, 1e9, 0, now.Add(-time.Hour))
-	// 上月流量不计入
+	// Last month's traffic is not counted.
 	lastMonth := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
 	seedTraffic(t, db, metered.ID, 100e9, 0, lastMonth)
 
@@ -79,16 +79,16 @@ func TestBuild(t *testing.T) {
 	if got := byName["fixed"].FixedCostCents; got != 3000 {
 		t.Fatalf("fixed cost = %d", got)
 	}
-	// 月过一半（约 15.5/31），流量费 50 分 → 预估 ≈ 2000+100=2100（容差）
+	// Half the month elapsed (~15.5/31): traffic cost 50 cents → projection ≈ 2000+100=2100 (tolerance)
 	if got := byName["oversea"].ProjectedCents; got < 2050 || got > 2150 {
 		t.Fatalf("oversea projected = %d, want ~2100", got)
 	}
-	// 区域汇总：hk 两节点，us 一节点
+	// Region summary: two hk nodes, one us node
 	if len(rep.Regions) != 2 {
 		t.Fatalf("regions = %d", len(rep.Regions))
 	}
-	// 排序按预估降序：us（oversea 2100）在 hk（3000+1000/0.5=5000?）——算一遍：
-	// hk = fixed 3000 + metered(1000/0.5=2000) = 5000，hk 应在先。
+	// Sorted by projection descending: us (oversea 2100) vs hk (3000+1000/0.5=5000?) — work it out:
+	// hk = fixed 3000 + metered (1000/0.5=2000) = 5000, so hk comes first.
 	if rep.Regions[0].Key != "hk" || rep.Regions[0].Nodes != 2 {
 		t.Fatalf("regions[0] = %+v", rep.Regions[0])
 	}
@@ -98,7 +98,7 @@ func TestBuild(t *testing.T) {
 }
 
 func TestMonthElapsedFraction(t *testing.T) {
-	// 首小时不外推；月中按比例。
+	// No extrapolation in the first hour; proportional mid-month.
 	if f := monthElapsedFraction(time.Date(2026, 10, 1, 0, 30, 0, 0, time.UTC)); f != 1 {
 		t.Fatalf("first-hour fraction = %f, want 1", f)
 	}
@@ -127,17 +127,17 @@ func TestThresholdPersistence(t *testing.T) {
 	}
 }
 
-// TestCheckAlerts 覆盖高成本告警：超阈值单发去重、回落自动消解。
+// TestCheckAlerts covers high-cost alerts: single deduplicated fire above threshold, auto-resolve on fallback.
 func TestCheckAlerts(t *testing.T) {
 	db := newTestDB(t)
 	metered := seedNode(t, db, "metered", "hk", "按流量", 100, 0)
-	seedNode(t, db, "fixed", "hk", "包月", 0, 99900) // 包月再贵也不告警
+	seedNode(t, db, "fixed", "hk", "包月", 0, 99900) // monthly billing never alerts, however pricey
 	if err := SaveThreshold(db, 5000); err != nil {
 		t.Fatal(err)
 	}
 
 	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
-	// 100GB × 100分 = 10000 分 > 5000 阈值
+	// 100GB × 100 cents = 10000 cents > 5000 threshold
 	seedTraffic(t, db, metered.ID, 60e9, 40e9, now.Add(-time.Hour))
 
 	logger := log.New(&bytes.Buffer{}, "", 0)
@@ -151,7 +151,7 @@ func TestCheckAlerts(t *testing.T) {
 	if len(alerts) != 1 || alerts[0].NodeID != metered.ID || alerts[0].State != "active" {
 		t.Fatalf("alerts = %+v", alerts)
 	}
-	// 告警激活同落 cost_exceeded 事件（HERALD-3 余量），包月不落
+	// Alert activation also emits a cost_exceeded event (HERALD-3 slack); monthly nodes do not
 	var evs []storage.Event
 	if err := db.Where("kind = ?", "cost_exceeded").Find(&evs).Error; err != nil {
 		t.Fatal(err)
@@ -161,7 +161,7 @@ func TestCheckAlerts(t *testing.T) {
 		t.Fatalf("cost_exceeded events = %+v", evs)
 	}
 
-	// 复跑去重：仍只有一条。
+	// Re-run for dedup: still exactly one.
 	if err := CheckAlerts(db, now, logger); err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestCheckAlerts(t *testing.T) {
 		t.Fatalf("duplicate cost_exceeded event, n = %d", evN)
 	}
 
-	// 阈值调高到花费之上 → 回落自动消解。
+	// Raise the threshold above the spend → falls back and auto-resolves.
 	if err := SaveThreshold(db, 20000); err != nil {
 		t.Fatal(err)
 	}
@@ -194,8 +194,8 @@ func TestCheckAlerts(t *testing.T) {
 	}
 }
 
-// TestNodeQueryAndSpecOf 覆盖牌价键映射：缺机房拒绝、区域与档位透传；
-// SpecOf 拼「带宽-流量」档、零段省略。
+// TestNodeQueryAndSpecOf covers price-key mapping: missing datacenter rejected, region and spec
+// passed through; SpecOf joins the "bandwidth-traffic" tier, omitting zero segments.
 func TestNodeQueryAndSpecOf(t *testing.T) {
 	if _, err := NodeQuery(storage.Node{}); err == nil {
 		t.Fatal("node without datacenter should error")
@@ -219,8 +219,8 @@ func TestNodeQueryAndSpecOf(t *testing.T) {
 	}
 }
 
-// TestCheckNode 单节点对账：命中牌价算偏差、超容忍度提示人工复核、
-// 查不到/手录未填/币种不符各回错误。
+// TestCheckNode covers single-node reconciliation: quote hit computes deviation, over-tolerance
+// suggests manual review; missing quote / unset manual cost / currency mismatch each error out.
 func TestCheckNode(t *testing.T) {
 	src := costref.NewStatic("pricelist", []costref.Entry{
 		{Provider: "vultr", Region: "tokyo", Spec: "500M-2G", MonthlyCents: 10000, Currency: "CNY"},
@@ -257,8 +257,8 @@ func TestCheckNode(t *testing.T) {
 	}
 }
 
-// TestLoopChecksAlertsUntilCancel 覆盖 Loop 启停：启动即跑一轮告警检查
-// （超阈值节点落 active 告警），ctx 取消后退出；nil logger 兜底。
+// TestLoopChecksAlertsUntilCancel covers Loop start/stop: the first round runs an alert check
+// on start (over-threshold node gets an active alert), exits after ctx cancel; nil logger falls back.
 func TestLoopChecksAlertsUntilCancel(t *testing.T) {
 	db := newTestDB(t)
 	metered := seedNode(t, db, "metered", "hk", "按流量", 100, 0)
@@ -296,8 +296,8 @@ func TestLoopChecksAlertsUntilCancel(t *testing.T) {
 	}
 }
 
-// TestWatchLoopScansUntilCancel 覆盖 WatchLoop 启停：导入价格表+关注行，
-// 启动即扫出快照，ctx 取消后退出。
+// TestWatchLoopScansUntilCancel covers WatchLoop start/stop: with a price table imported and a
+// watch row, a snapshot is scanned on start, and it exits after ctx cancel.
 func TestWatchLoopScansUntilCancel(t *testing.T) {
 	db := newTestDB(t)
 	if err := SaveRefTable(db, []byte(`[{"provider":"vultr","region":"tokyo","spec":"1c","monthly_cents":1000}]`)); err != nil {

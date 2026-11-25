@@ -30,15 +30,15 @@ func priceEvents(t *testing.T, db *gorm.DB) int64 {
 	return n
 }
 
-// TestCheckPriceWatches 覆盖价格关注扫描：基线不告警、同价不告警、
-// 降价+到位同轮各一条、维持不重复（同日去重 + 到位只认跨越沿）、
-// 未导入表整轮 no-op、停用关注不扫。
+// TestCheckPriceWatches covers the price watch scan: the baseline does not alert, the same price does not,
+// a drop and a target hit in the same round each emit one, staying put does not repeat (same-day dedup + target only on a crossing),
+// an unimported table is a no-op round, and disabled watches are not scanned.
 func TestCheckPriceWatches(t *testing.T) {
 	db := newTestDB(t)
 	logger := log.New(&bytes.Buffer{}, "", 0)
 	now := time.Now()
 
-	// 未导入价格表：整轮 no-op。
+	// No price table imported: the whole round is a no-op.
 	if err := CheckPriceWatches(db, now, logger); err != nil {
 		t.Fatalf("no table scan: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestCheckPriceWatches(t *testing.T) {
 	}
 	w := seedWatch(t, db, "vultr", "tokyo", "1c", 900)
 
-	// 第 1 轮：基线快照，无上一快照不告警。
+	// Round 1: baseline snapshot; no previous snapshot means no alert.
 	if err := CheckPriceWatches(db, now, logger); err != nil {
 		t.Fatalf("scan 1: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestCheckPriceWatches(t *testing.T) {
 		t.Fatalf("scan1 events = %d", n)
 	}
 
-	// 第 2 轮：同价——无降价、未到目标。
+	// Round 2: same price — no drop, target not reached.
 	if err := CheckPriceWatches(db, now, logger); err != nil {
 		t.Fatalf("scan 2: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestCheckPriceWatches(t *testing.T) {
 		t.Fatalf("scan2 events = %d", n)
 	}
 
-	// 第 3 轮：降到 800（-20%，且越过目标价 900）——降价与到位各一条。
+	// Round 3: drops to 800 (-20%, and past the target price 900) — a drop and a hit, one each.
 	if err := SaveRefTable(db, []byte(`[{"provider":"vultr","region":"tokyo","spec":"1c","monthly_cents":800}]`)); err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestCheckPriceWatches(t *testing.T) {
 		t.Fatalf("scan3 events = %d, want 2", n)
 	}
 
-	// 第 4 轮：价格维持 800——降价不再重复，到位不回发（非跨越沿）。
+	// Round 4: the price holds at 800 — no repeated drop, and no repeat hit (not a crossing).
 	if err := CheckPriceWatches(db, now, logger); err != nil {
 		t.Fatalf("scan 4: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestCheckPriceWatches(t *testing.T) {
 		t.Fatalf("scan4 events = %d, want still 2", n)
 	}
 
-	// 停用关注后不再扫快照。
+	// After disabling the watch, no more snapshots are scanned.
 	db.Model(&storage.PriceWatch{}).Where("id = ?", w.ID).Update("enabled", false)
 	if err := SaveRefTable(db, []byte(`[{"provider":"vultr","region":"tokyo","spec":"1c","monthly_cents":500}]`)); err != nil {
 		t.Fatal(err)
@@ -104,7 +104,7 @@ func TestCheckPriceWatches(t *testing.T) {
 		t.Fatalf("snapshots = %d, want 4 (disabled watch not scanned)", cnt)
 	}
 
-	// 表里没这个键：静默跳过不落快照、不告警。
+	// The key is not in the table: silently skipped, no snapshot and no alert.
 	seedWatch(t, db, "nosuch", "x", "y", 0)
 	if err := CheckPriceWatches(db, now, logger); err != nil {
 		t.Fatalf("scan 6: %v", err)
@@ -116,7 +116,7 @@ func TestCheckPriceWatches(t *testing.T) {
 	}
 }
 
-// TestQuoteURL 价格页附注口径：未附 URL 显式标注。
+// TestQuoteURL covers the price-page annotation: a missing URL is labeled explicitly.
 func TestQuoteURL(t *testing.T) {
 	if got := quoteURL(costref.Quote{}); got != "（未附）" {
 		t.Errorf("empty URL = %q; want （未附）", got)
@@ -126,26 +126,26 @@ func TestQuoteURL(t *testing.T) {
 	}
 }
 
-// TestEmitPriceAlertBranches 同日去重与事件表故障容错。
+// TestEmitPriceAlertBranches covers same-day dedup and event-table failure tolerance.
 func TestEmitPriceAlertBranches(t *testing.T) {
 	db := newTestDB(t)
 	emitPriceAlert(db, "t1", "b1", "d1")
-	emitPriceAlert(db, "t1", "b1", "d1") // 同 dedup 已落：跳过
+	emitPriceAlert(db, "t1", "b1", "d1") // same dedup already stored: skip
 	if got := priceEvents(t, db); got != 1 {
 		t.Fatalf("events = %d; want 1 (dedup)", got)
 	}
-	emitPriceAlert(db, "t2", "b2", "d2") // 不同 dedup：照发
+	emitPriceAlert(db, "t2", "b2", "d2") // a different dedup: sent as usual
 	if got := priceEvents(t, db); got != 2 {
 		t.Fatalf("events = %d; want 2", got)
 	}
-	// 事件表不可写：只记日志不炸。
+	// The event table is unwritable: only logged, no panic.
 	if err := db.Migrator().DropTable(&storage.Event{}); err != nil {
 		t.Fatal(err)
 	}
 	emitPriceAlert(db, "t3", "b3", "d3")
 }
 
-// TestCheckPriceWatchesDBError 库不可用即冒错；nil 日志器走缺省。
+// TestCheckPriceWatchesDBError covers an unavailable DB surfacing immediately; a nil logger falls back to the default.
 func TestCheckPriceWatchesDBError(t *testing.T) {
 	db := newTestDB(t)
 	sqlDB, err := db.DB()
