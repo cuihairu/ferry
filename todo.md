@@ -1288,7 +1288,7 @@ External Client
 -   [x] `F-0705` 统一 Agent 版本上报。
     - 备注（Task ID: F-0705 | Status: Done | Evidence: Hello.Version 上报；TestAgentWSHelloVersion | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0706` 统一 Agent 能力上报。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0706 | 未满足原因：未满足：无统一能力上报消息/字段（capability|caps 在 agent/packages/server 0 命中）；能力由 role/labels 隐式承载。）
+    - 备注（Task ID: F-0706 | Status: Done | Evidence: 统一链路已落地——Hello.Caps 静态集（agent app.go:228 staticCaps → server agentws.go:147 syncCaps，首注册记录、面板覆盖）+ Heartbeat.Caps 动态态（app.go:469 dynamicCaps → agentws.go:490 mergeCaps）；TestSyncCapsHelloAndHeartbeat/TestStaticCaps/TestDynamicCaps | Verification: go test 全绿 2026-11-26 | Commit: d3220ab）
 -   [x] `F-0707` 统一 Agent 资源使用情况上报。
     - 备注（Task ID: F-0707 | Status: Done | Evidence: Heartbeat CPU/内存/连接字段（messages.go:99-111）；TestAgentWSHeartbeat+TestSysStatus | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0708` 支持 Agent 断线重连。
@@ -1300,7 +1300,7 @@ External Client
 -   [x] `F-0711` 支持 Agent 凭据轮换。
     - 备注（Task ID: F-0711 | Status: Done | Evidence: node.go:183 rotateNodeToken+agentws.go:48 10min 宽限；TestNodeTokenRotation+TestAuthNodeTokenRotationWindow+e2e 轮换腿 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0712` 支持 Agent 升级状态上报。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0712 | 未满足原因：部分：面板 MsgUpgrade→UpgradeAck 接受/拒绝(upgrade.go:43-73+app.go:280-293)，结果经 hello.Version→agent_version 间接体现(agentws.go:138-144)；无专用升级状态/进度消息（无 UpgradeStatus）。）
+    - 备注（Task ID: F-0712 | Status: Done | Evidence: 专用进度消息 MsgUpgradeStatus=agent.upgrade_status（UpgradeID/Version/State/Error，downloading→applying→applied/failed，ValidUpgradeState 守门）；agent 端 upgrade.DoWithProgress 回调逐态上报、app.doUpgrade 以命令 ID 派生信封 ID（命令-态）发送；server 端 agentws 分发经 repeatReport 去重后落 NodeUpgrade 表并开 GET /api/nodes/:id/upgrades；TestDoWithProgress/TestDoWithProgressFailed/TestAgentWSUpgradeStatus/TestUpgradeStatusRoundTrip | Verification: go test 全绿 2026-11-26（server -timeout=30m exit 0） | Commit: 1d3c633）
 -   [x] `F-0713` 支持 Agent 升级失败恢复。
     - 备注（Task ID: F-0713 | Status: Done | Evidence: upgrade 看门狗回滚；TestWatchdogRollback+TestWatchdogRollbackFailure | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 
