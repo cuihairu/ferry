@@ -13,6 +13,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/agenthub"
 	"github.com/cuihairu/ferry/server/internal/backup"
 	"github.com/cuihairu/ferry/server/internal/config"
+	"github.com/cuihairu/ferry/server/internal/idp"
 	"github.com/cuihairu/ferry/server/internal/ratelimit"
 	"github.com/cuihairu/ferry/server/internal/relaypush"
 	"github.com/cuihairu/ferry/server/internal/secret"
@@ -65,6 +66,11 @@ type Handler struct {
 	// bucketed by node_id; semantics in `docs/design/agent架构设计.md` §8 and
 	// agentws_dedupe.go).
 	dedupe sync.Map // nodeID -> *reportDeduper
+	// oidc is the external identity provider client (G7). It is nil when
+	// disabled, and the surface 404s first, so the nil state is unreachable.
+	oidc *idp.OIDC
+	// ldap is the directory simple-bind client (G7), nil when disabled.
+	ldap *idp.LDAP
 }
 
 // NewRouter creates the gin engine and mounts all routes, and also hands out
@@ -72,6 +78,13 @@ type Handler struct {
 // same push chain.
 func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) {
 	h := &Handler{db: db, cfg: cfg, hub: agenthub.New()}
+	// External admin logins are off unless the config turns them on (G7).
+	if cfg.Oidc.Enabled {
+		h.oidc = idp.NewOIDC(cfg.Oidc)
+	}
+	if cfg.Ldap.Enabled {
+		h.ldap = idp.NewLDAP(cfg.Ldap)
+	}
 	h.redeemLimiter = ratelimit.New(ratelimit.Options{
 		Window:      time.Minute,
 		MaxAttempts: 10,
@@ -378,6 +391,12 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 	// publicly outside the auth groups (it was previously mis-mounted inside,
 	// making the login surface 401-unreachable; fixed in the security batch).
 	r.POST("/admin/login", h.AdminLogin)
+	// G7 external admin logins (both off unless configured): the same public
+	// mounting as the local login, since the callback needs no prior token.
+	r.GET("/admin/login/available", h.adminLoginAvailable)
+	r.GET("/admin/oidc/login", h.oidcLogin)
+	r.GET("/admin/oidc/callback", h.oidcCallback)
+	r.POST("/admin/login/ldap", h.ldapLogin)
 	// DS-1 agent login: an independent endpoint mounted publicly; role=distributor tokens and admin tokens never cross boundaries.
 	r.POST("/distributor/login", h.DistributorLogin)
 	// DS-3 agent self-service surface: read-only views (own batches/codes/customers/orders/settlement).

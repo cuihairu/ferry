@@ -90,8 +90,24 @@ func (h *Handler) AdminLogin(c *gin.Context) {
 		h.loginFailed(c, in.Username, ip, ua, "两步验证码错误", "totp_invalid")
 		return
 	}
+	token, err := h.issueAdminToken(&u)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "内部错误"})
+		return
+	}
+	ss := token
+	// Audit row + new-subnet alert (previous successful baseline excludes this row itself).
+	row := h.writeLoginLog(u.Username, ip, ua, true)
+	h.alertLoginNewIP(u.Username, ip, row.ID)
+	c.JSON(http.StatusOK, gin.H{"token": ss})
+}
+
+// issueAdminToken signs the admin login JWT for one account (24 hour lifetime),
+// shared by the local password login and the external logins (G7: OIDC / LDAP).
+// The secret is the configured one, defaulting to "ferry-admin-secret".
+func (h *Handler) issueAdminToken(u *storage.User) (string, error) {
 	now := time.Now()
-	expire := now.Add(24 * time.Hour) // login token lifetime of 24 hours
+	expire := now.Add(24 * time.Hour)
 	claims := adminClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   u.Username,
@@ -103,20 +119,11 @@ func (h *Handler) AdminLogin(c *gin.Context) {
 		Role:    normalizeAdminRole(u.AdminRole),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	// Sign with the configured secret; defaults to "ferry-admin-secret" and can be overridden by the FERRY_ADMIN_SECRET env var
-	secret := h.cfg.AdminSecret
-	if secret == "" {
-		secret = "ferry-admin-secret"
-	}
-	ss, err := token.SignedString([]byte(secret))
+	ss, err := token.SignedString([]byte(h.adminSecret()))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "内部错误"})
-		return
+		return "", err
 	}
-	// Audit row + new-subnet alert (previous successful baseline excludes this row itself).
-	row := h.writeLoginLog(u.Username, ip, ua, true)
-	h.alertLoginNewIP(u.Username, ip, row.ID)
-	c.JSON(http.StatusOK, gin.H{"token": ss})
+	return ss, nil
 }
 
 // loginFailed is the common tail for a failed login: rate-limit counting, an audit

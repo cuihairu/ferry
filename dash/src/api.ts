@@ -949,6 +949,22 @@ export function adminLogin(body: { username: string; password: string; totp?: st
   return post<{ token: string }>('/admin/login', body)
 }
 
+// External admin logins (G7): both surfaces are off unless the server enables them; the login page
+// probes availability so it never shows dead buttons.
+export interface AdminLoginAvailability {
+  password: boolean
+  oidc: boolean
+  ldap: boolean
+}
+
+export function adminLoginAvailable(): Promise<AdminLoginAvailability> {
+  return get('/admin/login/available')
+}
+
+export function adminLdapLogin(body: { username: string; password: string }): Promise<{ token: string }> {
+  return post<{ token: string }>('/admin/login/ldap', body)
+}
+
 export function getTwoFAStatus(): Promise<{ enabled: boolean }> {
   return get('/admin/2fa')
 }

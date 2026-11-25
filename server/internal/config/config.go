@@ -10,6 +10,45 @@ import (
 	"github.com/cuihairu/ferry/server/internal/ratelimit"
 )
 
+// OidcConfig is the OIDC/OAuth2 login slot of the admin panel (G7): the
+// authorization-code client whose endpoints and credentials come from env vars.
+// Off unless FERRY_OIDC_ENABLED is set, so the local password login is untouched
+// by default.
+type OidcConfig struct {
+	Enabled bool
+	// ClientID/ClientSecret are the registered application credentials.
+	ClientID     string
+	ClientSecret string
+	// AuthURL/TokenURL/UserInfoURL are the provider endpoints.
+	AuthURL     string
+	TokenURL    string
+	UserInfoURL string
+	// RedirectURL is the panel callback; empty defaults to
+	// <BaseURL>/admin/oidc/callback.
+	RedirectURL string
+	// BaseURL is the externally visible panel address (filled from FERRY_BASE_URL),
+	// used only to build the default RedirectURL.
+	BaseURL string
+	// Scope defaults to "openid email profile".
+	Scope string
+}
+
+// LdapConfig is the LDAP login slot of the admin panel (G7): a per-user simple
+// bind against a directory. Off unless FERRY_LDAP_ENABLED is set.
+type LdapConfig struct {
+	Enabled bool
+	// URL is the directory address, e.g. ldaps://ldap.example.com:636.
+	URL string
+	// BindDN is the user DN template; %s is replaced by the username, so a login
+	// attempt binds as that user with the supplied password.
+	BindDN string
+	// TimeoutSec bounds the dial and bind (default 5): an unreachable directory
+	// must not hang a login attempt.
+	TimeoutSec int
+	// StartTLS upgrades a plain connection with a STARTTLS request.
+	StartTLS bool
+}
+
 // Config aggregates all parameters needed to run the service.
 type Config struct {
 	// Addr is the HTTP listen address, e.g. ":8080".
@@ -137,6 +176,9 @@ type Config struct {
 	// expose the /api/standby/snapshot endpoint; a standby instance configures MasterURL pointing at the primary
 	// plus the same token, and periodically pulls the encrypted snapshot to atomically replace the local DB. Empty token =
 	// the whole sync face is off (the primary endpoint 403s, standby does not start), zero change by default.
+	// Oidc/Ldap are the external admin login slots (G7); both are off by default.
+	Oidc             OidcConfig `json:"-"`
+	Ldap             LdapConfig `json:"-"`
 	StandbyMasterURL string
 	StandbyToken     string `json:"-"`
 	StandbySec       int
@@ -191,11 +233,29 @@ func Load() Config {
 
 		// Local periodic backups (panel availability §2): dir is the archive directory, cron defaults to daily,
 		// keep is the rolling retention count; S3_* is the outbound slot (off by default, an explicit toggle wires in the S3 endpoint).
-		BackupDir:             envOr("FERRY_BACKUP_DIR", "backups"),
-		BackupCron:            envOr("FERRY_BACKUP_CRON", "daily"),
-		BackupKeep:            envIntOr("FERRY_BACKUP_KEEP", 7),
-		AuditRetentionDays:    envIntOr("FERRY_AUDIT_RETENTION_DAYS", 90),
-		BackupS3Enabled:       envBoolOr("FERRY_BACKUP_S3_ENABLED", false),
+		BackupDir:          envOr("FERRY_BACKUP_DIR", "backups"),
+		BackupCron:         envOr("FERRY_BACKUP_CRON", "daily"),
+		BackupKeep:         envIntOr("FERRY_BACKUP_KEEP", 7),
+		AuditRetentionDays: envIntOr("FERRY_AUDIT_RETENTION_DAYS", 90),
+		BackupS3Enabled:    envBoolOr("FERRY_BACKUP_S3_ENABLED", false),
+		Oidc: OidcConfig{
+			Enabled:      envBoolOr("FERRY_OIDC_ENABLED", false),
+			ClientID:     envOr("FERRY_OIDC_CLIENT_ID", ""),
+			ClientSecret: envOr("FERRY_OIDC_CLIENT_SECRET", ""),
+			AuthURL:      envOr("FERRY_OIDC_AUTH_URL", ""),
+			TokenURL:     envOr("FERRY_OIDC_TOKEN_URL", ""),
+			UserInfoURL:  envOr("FERRY_OIDC_USERINFO_URL", ""),
+			RedirectURL:  envOr("FERRY_OIDC_REDIRECT_URL", ""),
+			Scope:        envOr("FERRY_OIDC_SCOPE", "openid email profile"),
+			BaseURL:      envOr("FERRY_BASE_URL", "http://localhost:8080"),
+		},
+		Ldap: LdapConfig{
+			Enabled:    envBoolOr("FERRY_LDAP_ENABLED", false),
+			URL:        envOr("FERRY_LDAP_URL", ""),
+			BindDN:     envOr("FERRY_LDAP_BIND_DN", ""),
+			TimeoutSec: envIntOr("FERRY_LDAP_TIMEOUT_SEC", 5),
+			StartTLS:   envBoolOr("FERRY_LDAP_START_TLS", false),
+		},
 		StandbyMasterURL:      envOr("FERRY_STANDBY_MASTER_URL", ""),
 		StandbyToken:          envOr("FERRY_STANDBY_TOKEN", ""),
 		StandbySec:            envIntOr("FERRY_STANDBY_SEC", 600),

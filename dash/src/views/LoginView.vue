@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ApiError, adminLogin } from '../api'
+import { ApiError, adminLdapLogin, adminLogin, adminLoginAvailable } from '../api'
 import { setToken } from '../auth'
 
 // Admin login (security design §1): once the password passes, accounts bound to 2FA add a 6-digit TOTP or
@@ -12,6 +12,48 @@ const router = useRouter()
 const form = reactive({ username: '', password: '', totp: '' })
 const needTotp = ref(false)
 const loading = ref(false)
+
+// External logins (G7): both are off server-side unless configured; the probe only decides whether
+// the entry points are shown at all, so it is best-effort.
+const avail = reactive({ oidc: false, ldap: false })
+const useLdap = ref(false)
+
+onMounted(async () => {
+  // OIDC return leg: the provider round-trip lands on /login#oidc=<jwt> (the token rides the
+  // fragment, never a cookie or a query string).
+  const frag = new URLSearchParams(window.location.hash.startsWith('#') ? window.location.hash.slice(1) : '')
+  const oidc = frag.get('oidc')
+  if (oidc) {
+    setToken(oidc)
+    history.replaceState(null, '', window.location.pathname)
+    router.push('/nodes')
+    return
+  }
+  try {
+    const a = await adminLoginAvailable()
+    avail.oidc = a.oidc
+    avail.ldap = a.ldap
+  } catch {
+    // keep the password form as-is
+  }
+})
+
+async function submitLdap() {
+  if (!form.username.trim() || !form.password) {
+    ElMessage.warning('请输入用户名与密码')
+    return
+  }
+  loading.value = true
+  try {
+    const r = await adminLdapLogin({ username: form.username.trim(), password: form.password })
+    setToken(r.token)
+    router.push('/nodes')
+  } catch (e) {
+    ElMessage.error(e instanceof ApiError ? e.message : '登录失败，请稍后再试')
+  } finally {
+    loading.value = false
+  }
+}
 
 async function submit() {
   if (!form.username.trim() || !form.password) {
@@ -62,16 +104,22 @@ async function submit() {
             autocomplete="current-password" @keyup.enter="submit"
           />
         </el-form-item>
-        <el-form-item v-if="needTotp" label="两步验证码">
+        <el-form-item v-if="needTotp && !useLdap" label="两步验证码">
           <el-input
             v-model="form.totp" placeholder="6 位验证码或恢复码" autocomplete="one-time-code"
             @keyup.enter="submit"
           />
           <span class="hint">验证器 6 位数字，或绑定时保存的恢复码（xxxx-xxxx，用一个销一个）</span>
         </el-form-item>
-        <el-button type="primary" :loading="loading" style="width: 100%; margin-top: 4px" @click="submit">
-          {{ needTotp ? '验证并登录' : '登录' }}
+        <el-button type="primary" :loading="loading" style="width: 100%; margin-top: 4px" @click="useLdap ? submitLdap() : submit()">
+          {{ useLdap ? '目录登录' : needTotp ? '验证并登录' : '登录' }}
         </el-button>
+        <div v-if="avail.oidc || avail.ldap" class="ext-login">
+          <el-button v-if="avail.ldap" link type="primary" @click="useLdap = !useLdap">
+            {{ useLdap ? '返回密码登录' : '使用目录账号（LDAP）' }}
+          </el-button>
+          <a v-if="avail.oidc" class="oidc-link" href="/admin/oidc/login?redirect=/login">使用 OIDC 登录</a>
+        </div>
       </el-form>
     </div>
   </div>
@@ -107,5 +155,19 @@ async function submit() {
   margin-top: 4px;
   color: var(--ferry-text-muted);
   font-size: 12px;
+}
+.ext-login {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+  font-size: 13px;
+}
+.oidc-link {
+  color: var(--el-color-primary);
+  text-decoration: none;
+}
+.oidc-link:hover {
+  text-decoration: underline;
 }
 </style>
