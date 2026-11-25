@@ -1,8 +1,8 @@
-// Package alloc 落地自动分配（E-21）：加权最小连接——按可配策略从落地池
-// 为每个入口选落地，留痕到 landing_assignments（strategy != manual）。
-// 手动分配优先：有生效中 manual 行（入口级或所在区域级）的入口不参与自动。
-// 信号：连接数取节点流量上报最新采样（A-20），健康取窗口内最新探测结论，
-// 容量=实测校准带宽>套餐带宽，成本只计「按流量」节点的边际流量单价。
+// Package alloc auto-assigns landings (E-21): weighted least-connections — pick a landing from the landing pool
+// for each entry per the configurable policy, with a trail left in landing_assignments (strategy != manual).
+// Manual assignments win: entries with an effective manual row (entry-level or their region-level) are excluded from auto.
+// Signals: connection counts come from the latest node traffic report sample (A-20), health from the latest probe verdict
+// within the window, capacity = measured calibrated bandwidth > plan bandwidth, and cost counts only metered nodes' marginal traffic price.
 package alloc
 
 import (
@@ -18,7 +18,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// 分配策略取值（与 LandingAssignment.Strategy 对齐，manual 不参与自动）。
+// Allocation policy values (aligned with LandingAssignment.Strategy; manual is excluded from auto).
 const (
 	PolicyLeastConn = "least_conn"
 	PolicyCostFirst = "cost_first"
@@ -27,22 +27,22 @@ const (
 	PolicyManual    = "manual"
 )
 
-// settingKey 是策略持久化键（panel KV）；值 JSON：每方向一档。
+// settingKey is the policy persistence key (panel KV); the value is JSON: one tier per direction.
 const settingKey = "alloc_policy"
 
-// 判定口径默认值。
+// Evaluation model defaults.
 const (
-	// DefaultPolicyOut/In 方向分流的缺省档（E-30）：出海走性价比（成本优先），
-	// 回国优先优质线路（性能优先、成本容忍高——晚高峰不拥塞比省几块钱重要）。
+	// DefaultPolicyOut/In are the per-direction default tiers (E-30): outbound favors cost-effectiveness (cost first),
+	// inbound favors premium lines (perf first, higher cost tolerance — an uncongested evening peak beats saving a few cents).
 	DefaultPolicyOut = PolicyCostFirst
 	DefaultPolicyIn  = PolicyPerfFirst
-	// ProbeFresh 探测结论参与健康判定的时限，超龄视为无结论（按健康参与）。
+	// ProbeFresh is how long a probe verdict participates in the health decision; older counts as no verdict (treated as healthy).
 	ProbeFresh = 30 * time.Minute
-	// LoadFresh 连接数采样参与负载判定的时限，超龄视为无采样（按 0 连接）。
+	// LoadFresh is how long a connection sample participates in the load decision; older counts as no sample (treated as 0 connections).
 	LoadFresh = 10 * time.Minute
 )
 
-// ValidPolicy 策略取值是否合法。
+// ValidPolicy reports whether the policy value is valid.
 func ValidPolicy(p string) bool {
 	switch p {
 	case PolicyLeastConn, PolicyCostFirst, PolicyPerfFirst, PolicyBalanced:
@@ -51,37 +51,37 @@ func ValidPolicy(p string) bool {
 	return false
 }
 
-// PolicySetting 每方向一档：出海与回国两池策略侧重不同（设计稿 §C.5.2）；
-// 低峰窗口（小时，[Start,End) 左闭右开）内做再平衡——换线只需按策略全序
-// 更优；峰时保守换线，防留痕抖动（E-22）。
+// PolicySetting holds one tier per direction: outbound and inbound pools weight differently (design doc §C.5.2);
+// rebalancing happens in the off-peak window (hours, [Start,End) half-open) — a switch requires being strictly better
+// in the policy total order; switching during peak is conservative to prevent trail churn (E-22).
 type PolicySetting struct {
 	Out string `json:"out"`
 	In  string `json:"in"`
-	// RebalanceStart/RebalanceEnd 低峰窗口小时（0-23），默认 1-7。
+	// RebalanceStart/RebalanceEnd are the off-peak window hours (0-23), default 1-7.
 	RebalanceStart int `json:"rebalance_start"`
 	RebalanceEnd   int `json:"rebalance_end"`
-	// balanced 策略的乘法 score 系数（调度核心设计 §权重合成分）：score =
-	// WLoad*负载归一 + WCost*成本归一 − WPremium*优质线（仅回国线）。逐系数
-	// dash 可配；缺省 0.5/0.3/0.2 即现四档公式口径，改配置才改行为。
+	// The balanced policy's multiplicative score weights (scheduler core design §weight composition): score =
+	// WLoad*normalized load + WCost*normalized cost − WPremium*premium line (inbound lines only). Each weight is
+	// dash-editable; the defaults 0.5/0.3/0.2 reproduce the current four-policy formula, behavior changes only when reconfigured.
 	WLoad    float64 `json:"w_load"`
 	WCost    float64 `json:"w_cost"`
 	WPremium float64 `json:"w_premium"`
 }
 
-// 乘法 score 系数缺省值（=现公式 0.5*loadN + 0.3*costN - 0.2*premium）。
+// Multiplicative score weight defaults (= the current formula 0.5*loadN + 0.3*costN - 0.2*premium).
 const (
 	DefaultWLoad    = 0.5
 	DefaultWCost    = 0.3
 	DefaultWPremium = 0.2
 )
 
-// 低峰窗口默认值。
+// Off-peak window defaults.
 const (
 	DefaultRebalanceStart = 1
 	DefaultRebalanceEnd   = 7
 )
 
-// DefaultPolicySetting 两方向都取缺省档。
+// DefaultPolicySetting takes the default tier for both directions.
 func DefaultPolicySetting() PolicySetting {
 	return PolicySetting{
 		Out: DefaultPolicyOut, In: DefaultPolicyIn,
@@ -90,7 +90,7 @@ func DefaultPolicySetting() PolicySetting {
 	}
 }
 
-// LoadPolicy 读取策略设置；未设置回缺省。
+// LoadPolicy reads the policy setting; unset falls back to the default.
 func LoadPolicy(db *gorm.DB) (PolicySetting, error) {
 	setting := DefaultPolicySetting()
 	raw, ok, err := storage.GetSetting(db, settingKey)
@@ -98,26 +98,26 @@ func LoadPolicy(db *gorm.DB) (PolicySetting, error) {
 		return setting, err
 	}
 	if err := json.Unmarshal([]byte(raw), &setting); err != nil {
-		return DefaultPolicySetting(), nil // 脏数据按缺省走，不阻断分配
+		return DefaultPolicySetting(), nil // corrupt data follows the default without blocking allocation
 	}
 	setting.normalize()
 	return setting, nil
 }
 
-// ScoreWeights 是 balanced 策略的乘法 score 系数（逐系数 dash 可配）。
+// ScoreWeights are the balanced policy's multiplicative score weights (each weight dash-editable).
 type ScoreWeights struct {
 	Load    float64
 	Cost    float64
 	Premium float64
 }
 
-// Weights 取系数，缺省/非法回现四档公式口径。
+// Weights returns the weights; default/invalid values fall back to the current four-policy formula.
 func (s PolicySetting) Weights() ScoreWeights {
 	s.normalize()
 	return ScoreWeights{Load: s.WLoad, Cost: s.WCost, Premium: s.WPremium}
 }
 
-// normalize 补齐非法字段为缺省档。
+// normalize fixes invalid fields back to the default tier.
 func (s *PolicySetting) normalize() {
 	if !ValidPolicy(s.Out) {
 		s.Out = DefaultPolicyOut
@@ -128,21 +128,21 @@ func (s *PolicySetting) normalize() {
 	if !validWindow(s.RebalanceStart, s.RebalanceEnd) {
 		s.RebalanceStart, s.RebalanceEnd = DefaultRebalanceStart, DefaultRebalanceEnd
 	}
-	// 系数：缺省/非正值回缺省（权重非负且不全零，避免除零与全零退化）。
+	// Weights: default/non-positive values fall back to the default (weights are non-negative and not all-zero, avoiding division by zero and the all-zero degenerate case).
 	if s.WLoad < 0 || s.WCost < 0 || s.WPremium < 0 ||
 		(s.WLoad == 0 && s.WCost == 0 && s.WPremium == 0) {
 		s.WLoad, s.WCost, s.WPremium = DefaultWLoad, DefaultWCost, DefaultWPremium
 	}
 }
 
-// validWindow 低峰窗口口径：0-23 且 start < end（左闭右开，不支持跨日）。
+// validWindow defines the off-peak window: 0-23 with start < end (half-open, no crossing midnight).
 func validWindow(start, end int) bool {
 	return start >= 0 && start <= 23 && end >= 0 && end <= 23 && start < end
 }
 
-// SavePolicy 校验并持久化策略设置。
+// SavePolicy validates and persists the policy setting.
 func SavePolicy(db *gorm.DB, setting PolicySetting) error {
-	// 空档位表示「按方向缺省」（出海性价比/回国优质），非法档位才拒绝。
+	// An empty tier means "per-direction default" (outbound cost-effective / inbound premium); only invalid tiers are rejected.
 	if setting.Out == "" {
 		setting.Out = DefaultPolicyOut
 	}
@@ -159,7 +159,7 @@ func SavePolicy(db *gorm.DB, setting PolicySetting) error {
 		return fmt.Errorf("score weights must be non-negative")
 	}
 	if setting.WLoad == 0 && setting.WCost == 0 && setting.WPremium == 0 {
-		// 全零=按缺省（等价未配置），不拒绝。
+		// All-zero = follow the default (equivalent to unset), not rejected.
 		setting.WLoad, setting.WCost, setting.WPremium = DefaultWLoad, DefaultWCost, DefaultWPremium
 	}
 	raw, err := json.Marshal(setting)
@@ -169,22 +169,22 @@ func SavePolicy(db *gorm.DB, setting PolicySetting) error {
 	return storage.SetSetting(db, settingKey, string(raw))
 }
 
-// InOffPeak 判定时刻是否在低峰再平衡窗口内。
+// InOffPeak reports whether now falls inside the off-peak rebalance window.
 func InOffPeak(now time.Time, s PolicySetting) bool {
 	s.normalize()
 	h := now.Hour()
 	return h >= s.RebalanceStart && h < s.RebalanceEnd
 }
 
-// Candidate 是一个落地候选的打分输入。
+// Candidate is the scoring input for one landing candidate.
 type Candidate struct {
 	Node    storage.Node
-	Conns   int  // 最新连接数（无采样=0）
-	Healthy bool // 窗口内最新探测结论非 sick（无结论按健康参与）
+	Conns   int  // latest connection count (no sample = 0)
+	Healthy bool // latest probe verdict within the window is not sick (no verdict counts as healthy)
 }
 
-// CapacityMbps 转发容量（Mbps）：实测校准 > 套餐下行 > 套餐上行 > 100 兜底。
-// 带宽作容量权重——3M 小带宽按容量少分新连接，不把小水管灌爆。
+// CapacityMbps is the forwarding capacity (Mbps): measured calibrated > plan downlink > plan uplink > 100 floor.
+// Bandwidth serves as the capacity weight — a 3M small pipe receives fewer new connections by capacity, so it never floods over.
 func (c Candidate) CapacityMbps() int {
 	switch {
 	case c.Node.SpeedMeasuredMbps > 0:
@@ -197,8 +197,8 @@ func (c Candidate) CapacityMbps() int {
 	return 100
 }
 
-// CostPerGB 边际流量成本（分/GB）：仅「按流量计费」参与成本判定；
-// 包月/固定带宽的月固定成本是沉没成本，不影响分配（设计稿 §C.5.2 计费口径）。
+// CostPerGB is the marginal traffic cost (cents/GB): only metered billing enters the cost decision;
+// monthly/fixed-bandwidth fixed monthly cost is sunk cost and does not affect allocation (design doc §C.5.2 billing model).
 func (c Candidate) CostPerGB() int64 {
 	if c.Node.BillingType != "按流量" {
 		return 0
@@ -206,14 +206,14 @@ func (c Candidate) CostPerGB() int64 {
 	return c.Node.TrafficPriceCents
 }
 
-// Pick 按策略在候选中选最优，返回下标；无可分配（全病或空）返回 false。
-// 口径：
-//   - least_conn：负载比（连接/容量M）最低，平手取低成本；
-//   - cost_first：边际成本最低，平手取低负载比；
-//   - perf_first：回国线优质线档（cn2_gia/cu_vip/cmi/iplc）优先，再按负载比；
-//   - balanced：负载/成本归一加权 0.5+0.3，优质线回国线减 0.2（仅 direction=in）。
+// Pick selects the best candidate per the policy and returns its index; nothing allocatable (all sick or empty) returns false.
+// Model:
+//   - least_conn: lowest load ratio (conns/capacityM), tie broken by lower cost;
+//   - cost_first: lowest marginal cost, tie broken by lower load ratio;
+//   - perf_first: premium inbound line tiers (cn2_gia/cu_vip/cmi/iplc) first, then load ratio;
+//   - balanced: load/cost normalized weights 0.5+0.3, premium inbound line minus 0.2 (direction=in only).
 //
-// 同分取名字字典序，保证结果确定可测。
+// Equal scores break by name lexicographic order, keeping the result deterministic and testable.
 func Pick(policy, direction string, w ScoreWeights, cands []Candidate) (int, bool) {
 	healthy := make([]int, 0, len(cands))
 	for i, c := range cands {
@@ -237,22 +237,22 @@ func Pick(policy, direction string, w ScoreWeights, cands []Candidate) (int, boo
 	return best, true
 }
 
-// 载荷指标：负载比（连接/容量M）——3M 小带宽按容量少分。
+// Load metric: load ratio (conns/capacityM) — a 3M small pipe receives fewer connections by capacity.
 func loadRatio(c Candidate) float64 {
 	return float64(c.Conns) / float64(c.CapacityMbps())
 }
 
-// costPer 边际流量成本（分/GB）。
+// costPer is the marginal traffic cost (cents/GB).
 func costPer(c Candidate) float64 {
 	return float64(c.CostPerGB())
 }
 
-// premiumOf 线路档只作用于回国线（设计稿 §C.5.2）；出海线不分线档。
+// premiumOf applies the line tier only to inbound lines (design doc §C.5.2); outbound lines have no tier split.
 func premiumOf(c Candidate, direction string) bool {
 	return direction == agentproto.DirectionIn && isPremiumLine(c.Node.LineType)
 }
 
-// lessFor 生成策略比较函数：less(a,b)=a 是否优于 b。
+// lessFor builds the policy comparison function: less(a,b) = whether a beats b.
 func lessFor(policy, direction string, w ScoreWeights, cands []Candidate) func(a, b int) bool {
 	load := func(i int) float64 { return loadRatio(cands[i]) }
 	cost := func(i int) float64 { return costPer(cands[i]) }
@@ -272,7 +272,7 @@ func lessFor(policy, direction string, w ScoreWeights, cands []Candidate) func(a
 	case PolicyPerfFirst:
 		return func(a, b int) bool {
 			if pa, pb := premium(a), premium(b); pa != pb {
-				return pa // 优质线优先
+				return pa // premium line wins
 			}
 			if load(a) != load(b) {
 				return load(a) < load(b)
@@ -283,7 +283,7 @@ func lessFor(policy, direction string, w ScoreWeights, cands []Candidate) func(a
 			return byName(a, b)
 		}
 	case PolicyBalanced:
-		// 归一化到 [0,1] 后加权；优质线作固定减项。
+		// Normalize to [0,1] then weight; a premium line is a fixed subtraction.
 		all := make([]int, len(cands))
 		for i := range cands {
 			all[i] = i
@@ -317,15 +317,15 @@ func lessFor(policy, direction string, w ScoreWeights, cands []Candidate) func(a
 	}
 }
 
-// 峰时换线阈值：主指标须显著更优（省 30% 以上）才动，防留痕抖动（E-22）。
+// Peak switch threshold: the primary metric must be clearly better (saving 30% or more) to move, preventing trail churn (E-22).
 const peakSwitchMargin = 0.7
 
-// shouldSwitch 峰时换线判定（低峰窗口直接按策略全序换，不走此判定）。
-// 现行不在健康候选内（病了/下线）时由调用方强制换线，不进此函数。
+// shouldSwitch is the peak switch decision (the off-peak window switches directly by the policy total order, bypassing this check).
+// When the current landing is not among healthy candidates (sick/offline) the caller force-switches and does not reach this function.
 func shouldSwitch(policy, direction string, w ScoreWeights, cands []Candidate, cur, win int) bool {
 	switch policy {
 	case PolicyPerfFirst:
-		// 峰时只允许线档升级（普线→优质线）；降级留到低峰再平衡。
+		// During peak only line-tier upgrades are allowed (plain → premium); downgrades wait for the off-peak rebalance.
 		return !premiumOf(cands[cur], direction) && premiumOf(cands[win], direction)
 	case PolicyCostFirst:
 		curCost := costPer(cands[cur])
@@ -344,14 +344,14 @@ func shouldSwitch(policy, direction string, w ScoreWeights, cands []Candidate, c
 			}
 			return s
 		}
-		return score(win) < score(cur)-0.15 // 综合分显著更优
+		return score(win) < score(cur)-0.15 // combined score clearly better
 	default: // least_conn
 		curLoad := loadRatio(cands[cur])
 		return loadRatio(cands[win]) < curLoad*peakSwitchMargin
 	}
 }
 
-// isPremiumLine 回国优质线档。
+// isPremiumLine is the premium inbound line tier.
 func isPremiumLine(lineType string) bool {
 	switch lineType {
 	case "cn2_gia", "cu_vip", "cmi", "iplc":
@@ -360,7 +360,7 @@ func isPremiumLine(lineType string) bool {
 	return false
 }
 
-// normalize 把指标在健康候选内 min-max 归一到 [0,1]；全同值返回常数 0.5。
+// normalize min-max normalizes a metric across healthy candidates into [0,1]; all-equal values return a constant 0.5.
 func normalize(cands []Candidate, idx []int, metric func(int) float64) func(int) float64 {
 	lo, hi := metric(idx[0]), metric(idx[0])
 	for _, i := range idx[1:] {
@@ -378,7 +378,7 @@ func normalize(cands []Candidate, idx []int, metric func(int) float64) func(int)
 	return func(i int) float64 { return (metric(i) - lo) / (hi - lo) }
 }
 
-// SwitchEvent 是一次自动换线。
+// SwitchEvent is one automatic line switch.
 type SwitchEvent struct {
 	EntryID   uint
 	EntryName string
@@ -389,9 +389,9 @@ type SwitchEvent struct {
 	Reason    string
 }
 
-// Loop 周期执行分配判定直到 ctx 取消；换线记日志并外发事件。
-// Loop 周期执行分配；hooks 在每轮换线后依次收到事件列表
-// （E-16b：主流程挂 relaypush.OnSwitch 做落地重指，测试可不传）。
+// Loop runs the allocation decision periodically until ctx is canceled; switches are logged and emitted as events.
+// Loop runs allocation periodically; hooks receive the event list after each round of switches
+// (E-16b: the main flow wires relaypush.OnSwitch for landing re-pointing; tests may omit them).
 func Loop(ctx context.Context, db *gorm.DB, interval time.Duration, logger *log.Logger, hooks ...func([]SwitchEvent)) {
 	if logger == nil {
 		logger = log.Default()
@@ -399,7 +399,7 @@ func Loop(ctx context.Context, db *gorm.DB, interval time.Duration, logger *log.
 	if interval <= 0 {
 		interval = 5 * time.Minute
 	}
-	t := time.NewTimer(0) // 启动即跑一轮
+	t := time.NewTimer(0) // run one round on start
 	defer t.Stop()
 	for {
 		select {
@@ -430,15 +430,15 @@ func sweepOnce(db *gorm.DB, logger *log.Logger, hooks []func([]SwitchEvent)) err
 	return nil
 }
 
-// Sweep 执行一轮分配：每个可分配入口（enabled、池内 active、无生效中
-// manual 分配）按其方向策略选落地；与现行 auto 行不一致时释放旧行留痕
-// 并新建。峰时换线保守（主指标显著更优才动），低峰窗口按策略全序再平衡。
-// 返回换线事件。全病候选时该入口本轮不动（保现行，等恢复）。
+// Sweep runs one allocation round: every allocatable entry (enabled, active in pool, no effective manual
+// assignment) picks a landing per its direction's policy; when it differs from the current auto row, the old row is
+// released with a trail and a new one created. Peak switching is conservative (only on a clearly better primary metric), off-peak rebalances by the policy total order.
+// Returns the switch events. With all candidates sick the entry stays put this round (keep current, wait for recovery).
 func Sweep(db *gorm.DB) ([]SwitchEvent, error) {
 	return SweepAt(db, time.Now())
 }
 
-// SweepAt 是 Sweep 的时钟注入版，供测试固定时刻。
+// SweepAt is Sweep with an injectable clock, for pinning time in tests.
 func SweepAt(db *gorm.DB, now time.Time) ([]SwitchEvent, error) {
 	policy, err := LoadPolicy(db)
 	if err != nil {
@@ -449,7 +449,7 @@ func SweepAt(db *gorm.DB, now time.Time) ([]SwitchEvent, error) {
 		true, "entry", "both", "active", "provisioning").Find(&entries).Error; err != nil {
 		return nil, err
 	}
-	// provisioning（OS-3 供给中）不参与分配，转 online 后由下轮 sweep 自然纳入。
+	// provisioning (OS-3, being provisioned) does not join allocation; once online the next sweep includes it naturally.
 	var landings []storage.Node
 	if err := db.Where("enabled = ? AND role IN (?, ?) AND status != ?",
 		true, "landing", "both", "provisioning").Find(&landings).Error; err != nil {
@@ -463,13 +463,13 @@ func SweepAt(db *gorm.DB, now time.Time) ([]SwitchEvent, error) {
 	for _, entry := range entries {
 		direction := entry.Direction
 		if direction == agentproto.DirectionBoth {
-			// relay 单进程单方向（单落地地址），both 入口按出海档分配。
+			// relay is single-process single-direction (one landing address); both entries allocate by the outbound tier.
 			direction = agentproto.DirectionOut
 		}
 		if direction != agentproto.DirectionIn && direction != agentproto.DirectionOut {
 			direction = agentproto.DirectionOut
 		}
-		// 手动分配优先：入口级或所在区域级有生效中 manual 行则跳过。
+		// Manual assignments win: skip when an entry-level or region-level manual row is effective.
 		manual, err := hasManualAssignment(db, entry.ID, entry.Region)
 		if err != nil {
 			return events, err
@@ -477,7 +477,7 @@ func SweepAt(db *gorm.DB, now time.Time) ([]SwitchEvent, error) {
 		if manual {
 			continue
 		}
-		// 候选收集：方向匹配且健康（最新结论非 sick）。
+		// Candidate collection: direction-matched and healthy (latest verdict not sick).
 		cands := make([]Candidate, 0, len(landings))
 		for _, l := range landings {
 			if l.ID == entry.ID {
@@ -488,7 +488,7 @@ func SweepAt(db *gorm.DB, now time.Time) ([]SwitchEvent, error) {
 			}
 			cands = append(cands, Candidate{Node: l, Conns: conns[l.ID], Healthy: !sick[l.ID]})
 		}
-		// 现行 auto 行（同入口同方向最新一条生效中）。
+		// Current auto row (latest effective one for the same entry and direction).
 		current, err := currentAuto(db, entry.ID, direction)
 		if err != nil {
 			return events, err
@@ -496,11 +496,11 @@ func SweepAt(db *gorm.DB, now time.Time) ([]SwitchEvent, error) {
 		weights := policy.Weights()
 		idx, ok := Pick(policyFor(policy, direction), direction, weights, cands)
 		if !ok {
-			continue // 全病或无候选：保现行，等恢复
+			continue // all sick or no candidates: keep current, wait for recovery
 		}
 		winner := cands[idx].Node
-		// 现行落地在健康候选内时走峰时保守判定；不在（病了/下线/无现行）
-		// 则强制换线——健康问题不排队。
+		// When the current landing is among healthy candidates, use the conservative peak check; when not (sick/offline/none),
+		// force the switch — health issues do not queue.
 		curIdx := -1
 		if current != nil {
 			for i := range cands {
@@ -512,9 +512,9 @@ func SweepAt(db *gorm.DB, now time.Time) ([]SwitchEvent, error) {
 		}
 		if curIdx >= 0 {
 			if curIdx == idx {
-				continue // 现行即最优，不落行防抖动
+				continue // current is already the best, no row to prevent churn
 			}
-			// 峰时须主指标显著更优才动；低峰窗口按策略全序再平衡。
+			// At peak the primary metric must be clearly better to move; the off-peak window rebalances by the policy total order.
 			if !offPeak && !shouldSwitch(policyFor(policy, direction), direction, weights, cands, curIdx, idx) {
 				continue
 			}
@@ -556,7 +556,7 @@ func SweepAt(db *gorm.DB, now time.Time) ([]SwitchEvent, error) {
 	return events, nil
 }
 
-// policyFor 取方向对应档位。
+// policyFor returns the tier for the direction.
 func policyFor(p PolicySetting, direction string) string {
 	if direction == agentproto.DirectionIn {
 		return p.In
@@ -564,7 +564,7 @@ func policyFor(p PolicySetting, direction string) string {
 	return p.Out
 }
 
-// hasManualAssignment 入口级或所在区域级是否有生效中 manual 分配。
+// hasManualAssignment reports whether an entry-level or region-level manual assignment is effective.
 func hasManualAssignment(db *gorm.DB, entryID uint, region string) (bool, error) {
 	var n int64
 	if err := db.Model(&storage.LandingAssignment{}).
@@ -576,7 +576,7 @@ func hasManualAssignment(db *gorm.DB, entryID uint, region string) (bool, error)
 	return n > 0, nil
 }
 
-// currentAuto 取入口同方向最新一条生效中 auto 行。
+// currentAuto returns the entry's latest effective auto row for the direction.
 func currentAuto(db *gorm.DB, entryID uint, direction string) (*storage.LandingAssignment, error) {
 	var row storage.LandingAssignment
 	err := db.Where("released_at IS NULL AND strategy != ? AND entry_node_id = ? AND direction = ?",
@@ -591,21 +591,21 @@ func currentAuto(db *gorm.DB, entryID uint, direction string) (*storage.LandingA
 	return &row, nil
 }
 
-// latestConns 汇总各节点最新采样连接数：每进程取窗口内最新一条再按节点求和。
+// latestConns aggregates each node's latest sampled connection count: take the latest entry per process within the window, then sum per node.
 func latestConns(db *gorm.DB) map[uint]int {
 	out := map[uint]int{}
 	since := time.Now().Add(-LoadFresh)
 	var logs []storage.NodeTrafficLog
 	if err := db.Where("recorded_at > ?", since).
 		Order("recorded_at ASC, id ASC").Find(&logs).Error; err != nil {
-		return out // 查询失败按无采样处理（负载 0），不阻断分配
+		return out // on query failure treat as no sample (load 0), without blocking allocation
 	}
 	perProc := map[uint]map[string]int{}
 	for _, l := range logs {
 		if perProc[l.NodeID] == nil {
 			perProc[l.NodeID] = map[string]int{}
 		}
-		perProc[l.NodeID][l.Proc] = l.Conns // 后写覆盖=每进程最新
+		perProc[l.NodeID][l.Proc] = l.Conns // last write wins = latest per process
 	}
 	for nodeID, procs := range perProc {
 		total := 0
@@ -617,8 +617,8 @@ func latestConns(db *gorm.DB) map[uint]int {
 	return out
 }
 
-// latestSick 取窗口内有最新 sick 结论的目标节点集合；不在集合内=健康或无结论
-// （无结论按健康参与，冷启动才能完成首次分配）。
+// latestSick returns the set of target nodes with a latest sick verdict within the window; not in the set = healthy or no verdict
+// (no verdict counts as healthy so cold starts can complete the first allocation).
 func latestSick(db *gorm.DB) map[uint]bool {
 	out := map[uint]bool{}
 	since := time.Now().Add(-ProbeFresh)
@@ -629,7 +629,7 @@ func latestSick(db *gorm.DB) map[uint]bool {
 		return out
 	}
 	for _, r := range reports {
-		out[*r.TargetNodeID] = r.Verdict == agentproto.ProbeVerdictSick // 后写覆盖=最新
+		out[*r.TargetNodeID] = r.Verdict == agentproto.ProbeVerdictSick // last write wins = latest
 	}
 	return out
 }
@@ -643,7 +643,7 @@ func nodeName(nodes []storage.Node, id uint) string {
 	return fmt.Sprintf("#%d", id)
 }
 
-// announce 自动换线外发事件（P1-10 通知通道）；失败只记日志不阻断。
+// announce emits the auto-switch event (P1-10 notification channel); failures only log and do not block.
 func announce(db *gorm.DB, logger *log.Logger, ev SwitchEvent) {
 	n := notify.FromDB(db)
 	if !n.Enabled() {

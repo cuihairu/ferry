@@ -16,7 +16,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// newTestDB 建内存库并迁移。
+// newTestDB creates an in-memory DB and migrates.
 func newTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := storage.Open("sqlite", ":memory:")
@@ -29,7 +29,7 @@ func newTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-// seedNode 落一个节点；mutate 在落库前改字段（容量/成本/线档等打分输入）。
+// seedNode stores one node; mutate changes fields before storing (capacity/cost/line tier and other scoring inputs).
 func seedNode(t *testing.T, db *gorm.DB, name, role, direction string, mutate func(*storage.Node)) storage.Node {
 	t.Helper()
 	n := storage.Node{Name: name, Token: "tok-" + name, Role: role, Direction: direction, Enabled: true}
@@ -42,7 +42,7 @@ func seedNode(t *testing.T, db *gorm.DB, name, role, direction string, mutate fu
 	return n
 }
 
-// seedProbe 记一条互探结论（新鲜）。
+// seedProbe records one inter-probe verdict (fresh).
 func seedProbe(t *testing.T, db *gorm.DB, target uint, verdict string) {
 	t.Helper()
 	nodeID := &target
@@ -54,7 +54,7 @@ func seedProbe(t *testing.T, db *gorm.DB, target uint, verdict string) {
 	}
 }
 
-// seedConns 记一条节点连接数采样（新鲜）。
+// seedConns records one node connection sample (fresh).
 func seedConns(t *testing.T, db *gorm.DB, node uint, proc string, conns int) {
 	t.Helper()
 	if err := db.Create(&storage.NodeTrafficLog{
@@ -65,7 +65,7 @@ func seedConns(t *testing.T, db *gorm.DB, node uint, proc string, conns int) {
 }
 
 func TestPickLeastConnCapacityWeight(t *testing.T) {
-	// 同连接数下 3M 小带宽负载比高，新连接分给大带宽（容量权重，3M 少分）。
+	// With equal connections the 3M small pipe has a higher load ratio, so new connections go to the big pipe (capacity weight, 3M gets fewer).
 	cands := []Candidate{
 		{Node: storage.Node{Name: "small", BwDownMbps: 3}, Conns: 12, Healthy: true},
 		{Node: storage.Node{Name: "big", BwDownMbps: 100}, Conns: 12, Healthy: true},
@@ -75,7 +75,7 @@ func TestPickLeastConnCapacityWeight(t *testing.T) {
 		t.Fatalf("capacity weight broken: idx=%d ok=%v", idx, ok)
 	}
 
-	// 纯负载口径：连接数少者胜。
+	// Pure load model: the fewer connections wins.
 	cands = []Candidate{
 		{Node: storage.Node{Name: "busy", BwDownMbps: 100}, Conns: 50, Healthy: true},
 		{Node: storage.Node{Name: "idle", BwDownMbps: 100}, Conns: 5, Healthy: true},
@@ -87,7 +87,7 @@ func TestPickLeastConnCapacityWeight(t *testing.T) {
 }
 
 func TestPickCostFirst(t *testing.T) {
-	// 包月边际成本 0，压过一切按流量档（月固定成本是沉没成本不参与分配）。
+	// Monthly marginal cost 0 beats every metered tier (fixed monthly cost is sunk and stays out of allocation).
 	cands := []Candidate{
 		{Node: storage.Node{Name: "cheap", BillingType: "按流量", TrafficPriceCents: 30}, Conns: 10, Healthy: true},
 		{Node: storage.Node{Name: "pricey", BillingType: "按流量", TrafficPriceCents: 100}, Conns: 0, Healthy: true},
@@ -109,7 +109,7 @@ func TestPickCostFirst(t *testing.T) {
 }
 
 func TestPickPerfFirstInOnly(t *testing.T) {
-	// 回国线：优质线档优先，负载更高也胜。
+	// Inbound line: premium tiers win even with a higher load.
 	cands := []Candidate{
 		{Node: storage.Node{Name: "plain-busy", LineType: "163", BwDownMbps: 100}, Conns: 80, Healthy: true},
 		{Node: storage.Node{Name: "gia-busy", LineType: "cn2_gia", BwDownMbps: 100}, Conns: 80, Healthy: true},
@@ -119,7 +119,7 @@ func TestPickPerfFirstInOnly(t *testing.T) {
 		t.Fatalf("premium line should win perf_first(in): idx=%d ok=%v", idx, ok)
 	}
 
-	// 出海线不分线档：负载低者胜。
+	// Outbound lines ignore the tier split: the lower load wins.
 	cands = []Candidate{
 		{Node: storage.Node{Name: "plain-busy", LineType: "163", BwDownMbps: 100}, Conns: 80, Healthy: true},
 		{Node: storage.Node{Name: "gia-idle", LineType: "cn2_gia", BwDownMbps: 100}, Conns: 8, Healthy: true},
@@ -131,7 +131,7 @@ func TestPickPerfFirstInOnly(t *testing.T) {
 }
 
 func TestPickBalanced(t *testing.T) {
-	// 均衡档：负载与成本合成，回国优质线作减项。
+	// Balanced tier: load and cost combined, inbound premium lines subtracted.
 	cands := []Candidate{
 		{Node: storage.Node{Name: "cheap-busy", BwDownMbps: 100}, Conns: 90, Healthy: true},
 		{Node: storage.Node{Name: "iplc-loaded", LineType: "iplc", BwDownMbps: 100}, Conns: 60, Healthy: true},
@@ -141,7 +141,7 @@ func TestPickBalanced(t *testing.T) {
 		t.Fatalf("premium should win balanced(in): idx=%d ok=%v", idx, ok)
 	}
 
-	// 无优质线时低负载胜。
+	// Without a premium line the lower load wins.
 	cands = []Candidate{
 		{Node: storage.Node{Name: "busy", BwDownMbps: 100}, Conns: 90, Healthy: true},
 		{Node: storage.Node{Name: "idle", BwDownMbps: 100}, Conns: 10, Healthy: true},
@@ -153,7 +153,7 @@ func TestPickBalanced(t *testing.T) {
 }
 
 func TestPickHealthGate(t *testing.T) {
-	// 全病不分配；病者出局，健康者按策略比较。
+	// All sick allocates nothing; sick ones drop out, healthy ones compare per policy.
 	cands := []Candidate{{Node: storage.Node{Name: "sick"}, Healthy: false}}
 	if _, ok := Pick(PolicyLeastConn, "out", DefaultPolicySetting().Weights(), cands); ok {
 		t.Fatal("all-sick candidates must not allocate")
@@ -190,8 +190,8 @@ func TestPolicyPersistence(t *testing.T) {
 	}
 }
 
-// TestDirectionalDefaults 覆盖方向分流缺省档（E-30）：未设置时出海走性价比
-// （cost_first）、回国优先优质线路（perf_first）；空档位保存表示回方向缺省。
+// TestDirectionalDefaults covers the per-direction default tiers (E-30): unset means outbound uses cost-effectiveness
+// (cost_first) and inbound prefers premium lines (perf_first); saving empty tiers means falling back to the direction default.
 func TestDirectionalDefaults(t *testing.T) {
 	db := newTestDB(t)
 	def := DefaultPolicySetting()
@@ -202,7 +202,7 @@ func TestDirectionalDefaults(t *testing.T) {
 	if err := SavePolicy(db, PolicySetting{Out: PolicyLeastConn, In: PolicyLeastConn, RebalanceStart: 1, RebalanceEnd: 7}); err != nil {
 		t.Fatal(err)
 	}
-	// 两方向空档位：各自回缺省，窗口保留。
+	// Both direction tiers empty: each falls back to its default, window kept.
 	if err := SavePolicy(db, PolicySetting{RebalanceStart: 2, RebalanceEnd: 6}); err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +214,7 @@ func TestDirectionalDefaults(t *testing.T) {
 		t.Fatalf("reset to defaults = %+v", got)
 	}
 
-	// 非法档位仍拒绝（空≠任意值）。
+	// Invalid tiers are still rejected (empty ≠ any value).
 	if err := SavePolicy(db, PolicySetting{Out: "greedy", In: "", RebalanceStart: 1, RebalanceEnd: 7}); err == nil {
 		t.Fatal("invalid out must be rejected")
 	}
@@ -226,7 +226,7 @@ func TestSweepAllocatesAndSwitches(t *testing.T) {
 	seedNode(t, db, "land-a", "landing", "out", nil)
 	seedNode(t, db, "land-b", "landing", "out", nil)
 
-	// 首轮：零负载零成本全同，名字字典序 land-a 胜。
+	// First round: zero load, zero cost, all equal — name lexicographic order gives land-a the win.
 	events, err := Sweep(db)
 	if err != nil {
 		t.Fatal(err)
@@ -235,12 +235,12 @@ func TestSweepAllocatesAndSwitches(t *testing.T) {
 		t.Fatalf("first sweep events = %+v", events)
 	}
 
-	// 无变化复跑不产生新行（不抖动）。
+	// Re-running with no change produces no new rows (no churn).
 	if events, err = Sweep(db); err != nil || len(events) != 0 {
 		t.Fatalf("no-churn sweep = %+v err=%v", events, err)
 	}
 
-	// land-a 病了 → 自动换线到 land-b，旧行释放留痕。
+	// land-a went sick → auto-switch to land-b, the old row is released with a trail.
 	var landA storage.Node
 	if err := db.Where("name = ?", "land-a").First(&landA).Error; err != nil {
 		t.Fatal(err)
@@ -275,8 +275,8 @@ func TestSweepLoadSignal(t *testing.T) {
 	landA := seedNode(t, db, "land-a", "landing", "out", func(n *storage.Node) { n.BwDownMbps = 3 })
 	landB := seedNode(t, db, "land-b", "landing", "out", func(n *storage.Node) { n.BwDownMbps = 100 })
 
-	// land-a 3M 小带宽吃了 30 条连接（负载比 10），land-b 100M 吃 30 条（0.3）：
-	// least_conn 下新入口分给 land-b（3M 少分）。
+	// land-a (3M small pipe) holds 30 connections (load ratio 10), land-b (100M) holds 30 (0.3):
+	// under least_conn the new entry goes to land-b (3M gets fewer).
 	seedConns(t, db, landA.ID, "relay", 30)
 	seedConns(t, db, landB.ID, "relay", 30)
 	if err := SavePolicy(db, PolicySetting{Out: PolicyLeastConn, In: PolicyLeastConn, RebalanceStart: 1, RebalanceEnd: 7}); err != nil {
@@ -304,7 +304,7 @@ func TestSweepManualWins(t *testing.T) {
 	entry := seedNode(t, db, "entry", "entry", "out", nil)
 	landing := seedNode(t, db, "land", "landing", "out", nil)
 
-	// 入口级手动行挡住自动。
+	// An entry-level manual row blocks auto allocation.
 	if err := db.Create(&storage.LandingAssignment{
 		EntryNodeID: &entry.ID, LandingNodeID: landing.ID,
 		Direction: "out", Strategy: PolicyManual, AssignedAt: time.Now(),
@@ -316,7 +316,7 @@ func TestSweepManualWins(t *testing.T) {
 		t.Fatalf("manual must win: %+v err=%v", events, err)
 	}
 
-	// 区域级手动行同样挡。
+	// A region-level manual row blocks it the same way.
 	if err := db.Exec("DELETE FROM landing_assignments").Error; err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +340,7 @@ func TestSweepScopeGuards(t *testing.T) {
 	entry := seedNode(t, db, "entry", "entry", "out", nil)
 	seedNode(t, db, "land", "landing", "out", nil)
 
-	// 摘除态入口不参与分配。
+	// Suspended entries do not join allocation.
 	if err := db.Model(&storage.Node{}).Where("id = ?", entry.ID).
 		Update("pool_state", "suspended").Error; err != nil {
 		t.Fatal(err)
@@ -350,7 +350,7 @@ func TestSweepScopeGuards(t *testing.T) {
 		t.Fatalf("suspended entry must be skipped: %+v err=%v", events, err)
 	}
 
-	// 禁用落地不进候选池：复位入口后唯一落地被禁 → 无候选不动。
+	// Disabled landings stay out of the candidate pool: after resetting the entry, the only landing is disabled → no candidates, no move.
 	if err := db.Model(&storage.Node{}).Where("id = ?", entry.ID).
 		Update("pool_state", "active").Error; err != nil {
 		t.Fatal(err)
@@ -374,7 +374,7 @@ func TestSweepAllSickKeepsCurrent(t *testing.T) {
 		t.Fatalf("initial sweep = %+v err=%v", events, err)
 	}
 
-	// 落地转病：保现行不换线，无新事件无新行。
+	// Landing turned sick: keep the current one, no switch, no new events or rows.
 	seedProbe(t, db, landing.ID, agentproto.ProbeVerdictSick)
 	events, err = Sweep(db)
 	if err != nil || len(events) != 0 {
@@ -390,7 +390,7 @@ func TestSweepAllSickKeepsCurrent(t *testing.T) {
 }
 
 func TestShouldSwitchPeakMargins(t *testing.T) {
-	// least_conn 峰时：主指标省 30% 以上才动。
+	// least_conn at peak: the primary metric must save 30% or more to move.
 	cur := Candidate{Node: storage.Node{Name: "cur", BwDownMbps: 100}, Conns: 100, Healthy: true}
 	slightly := Candidate{Node: storage.Node{Name: "slightly", BwDownMbps: 100}, Conns: 90, Healthy: true}
 	much := Candidate{Node: storage.Node{Name: "much", BwDownMbps: 100}, Conns: 50, Healthy: true}
@@ -402,7 +402,7 @@ func TestShouldSwitchPeakMargins(t *testing.T) {
 		t.Fatal("50% better must switch on peak")
 	}
 
-	// cost_first 峰时：边际成本降 30% 以上才动；包月零成本现行不换。
+	// cost_first at peak: marginal cost must drop 30% or more to move; a zero-cost monthly current never switches.
 	cheap := Candidate{Node: storage.Node{Name: "cheap", BillingType: "按流量", TrafficPriceCents: 90}, Healthy: true}
 	muchCheap := Candidate{Node: storage.Node{Name: "much-cheap", BillingType: "按流量", TrafficPriceCents: 30}, Healthy: true}
 	pricey := Candidate{Node: storage.Node{Name: "pricey", BillingType: "按流量", TrafficPriceCents: 100}, Healthy: true}
@@ -421,7 +421,7 @@ func TestShouldSwitchPeakMargins(t *testing.T) {
 		t.Fatal("free current must never switch on peak")
 	}
 
-	// perf_first 峰时：只许升档（普线→优质线），不许降级。
+	// perf_first at peak: only tier upgrades (plain → premium) are allowed, downgrades are not.
 	plain := Candidate{Node: storage.Node{Name: "plain", LineType: "163"}, Healthy: true}
 	gia := Candidate{Node: storage.Node{Name: "gia", LineType: "cn2_gia"}, Healthy: true}
 	cands = []Candidate{plain, gia}
@@ -439,8 +439,8 @@ func TestSweepPeakHysteresisAndOffpeakRebalance(t *testing.T) {
 	landA := seedNode(t, db, "land-a", "landing", "out", nil)
 	landB := seedNode(t, db, "land-b", "landing", "out", nil)
 
-	// 现行 land-a（100M 兜底）。land-b 同容量但连接略少：峰时 10% 优势不动，
-	// 低峰窗口全序更优即再平衡。
+	// Current land-a (100M floor). land-b has the same capacity but slightly fewer connections: at peak a 10% edge does not move,
+	// the off-peak window rebalances whenever the total order is better.
 	seedConns(t, db, landA.ID, "relay", 100)
 	seedConns(t, db, landB.ID, "relay", 90)
 	if err := db.Create(&storage.LandingAssignment{
@@ -453,19 +453,19 @@ func TestSweepPeakHysteresisAndOffpeakRebalance(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 峰时（12 点）：land-b 仅优 10%，不换。
+	// At peak (12:00): land-b is only 10% better, no switch.
 	events, err := SweepAt(db, time.Date(2026, 10, 7, 12, 0, 0, 0, time.Local))
 	if err != nil || len(events) != 0 {
 		t.Fatalf("peak slight gain must hold: %+v err=%v", events, err)
 	}
 
-	// 低峰（3 点）：全序更优即再平衡。
+	// Off-peak (3:00): a better total order rebalances.
 	events, err = SweepAt(db, time.Date(2026, 10, 7, 3, 0, 0, 0, time.Local))
 	if err != nil || len(events) != 1 || events[0].ToName != "land-b" {
 		t.Fatalf("offpeak rebalance = %+v err=%v", events, err)
 	}
 
-	// 峰时大幅更优：land-c 负载比 0.3 vs 现行 0.9，显著更优即动。
+	// At peak a much better option: land-c load ratio 0.3 vs current 0.9, clearly better so it moves.
 	landC := seedNode(t, db, "land-c", "landing", "out", nil)
 	seedConns(t, db, landC.ID, "relay", 30)
 	events, err = SweepAt(db, time.Date(2026, 10, 7, 12, 0, 0, 0, time.Local))
@@ -474,13 +474,13 @@ func TestSweepPeakHysteresisAndOffpeakRebalance(t *testing.T) {
 	}
 }
 
-// TestPickBalancedWeights 系数 dash 可配（调度核心设计 §权重合成分）：
-// 缺省 0.5/0.3/0.2 复现现公式；改系数即改结果——成本权重拉高时低成本
-// 胜出，成本权重归零时退化为纯负载比，负系数/全零回缺省。
+// TestPickBalancedWeights dash-editable weights (scheduler core design §weight composition):
+// the defaults 0.5/0.3/0.2 reproduce the current formula; changing a weight changes the result — a higher cost
+// weight lets the low cost win, zeroing the cost weight degenerates to pure load ratio, negative/all-zero weights fall back to the default.
 func TestPickBalancedWeights(t *testing.T) {
-	// cheap-idle（低负载低零成本）对 busy-premium（高负载优质线低值减项）：
-	// 缺省下优质线减项 0.2 不足以覆盖负载差，idle 胜；把 premium 权重提到
-	// 1.0 后减项压过负载差，premium 胜——证明系数真实生效。
+	// cheap-idle (low load, low zero cost) vs busy-premium (high load, premium line, low-value subtraction):
+	// with the defaults the premium subtraction of 0.2 cannot cover the load gap, so idle wins; raising the premium
+	// weight to 1.0 lets the subtraction beat the load gap and premium wins — proving the weights actually take effect.
 	cands := []Candidate{
 		{Node: storage.Node{Name: "idle", BwDownMbps: 100, BillingType: "按流量", TrafficPriceCents: 100}, Conns: 20, Healthy: true},
 		{Node: storage.Node{Name: "premium-busy", LineType: "iplc", BwDownMbps: 100, BillingType: "按流量", TrafficPriceCents: 100}, Conns: 60, Healthy: true},
@@ -496,7 +496,7 @@ func TestPickBalancedWeights(t *testing.T) {
 		t.Fatalf("优质线权重拉高应 premium 胜: idx=%d ok=%v", idx, ok)
 	}
 
-	// 成本权重归零 → 纯负载比：低成本但高负载者不再受成本优待。
+	// Cost weight zeroed → pure load ratio: the low-cost but high-load node no longer gets the cost advantage.
 	costly := []Candidate{
 		{Node: storage.Node{Name: "cheap-busy", BwDownMbps: 100, BillingType: "按流量", TrafficPriceCents: 1}, Conns: 90, Healthy: true},
 		{Node: storage.Node{Name: "pricey-idle", BwDownMbps: 100, BillingType: "按流量", TrafficPriceCents: 500}, Conns: 10, Healthy: true},
@@ -506,7 +506,7 @@ func TestPickBalancedWeights(t *testing.T) {
 		t.Fatalf("成本权重归零应纯按负载比选 idle: idx=%d ok=%v", idx, ok)
 	}
 
-	// normalize：负系数与全零回缺省。
+	// normalize: negative and all-zero weights fall back to the default.
 	if got := (PolicySetting{WLoad: -1}).Weights(); got != (ScoreWeights{DefaultWLoad, DefaultWCost, DefaultWPremium}) {
 		t.Fatalf("负系数应回缺省: %+v", got)
 	}
@@ -515,7 +515,7 @@ func TestPickBalancedWeights(t *testing.T) {
 	}
 }
 
-// TestSavePolicyWeights 系数持久化与非法拒绝。
+// TestSavePolicyWeights weight persistence and rejection of invalid values.
 func TestSavePolicyWeights(t *testing.T) {
 	db := newTestDB(t)
 	s := DefaultPolicySetting()
@@ -532,7 +532,7 @@ func TestSavePolicyWeights(t *testing.T) {
 	if err := SavePolicy(db, bad); err == nil {
 		t.Fatal("负系数必须拒绝")
 	}
-	// 全零=按缺省，落库后读回缺省值。
+	// All-zero = follow the default; after storing, the default values read back.
 	zero := DefaultPolicySetting()
 	zero.WLoad, zero.WCost, zero.WPremium = 0, 0, 0
 	if err := SavePolicy(db, zero); err != nil {
@@ -543,7 +543,7 @@ func TestSavePolicyWeights(t *testing.T) {
 	}
 }
 
-// TestCapacityMbpsFallbacks 容量取值口径：实测校准 > 套餐下行 > 上行 > 100 兜底。
+// TestCapacityMbpsFallbacks capacity selection model: measured calibrated > plan downlink > uplink > 100 floor.
 func TestCapacityMbpsFallbacks(t *testing.T) {
 	cases := []struct {
 		name string
@@ -562,10 +562,10 @@ func TestCapacityMbpsFallbacks(t *testing.T) {
 	}
 }
 
-// TestShouldSwitchBalanced 峰时 balanced 判定：综合分显著更优（0.15 分差）
-// 才动；优质线减项可翻转判定。
+// TestShouldSwitchBalanced the peak-time balanced decision: the combined score must be clearly better (0.15 gap)
+// to move; the premium subtraction can flip the decision.
 func TestShouldSwitchBalanced(t *testing.T) {
-	// 三候选拉开归一区间：cur=1.0、win=0.75，分差 0.125 < 0.15 不动。
+	// Three candidates stretch the normalization range: cur=1.0, win=0.75, gap 0.125 < 0.15, no move.
 	mid := Candidate{Node: storage.Node{Name: "mid", BwDownMbps: 100}, Conns: 60, Healthy: true}
 	cur := Candidate{Node: storage.Node{Name: "cur", BwDownMbps: 100}, Conns: 100, Healthy: true}
 	win := Candidate{Node: storage.Node{Name: "win", BwDownMbps: 100}, Conns: 90, Healthy: true}
@@ -574,7 +574,7 @@ func TestShouldSwitchBalanced(t *testing.T) {
 	if shouldSwitch(PolicyBalanced, "out", w, cands, 1, 2) {
 		t.Fatal("0.125 score gap must not switch")
 	}
-	// win 是优质线（回国）：减 0.2 后分差 0.325 > 0.15 动。
+	// win is a premium line (inbound): after subtracting 0.2 the gap is 0.325 > 0.15, move.
 	prem := Candidate{Node: storage.Node{Name: "prem", BwDownMbps: 100, LineType: "cn2_gia"}, Conns: 90, Healthy: true}
 	cands = []Candidate{mid, cur, prem}
 	if !shouldSwitch(PolicyBalanced, "in", w, cands, 1, 2) {
@@ -582,8 +582,8 @@ func TestShouldSwitchBalanced(t *testing.T) {
 	}
 }
 
-// TestLoopSweepsHooksAndStops Loop 周期扫表：启动即分配、每轮回调用
-// （空轮也回调）、cancel 后返回。
+// TestLoopSweepsHooksAndStops Loop sweeps periodically: allocates on start, calls back every round
+// (even empty rounds), and returns after cancel.
 func TestLoopSweepsHooksAndStops(t *testing.T) {
 	db := newTestDB(t)
 	seedNode(t, db, "entry", "entry", "out", nil)
@@ -619,7 +619,7 @@ func TestLoopSweepsHooksAndStops(t *testing.T) {
 	if first[0].ToName != "land" {
 		t.Fatalf("event = %+v", first[0])
 	}
-	// 稳态空轮也有回调（防抖动=空列表），再等一轮证明周期在跑。
+	// Steady-state empty rounds still call back (anti-churn = empty list); wait one more round to prove the period keeps ticking.
 	select {
 	case <-calls:
 	case <-deadline:
@@ -633,13 +633,13 @@ func TestLoopSweepsHooksAndStops(t *testing.T) {
 	}
 }
 
-// TestLoopAnnounceWebhookFailure 通知渠道配了不可达 webhook：外发失败
-// 只记日志不阻断分配回调。
+// TestLoopAnnounceWebhookFailure the notification channel points at an unreachable webhook: a failed send
+// only logs and does not block the allocation callbacks.
 func TestLoopAnnounceWebhookFailure(t *testing.T) {
 	db := newTestDB(t)
 	seedNode(t, db, "entry", "entry", "out", nil)
 	seedNode(t, db, "land", "landing", "out", nil)
-	// 已关闭的服务地址：连接即刻被拒。
+	// Address of a closed server: connections are refused immediately.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	u := srv.URL
 	srv.Close()
@@ -676,14 +676,14 @@ func TestLoopAnnounceWebhookFailure(t *testing.T) {
 	}
 }
 
-// TestSweepDanglingCurrentLandingName 现行落地节点已从候选中消失（删号）：
-// 换线事件 FromName 回退 "#id" 占位，不 panic。方向取 in 覆盖 policyFor
-// 回国档分支。
+// TestSweepDanglingCurrentLandingName the current landing node has vanished from the candidates (deleted):
+// the switch event's FromName falls back to a "#id" placeholder without panicking. Direction in covers the
+// policyFor inbound-tier branch.
 func TestSweepDanglingCurrentLandingName(t *testing.T) {
 	db := newTestDB(t)
 	entry := seedNode(t, db, "entry", "entry", "in", nil)
 	land := seedNode(t, db, "land", "landing", "in", nil)
-	// 现行行指向一个不存在的落地 ID（无 FK 约束，可悬空）。
+	// The current row points at a nonexistent landing ID (no FK constraint, so it can dangle).
 	dangling := land.ID + 999
 	if err := db.Create(&storage.LandingAssignment{
 		EntryNodeID: &entry.ID, LandingNodeID: dangling,
