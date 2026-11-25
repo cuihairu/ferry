@@ -1,7 +1,7 @@
-// Package transport 区域传输判定（E-17）：把区域内各传输形态节点的
-// 探测结论聚合出「哪种活着用哪种」——存活占比最高的传输即该区域推荐
-// 传输；与区域现行主流传输不一致时给切换建议。切换 = 换配置不改架构
-// （改节点 transport 标注并重推对应配置，复用 config.push 链路）。
+// Package transport is regional transport judgment (E-17): it aggregates the probe conclusions of
+// each transport form's nodes within a region to conclude "which form is alive and usable" - the transport
+// form with the highest survival share is the region's recommended transport; when it differs from the region's
+// current mainstream transport, a switch suggestion is given. Switching = changing configuration, not architecture (change the node's transport annotation and re-push the corresponding config, reusing the config.push pipeline).
 package transport
 
 import (
@@ -13,10 +13,10 @@ import (
 	"gorm.io/gorm"
 )
 
-// DefaultWindow 判定窗口默认值，与区域聚合判定同口径。
+// DefaultWindow is the default window value, same policy as the regional aggregate judgment.
 const DefaultWindow = 5 * time.Minute
 
-// Options 是判定口径，零值回退默认。
+// Options is the judgment policy; the zero value falls back to the default.
 type Options struct {
 	Window time.Duration
 }
@@ -28,24 +28,24 @@ func (o Options) normalize() Options {
 	return o
 }
 
-// TransportHealth 是一种传输在区域内的存活概要。
+// TransportHealth is a transport's survival summary within a region.
 type TransportHealth struct {
 	Transport string `json:"transport"`
-	Total     int    `json:"total"` // 窗口内有新鲜结论的节点数
-	Alive     int    `json:"alive"` // 最新结论 healthy 的节点数
+	Total     int    `json:"total"` // nodes with fresh conclusions within the window
+	Alive     int    `json:"alive"` // nodes with a fresh healthy conclusion
 }
 
-// Row 是一个区域的传输判定结论。
+// Row is one region's transport judgment conclusion.
 type Row struct {
 	Region      string            `json:"region"`
 	Transports  []TransportHealth `json:"transports"`
-	Current     string            `json:"current"`      // 区域现行主流传输（节点数最多）
-	Recommended string            `json:"recommended"`  // 存活占比最高的传输
-	Switch      bool              `json:"switchneeded"` // 建议 != 现行，建议换线
+	Current     string            `json:"current"`      // regional current mainstream transport (the most nodes)
+	Recommended string            `json:"recommended"`  // the transport with the highest survival share
+	Switch      bool              `json:"switchneeded"` // recommended != current, suggests switching lines
 }
 
-// Judge 聚合窗口内互探/隧道结论，按区域×传输给判定（E-17）。
-// 每个目标节点取最新一条结论记存活；无新鲜结论的节点不参与。
+// Judge aggregates the window's mutual-probe / tunnel conclusions, judging per region x transport (E-17).
+// Each target node takes its latest conclusion to record liveness; nodes with no fresh conclusion do not participate.
 func Judge(db *gorm.DB, opts Options) ([]Row, error) {
 	opts = opts.normalize()
 	since := time.Now().Add(-opts.Window)
@@ -55,7 +55,7 @@ func Judge(db *gorm.DB, opts Options) ([]Row, error) {
 		Order("probed_at ASC, id ASC").Find(&reports).Error; err != nil {
 		return nil, err
 	}
-	// 每个目标节点取最新结论。
+	// Take the latest conclusion for each target node.
 	latest := map[uint]storage.ProbeReport{}
 	for _, r := range reports {
 		if r.TargetNodeID == nil {
@@ -69,7 +69,7 @@ func Judge(db *gorm.DB, opts Options) ([]Row, error) {
 	if len(latest) == 0 {
 		return []Row{}, nil
 	}
-	// 目标节点的区域与传输标注。
+	// The target node's region and transport annotations.
 	var nodes []storage.Node
 	if err := db.Where("id IN ?", keys(latest)).Find(&nodes).Error; err != nil {
 		return nil, err
@@ -119,11 +119,11 @@ func Judge(db *gorm.DB, opts Options) ([]Row, error) {
 		sort.Slice(healths, func(i, j int) bool { return healths[i].Transport < healths[j].Transport })
 		row := Row{Region: region, Transports: healths}
 		for _, h := range healths {
-			// 现行主流：节点数最多（同数取传输名字典序，保证稳定）。
+			// Current mainstream: the most nodes (ties broken by transport name in lexicographic order, for stability).
 			if cur := findHealth(healths, row.Current); cur == nil || h.Total > cur.Total {
 				row.Current = h.Transport
 			}
-			// 推荐：存活占比最高（同占比比存活数，再比字典序）。
+			// Recommended: the highest survival share (compare alive counts at the same share, then lexicographic order).
 			if rec := findHealth(healths, row.Recommended); rec == nil || better(h, *rec) {
 				row.Recommended = h.Transport
 			}
@@ -143,7 +143,7 @@ func findHealth(hs []TransportHealth, name string) *TransportHealth {
 	return nil
 }
 
-// better 比较 a 是否比 b 更值得推荐：存活占比优先，同占比比存活数。
+// better compares whether a is more worth recommending than b: survival share first, then alive count.
 func better(a, b TransportHealth) bool {
 	ra := float64(a.Alive) / float64(a.Total)
 	rb := float64(b.Alive) / float64(b.Total)

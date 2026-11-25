@@ -40,18 +40,18 @@ func report(t *testing.T, db *gorm.DB, reporter, target uint, verdict string, ag
 	}
 }
 
-// TestJudge 覆盖区域传输判定（E-17）：存活占比最高者为推荐；
-// 现行主流取节点数最多；建议 != 现行时给切换标记。
+// TestJudge covers regional transport judgment (E-17): the form with the highest survival share is the recommended;
+// the current mainstream takes the most nodes; when recommended != current a switch mark is given.
 func TestJudge(t *testing.T) {
 	db := newDB(t)
-	// hk 区域：tls 两个节点（一病一好），ws-tls 一个节点（好）
+	// hk region: two tls nodes (one sick, one healthy), one ws-tls node (healthy)
 	hkTls1 := seedNode(t, db, "hk-tls-1", "hk", "tls")
 	hkTls2 := seedNode(t, db, "hk-tls-2", "hk", "tls")
 	hkWs := seedNode(t, db, "hk-ws", "hk", "ws-tls")
 	report(t, db, 99, hkTls1.ID, agentproto.ProbeVerdictSick, time.Minute)
 	report(t, db, 99, hkTls2.ID, agentproto.ProbeVerdictHealthy, time.Minute)
 	report(t, db, 99, hkWs.ID, agentproto.ProbeVerdictHealthy, time.Minute)
-	// us 区域：只有 quic，全好
+	// us region: only quic, all healthy
 	usQ := seedNode(t, db, "us-q", "us", "quic")
 	report(t, db, 99, usQ.ID, agentproto.ProbeVerdictHealthy, time.Minute)
 
@@ -82,8 +82,8 @@ func TestJudge(t *testing.T) {
 	}
 }
 
-// TestJudgeStaleAndMissing 覆盖口径边界：超龄结论不参与；
-// 无新鲜结论的区域不出行；最新结论覆盖旧结论。
+// TestJudgeStaleAndMissing covers the policy boundary: stale conclusions do not participate;
+// a region with no fresh conclusion emits no row; the latest conclusion overwrites the older one.
 func TestJudgeStaleAndMissing(t *testing.T) {
 	db := newDB(t)
 	stale := seedNode(t, db, "stale", "jp", "tls")
