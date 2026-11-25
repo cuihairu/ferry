@@ -78,6 +78,11 @@ type FileRecord struct {
 	PeriodEnd   time.Time `json:"period_end,omitempty"`
 	TaxCents    int64     `json:"tax_cents,omitempty"`
 	PreTaxCents int64     `json:"pre_tax_cents,omitempty"`
+	// FX conversion (F-0595/F-0596): an importer-supplied rate converts the
+	// bill into the report currency; source and date are kept with the record.
+	FXRate       float64 `json:"fx_rate,omitempty"`
+	FXRateSource string  `json:"fx_rate_source,omitempty"`
+	FXRateDate   string  `json:"fx_rate_date,omitempty"` // RFC3339 or YYYY-MM-DD
 }
 
 // ImportFromAPI pulls the vendor billing API, validates the declared
@@ -288,10 +293,19 @@ func (s *Service) storeRows(src storage.CostProvider, source string, rows []File
 			order = append(order, key)
 		}
 		// The record total is the sum of its line items; the tax split comes
-		// from the first row that supplies one (F-0510).
+		// from the first row that supplies one (F-0510), the FX conversion
+		// from the first row that carries a rate (F-0595/F-0596).
 		g.rec.AmountCents += row.AmountCents
 		if g.rec.TaxCents == 0 && g.rec.PreTaxCents == 0 {
 			g.rec.TaxCents, g.rec.PreTaxCents = row.TaxCents, row.PreTaxCents
+		}
+		if g.rec.FXRate == 0 && row.FXRate > 0 {
+			g.rec.FXRate = row.FXRate
+			g.rec.FXRateSource = row.FXRateSource
+			if at, perr := parseFXDate(row.FXRateDate); perr == nil && !at.IsZero() {
+				g.rec.FXRateDate = &at
+			}
+			g.rec.ReportAmountCents = int64(float64(row.AmountCents) * row.FXRate)
 		}
 		if row.Region != "" && g.rec.Region == "" {
 			g.rec.Region = row.Region
@@ -397,6 +411,17 @@ func endOfMonth(t time.Time) time.Time {
 	}
 	y, m, _ := t.Date()
 	return time.Date(y, m+1, 1, 0, 0, 0, 0, t.Location()).Add(-time.Nanosecond)
+}
+
+// parseFXDate accepts the rate date as RFC3339 or a plain calendar day.
+func parseFXDate(s string) (time.Time, error) {
+	if s == "" {
+		return time.Time{}, nil
+	}
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t, nil
+	}
+	return time.Parse("2006-01-02", s)
 }
 
 func truncate(s string, n int) string {

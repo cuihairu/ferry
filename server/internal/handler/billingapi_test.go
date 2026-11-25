@@ -315,6 +315,71 @@ func TestBillingAPICostLines(t *testing.T) {
 	}
 }
 
+// TestBillingAPISpend covers the aggregate endpoints (F-0581~F-0583/F-0593):
+// per-provider and per-account actual sums plus the month trend, each
+// per-currency (F-0594).
+func TestBillingAPISpend(t *testing.T) {
+	db, err := storage.Open(storage.DriverSQLite, filepath.Join(t.TempDir(), "billingapi4.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	src := storage.CostProvider{Name: "vendor-b", Source: "manual", Currency: "USD"}
+	if err := db.Create(&src).Error; err != nil {
+		t.Fatalf("source: %v", err)
+	}
+	day := time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC)
+	rec := storage.CostRecord{
+		CostProviderID: src.ID, Source: "manual", BillID: "SP-1", Account: "acc-x", Region: "eu-1",
+		Currency: "USD", AmountCents: 700, IncurredAt: day, PeriodStart: day, PeriodEnd: day.AddDate(0, 1, 0),
+		Status: "settled", DedupeKey: "manual:1:SP-1:0",
+	}
+	if err := db.Create(&rec).Error; err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	cfg := config.Default()
+	cfg.SecretKey = "test-master-key"
+	gin.SetMode(gin.TestMode)
+	r, _ := NewRouter(db, cfg)
+
+	rec2 := doJSON(t, r, http.MethodGet, "/api/cost/spend?scope=provider", nil)
+	if rec2.Code != http.StatusOK || !strings.Contains(rec2.Body.String(), `"actual_cents":700`) {
+		t.Fatalf("provider spend: code=%d body=%s", rec2.Code, rec2.Body.String())
+	}
+	if !strings.Contains(rec2.Body.String(), `"name":"vendor-b"`) {
+		t.Fatalf("provider spend must name the source: %s", rec2.Body.String())
+	}
+	rec2 = doJSON(t, r, http.MethodGet, "/api/cost/spend?scope=account", nil)
+	if !strings.Contains(rec2.Body.String(), `"key":"acc-x"`) {
+		t.Fatalf("account spend: %s", rec2.Body.String())
+	}
+	rec2 = doJSON(t, r, http.MethodGet, "/api/cost/spend?scope=galaxy", nil)
+	if rec2.Code != http.StatusBadRequest {
+		t.Fatalf("invalid scope must fail: code=%d", rec2.Code)
+	}
+	rec2 = doJSON(t, r, http.MethodGet, "/api/cost/spend/trend?bucket=month", nil)
+	if rec2.Code != http.StatusOK || !strings.Contains(rec2.Body.String(), `"bucket":"2026-10"`) {
+		t.Fatalf("month trend: code=%d body=%s", rec2.Code, rec2.Body.String())
+	}
+	rec2 = doJSON(t, r, http.MethodGet, "/api/cost/spend/trend?bucket=week", nil)
+	if rec2.Code != http.StatusBadRequest {
+		t.Fatalf("invalid bucket must fail: code=%d", rec2.Code)
+	}
+	// Anomaly review (F-0588~F-0590): from is required, growth_pct parsed.
+	rec2 = doJSON(t, r, http.MethodGet, "/api/cost/anomalies", nil)
+	if rec2.Code != http.StatusBadRequest {
+		t.Fatalf("anomalies without from must fail: code=%d", rec2.Code)
+	}
+	rec2 = doJSON(t, r, http.MethodGet, "/api/cost/anomalies?from=2026-10-01T00:00:00Z&to=2026-11-30T00:00:00Z", nil)
+	if rec2.Code != http.StatusOK || !strings.Contains(rec2.Body.String(), `"anomalies"`) {
+		t.Fatalf("anomalies: code=%d body=%s", rec2.Code, rec2.Body.String())
+	}
+}
+
 // doJSONRaw posts a pre-encoded body with an explicit content type.
 func doJSONRaw(t *testing.T, r *gin.Engine, method, path, body, contentType string) *httptest.ResponseRecorder {
 	t.Helper()

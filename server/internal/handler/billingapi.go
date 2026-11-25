@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -754,6 +755,99 @@ func (h *Handler) confirmReconciliation(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, row)
+}
+
+// listSpend aggregates actual bills, allocated costs and estimates along the
+// provider/account/region/resource/node/path dimensions (F-0581~F-0586). Each
+// bucket is per-currency; period bounds are RFC3339 and optional.
+func (h *Handler) listSpend(c *gin.Context) {
+	scope := c.Query("scope")
+	if !billing.ValidSpendScope(scope) {
+		fail(c, http.StatusBadRequest, errors.New("scope must be provider/account/region/resource/node/path"))
+		return
+	}
+	from, to, err := spendPeriod(c)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	rows, err := billing.SpendByScope(h.db, scope, from, to)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"scope": scope, "rows": rows})
+}
+
+// listSpendTrend buckets actual spend by day, month or billing cycle
+// (F-0593); buckets stay per-currency (F-0594).
+func (h *Handler) listSpendTrend(c *gin.Context) {
+	bucket := c.Query("bucket")
+	if bucket == "" {
+		bucket = "month"
+	}
+	from, to, err := spendPeriod(c)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	rows, err := billing.SpendTrend(h.db, bucket, from, to)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"bucket": bucket, "rows": rows})
+}
+
+// listAnomalies reviews the period for missing bills, unmatched resources and
+// spend spikes (F-0588~F-0590); optional growth_pct sets the spike threshold
+// (default 100%).
+func (h *Handler) listAnomalies(c *gin.Context) {
+	from, to, err := spendPeriod(c)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	if from == nil {
+		fail(c, http.StatusBadRequest, errors.New("from is required"))
+		return
+	}
+	if to == nil {
+		to = &time.Time{}
+	}
+	spike := c.Query("growth_pct")
+	pct := int64(0)
+	if spike != "" {
+		if _, err := fmt.Sscanf(spike, "%d", &pct); err != nil {
+			fail(c, http.StatusBadRequest, errors.New("growth_pct must be an integer"))
+			return
+		}
+	}
+	rows, err := billing.DetectAnomalies(h.db, *from, *to, pct)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"anomalies": rows})
+}
+
+func spendPeriod(c *gin.Context) (*time.Time, *time.Time, error) {
+	var from, to *time.Time
+	if s := c.Query("from"); s != "" {
+		t, err := time.Parse(time.RFC3339, s)
+		if err != nil {
+			return nil, nil, errors.New("from must be RFC3339")
+		}
+		from = &t
+	}
+	if s := c.Query("to"); s != "" {
+		t, err := time.Parse(time.RFC3339, s)
+		if err != nil {
+			return nil, nil, errors.New("to must be RFC3339")
+		}
+		to = &t
+	}
+	return from, to, nil
 }
 
 func (h *Handler) actualSpend(kind string, id uint, key, from, to string) int64 {
