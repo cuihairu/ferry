@@ -15,8 +15,8 @@ import (
 	"github.com/quic-go/quic-go"
 )
 
-// TestParseConnectLineEdgeBranches 补解析边界：空目标地址报错、无端口目标
-// 以整体作 SNI、空 sni= 值忽略后回落 host。
+// TestParseConnectLineEdgeBranches covers more parsing edges: an empty target address errors, a target without a port
+// becomes the SNI as a whole, and an empty sni= value is ignored and falls back to the host.
 func TestParseConnectLineEdgeBranches(t *testing.T) {
 	if _, _, err := ParseConnectLine("CONNECT \n"); err == nil || !strings.Contains(err.Error(), "missing target address") {
 		t.Fatalf("err = %v; want missing target address", err)
@@ -31,7 +31,7 @@ func TestParseConnectLineEdgeBranches(t *testing.T) {
 	}
 }
 
-// TestReadConnectLineError 对端不发请求行就断开：读失败原样上抛。
+// TestReadConnectLineError covers the peer closing without sending a request line: the read error propagates as is.
 func TestReadConnectLineError(t *testing.T) {
 	a, b := net.Pipe()
 	_ = b.Close()
@@ -41,14 +41,14 @@ func TestReadConnectLineError(t *testing.T) {
 	_ = a.Close()
 }
 
-// TestServeAcceptErrorReturns 监听器失效（ctx 仍存活）时 Serve 返回该错误，
-// 而不是吞掉。
+// TestServeAcceptErrorReturns covers the listener going bad while the ctx is still alive: Serve returns that error
+// instead of swallowing it.
 func TestServeAcceptErrorReturns(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = ln.Close() // 先关：Accept 立即报错且 ctx 未取消
+	_ = ln.Close() // close first: Accept errors immediately and the ctx is not cancelled
 
 	c := NewClient(&tls.Config{})
 	err = c.Serve(context.Background(), ln, nil)
@@ -57,8 +57,8 @@ func TestServeAcceptErrorReturns(t *testing.T) {
 	}
 }
 
-// TestServeOneReadConnectError 本地连接不发 CONNECT 即断：serveOne 报
-// read connect 并被 Serve 记日志（单条失败不断服）。
+// TestServeOneReadConnectError covers a local connection dropping without sending CONNECT: serveOne reports
+// a read-connect error which Serve logs (one failure does not take the service down).
 func TestServeOneReadConnectError(t *testing.T) {
 	var buf bytes.Buffer
 	logger := log.New(&buf, "", 0)
@@ -78,7 +78,7 @@ func TestServeOneReadConnectError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = conn.Close() // 不发请求行直接断
+	_ = conn.Close() // closes without sending a request line
 
 	deadline := time.Now().Add(3 * time.Second)
 	for !strings.Contains(buf.String(), "read connect") {
@@ -95,8 +95,8 @@ func TestServeOneReadConnectError(t *testing.T) {
 	}
 }
 
-// TestOpenStreamStaleCacheRecovers 缓存连接陈旧（本地模拟对端已回收）：
-// 开流失败要清缓存、重拨并成功打通，新连接重新入缓存。
+// TestOpenStreamStaleCacheRecovers covers a stale cached connection (the peer having discarded it, simulated locally):
+// an open-stream failure clears the cache, redials, joins successfully, and the new connection re-enters the cache.
 func TestOpenStreamStaleCacheRecovers(t *testing.T) {
 	cert, pool := selfSignedTLSPair(t)
 	target := startEchoTarget(t)
@@ -124,9 +124,9 @@ func TestOpenStreamStaleCacheRecovers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	_ = stale.CloseWithError(0, "simulated stale") // 连接本地报废，缓存仍指向它
+	_ = stale.CloseWithError(0, "simulated stale") // the connection is broken locally while the cache still points at it
 
-	st, err := c.openStream(ctx, addr, "127.0.0.1") // 陈旧开流 → drop → 重拨
+	st, err := c.openStream(ctx, addr, "127.0.0.1") // stale open-stream -> drop -> redial
 	if err != nil {
 		t.Fatalf("openStream after stale: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestOpenStreamStaleCacheRecovers(t *testing.T) {
 		t.Fatal("cache must hold a new conn after stale drop")
 	}
 
-	// 打通验证：重拨后的连接经服务端转发到 echo 落地（不关写侧，读回声）
+	// join verification: the redialed connection is forwarded by the server to the echo landing (write side kept open, echo read back)
 	if _, err := st.Write([]byte("roundtrip")); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestOpenStreamStaleCacheRecovers(t *testing.T) {
 		t.Fatalf("echo = %q err %v; want roundtrip", got, err)
 	}
 
-	// 复用缓存路径：第二次开流直接走已缓存的健康连接，不重拨
+	// the cache-reuse path: the second open stream goes straight through the cached healthy connection without redialing
 	again, err := c.openStream(ctx, addr, "127.0.0.1")
 	if err != nil {
 		t.Fatalf("cached openStream: %v", err)
@@ -156,8 +156,8 @@ func TestOpenStreamStaleCacheRecovers(t *testing.T) {
 	_ = again.Close()
 }
 
-// TestServeServerAcceptErrorReturns QUIC 监听失效（ctx 仍存活）时
-// ServeServer 返回该错误。
+// TestServeServerAcceptErrorReturns covers the QUIC listener going bad while the ctx is still alive:
+// ServeServer returns that error.
 func TestServeServerAcceptErrorReturns(t *testing.T) {
 	cert, _ := selfSignedTLSPair(t)
 	udp, err := net.ListenPacket("udp", "127.0.0.1:0")
@@ -172,7 +172,7 @@ func TestServeServerAcceptErrorReturns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = tr.Close() // 先关传输：Accept 立即报错且 ctx 未取消
+	_ = tr.Close() // close the transport first: Accept errors immediately and the ctx is not cancelled
 
 	err = ServeServer(context.Background(), qln, "127.0.0.1:1", nil)
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -180,8 +180,8 @@ func TestServeServerAcceptErrorReturns(t *testing.T) {
 	}
 }
 
-// TestForwardStreamDialFailureLogs 流已建立但落地目标不可达：关流并记
-// dial target 日志（不影响其他流）。
+// TestForwardStreamDialFailureLogs covers a stream established while the landing target is unreachable: the stream is closed and
+// a dial-target line is logged (other streams are unaffected).
 func TestForwardStreamDialFailureLogs(t *testing.T) {
 	var buf bytes.Buffer
 	logger := log.New(&buf, "", 0)
@@ -201,7 +201,7 @@ func TestForwardStreamDialFailureLogs(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go func() { // 手工服务侧：接一条流就转发给不可达端口
+	go func() { // hand-rolled server side: forward each accepted stream to an unreachable port
 		qc, err := qln.Accept(ctx)
 		if err != nil {
 			return

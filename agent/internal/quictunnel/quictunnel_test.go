@@ -19,8 +19,8 @@ import (
 	"github.com/quic-go/quic-go"
 )
 
-// selfSignedTLSPair 生成内存自签证书（IP SAN 127.0.0.1/localhost）与其信任池，
-// 覆盖「服务端证书 + 客户端校验」全链，不用 insecure 快捷路径。
+// selfSignedTLSPair generates an in-memory self-signed certificate (IP SAN 127.0.0.1/localhost) and its trust pool,
+// covering the whole "server certificate + client verification" chain without the insecure shortcut.
 func selfSignedTLSPair(t *testing.T) (tls.Certificate, *x509.CertPool) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -57,7 +57,7 @@ func mustLeaf(t *testing.T, der []byte) *x509.Certificate {
 	return leaf
 }
 
-// startEchoTarget 起一段 TCP echo（落地服务替身），返回其地址。
+// startEchoTarget starts a TCP echo (a stand-in for the landing service) and returns its address.
 func startEchoTarget(t *testing.T) string {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -80,15 +80,15 @@ func startEchoTarget(t *testing.T) string {
 	return ln.Addr().String()
 }
 
-// TestEndToEnd 全链路：本地桥 → CONNECT → QUIC 流 → server → echo target。
-// 双向各跑一份数据，模拟 relay 的双向拷贝。
+// TestEndToEnd covers the full path: local bridge -> CONNECT -> QUIC stream -> server -> echo target.
+// One payload runs in each direction, simulating the relay's bidirectional copy.
 func TestEndToEnd(t *testing.T) {
 	cert, pool := selfSignedTLSPair(t)
 	target := startEchoTarget(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// server：QUIC 监听随机 UDP 端口
+	// server: the QUIC listener on a random UDP port
 	udp, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -105,7 +105,7 @@ func TestEndToEnd(t *testing.T) {
 	go func() { _ = ServeServer(ctx, qln, target, log.Default()) }()
 	serverAddr := udp.LocalAddr().String()
 
-	// client：本地桥监听随机端口
+	// client: the local bridge listening on a random port
 	client := NewClient(&tls.Config{RootCAs: pool})
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -113,7 +113,7 @@ func TestEndToEnd(t *testing.T) {
 	}
 	go func() { _ = client.Serve(ctx, ln, log.Default()) }()
 
-	// 模拟进程内 quic 插件：拨本地桥、发 CONNECT、收 OK 后双向拷贝
+	// simulating the in-process quic plugin: dial the local bridge, send CONNECT, and copy both ways after receiving OK
 	conn, err := net.Dial("tcp", ln.Addr().String())
 	if err != nil {
 		t.Fatal(err)
@@ -151,13 +151,13 @@ func TestEndToEnd(t *testing.T) {
 	}
 }
 
-// TestServeClientErrReply 目标不可达时本地桥应回 ERR 而不是悬挂。
+// TestServeClientErrReply covers an unreachable target: the local bridge must reply ERR instead of hanging.
 func TestServeClientErrReply(t *testing.T) {
 	_, pool := selfSignedTLSPair(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// server 起了就关：端口在但无监听 → QUIC 拨号失败
+	// start the server then close it: the port exists but nothing listens -> the QUIC dial fails
 	udp, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -177,8 +177,8 @@ func TestServeClientErrReply(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Close()
-	// 客户端侧带超时：ERR 必须在限期内回来（拨号侧 10s 门限 + QUIC 握手
-	// 默认 5s idle 超时先触发，ERR 应在 15s 内落到本地）
+	// the client side carries a timeout: ERR must come back within the deadline (the dial side's 10s gate plus the QUIC handshake's
+	// default 5s idle timeout firing first, so ERR should land locally within 15s)
 	_ = conn.SetDeadline(time.Now().Add(15 * time.Second))
 	if _, err := conn.Write([]byte("CONNECT " + serverAddr + " sni=127.0.0.1\n")); err != nil {
 		t.Fatal(err)
@@ -192,7 +192,7 @@ func TestServeClientErrReply(t *testing.T) {
 	}
 }
 
-// TestParseConnectLine 覆盖请求行解析：前缀/缺地址/sni 覆盖/缺省取 host。
+// TestParseConnectLine covers request line parsing: prefix/missing address/sni override/defaulting to host.
 func TestParseConnectLine(t *testing.T) {
 	if _, _, err := ParseConnectLine("GET / HTTP/1.1\r\n"); err == nil {
 		t.Fatal("non-CONNECT line should fail")
