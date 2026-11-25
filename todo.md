@@ -687,8 +687,8 @@ External Client
     - 备注（Task ID: F-0205 | Status: Done | Evidence: Enabled :71/Status :77/PoolState :104 分离；TestNodeCRUD+TestSweepSuspendAndResume | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0206` 明确 `disabled`、`maintenance`、`offline`、`unhealthy` 的区别。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 完成（F-0206 | 四态分立并文档化于 models.go Node 注释：disabled=Enabled(false)；maintenance=Maintenance(bool) 计划窗口，退出调度但保留探测，pool 告警静默；offline=Status(agent 连接性)；unhealthy=PoolState(suspended) 探测摘除。维护态排除出 alloc Sweep/sub 订阅/standby 候选，健康判定与恢复照常。 | Verification: TestNodeStateSeparation/TestMaintenanceTracksHealthQuietly/TestSweepSkipsMaintenance | Commit: 0859ea7）
--   [ ] `F-0207` 为 Node 关联 Region、ISP、ASN 和 Provider 信息。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0207 | 未满足原因：Region(98)+ISP(101) 有；ASN 全仓 0 命中；Node 无 ProviderID/FK（ProviderID:495 属 ProvisionTemplate 非 Node）。）
+-   [x] `F-0207` 为 Node 关联 Region、ISP、ASN 和 Provider 信息。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 完成（F-0207 | Region/ISP 既有；新增 Node.ASN(size:32) 与 Node.ProviderID(*uint,index) 指向 Provider 行；NodeInput.asn/provider_id 合并语义（nil 保持/0 清空/>0 校验存在），create/update/注册元数据接管三路径打通。 | Verification: TestNodeProviderASN | Commit: 16c6e3f）
 -   [ ] `F-0208` 为 Node 关联可选的云资源 ID。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0208 | 未满足原因：CloudResource/CloudResourceID 全仓 0 命中，Node 无可选云资源 ID 字段。）
 -   [x] `F-0209` 记录 Agent 版本和协议版本。
