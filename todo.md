@@ -1141,15 +1141,21 @@ External Client
 -   [x] `F-0541` 定义实例包月成本估算。
     - 备注（Task ID: F-0541 | Status: Done | Evidence: cost.go:137-138 FixedCostCents=MonthlyCostCents 包月口径+ProjectedCents 计入 | Verification: TestBuild(fixed 3000/oversea ~2100) | Commit: 506d045）
 -   [ ] `F-0542` 定义按小时计费资源的成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0542 | 区级未满足原因：本区 F-0541(包月)/F-0543(流量) 已关；其余未满足：BillingType 仅 按流量/包月/固定带宽(models.go:104)，无按时计费/额外IP/磁盘快照/备份存储/折扣预留/自定义项/未知单价哨兵/估账分离。）
+    - 备注（Task ID: F-0542 | Status: Done | Evidence: NodeCostLine kind=hourly 按小时价×期间小时数 (billing/estimate.go lineAmount, TestEstimateHourly) | Verification: TestEstimate*（TestEstimateBaseKinds/Hourly/Traffic/LinesProrate/UnknownLine/RecomputeUpdates/All）+TestBillingAPICostLines（go test ./... 全绿 2026-11-26） | Commit: 8be6965）
 -   [x] `F-0543` 定义按量流量成本估算。
     - 备注（Task ID: F-0543 | Status: Done | Evidence: cost.go:130 TrafficPriceCents×(rx+tx)/BytesPerGB 按量流量 | Verification: TestBuild(metered 1000分) | Commit: 506d045）
 -   [ ] `F-0544` 定义固定带宽成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0544 | Status: Done | Evidence: 固定带宽按包月口径计 instance 估算，随期间按比例摊 (estimate.go, TestEstimateBaseKinds) | Verification: TestEstimate*（TestEstimateBaseKinds/Hourly/Traffic/LinesProrate/UnknownLine/RecomputeUpdates/All）+TestBillingAPICostLines（go test ./... 全绿 2026-11-26） | Commit: 8be6965）
 -   [ ] `F-0545` 定义额外公网 IP 成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0545 | Status: Done | Evidence: NodeCostLine kind=ip 额外公网 IP 月额按期间摊 (TestEstimateLinesProrate) | Verification: TestEstimate*（TestEstimateBaseKinds/Hourly/Traffic/LinesProrate/UnknownLine/RecomputeUpdates/All）+TestBillingAPICostLines（go test ./... 全绿 2026-11-26） | Commit: 8be6965）
 -   [ ] `F-0546` 定义磁盘和快照成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0546 | Status: Done | Evidence: NodeCostLine kind=disk/snapshot 磁盘与快照行估算 (TestEstimateLinesProrate) | Verification: TestEstimate*（TestEstimateBaseKinds/Hourly/Traffic/LinesProrate/UnknownLine/RecomputeUpdates/All）+TestBillingAPICostLines（go test ./... 全绿 2026-11-26） | Commit: 8be6965）
 -   [ ] `F-0547` 定义备份和存储成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0547 | Status: Done | Evidence: NodeCostLine kind=backup 备份存储行估算 (TestEstimateLinesProrate) | Verification: TestEstimate*（TestEstimateBaseKinds/Hourly/Traffic/LinesProrate/UnknownLine/RecomputeUpdates/All）+TestBillingAPICostLines（go test ./... 全绿 2026-11-26） | Commit: 8be6965）
 -   [ ] `F-0548` 定义优惠、折扣和预留实例成本输入。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0548 | Status: Done | Evidence: kind=discount 负额行作优惠/预留输入，仅折扣行允许负数 (estimate.go, billingapi.go) | Verification: TestEstimate*（TestEstimateBaseKinds/Hourly/Traffic/LinesProrate/UnknownLine/RecomputeUpdates/All）+TestBillingAPICostLines（go test ./... 全绿 2026-11-26） | Commit: 8be6965）
 -   [ ] `F-0549` 支持自定义成本项。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0549 | Status: Done | Evidence: kind=custom 自定义成本项行 (TestEstimateLinesProrate) | Verification: TestEstimate*（TestEstimateBaseKinds/Hourly/Traffic/LinesProrate/UnknownLine/RecomputeUpdates/All）+TestBillingAPICostLines（go test ./... 全绿 2026-11-26） | Commit: 8be6965）
 -   [ ] `F-0550` 每条估算记录标明价格来源和生效时间。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0550 | Status: Done | Evidence: CostEstimate.PriceSource/PriceAt，已知价格必填校验 (billingapi.go createEstimate) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
 -   [ ] `F-0551` 价格未知时显示未知，不使用虚构默认单价。（依赖：无；完成条件：需求落地+测试绿+证据行）
@@ -2462,7 +2468,7 @@ External Client
 -   [ ] `F-9208` 完成至少一种 Provider 的实际账单接入或文件导入。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-9208 | Status: Done | Evidence: 手工文件导入(ImportFile)+API 拉取(ImportFromAPI) 双通道 (§4.2) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
 -   [ ] `F-9209` 完成估算成本。（依赖：F-0542；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9209 | 部分：包月（FixedCostCents=MonthlyCostCents cost.go:137-138，F-0541 关）与按量流量（TrafficPriceCents×流量 cost.go:130，F-0543 关）已实现；无按时计费/额外IP/磁盘快照/备份存储/折扣预留/自定义项/未知单价哨兵（F-0542 区）。）
+    - 备注（Task ID: F-9209 | Status: Done | Evidence: 估算成本全类目落地：包月/固定带宽/按流量/按小时/IP/磁盘/快照/备份/折扣/自定义 (§4.3 F-0541~F-0549) | Verification: TestEstimate*（TestEstimateBaseKinds/Hourly/Traffic/LinesProrate/UnknownLine/RecomputeUpdates/All）+TestBillingAPICostLines（go test ./... 全绿 2026-11-26） | Commit: 8be6965）
 -   [ ] `F-9210` 完成实际账单与估算对比。（依赖：F-0581；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-9210 | Status: Done | Evidence: Reconcile 估算 vs 实际对比落地 (§4.5 F-0587) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
 -   [ ] `F-9211` 完成 Dash 云资源管理页面。（依赖：F-0411；完成条件：需求落地+测试绿+证据行）
