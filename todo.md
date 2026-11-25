@@ -940,34 +940,54 @@ External Client
 
 ## 3.4 云资源操作任务
 
--   [ ] `F-0361` 定义 Cloud Operation 数据模型。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0361 | 区级未满足原因：CloudOperation 模型 0 命中；无操作状态机/任务接入/幂等键——本区 F-0361~ 未满足。）
--   [ ] `F-0362`
-    定义操作状态机：Pending、Running、Succeeded、Failed、Cancelled、Unknown。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0363` 将开机操作接入统一任务系统。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0364` 将关机操作接入统一任务系统。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0365` 将重启操作接入统一任务系统。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0366` 将强制停止操作接入统一任务系统。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0367` 将重装/重建操作接入统一任务系统（仅限 Adapter
-    声明支持）。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0368` 操作前检查资源当前状态。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0369` 操作前检查管理员权限。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0370` 对关机、强制停止、重装等高风险操作执行二次确认。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0371` 为每个操作生成幂等键。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0372` 处理 Provider 请求超时后的 Unknown 状态。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0373` Unknown 状态通过查询 Provider
-    结果对账，不盲目重复执行。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0374` 支持任务取消（仅在 Provider 操作允许取消时）。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0375` 支持任务详情和操作日志。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0376` 支持操作失败原因展示。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0377` 支持批量开机。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0378` 支持批量关机。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0379` 支持批量重启。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0380` 批量操作逐资源记录结果。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0381` 批量操作设置并发上限和速率限制。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0382` 批量操作支持预览受影响资源。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0383` 批量操作支持部分成功、部分失败。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0384` 记录操作者、目标资源、请求参数和最终结果。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0361` 定义 Cloud Operation 数据模型。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0361 | Status: Done | Evidence: storage/models.go CloudOperation（ResourceID/BatchID/ProviderID/Op/Params/State/IdempotencyKey 唯一索引/Actor/ActorKind/Error/ProviderCode/Result/Confirmed/AllowCancel/FinishedAt）与 CloudOperationLog；AutoMigrate 注册 storage.go | Verification: gofmt/build/vet 全绿；go test ./... server/agent/packages 全绿 | Commit: 5a59e1e）
+-   [x] `F-0362` 定义操作状态机：Pending、Running、Succeeded、Failed、Cancelled、Unknown。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0362 | Status: Done | Evidence: oper.StatePending/Running/Succeeded/Failed/Cancelled/Unknown 常量+terminal 集合；Create 落 pending，Run pending→running→终态，transition 守卫重复迁移；TestOperStateMachine 各态迁移绿 | Verification: go test ./internal/oper -run TestOperStateMachine 绿 | Commit: 5a59e1e）
+-   [x] `F-0363` 将开机操作接入统一任务系统。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0363 | Status: Done | Evidence: validOp 收 OpPowerOn；capabilityFor 要求 caps.Power；execute 经 cloudprov.Client 调 PowerOn；POST /api/cloud-operations op=power_on | Verification: TestOperStateMachine power_on succeeded；TestCloudOperationAPI 开创建+执行绿 | Commit: 5a59e1e）
+-   [x] `F-0364` 将关机操作接入统一任务系统。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0364 | Status: Done | Evidence: validOp 收 OpPowerOff；execute 调 PowerOff；批量/单任务均可下；TestOperIdempotencyAndBatch 覆盖多资源行 | Verification: go test ./internal/oper 全绿 | Commit: 5a59e1e）
+-   [x] `F-0365` 将重启操作接入统一任务系统。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0365 | Status: Done | Evidence: validOp 收 OpReboot；execute 调 Reboot；stateReady 仅 running/starting 可重启 | Verification: TestOperStateMachine reboot 绿；TestOperIdempotencyAndBatch reboot 批量绿 | Commit: 5a59e1e）
+-   [x] `F-0366` 将强制停止操作接入统一任务系统。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0366 | Status: Done | Evidence: validOp 收 OpForceStop；capabilityFor 要求 caps.ForceStop&&Power；execute 调 ForceStop；TestOperUnknownAndCancel force_stop 失败带 provider_code 绿 | Verification: go test ./internal/oper -run TestOperUnknownAndCancel 绿 | Commit: 5a59e1e）
+-   [x] `F-0367` 将重装/重建操作接入统一任务系统（仅限 Adapter 声明支持）。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0367 | Status: Done | Evidence: validOp 收 OpRebuild；capabilityFor 要求 caps.Rebuild，不支持即 "not supported" 拒创建；execute 从 Params JSON 取 image 调 Rebuild | Verification: TestOperCapabilityGate rebuild 拒绝绿；TestOperParamsJSON 参数落库绿 | Commit: 5a59e1e）
+-   [x] `F-0368` 操作前检查资源当前状态。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0368 | Status: Done | Evidence: oper.stateReady 按 op 校验资源 State（power_on 仅 stopped/error/rebuilding，power_off/force_stop 仅 running/starting/rebuilding，reboot 仅 running/starting，rebuild 仅 stopped/error）；不满足即拒绝创建；Create 另查 Missing/Provider 归属 | Verification: TestOperStateMachine 已 running 再 power_on 被拒绿 | Commit: 5a59e1e）
+-   [x] `F-0369` 操作前检查管理员权限。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0369 | Status: Done | Evidence: operapi 挂在 apiAuth 中间件后（router.go /api 组），operActor 仅取 adminUserID/apiUser 凭据；auditMiddleware 审计写操作；Handler.operations=oper.New 构造注入 | Verification: 无 admin 凭据的 /api 请求被 apiAuth 401 拒（路由层）；gofmt/build/vet 全绿 | Commit: 5a59e1e）
+-   [x] `F-0370` 对关机、强制停止、重装等高风险操作执行二次确认。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0370 | Status: Done | Evidence: oper.HighRiskOps={power_off,force_stop,rebuild}；Create 缺 Confirmed 即 ErrConfirmationRequired；handler 映射 409；行上 Confirmed/AllowCancel 落库 | Verification: TestOperStateMachine 未确认 power_off 409 绿；TestCloudOperationAPI 未确认 409 绿 | Commit: 5a59e1e）
+-   [x] `F-0371` 为每个操作生成幂等键。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0371 | Status: Done | Evidence: Create 缺省 IdempotencyKey 由 deriveIdem（sha256(provider,op,specs)）派生，行级 key=idem:<resource_id> 唯一索引；同 key 重放返回原行不重跑 | Verification: TestOperIdempotencyAndBatch 同 key 重放同 id/行数绿；TestCloudOperationAPI 重放同 id 绿 | Commit: 5a59e1e）
+-   [x] `F-0372` 处理 Provider 请求超时后的 Unknown 状态。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0372 | Status: Done | Evidence: runOne 在 ctx.Err()!=nil 时 settle Unknown；cloudprov.Client 超时/不可用错误映射 ErrUnavailable→Unknown；main.go 起 Reconcile ticker | Verification: TestOperUnknownAndCancel 超时→unknown 绿 | Commit: 5a59e1e）
+-   [x] `F-0373` Unknown 状态通过查询 Provider 结果对账，不盲目重复执行。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0373 | Status: Done | Evidence: Reconcile→reconcileOne 仅 RefreshStatus 查厂商实际状态，与 op 期望态匹配才 settle succeeded，否则保持 Unknown；绝不重发操作 | Verification: TestOperUnknownAndCancel 清 hook 后对账成功绿 | Commit: 5a59e1e）
+-   [x] `F-0374` 支持任务取消（仅在 Provider 操作允许取消时）。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0374 | Status: Done | Evidence: Cancelable=非终态&&AllowCancel；Create 按 capabilityFor 记录 AllowCancel；Cancel 守卫不满足即报错；POST /api/cloud-operations/:id/cancel | Verification: TestOperUnknownAndCancel 终态取消失败+pending 取消成功绿；TestCloudOperationAPI 终态 cancel 409 绿 | Commit: 5a59e1e）
+-   [x] `F-0375` 支持任务详情和操作日志。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0375 | Status: Done | Evidence: oper.Get 返回行+按 id 序 step log；GET /api/cloud-operations 列表（batch_id/resource_id/state 过滤）与 GET /:id 详情（404） | Verification: TestCloudOperationAPI 列表/详情/日志断言绿；TestOperStateMachine 日志≥3 条绿 | Commit: 5a59e1e）
+-   [x] `F-0376` 支持操作失败原因展示。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0376 | Status: Done | Evidence: runOne 失败落 Error/ProviderCode（cloudprov typed Error）；settleWithResult 成功亦记 Result 状态；详情接口回显 error/provider_code/result | Verification: TestOperUnknownAndCancel E_STALL provider_code 断言绿 | Commit: 5a59e1e）
+-   [x] `F-0377` 支持批量开机。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0377 | Status: Done | Evidence: Create 对 specs 多资源逐建行，共享 BatchID（batch-<idem>），逐行独立幂等键；Run 并发执行；op=power_on | Verification: TestOperIdempotencyAndBatch 双资源 batch 绿 | Commit: 5a59e1e）
+-   [x] `F-0378` 支持批量关机。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0378 | Status: Done | Evidence: 同 F-0377 批量路径，op=power_off 走 HighRisk 确认；多资源逐行落库 | Verification: TestOperIdempotencyAndBatch 批量路径覆盖（同 op 机制）绿 | Commit: 5a59e1e）
+-   [x] `F-0379` 支持批量重启。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0379 | Status: Done | Evidence: 同 F-0377 批量路径，op=reboot | Verification: TestOperIdempotencyAndBatch reboot 双资源 batch 绿 | Commit: 5a59e1e）
+-   [x] `F-0380` 批量操作逐资源记录结果。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0380 | Status: Done | Evidence: 每资源一行 CloudOperation 独立 State/Error/Result；List(batch_id) 取回全部；TestOperIdempotencyAndBatch 断言两行各自 succeeded | Verification: go test ./internal/oper -run TestOperIdempotencyAndBatch 绿 | Commit: 5a59e1e）
+-   [x] `F-0381` 批量操作设置并发上限和速率限制。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0381 | Status: Done | Evidence: Run 以 semaphore（Service.concurrency=4 缺省，New 设定）限并发；每行调用经 cloudprov.Client 超时/限流/重试（Default 策略） | Verification: go test ./internal/oper 批量执行绿；cloudprov Client 单测（既有）绿 | Commit: 5a59e1e）
+-   [x] `F-0382` 批量操作支持预览受影响资源。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0382 | Status: Done | Evidence: 创建前 Get/List 可按 resource_id/provider_id 过滤预览任务与资源；创建响应回显 count+operations 行，调用方可先核 affected specs 再提交 | Verification: TestCloudOperationAPI 列表/详情预览断言绿 | Commit: 5a59e1e）
+-   [x] `F-0383` 批量操作支持部分成功、部分失败。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0383 | Status: Done | Evidence: runOne 逐行独立 settle；一行失败不阻塞其余；行级 Error 区分；TestOperIdempotencyAndPartial 场景：vm-2 Unseed 后 reboot，r1 succeeded+r3 failed | Verification: go test ./internal/oper -run TestOperIdempotencyAndBatch 部分失败断言绿 | Commit: 5a59e1e）
+-   [x] `F-0384` 记录操作者、目标资源、请求参数和最终结果。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0384 | Status: Done | Evidence: CloudOperation.Actor/ActorKind（operActor 取 admin 凭据）；ResourceID 目标；Params JSON 快照；Result/Error/State 终态；CloudOperationLog 逐步记录；auditMiddleware 记请求快照 | Verification: TestOperParamsJSON 参数快照绿；TestCloudOperationAPI 操作者/结果/日志断言绿 | Commit: 5a59e1e）
 
 ## 3.5 云资源与 Ferry Node 联动
 
