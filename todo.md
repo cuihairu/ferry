@@ -991,23 +991,35 @@ External Client
 
 ## 3.5 云资源与 Ferry Node 联动
 
--   [ ] `F-0391` 定义云资源状态与 Node 管理状态的映射规则。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0391 | 区级未满足原因：依赖 CloudResource/CloudOperation（均未实现，type CloudResource/CloudOperation 全仓 0 命中）；无云资源状态↔Node 管理状态映射、无实例停止/启动/重启/重装/删除后联动、无操作后受控状态刷新——本区 F-0391~F-0399 未满足（F-0400~F-0404 另见其备注）。）
--   [ ] `F-0392` 云实例停止时将关联 Node 标记为不可分配或待确认。（依赖：F-0391；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0393` 云实例启动后检查 Agent 心跳再恢复 Node 可用性。（依赖：F-0391；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0394` 云实例重启后重新核对 Agent、Relay 和配置状态。（依赖：F-0391；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0395` 云实例重装后将 Node 标记为需要重新注册或重新验证。（依赖：F-0391；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0396` 云资源删除后将关联 Node 标记为资源丢失。（依赖：F-0391；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0397` 云操作不得仅凭 Provider 返回成功就认定 Ferry Node
+-   [x] `F-0391` 定义云资源状态与 Node 管理状态的映射规则。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0391 | Status: Done | Evidence: cloudlink.Map/MapMissing/MapOperation 是唯一状态映射源：running 不宣称可用，stopping/stopped/error 维护+suspended，rebuilding 重新注册提示，missing 禁用；Effect 空字段不改 Node 维度 | Verification: gofmt -l 空；go build/vet ./... 绿；go test ./... server 全绿（handler 140.586s），agent/agentproto/payment/costref 全绿 | Commit: f920a33）
+-   [x] `F-0392` 云实例停止时将关联 Node 标记为不可分配或待确认。（依赖：F-0391；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0392 | Status: Done | Evidence: Map(stopped/stopping/error) 置 maintenance=true、pool_state=suspended，保留 Node 行与绑定；Apply 只写变化维度 | Verification: gofmt -l 空；go build/vet ./... 绿；go test ./... server 全绿（handler 140.586s），agent/agentproto/payment/costref 全绿 | Commit: f920a33）
+-   [x] `F-0393` 云实例启动后检查 Agent 心跳再恢复 Node 可用性。（依赖：F-0391；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0393 | Status: Done | Evidence: AfterBoot→Restore 先 CheckNode（status=online + 3m 内心跳 + relay 配置 applied/validated/未 reverted + 无活动 proc_crash），全通过才恢复 active；云状态不参与判定 | Verification: gofmt -l 空；go build/vet ./... 绿；go test ./... server 全绿（handler 140.586s），agent/agentproto/payment/costref 全绿 | Commit: f920a33）
+-   [x] `F-0394` 云实例重启后重新核对 Agent、Relay 和配置状态。（依赖：F-0391；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0394 | Status: Done | Evidence: CheckNode 对重启后 Agent/relay 配置/崩溃告警逐项复核；MapOperation 对 succeeded 操作仍查厂商真实状态 | Verification: gofmt -l 空；go build/vet ./... 绿；go test ./... server 全绿（handler 140.586s），agent/agentproto/payment/costref 全绿 | Commit: f920a33）
+-   [x] `F-0395` 云实例重装后将 Node 标记为需要重新注册或重新验证。（依赖：F-0391；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0395 | Status: Done | Evidence: Map(rebuilding) 写 provision_note=agent must re-register and revalidate config，并 suspended | Verification: gofmt -l 空；go build/vet ./... 绿；go test ./... server 全绿（handler 140.586s），agent/agentproto/payment/costref 全绿 | Commit: f920a33）
+-   [x] `F-0396` 云资源删除后将关联 Node 标记为资源丢失。（依赖：F-0391；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0396 | Status: Done | Evidence: MapMissing + markResourceMissing 写 CloudResource.missing/missing_since；Node 禁用+suspended，行与绑定不删 | Verification: gofmt -l 空；go build/vet ./... 绿；go test ./... server 全绿（handler 140.586s），agent/agentproto/payment/costref 全绿 | Commit: f920a33）
+-   [x] `F-0397` 云操作不得仅凭 Provider 返回成功就认定 Ferry Node
     已健康。（依赖：F-0391；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0398` 云操作后触发受控的状态刷新。（依赖：F-0391；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0399` 云操作与 Path 调度状态联动。（依赖：F-0391；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0400` 对有用户流量的节点执行关机前检查和风险提示。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0400 | 区级未满足原因：依赖 CloudResource/CloudOperation（均未实现）；无节点联动审计/关机检查/维护窗口——本区 F-0400~F-0404 未满足。）
--   [ ] `F-0401` 支持维护窗口和节点摘流流程。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0402` 支持开机后自动执行节点健康检查。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0403` 支持启动失败后的告警。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0404` 保留云资源操作与 Node 状态变化的关联审计。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0397 | Status: Done | Evidence: MapOperation/RefreshAndApply/ApplyOperation 均不以厂商成功单独判定健康；Restore 仅凭 Agent 信号；TestApplyOperation stopped-success 与 TestCheckNode stale 断言绿 | Verification: gofmt -l 空；go build/vet ./... 绿；go test ./... server 全绿（handler 140.586s），agent/agentproto/payment/costref 全绿 | Commit: f920a33）
+-   [x] `F-0398` 云操作后触发受控的状态刷新。（依赖：F-0391；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0398 | Status: Done | Evidence: RefreshAndApply 先查厂商再改 Node，厂商 outage 不改；Apply 幂等、同步内存快照；main.go cloudlink.Loop 周期刷新，operapi 后处理 ApplyOperation | Verification: gofmt -l 空；go build/vet ./... 绿；go test ./... server 全绿（handler 140.586s），agent/agentproto/payment/costref 全绿 | Commit: f920a33）
+-   [x] `F-0399` 云操作与 Path 调度状态联动。（依赖：F-0391；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0399 | Status: Done | Evidence: PathHealth 找所有 entry/landing/relay 命中 Node 的 Path，复用 pathhealth.Evaluate；TestPathHealth/TestCloudLinkAPI 绿 | Verification: gofmt -l 空；go build/vet ./... 绿；go test ./... server 全绿（handler 140.586s），agent/agentproto/payment/costref 全绿 | Commit: f920a33）
+-   [x] `F-0400` 对有用户流量的节点执行关机前检查和风险提示。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0400 | Status: Done | Evidence: CheckShutdownRisk 统计 10m 内有流量的 NodeTrafficLog（conns 或 rx/tx 字节），GET /api/nodes/:id/cloud-shutdown-check 暴露 risk/message | Verification: gofmt -l 空；go build/vet ./... 绿；go test ./... server 全绿（handler 140.586s），agent/agentproto/payment/costref 全绿 | Commit: f920a33）
+-   [x] `F-0401` 支持维护窗口和节点摘流流程。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0401 | Status: Done | Evidence: Drain 置 maintenance=true + standby + 维护原因，Node 保持 online；POST /api/nodes/:id/cloud-drain；TestCheckShutdownRisk/TestCloudLinkAPI 绿 | Verification: gofmt -l 空；go build/vet ./... 绿；go test ./... server 全绿（handler 140.586s），agent/agentproto/payment/costref 全绿 | Commit: f920a33）
+-   [x] `F-0402` 支持开机后自动执行节点健康检查。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0402 | Status: Done | Evidence: AfterBoot→Restore 开机后自动 Agent 健康检查；POST /api/nodes/:id/cloud-boot-check；TestRestoreAfterBoot/TestCloudLinkAPI 绿 | Verification: gofmt -l 空；go build/vet ./... 绿；go test ./... server 全绿（handler 140.586s），agent/agentproto/payment/costref 全绿 | Commit: f920a33）
+-   [x] `F-0403` 支持启动失败后的告警。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0403 | Status: Done | Evidence: AfterBoot 失败时 herald.Emit KindCloudBootFailed，dedup node:<id>:cloud_boot_failed；TestAfterBootAlert 只发 1 条告警 | Verification: gofmt -l 空；go build/vet ./... 绿；go test ./... server 全绿（handler 140.586s），agent/agentproto/payment/costref 全绿 | Commit: f920a33）
+-   [x] `F-0404` 保留云资源操作与 Node 状态变化的关联审计。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0404 | Status: Done | Evidence: applyResource/auditNode 写 AuditLog（cloud_node_link/cloud_node_restore/cloud_node_drain），带 resource/provider/cloud_state 与 Node 维度；TestRestoreAfterBoot/TestCloudLinkAPI 审计断言绿 | Verification: gofmt -l 空；go build/vet ./... 绿；go test ./... server 全绿（handler 140.586s），agent/agentproto/payment/costref 全绿 | Commit: f920a33）
 
 ## 3.6 Dash 云资源管理页面
 
