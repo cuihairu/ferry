@@ -7,8 +7,8 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestClashProxyOfValidationErrors covers the rejection surface: each protocol missing required fields / config not JSON.
-func TestClashProxyOfValidationErrors(t *testing.T) {
+// TestClashEntryOfValidationErrors covers the rejection surface: each protocol missing required fields / config not JSON.
+func TestClashEntryOfValidationErrors(t *testing.T) {
 	cases := []struct {
 		name     string
 		protocol string
@@ -20,12 +20,12 @@ func TestClashProxyOfValidationErrors(t *testing.T) {
 		{"vmess no uuid", "vmess", `{}`, "vmess requires config.uuid"},
 		{"trojan no password", "trojan", `{}`, "trojan requires config.password"},
 		{"ss no method", "shadowsocks", `{"password":"pw"}`, "shadowsocks requires config.method"},
-		{"ss no password", "shadowsocks", `{"method":"aes-128-gcm"}`, "shadowsocks requires config.method"},
+		{"ss no password", "shadowsocks", `{"method":"aes-128-gcm"}`, "shadowsocks requires config.password"},
 		{"hysteria2 no password", "hysteria2", `{}`, "hysteria2 requires config.password"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			_, err := clashProxyOf(&storage.Node{Name: "n", Address: "a", Port: 443,
+			_, _, err := clashEntryOf(&storage.Node{Name: "n", Address: "a", Port: 443,
 				Protocol: c.protocol, Config: c.config})
 			if err == nil || !strings.Contains(err.Error(), c.wantErr) {
 				t.Fatalf("err = %v; want contains %q", err, c.wantErr)

@@ -11,10 +11,12 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// TestProvisionPipeline 覆盖入池流水线（OS-4）：provisioning 节点首连——
-// 注册地址补全、元数据补空白（meta_init 下不覆盖面板值）、模板配置自动
-// 下发（applied）→ 进程报表 running「探测通过」→ online 且注记清空；
-// 上下线不覆盖 provisioning 态（心跳不提前转 online）。
+// TestProvisionPipeline covers the provisioning pipeline (OS-4): first contact
+// of a provisioning node -- registration address fill, metadata blanks filled
+// (panel values never overwritten under meta_init), automatic template config
+// push (applied) -> proc report running ("probe pass") -> online with the note
+// cleared; up/down transitions never overwrite the provisioning state (a
+// heartbeat does not flip online early).
 func TestProvisionPipeline(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	node := storage.Node{
@@ -46,7 +48,8 @@ func TestProvisionPipeline(t *testing.T) {
 		t.Fatalf("expected hello_ack, got %s", env.Type)
 	}
 
-	// 首连后：provisioning 不被上下线覆盖；地址补注册 IP；空白元数据补全。
+	// After first contact: provisioning is not overwritten by up/down, the address
+	// gets the registration IP, and blank metadata is filled in.
 	var row storage.Node
 	deadline := time.Now().Add(5 * time.Second)
 	for {
@@ -71,7 +74,7 @@ func TestProvisionPipeline(t *testing.T) {
 		t.Fatalf("panel-owned meta must stay: %+v", row)
 	}
 
-	// 模板配置自动下发：面板侧推 config_push，agent 回 ack。
+	// Automatic template config push: the panel side pushes config_push, the agent acks it.
 	push := readEnv(t, c)
 	if push.Type != agentproto.MsgConfigPush {
 		t.Fatalf("expected config_push, got %s", push.Type)
@@ -90,7 +93,7 @@ func TestProvisionPipeline(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 心跳不提前转 online（探测通过前保持 provisioning）。
+	// A heartbeat must not flip online early (stays provisioning until the probe passes).
 	hb, _ := agentproto.NewEnvelope("b1", agentproto.MsgHeartbeat, agentproto.Heartbeat{})
 	if err := c.WriteJSON(hb); err != nil {
 		t.Fatal(err)
@@ -105,7 +108,7 @@ func TestProvisionPipeline(t *testing.T) {
 		t.Fatalf("heartbeat must not flip provisioning: %q", row.Status)
 	}
 
-	// 进程报表 xray running + 配置 applied → 探测通过转 online，注记清空。
+	// Proc report xray running + config applied -> probe pass flips online, note cleared.
 	pr, _ := agentproto.NewEnvelope("p1", agentproto.MsgProcReport, agentproto.ProcReport{
 		Procs: []agentproto.ProcStatus{{Name: "xray", State: "running"}},
 	})
@@ -136,7 +139,8 @@ func TestProvisionPipeline(t *testing.T) {
 		t.Fatalf("node_config = %+v", cfg)
 	}
 
-	// 无配置模板的 provisioning 节点：不构成探测通过，保持原态并留注记。
+	// A provisioning node without a config template: no probe pass, keeps its
+	// state and gets a note.
 	bare := storage.Node{Name: "auto-2", Port: 443, Protocol: "vless",
 		Enabled: true, Token: "tok-bare", Status: "provisioning", MetaInit: true}
 	if err := db.Create(&bare).Error; err != nil {
@@ -162,7 +166,7 @@ func TestProvisionPipeline(t *testing.T) {
 	}
 	deadline = time.Now().Add(5 * time.Second)
 	for {
-		row = storage.Node{} // 清零：复用 dest 结构会残留主键变 WHERE 条件
+		row = storage.Node{} // zero out: reusing the dest struct leaves the PK behind and turns it into a WHERE condition
 		if err := db.Where("id = ?", bare.ID).First(&row).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -182,8 +186,9 @@ func TestProvisionPipeline(t *testing.T) {
 	}
 }
 
-// TestProcForProtocol 覆盖协议 → 内核进程映射（hy2 批）：hysteria2 落
-// hysteria2 进程，xray 系四协议与未知协议回退 xray。
+// TestProcForProtocol covers the protocol -> kernel proc mapping (hy2 batch):
+// hysteria2 lands on the hysteria2 process; the four xray-family protocols and
+// unknown protocols fall back to xray.
 func TestProcForProtocol(t *testing.T) {
 	for _, tc := range []struct {
 		protocol, proc, kind string
@@ -193,7 +198,11 @@ func TestProcForProtocol(t *testing.T) {
 		{"vmess", "xray", "xray"},
 		{"trojan", "xray", "xray"},
 		{"shadowsocks", "xray", "xray"},
-		{"socks", "xray", "xray"},
+		{"ssr", "xray", "xray"},
+		{"tuic", "sing-box", "sing-box"},
+		{"hysteria", "sing-box", "sing-box"},
+		{"shadowtls", "sing-box", "sing-box"},
+		{"wireguard", "wireguard", "wireguard"},
 	} {
 		if proc, kind := procForProtocol(tc.protocol); proc != tc.proc || kind != tc.kind {
 			t.Fatalf("procForProtocol(%q) = %q/%q, want %q/%q", tc.protocol, proc, kind, tc.proc, tc.kind)

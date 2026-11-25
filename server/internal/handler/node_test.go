@@ -140,9 +140,10 @@ func TestNodeCRUD(t *testing.T) {
 	}
 	_ = id
 
-	// illegal protocol rejected
+	// illegal protocol rejected (an unregistered name: wireguard is a registered
+	// protocol since the pluginization refactor, only its render hooks are absent)
 	rec = doJSON(t, r, "POST", "/api/nodes", map[string]any{
-		"name": "x", "address": "a", "port": 1, "protocol": "wireguard",
+		"name": "x", "address": "a", "port": 1, "protocol": "bogus",
 	})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad protocol status = %d", rec.Code)

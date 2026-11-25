@@ -95,7 +95,7 @@ func TestShareLinkErrors(t *testing.T) {
 		name string
 		node storage.Node
 	}{
-		{"协议不支持", storage.Node{Protocol: "socks", Config: `{}`}},
+		{"协议不支持", storage.Node{Protocol: "ssr", Config: `{}`}},
 		{"vless 缺 uuid", storage.Node{Protocol: "vless", Config: `{}`}},
 		{"vmess 缺 uuid", storage.Node{Protocol: "vmess", Config: `{}`}},
 		{"trojan 缺密码", storage.Node{Protocol: "trojan", Config: `{}`}},
@@ -131,7 +131,7 @@ func TestPackV2Ray(t *testing.T) {
 		t.Fatalf("unexpected payload: %q", string(raw))
 	}
 
-	// 空列表返回空订阅（无可用节点仍可刷新）。
+	// An empty list returns an empty subscription (still refreshable with no available node).
 	if empty, err := PackV2Ray(nil, nil); err != nil || empty != "" {
 		t.Fatalf("empty pack = %q, %v", empty, err)
 	}

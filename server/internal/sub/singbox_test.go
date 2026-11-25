@@ -8,8 +8,10 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestPackSingBox 覆盖 sing-box outbounds 数组生成（hy2 批建、SB 批补全
-// 五协议）：各协议出站字段 + 最小配置省略可选键 + 混编舰队 + 不支持报错。
+// TestPackSingBox covers the sing-box outbounds array generation (built in the
+// hy2 batch, the five protocols completed in the SB batch): each protocol's
+// outbound fields + a minimal config omitting the optional keys + a mixed fleet
+// + an error for the unsupported case.
 func TestPackSingBox(t *testing.T) {
 	entries := []Entry{
 		{Node: storage.Node{Name: "hy", Address: "hy.example.com", Port: 443, Protocol: "hysteria2",
@@ -38,11 +40,11 @@ func TestPackSingBox(t *testing.T) {
 	if ob["up_mbps"] != float64(100) || ob["down_mbps"] != float64(200) {
 		t.Fatalf("outbound[0] bandwidth = %v", ob)
 	}
-	// obfs 是嵌套对象 {type, password}。
+	// obfs is a nested object {type, password}.
 	if obfs, ok := ob["obfs"].(map[string]any); !ok || obfs["type"] != "salamander" || obfs["password"] != "op" {
 		t.Fatalf("outbound[0] obfs = %v", ob["obfs"])
 	}
-	// 最小配置：无可选键。
+	// Minimal config: no optional keys.
 	m := obs[1]
 	for _, k := range []string{"sni", "insecure", "obfs", "up_mbps", "down_mbps"} {
 		if _, ok := m[k]; ok {
@@ -50,17 +52,17 @@ func TestPackSingBox(t *testing.T) {
 		}
 	}
 
-	// 缺密码报错（与 ShareLink 同口径，错误带节点名）。
+	// A missing password is reported (same convention as ShareLink, the error carries the node name).
 	if _, err := PackSingBox([]Entry{{Node: storage.Node{Name: "bad", Protocol: "hysteria2", Config: `{}`}}}); err == nil || !strings.Contains(err.Error(), "bad") {
 		t.Fatalf("missing password err = %v", err)
 	}
-	// 非法 JSON 配置报错透传。
+	// An invalid JSON config passes the error through.
 	if _, err := PackSingBox([]Entry{{Node: storage.Node{Name: "x", Protocol: "hysteria2", Config: `{"password":`}}}); err == nil {
 		t.Fatal("expected config parse error")
 	}
 }
 
-// mustOutbounds 解包 PackSingBox 输出便于逐字段断言。
+// mustOutbounds unwraps the PackSingBox output to make per-field assertions easier.
 func mustOutbounds(t *testing.T, entries []Entry) []map[string]any {
 	t.Helper()
 	out, err := PackSingBox(entries)
@@ -74,8 +76,9 @@ func mustOutbounds(t *testing.T, entries []Entry) []map[string]any {
 	return obs
 }
 
-// TestSingBoxOutboundVless 覆盖 vless 出站（SB 批）：全字段（tls+ws 传输
-// +flow）与最小配置（无 tls/transport 键）。
+// TestSingBoxOutboundVless covers the vless outbound (SB batch): the full field
+// set (tls + the ws transport + flow) and a minimal config (no tls/transport
+// keys).
 func TestSingBoxOutboundVless(t *testing.T) {
 	obs := mustOutbounds(t, []Entry{
 		{Node: storage.Node{Name: "vl", Address: "vl.example.com", Port: 443, Protocol: "vless",
@@ -97,7 +100,7 @@ func TestSingBoxOutboundVless(t *testing.T) {
 	if h, ok := tr["headers"].(map[string]any); !ok || h["Host"] != "cdn.example.com" {
 		t.Fatalf("vless transport headers = %v", tr["headers"])
 	}
-	// 最小配置：无 tls/transport/flow。
+	// Minimal config: no tls/transport/flow.
 	m := obs[1]
 	if m["uuid"] != "u-2" {
 		t.Fatalf("vless min uuid = %v", m)
@@ -107,14 +110,14 @@ func TestSingBoxOutboundVless(t *testing.T) {
 			t.Fatalf("vless min has %s: %v", k, m)
 		}
 	}
-	// 缺 uuid 报错。
+	// A missing uuid is reported.
 	if _, err := OutboundOf(&storage.Node{Name: "x", Protocol: "vless", Config: `{}`}); err == nil {
 		t.Fatal("expected vless uuid error")
 	}
 }
 
-// TestSingBoxOutboundVmess 覆盖 vmess 出站（SB 批）：scy 缺省 auto、
-// alter_id、tls；最小配置无 tls/transport。
+// TestSingBoxOutboundVmess covers the vmess outbound (SB batch): the scy default
+// of auto, alter_id, tls; a minimal config has no tls/transport.
 func TestSingBoxOutboundVmess(t *testing.T) {
 	obs := mustOutbounds(t, []Entry{
 		{Node: storage.Node{Name: "vm", Address: "a", Port: 443, Protocol: "vmess",
@@ -145,7 +148,7 @@ func TestSingBoxOutboundVmess(t *testing.T) {
 	}
 }
 
-// TestSingBoxOutboundTrojanSS 覆盖 trojan（恒 TLS）与 shadowsocks（SB 批）。
+// TestSingBoxOutboundTrojanSS covers trojan (always TLS) and shadowsocks (SB batch).
 func TestSingBoxOutboundTrojanSS(t *testing.T) {
 	obs := mustOutbounds(t, []Entry{
 		{Node: storage.Node{Name: "tj", Address: "a", Port: 443, Protocol: "trojan",
@@ -157,7 +160,7 @@ func TestSingBoxOutboundTrojanSS(t *testing.T) {
 	if tj["password"] != "pw" {
 		t.Fatalf("trojan = %v", tj)
 	}
-	// trojan 协议本体 TLS：未写 cfg.tls 也出 tls.enabled=true，sni 进 server_name。
+	// trojan is TLS by its own protocol: tls.enabled=true is emitted even when cfg.tls is not written, and sni goes into server_name.
 	if tls, ok := tj["tls"].(map[string]any); !ok || tls["enabled"] != true || tls["server_name"] != "s.com" {
 		t.Fatalf("trojan tls = %v", tj["tls"])
 	}
@@ -168,7 +171,7 @@ func TestSingBoxOutboundTrojanSS(t *testing.T) {
 	if _, ok := ss["tls"]; ok {
 		t.Fatalf("ss must not have tls: %v", ss)
 	}
-	// 错误分支。
+	// Error branches.
 	if _, err := OutboundOf(&storage.Node{Name: "x", Protocol: "trojan", Config: `{}`}); err == nil {
 		t.Fatal("expected trojan password error")
 	}
@@ -177,7 +180,7 @@ func TestSingBoxOutboundTrojanSS(t *testing.T) {
 	}
 }
 
-// TestSingBoxOutboundNetErrors 覆盖未知 net 显式报错与 http/httpupgrade 映射。
+// TestSingBoxOutboundNetErrors covers the explicit error for an unknown net and the http/httpupgrade mappings.
 func TestSingBoxOutboundNetErrors(t *testing.T) {
 	if _, err := OutboundOf(&storage.Node{Name: "x", Protocol: "vless", Config: `{"uuid":"u","net":"kcp"}`}); err == nil || !strings.Contains(err.Error(), "kcp") {
 		t.Fatalf("unknown net err = %v", err)
@@ -193,7 +196,7 @@ func TestSingBoxOutboundNetErrors(t *testing.T) {
 			t.Fatalf("net %s transport = %v", net, tr)
 		}
 	}
-	// tcp/缺省无 transport。
+	// tcp / the default emit no transport.
 	ob, err := OutboundOf(&storage.Node{Name: "x", Address: "a", Port: 1, Protocol: "vless", Config: `{"uuid":"u","net":"tcp"}`})
 	if err != nil {
 		t.Fatalf("tcp: %v", err)
@@ -203,8 +206,9 @@ func TestSingBoxOutboundNetErrors(t *testing.T) {
 	}
 }
 
-// TestPackSingBoxMixedFleet 覆盖混编舰队（SB 批核心场景）：五协议共存
-// 一次出全，不再因单个 xray 系节点整包报错。
+// TestPackSingBoxMixedFleet covers a mixed fleet (the core SB-batch scenario):
+// all five protocols coexist and come out in one pass, no longer failing the
+// whole pack because of a single xray-family node.
 func TestPackSingBoxMixedFleet(t *testing.T) {
 	entries := []Entry{
 		{Node: storage.Node{Name: "vl", Address: "a", Port: 1, Protocol: "vless", Config: `{"uuid":"u1"}`}},
@@ -222,8 +226,8 @@ func TestPackSingBoxMixedFleet(t *testing.T) {
 			t.Fatalf("outbound[%d] type = %v, want %s", i, obs[i]["type"], want)
 		}
 	}
-	// 不支持的协议仍整包报错（与 clash/v2ray 同口径，不静默吞节点）。
-	if _, err := PackSingBox([]Entry{{Node: storage.Node{Name: "x", Protocol: "socks", Config: `{}`}}}); err == nil {
+	// An unsupported protocol still fails the whole pack (same convention as clash/v2ray, never silently swallow a node).
+	if _, err := PackSingBox([]Entry{{Node: storage.Node{Name: "x", Protocol: "ssr", Config: `{}`}}}); err == nil {
 		t.Fatal("expected unsupported protocol error")
 	}
 }

@@ -1,14 +1,17 @@
-// Package model 定义跨层共享的数据结构与请求/响应载荷。
+// Package model defines the data structures and request/response payloads shared across layers.
 package model
 
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/cuihairu/ferry/server/internal/protocol"
 )
 
-// 支持的节点协议，范围口径见 todo P2-7。hysteria2（hy2）是第五种：
-// 入口伪装形态走 QUIC/HTTP/3（UDP 443），被管内核是 hysteria2-server
-// 二进制（开源选型设计：AGPL-3.0，只走进程隔离托管，不 import 源码）。
+// Supported node protocols; the scope convention is in todo P2-7.
+// hysteria2 (hy2) is the fifth one: the entry disguise rides QUIC/HTTP/3
+// (UDP 443) and the managed kernel is the hysteria2-server binary (open-source
+// selection: AGPL-3.0, hosted process-isolated only, its source is never imported).
 const (
 	ProtoVless       = "vless"
 	ProtoVmess       = "vmess"
@@ -17,18 +20,18 @@ const (
 	ProtoHysteria2   = "hysteria2"
 )
 
-// ValidProtocol 判断协议是否在支持范围内。
+// ValidProtocol reports whether a protocol is in the supported range (since the
+// protocol pluginization it delegates to the registry, so the support surface
+// grows automatically with the protocol package's registrations -- no more
+// whitelist switch).
 func ValidProtocol(p string) bool {
-	switch p {
-	case ProtoVless, ProtoVmess, ProtoTrojan, ProtoShadowsocks, ProtoHysteria2:
-		return true
-	}
-	return false
+	return protocol.Has(p)
 }
 
-// 节点的持久化结构在 internal/storage（GORM 模型），此处仅保留请求载荷。
+// The node persistence structure lives in internal/storage (GORM model); only
+// request payloads stay here.
 
-// NodeInput 是创建/更新节点的请求载荷。
+// NodeInput is the request payload for creating/updating a node.
 type NodeInput struct {
 	Name     string `json:"name"`
 	Address  string `json:"address"`
@@ -36,29 +39,30 @@ type NodeInput struct {
 	Protocol string `json:"protocol"`
 	Config   string `json:"config"`
 	Enabled  *bool  `json:"enabled,omitempty"`
-	// 注册元数据（入口与负载均衡设计 §C.3/C.6）：agent 注册上报初值，
-	// 面板可改且以面板为准；空串=创建时落库默认、更新时保持原值。
+	// Registration metadata (entry and load-balancing design §C.3/C.6): the
+	// agent reports initial values at enrollment, the panel may change them and
+	// wins; empty string = DB default on create, keep the old value on update.
 	Role       string `json:"role,omitempty"`      // entry/landing/both
 	Direction  string `json:"direction,omitempty"` // out/in/both
-	LineType   string `json:"line_type,omitempty"` // 线路类型，自由文本
-	Region     string `json:"region,omitempty"`    // 区域，故障聚合维度
+	LineType   string `json:"line_type,omitempty"` // line type, free text
+	Region     string `json:"region,omitempty"`    // region, failure aggregation dimension
 	City       string `json:"city,omitempty"`
 	Datacenter string `json:"datacenter,omitempty"`
-	ISP        string `json:"isp,omitempty"`       // 运营商，故障聚合维度
+	ISP        string `json:"isp,omitempty"`       // ISP, failure aggregation dimension
 	Transport  string `json:"transport,omitempty"` // tls/quic/ws-tls/ssh
 }
 
-// EnrollmentTokenInput 是签发一次性注册凭据的请求载荷（FERRY-001）。
+// EnrollmentTokenInput is the request payload for issuing a one-time enrollment credential (FERRY-001).
 type EnrollmentTokenInput struct {
 	Note       string `json:"note,omitempty"`
-	TTLMinutes *int   `json:"ttl_minutes,omitempty"` // 1..1440，缺省 60；指针区分显式 0 与缺省
+	TTLMinutes *int   `json:"ttl_minutes,omitempty"` // 1..1440, default 60; the pointer distinguishes an explicit 0 from absent
 }
 
-// User 是一个订阅用户。
+// User is a subscription user.
 type User struct {
 	ID         int64      `json:"id"`
 	Username   string     `json:"username"`
-	SubToken   string     `json:"sub_token"` // 订阅链接令牌
+	SubToken   string     `json:"sub_token"` // subscription link token
 	QuotaBytes int64      `json:"quota_bytes"`
 	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
 	Enabled    bool       `json:"enabled"`
@@ -68,27 +72,28 @@ type User struct {
 	UpdatedAt  time.Time  `json:"updated_at"`
 }
 
-// UserInput 是创建/更新用户的请求载荷。
+// UserInput is the request payload for creating/updating a user.
 type UserInput struct {
 	Username   string     `json:"username"`
 	QuotaBytes *int64     `json:"quota_bytes,omitempty"`
-	ResetCycle *string    `json:"reset_cycle,omitempty"` // 流量重置周期（P1-4）：none/day/week/month
+	ResetCycle *string    `json:"reset_cycle,omitempty"` // traffic reset cycle (P1-4): none/day/week/month
 	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
 	Enabled    *bool      `json:"enabled,omitempty"`
-	// BwUpMbps/BwDownMbps 用户级带宽限额（P2-3，0=不限）。
+	// BwUpMbps/BwDownMbps are per-user bandwidth caps (P2-3, 0 = unlimited).
 	BwUpMbps   *int `json:"bw_up_mbps,omitempty"`
 	BwDownMbps *int `json:"bw_down_mbps,omitempty"`
-	// DeviceLimit/IPLimit 设备数/IP 数上限（P2-4，0=不限）。设备数按
-	// 订阅端 X-Client-Hwid 上报计（客户端不带则该面不生效）。
+	// DeviceLimit/IPLimit cap device/IP counts (P2-4, 0 = unlimited). Devices
+	// are counted from the X-Client-Hwid the subscription side reports (if the
+	// client does not send it, that surface is not enforced).
 	DeviceLimit *int `json:"device_limit,omitempty"`
 	IPLimit     *int `json:"ip_limit,omitempty"`
-	// UseTemplate 置真在创建时套用默认用户模板（P1-5）补全缺席字段（仅创建有效）。
+	// UseTemplate true applies the default user template at create time (P1-5) to fill absent fields (only effective on create).
 	UseTemplate *bool `json:"use_template,omitempty"`
-	// ClearExpires 置真清除到期时间（JSON null 与字段缺席无法区分，用显式语义）。
+	// ClearExpires true clears the expiry (JSON null and an absent field cannot be told apart, hence the explicit semantics).
 	ClearExpires *bool `json:"clear_expire,omitempty"`
 }
 
-// TrafficLogInput 是一条用户流量记账（P0-9），RecordedAt 缺省取服务端当前时间。
+// TrafficLogInput is one user traffic accounting entry (P0-9); RecordedAt defaults to the server's current time.
 type TrafficLogInput struct {
 	UserID     uint       `json:"user_id"`
 	NodeID     *uint      `json:"node_id,omitempty"`
@@ -97,22 +102,23 @@ type TrafficLogInput struct {
 	RecordedAt *time.Time `json:"recorded_at,omitempty"`
 }
 
-// TrafficLogBatchInput 是流量记账批量载荷，items 为空或超量整体拒绝。
+// TrafficLogBatchInput is the batch traffic accounting payload; empty or oversized items are rejected outright.
 type TrafficLogBatchInput struct {
 	Items []TrafficLogInput `json:"items"`
 }
 
-// ---- 自建订阅（ferry-sub-filters，2026-11-21）----
+// ---- self-built subscriptions (ferry-sub-filters, 2026-11-21) ----
 
-// SubCreateInput 是创建自建订阅的请求载荷。Filter/Config 以 JSON 原文透传，
-// 语义校验（严格模式：未知字段 400）在 handler 侧经 sub.ParseFilter/ParseConfig。
+// SubCreateInput is the request payload for creating a self-built subscription.
+// Filter/Config pass through as raw JSON; semantic validation (strict mode:
+// unknown field 400) happens on the handler side via sub.ParseFilter/ParseConfig.
 type SubCreateInput struct {
 	Name   string          `json:"name"`
 	Filter json.RawMessage `json:"filter,omitempty"`
 	Config json.RawMessage `json:"config,omitempty"`
 }
 
-// SubUpdateInput 是更新自建订阅的请求载荷（PATCH，可选字段缺省保持原值）。
+// SubUpdateInput is the request payload for updating a self-built subscription (PATCH; omitted optional fields keep their old value).
 type SubUpdateInput struct {
 	Name    *string          `json:"name,omitempty"`
 	Filter  *json.RawMessage `json:"filter,omitempty"`

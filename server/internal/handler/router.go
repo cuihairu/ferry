@@ -1,4 +1,4 @@
-// Package handler 装配 HTTP 路由与各资源的接口。
+// Package handler assembles the HTTP routes and per-resource endpoints.
 package handler
 
 import (
@@ -21,41 +21,55 @@ import (
 	"gorm.io/gorm"
 )
 
-// Handler 持有共享依赖，各资源方法挂在其上，路由注册由 NewRouter 完成。
+// Handler holds the shared dependencies; the per-resource methods hang off it,
+// and route registration is done by NewRouter.
 type Handler struct {
 	db  *gorm.DB
 	cfg config.Config
 	hub *agenthub.Hub
-	// pusher 是配置推送通道（手动下发与自动换线重指共用，E-16b）。
+	// pusher is the config-push channel (shared by manual pushes and automatic
+	// relay re-pointing, E-16b).
 	pusher *relaypush.Pusher
-	// secrets 是机密加密统一入口（R24）：云凭证等机密 AES-256-GCM 落库。
+	// secrets is the unified secret-encryption entry point (R24): secrets such
+	// as cloud credentials are stored AES-256-GCM encrypted.
 	secrets *secret.Store
-	// redeemLimiter 是兑换接口的 IP 限流（PAY-5：10 次/分钟，失败 5 次锁 15 分钟）。
+	// redeemLimiter is the IP rate limit for the redeem endpoint (PAY-5:
+	// 10/min, 5 failures lock for 15 minutes).
 	redeemLimiter *ratelimit.Limiter
-	// loginLimiter 是凭据登录面的 IP 限流（P2：管理员/代理登录，10 次/分钟，
-	// 失败 5 次锁 15 分钟，redeem 同款）。与 redeemLimiter 分面：登录爆破与兑换
-	// 不再互相锁定（此前共用 redeemLimiter，刷任一面对另一面造成跨面 DoS）。
+	// loginLimiter is the IP rate limit for the credential login surface
+	// (P2: admin/distributor login, 10/min, 5 failures lock for 15 minutes,
+	// same style as redeem). Kept separate from redeemLimiter: login brute-force
+	// and redemption no longer lock each other out (they previously shared
+	// redeemLimiter, so hammering either surface caused a cross-surface DoS).
 	loginLimiter *ratelimit.Limiter
-	// speedLimiter 是测速字节端点的 IP 限流（30 次/分钟，只 Allow 不记失败）。
+	// speedLimiter is the IP rate limit for the speedtest byte endpoint
+	// (30/min, Allow only, no failure counting).
 	speedLimiter *ratelimit.Limiter
-	// orderLimiter 是门户在线下单的 IP 限流（10 次/分钟，只 Allow 不记失败）。
+	// orderLimiter is the IP rate limit for portal online ordering
+	// (10/min, Allow only, no failure counting).
 	orderLimiter *ratelimit.Limiter
-	// subLimiter 是订阅端点的 token 限流（安全设计 §4：按 token 限频防枚举，
-	// 命中记日志；30 次/分钟，只 Allow 不记失败——只读端点无失败语义）。
+	// subLimiter is the token rate limit for the subscription endpoint
+	// (security design §4: per-token throttling against enumeration, hits are
+	// logged; 30/min, Allow only, no failure counting -- a read-only endpoint
+	// has no failure semantics).
 	subLimiter *ratelimit.Limiter
-	// subMissLimiter 按 IP 记订阅未命中（未知 token/停用用户）：窗口内 20 次
-	// 未命中锁 15 分钟——单 token 限频拦不住每次换新 token 的枚举。
+	// subMissLimiter records subscription misses per IP (unknown token /
+	// disabled user): 20 misses within the window lock for 15 minutes -- a
+	// single-token rate limit cannot stop enumeration that rotates tokens.
 	subMissLimiter *ratelimit.Limiter
-	// enrollLimiter 是节点注册交换口的 IP 限流（FERRY-001：10 次/分钟，
-	// 失败 5 次锁 15 分钟，redeem 同款——挡对凭据的在线爆破）。
+	// enrollLimiter is the IP rate limit for the node enrollment exchange
+	// (FERRY-001: 10/min, 5 failures lock for 15 minutes, same style as
+	// redeem -- blocks online brute-forcing of credentials).
 	enrollLimiter *ratelimit.Limiter
-	// dedupe 是报告消息幂等窗口（FERRY-004，按 node_id 分桶，
-	// 语义见 docs/design/agent架构设计.md §8 与 agentws_dedupe.go）。
+	// dedupe is the idempotency window for report messages (FERRY-004,
+	// bucketed by node_id; semantics in `docs/design/agent架构设计.md` §8 and
+	// agentws_dedupe.go).
 	dedupe sync.Map // nodeID -> *reportDeduper
 }
 
-// NewRouter 创建 gin 引擎并挂载全部路由，同时交出配置推送器
-// 供后台任务（alloc 自动换线）复用同一条下发链路。
+// NewRouter creates the gin engine and mounts all routes, and also hands out
+// the config pusher so background tasks (alloc auto re-pointing) reuse the
+// same push chain.
 func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) {
 	h := &Handler{db: db, cfg: cfg, hub: agenthub.New()}
 	h.redeemLimiter = ratelimit.New(ratelimit.Options{
@@ -82,7 +96,8 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		Window:      time.Minute,
 		MaxAttempts: 30,
 	})
-	// MaxAttempts 取大值：本限流器只用失败锁定语义，Allow 仅用来查锁定态。
+	// MaxAttempts is set high: this limiter only uses failure-lockout semantics;
+	// Allow is only used to query the lockout state.
 	h.subMissLimiter = ratelimit.New(ratelimit.Options{
 		Window:      time.Minute,
 		MaxAttempts: 1 << 20,
@@ -98,10 +113,12 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 	h.pusher = relaypush.New(db, h.hub, nil)
 	h.secrets = secret.NewStore(cfg.SecretKey)
 	r := gin.Default()
-	// ClientIP 只采信显式白名单反代的转发头（审核修复 2026-11-12）：
-	// 默认不信任任何代理（ClientIP=直连地址），登录/订阅/兑换限流与审计
-	// 日志的 IP 口径不可被 X-Forwarded-For 伪造；反代后按实际网段配置
-	// FERRY_TRUSTED_PROXIES。白名单写坏即回落不信任任何代理（安全侧）。
+	// ClientIP only trusts forwarding headers from explicitly allow-listed
+	// reverse proxies (audit fix 2026-11-12): by default no proxy is trusted
+	// (ClientIP = direct address), so the IP basis of login/subscription/redeem
+	// rate limiting and audit logs cannot be forged via X-Forwarded-For; behind
+	// a reverse proxy, configure FERRY_TRUSTED_PROXIES with the actual CIDRs.
+	// A broken allow-list falls back to trusting no proxy (fail-safe).
 	if err := r.SetTrustedProxies(cfg.TrustedProxies); err != nil {
 		log.Printf("trusted proxies %q invalid: %v; trusting none", cfg.TrustedProxies, err)
 		_ = r.SetTrustedProxies(nil)
@@ -110,20 +127,24 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 	r.GET("/api/health", h.healthGuard(), h.health)
 	r.GET("/agent/ws", h.agentWS)
 	r.GET("/sub/:token", h.subscription)
-	// 自建订阅（ferry-sub-filters）：独立 token 的新路径。gin 静态段优先于
-	// 同层参数段，/sub/x/abc 命中本条、/sub/abc 仍走主订阅（编译运行已验证）。
+	// Self-built subscriptions (ferry-sub-filters): new paths with an
+	// independent token. gin prefers static segments over param segments at the
+	// same level, so /sub/x/abc hits this route while /sub/abc still goes to the
+	// main subscription (verified by build-and-run).
 	r.GET("/sub/x/:token", h.subscriptionFiltered)
 	r.GET("/feed.xml", h.feedXML)
 	r.GET("/api/speedtest/bytes", h.speedtestBytes)
 
-	// 管理数据面（2026-10-10 安全修复）：dash JWT 或 API Token 二选一，
-	// 见 apitoken.go apiAuth。此前本组无任何中间件，管理接口公网裸奔。
-	// AU-1：写操作经 auditMiddleware 统一落 audit_logs（GET 跳过）。
+	// Admin data surface (security fix 2026-10-10): dash JWT or API Token,
+	// either one; see apitoken.go apiAuth. Previously this group had no
+	// middleware at all, leaving the admin endpoints exposed on the public net.
+	// AU-1: write operations go through auditMiddleware into audit_logs
+	// uniformly (GET skipped).
 	api := r.Group("/api", h.apiAuth(), h.auditMiddleware())
 	{
 		api.GET("/nodes", h.listNodes)
 		api.POST("/nodes", h.createNode)
-		// 一次性注册凭据（FERRY-001）：签发/列表/吊销在管理面，兑换在 open 组。
+		// One-time enrollment credentials (FERRY-001): issue/list/revoke on the admin surface, redeem in the open group.
 		api.POST("/enrollment-tokens", h.createEnrollmentToken)
 		api.GET("/enrollment-tokens", h.listEnrollmentTokens)
 		api.DELETE("/enrollment-tokens/:id", h.revokeEnrollmentToken)
@@ -155,7 +176,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.GET("/provision-jobs", h.listProvisionJobs)
 		api.GET("/recoveries", h.listRecoveries)
 		api.GET("/recoveries/:id/actions", h.listRecoveryActions)
-		// 域名前置（BR-2）：DNS 商凭证与前置记录。
+		// Domain fronting (BR-2): DNS provider credentials and fronting records.
 		api.GET("/dns-providers", h.listDNSProviders)
 		api.POST("/dns-providers", h.createDNSProvider)
 		api.PUT("/dns-providers/:id", h.updateDNSProvider)
@@ -164,9 +185,9 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.POST("/dns-fronts", h.createDNSFront)
 		api.PUT("/dns-fronts/:id", h.updateDNSFront)
 		api.DELETE("/dns-fronts/:id", h.deleteDNSFront)
-		// 分地域对账补偿入口（E-27）：事件驱动同步失败/人工改库后手动对齐。
+		// Per-region reconciliation compensation entry (E-27): manual alignment after event-driven sync failure or hand DB edits.
 		api.POST("/dns-fronts/geo-sync", h.geoSync)
-		// 证书任务（BR-4）：编排与手动触发。
+		// Certificate tasks (BR-4): orchestration and manual triggering.
 		api.GET("/cert-tasks", h.listCertTasks)
 		api.POST("/cert-tasks", h.createCertTask)
 		api.PUT("/cert-tasks/:id", h.updateCertTask)
@@ -180,22 +201,23 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.PUT("/alloc/policy", h.putAllocPolicy)
 		api.GET("/quota-link", h.listQuotaLink)
 		api.PUT("/quota-link", h.putQuotaLink)
-		// 事件 outbox（HERALD-1）：dash 可见 pending/failed，死信人工重投。
+		// Event outbox (HERALD-1): pending/failed visible in dash, dead letters re-dispatched by hand.
 		api.GET("/events", h.listEvents)
 		api.POST("/events/:id/retry", h.retryEvent)
-		// 通道投递看板与自检（HC-1/2/3）：回执聚合+健康徽标、自检测试事件、
-		// 各类告警样例预览。
+		// Channel delivery dashboard and self-check (HC-1/2/3): receipt aggregation +
+		// health badge, self-check test events, sample previews for each alert
+		// kind.
 		api.GET("/events/deliveries", h.listEventDeliveries)
 		api.GET("/events/samples", h.listEventSamples)
 		api.POST("/events/test", h.testEvent)
 		api.GET("/cost", h.getCost)
 		api.GET("/evening", h.getEvening)
 		api.PUT("/cost/threshold", h.putCostThreshold)
-		// 成本参考库（E-31）：价格表导入/试查/批量偏差（参考价只提示不改价）。
+		// Cost reference library (E-31): price table import/trial lookup/batch deviation (reference prices only advise, never change the price).
 		api.GET("/cost/ref", h.getCostRef)
 		api.GET("/cost/ref-check", h.getCostRefCheck)
 		api.PUT("/cost/ref-table", h.putCostRefTable)
-		// 价格关注（E-32）：条件 CRUD 与快照（扫描告警在 cost.WatchLoop）。
+		// Price watches (E-32): condition CRUD and snapshots (scan alerts in cost.WatchLoop).
 		api.GET("/cost/watches", h.listWatches)
 		api.POST("/cost/watches", h.createWatch)
 		api.PUT("/cost/watches/:id", h.updateWatch)
@@ -211,13 +233,15 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.GET("/nodes/:id/routing-config", h.renderRoutingConfig)
 		api.PUT("/routing/ads", h.putAdsEnabled)
 		api.GET("/save-stats", h.saveStats)
+		// Protocol registry (protocol pluginization): protocol data source for the dash node form.
+		api.GET("/protocols", h.listProtocols)
 
-		// 入口域名数据面（TOUCH-3）：域名例行邮件与断联容灾的共同数据源。
+		// Entry domain data surface (TOUCH-3): shared data source for the domain routine mail and outage resilience.
 		api.GET("/entry-domains", h.listEntryDomains)
 		api.POST("/entry-domains", h.createEntryDomain)
 		api.PUT("/entry-domains/:id", h.updateEntryDomain)
 		api.DELETE("/entry-domains/:id", h.deleteEntryDomain)
-		// 断联态标记（TOUCH-7）：管理员手动开关，订阅注释随之加警告行。
+		// Outage marker (TOUCH-7): admin manual switch; the subscription notes pick up a warning line accordingly.
 		api.GET("/outage", h.getOutage)
 		api.PUT("/outage", h.putOutage)
 		api.GET("/nodes/:id/share", h.nodeShare)
@@ -225,8 +249,9 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.GET("/nodes/:id/procs", h.nodeProcs)
 		api.POST("/nodes/:id/rulelib", h.pushRuleLib)
 		api.GET("/nodes/:id/rulelib", h.listRuleLib)
-		// 多级管理员/子管理员配额（P2-2）：管理员管理面 super 专属，
-		// operator（子管理员）受 max_users 建用户配额约束（user.go）。
+		// Multi-level admin / sub-admin quotas (P2-2): the admin management
+		// surface is super-only; operator (sub-admin) is bounded by the max_users
+		// create-user quota (user.go).
 		api.GET("/admins", h.requireSuper(), h.listAdmins)
 		api.POST("/admins", h.requireSuper(), h.createAdmin)
 		api.PUT("/admins/:id", h.requireSuper(), h.updateAdmin)
@@ -251,48 +276,50 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.DELETE("/card-batches/:id", h.deleteCardBatch)
 		api.GET("/card-batches/:id/export.csv", h.exportCardBatchCSV)
 		api.POST("/redeem", h.redeem)
-		// 分销代理（DS-1）：建号/停用/佣金比例与账目流水，payout 随 DS-2。
+		// Distributor agents (DS-1): account create/disable, commission ratio and ledger entries; payout comes with DS-2.
 		api.GET("/distributors", h.listDistributors)
 		api.POST("/distributors", h.createDistributor)
 		api.PUT("/distributors/:id", h.updateDistributor)
 		api.GET("/distributors/:id/ledger", h.distributorLedger)
-		// 结算打款与人工调（DS-2）：手动落账，不自动打款。
+		// Settlement payout and manual adjustment (DS-2): booked by hand, never auto-paid.
 		api.POST("/distributors/:id/payout", h.distributorPayout)
 		api.POST("/distributors/:id/adjust", h.distributorAdjust)
-		// 在线支付回调（PAY-8）：挂 open 组（自带 Provider 验签），见文件尾。
+		// Online payment callback (PAY-8): mounted on the open group (carries Provider signature verification), see end of file.
 		api.GET("/payments/reconcile", h.listReconcile)
-		// 订单详情与退款流转（OD-2）
+		// Order detail and refund flow (OD-2)
 		api.GET("/payments/orders/:order_no", h.adminOrderDetail)
 		api.POST("/payments/orders/:order_no/refund", h.refundOrder)
-		// 站内信通知中心（NT-1）：dash 公告扇出与全量列表。
+		// In-site notification center (NT-1): dash announcement fan-out and the full list.
 		api.GET("/notifications", h.listNotifications)
 		api.POST("/notifications/announcement", h.createAnnouncement)
 		api.GET("/notifications/announcements", h.listAnnouncements)
 		api.POST("/notifications/announcements/:id/resend", h.resendAnnouncement)
 		api.DELETE("/notifications/:id", h.deleteNotification)
-		// P1-1 管理员登录与鉴权（API Token 签发走 apiAuth 双凭据口径）。
+		// P1-1 admin login and auth (API Token issuance follows the apiAuth dual-credential convention).
 		api.GET("/token", h.GetCurrentUser)
 		api.POST("/token", h.AdminGetApiToken)
-		// 操作审计（AU-1）：写操作流水查询，admin 写操作经 auditMiddleware 落行。
+		// Operation audit (AU-1): write operation log queries; admin writes land rows via auditMiddleware.
 		api.GET("/audit-logs", h.ListAuditLogs)
-		// 优惠码（PROMO-1）：管理面 CRUD；核销在 panel 下单（panel.go）。
+		// Coupons (PROMO-1): management-surface CRUD; redemption happens on panel order placement (panel.go).
 		api.GET("/coupons", h.listCoupons)
 		api.POST("/coupons", h.createCoupon)
 		api.PUT("/coupons/:id", h.updateCoupon)
 		api.DELETE("/coupons/:id", h.deleteCoupon)
-		// 限时活动（PROMO-2）：管理面 CRUD；自动适用在 panel 下单（取优）。
+		// Limited-time campaigns (PROMO-2): management-surface CRUD; auto-application on panel order placement (best one wins).
 		api.GET("/campaigns", h.listCampaigns)
 		api.POST("/campaigns", h.createCampaign)
 		api.PUT("/campaigns/:id", h.updateCampaign)
 		api.DELETE("/campaigns/:id", h.deleteCampaign)
 	}
-	// 自带凭据/验签的公开面：panel 按订阅令牌（panel.go）、bot 按服务令牌
-	//（TOUCH-6）、Herald 回执与支付回调各自验签、standby 按共享令牌
-	//（P2-1 主从同步）——不经 apiAuth，故挂独立组。
+	// Public surfaces carrying their own credentials/signatures: panel by
+	// subscription token (panel.go), bot by service token (TOUCH-6), Herald
+	// receipts and payment callbacks each verify their signature, standby by
+	// shared token (P2-1 master/standby sync) -- they bypass apiAuth, hence a
+	// separate group.
 	open := r.Group("/api")
 	{
-		// standby 实例拉取主面板快照（P2-1）：X-Standby-Token 机器鉴权，
-		// 未配置 token 恒 403（同步面关闭）。
+		// Standby instance pulls the master panel snapshot (P2-1): X-Standby-Token
+		// machine auth; without a configured token it always 403s (sync surface off).
 		open.GET("/standby/snapshot", h.standbySnapshot)
 		panel := open.Group("/panel")
 		{
@@ -302,39 +329,43 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 			panel.GET("/savings", h.panelSavings)
 			panel.POST("/redeem", h.panelRedeem)
 			panel.GET("/orders", h.panelOrders)
-			// 在线下单（PAY-11，对 epusdt 段）
+			// Online ordering (PAY-11, against the epusdt section)
 			panel.GET("/products", h.panelProducts)
 			panel.GET("/channels", h.panelChannels)
 			panel.GET("/campaigns", h.panelCampaigns)
 			panel.POST("/orders", h.panelCreateOrder)
 			panel.GET("/orders/:order_no", h.panelOrderStatus)
-			// 通知中心（NT-1）与偏好（NT-2）
+			// Notification center (NT-1) and preferences (NT-2)
 			panel.GET("/notifications", h.panelNotifications)
 			panel.GET("/notifications/unread-count", h.panelUnreadCount)
 			panel.POST("/notifications/read-all", h.panelMarkAllRead)
 			panel.POST("/notifications/:id/read", h.panelMarkRead)
 			panel.GET("/notify-prefs", h.panelNotifyPrefs)
 			panel.PUT("/notify-prefs", h.panelUpdateNotifyPrefs)
-			// 客服嵌入配置（servify 真嵌验收）：未接客服时 enabled=false。
+			// Support embedding config (servify real-embed acceptance): enabled=false when no support is wired up.
 			panel.GET("/support", h.panelSupport)
 		}
-		// TG bot 对接面（TOUCH-6）：服务级令牌鉴权，bot 后端独立部署
-		// （不依赖面板域名存活），按用户 tg_chat_id 定位（TOUCH-1 绑定）。
+		// TG bot integration surface (TOUCH-6): service-level token auth, the bot
+		// backend is deployed independently (does not depend on the panel domain
+		// being alive), located by the user's tg_chat_id (TOUCH-1 binding).
 		bot := open.Group("/bot")
 		{
 			bot.GET("/summary", h.botSummary)
 		}
-		// Herald 异步回投的通道分发回执（HERALD-2）：自带 HMAC 验签。
+		// Channel dispatch receipts from Herald's async re-post (HERALD-2): carries its own HMAC verification.
 		open.POST("/internal/event-results", h.eventResult)
-		// 节点首装注册交换（FERRY-001）：自带一次性注册凭据（enroll.go），
-		// 管理面 /api/nodes 仍全程 apiAuth，本口只凭注册凭据换节点令牌。
+		// First-install node registration exchange (FERRY-001): carries a one-time
+		// enrollment credential (enroll.go); the admin surface /api/nodes stays
+		// fully apiAuth-protected, this endpoint only swaps the credential for a node token.
 		open.POST("/enroll", h.enrollNode)
-		// 在线支付回调（PAY-8）：自带 Provider 验签。
+		// Online payment callback (PAY-8): carries Provider signature verification.
 		open.POST("/pay/epusdt/notify", h.epusdtNotify)
 	}
-	// 自建订阅自助面（ferry-sub-filters）：订阅令牌登录（panelUser 同口径），
-	// 用户管理自己的独立订阅。路径同前缀 /api 但鉴权是订阅令牌而非管理员 JWT，
-	// 故挂独立组（不带 apiAuth/auditMiddleware）。
+	// Self-built subscription self-service surface (ferry-sub-filters): login by
+	// subscription token (same convention as panelUser), users manage their own
+	// independent subscriptions. The path shares the /api prefix but auth is a
+	// subscription token rather than an admin JWT, hence a separate group
+	// (without apiAuth/auditMiddleware).
 	subs := r.Group("/api", h.panelAuth())
 	{
 		subs.GET("/subscriptions", h.listSubscriptions)
@@ -343,12 +374,13 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		subs.DELETE("/subscriptions/:id", h.deleteSubscription)
 		subs.POST("/subscriptions/:id/reset-token", h.resetSubscriptionToken)
 	}
-	// P1-1 管理员登录是获取首个令牌的唯一入口，公开挂在鉴权组外
-	//（此前误挂组内导致登录面 401 不可达，安全批修复）。
+	// P1-1 admin login is the only entry point to obtain the first token, mounted
+	// publicly outside the auth groups (it was previously mis-mounted inside,
+	// making the login surface 401-unreachable; fixed in the security batch).
 	r.POST("/admin/login", h.AdminLogin)
-	// DS-1 代理登录：独立端点公开挂载，role=distributor 令牌与管理员互不越界。
+	// DS-1 agent login: an independent endpoint mounted publicly; role=distributor tokens and admin tokens never cross boundaries.
 	r.POST("/distributor/login", h.DistributorLogin)
-	// DS-3 代理自面：只读视图（自有批次/卡密/客户/订单/结算）。
+	// DS-3 agent self-service surface: read-only views (own batches/codes/customers/orders/settlement).
 	dist := r.Group("/distributor/api", h.distAuthMiddleware())
 	{
 		dist.GET("/me", h.distMe)
@@ -358,7 +390,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		dist.GET("/orders", h.distOrders)
 		dist.GET("/ledger", h.distLedger)
 	}
-	// AU-1：管理面写操作同口径落审计（GET 跳过）。
+	// AU-1: admin-surface write operations land in the audit log the same way (GET skipped).
 	admin := r.Group("/admin", h.adminAuthMiddleware(), h.auditMiddleware())
 	{
 		admin.GET("/backup/db", h.backupDB)
@@ -372,7 +404,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		admin.POST("/notify/test", h.testNotify)
 		admin.GET("/logs", h.adminLogs)
 		admin.DELETE("/logs", h.clearAdminLogs)
-		// 两步验证与登录审计（安全设计 §1，P1）
+		// Two-factor and login audit (security design §1, P1)
 		admin.GET("/2fa", h.twofaStatus)
 		admin.POST("/2fa/setup", h.twofaSetup)
 		admin.POST("/2fa/enable", h.twofaEnable)
@@ -382,14 +414,18 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 	return r, h.pusher
 }
 
-// errProbeRollback 是 DB 可写探针的回滚哨兵：事务内 INSERT 成功即证明
-// 可写，随后回滚不留行；探针真实失败（只读盘/连接断）才计不可写。
+// errProbeRollback is the rollback sentinel of the DB write probe: a
+// successful INSERT inside the transaction proves writability, then it is
+// rolled back leaving no row; only a genuine probe failure (read-only disk /
+// broken connection) counts as not writable.
 var errProbeRollback = errors.New("health probe rollback")
 
-// healthGuard 是 /api/health 的访问门（P2 修复）：环回探活放行——部署脚本
-// start.sh 就绪等待与各 smoke 均以 127.0.0.1 在管理员登录前探活，无凭据可用；
-// 远端调用方必须带管理面凭据（admin JWT 或 API Token），否则 401。此前
-// health 裸挂无鉴权，公网可读 agents_online/备份新鲜度/DB 可写等运行态。
+// healthGuard is the access gate for /api/health (P2 fix): loopback probes
+// are let through -- the start.sh readiness wait and the various smokes all
+// probe from 127.0.0.1 before admin login, with no credential available;
+// remote callers must carry admin-surface credentials (admin JWT or API
+// Token) or get 401. Previously health hung with no auth, exposing runtime
+// state such as agents_online / backup freshness / DB writability publicly.
 func (h *Handler) healthGuard() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if ip := net.ParseIP(c.ClientIP()); ip != nil && ip.IsLoopback() {
@@ -409,9 +445,11 @@ func (h *Handler) healthGuard() gin.HandlerFunc {
 	}
 }
 
-// health 健康自检（面板可用性 §5，P1）：DB 可写、agent 在线数、备份
-// 新鲜度（距最近落档时长，超 FreshHours 视为不新鲜）。检查项异常不静默：
-// status 置 degraded 如实上报（仍 200，探活方不误杀）。
+// health runs the health self-check (panel availability §5, P1): DB
+// writability, agent online count, backup freshness (age since the last
+// persisted copy; older than FreshHours is not fresh). A failing check item
+// is never silenced: status is reported as degraded honestly (still 200, so
+// probes do not kill the node mistakenly).
 func (h *Handler) health(c *gin.Context) {
 	status := "ok"
 	dbWritable := true
@@ -438,7 +476,7 @@ func (h *Handler) health(c *gin.Context) {
 			status = "degraded"
 		}
 	case errors.Is(err, gorm.ErrRecordNotFound):
-		status = "degraded" // 从未备份过
+		status = "degraded" // never backed up
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -451,7 +489,7 @@ func (h *Handler) health(c *gin.Context) {
 	})
 }
 
-// listDimensionStatus 返回区域/运营商维度的状态灯数据。
+// listDimensionStatus returns the status-light data for the region/ISP dimensions.
 func (h *Handler) listDimensionStatus(c *gin.Context) {
 	out := []storage.DimensionStatus{}
 	if err := h.db.Order("scope, key").Find(&out).Error; err != nil {
@@ -461,7 +499,7 @@ func (h *Handler) listDimensionStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
-// listProbeReports 返回边缘探测结论存证（新结论在前，默认 200 条）。
+// listProbeReports returns the edge probe verdict records (newest first, 200 by default).
 func (h *Handler) listProbeReports(c *gin.Context) {
 	limit := 200
 	if v := c.Query("limit"); v != "" {

@@ -1,19 +1,23 @@
-// 入池流水线（OS-4）：provisioning 节点的自动化收尾。
-// 口径：模板配置下发（与手动下发同一 config.push 通道，agent 侧校验落盘）
-// → 探测通过（该进程配置已 applied + agent 进程报表 running）→ online 入池；
-// 推进不动的留 provision_note 原因，上下线不覆盖 provisioning 态（agentws）。
+// Node provisioning pipeline (OS-4): automated completion for provisioning nodes.
+// Flow: template config push (same config.push channel as manual push, validated
+// and persisted agent-side) -> probe pass (that proc's config applied + agent
+// reports proc running) -> online. Nodes that cannot advance keep a provision_note
+// reason; up/down transitions never overwrite the provisioning state (agentws).
 package handler
 
 import (
 	"log"
 	"strings"
 
+	"github.com/cuihairu/ferry/server/internal/protocol"
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// pipelineDeploy 模板配置自动下发：provisioning + 配置模板非空 + 尚无
-// applied 下发才推送（重连不重推、不刷快照）；模板为空/推送失败留注记。
-// 阻塞等待 agent ack（与 config.push 同口径），调用方须在 goroutine 触发。
+// pipelineDeploy auto-pushes the template config: only when the node is
+// provisioning, the config template is non-empty, and no applied push exists
+// yet (reconnect neither re-pushes nor refreshes the snapshot); an empty
+// template or a failed push leaves a note. Blocks waiting for the agent ack
+// (same convention as config.push); callers must invoke it from a goroutine.
 func (h *Handler) pipelineDeploy(nodeID uint) {
 	var n storage.Node
 	if err := h.db.First(&n, nodeID).Error; err != nil || n.Status != "provisioning" {
@@ -39,18 +43,21 @@ func (h *Handler) pipelineDeploy(nodeID uint) {
 	}
 }
 
-// procForProtocol 协议 → 被管内核进程：四种 xray 系协议落 xray 进程，
-// hysteria2 落 hysteria2 进程（agent 侧 procs[].name 与之一致才能收到
-// 下发；hy2 批）。未知协议回退 xray（建节点校验已拦，此处仅防御）。
-func procForProtocol(protocol string) (proc, kind string) {
-	if protocol == "hysteria2" {
-		return "hysteria2", "hysteria2"
+// procForProtocol maps a protocol to the managed kernel process (data-driven
+// since the protocol pluginization: the registry's KernelProc/KernelKind;
+// the agent's procs[].name must match to receive a push). Protocols without a
+// declared kernel fall back to xray (node creation validation already blocks
+// those; this is defense in depth only).
+func procForProtocol(name string) (proc, kind string) {
+	if p, err := protocol.Lookup(name); err == nil && p.KernelProc != "" {
+		return p.KernelProc, p.KernelKind
 	}
 	return "xray", "xray"
 }
 
-// pipelineProbePass 探测通过：provisioning 节点目标进程 running 上报，且
-// 该进程配置已 applied（服务面就绪），转 online 入池并清注记。其余状态零写入。
+// pipelineProbePass marks a probe pass: a provisioning node reports its target
+// proc running and that proc's config is applied (serving surface ready), so it
+// goes online into the pool and its note is cleared. Any other state writes nothing.
 func (h *Handler) pipelineProbePass(nodeID uint, proc string) {
 	var applied int64
 	h.db.Model(&storage.NodeConfig{}).Where("node_id = ? AND proc = ? AND status = ?", nodeID, proc, "applied").Count(&applied)
@@ -64,7 +71,8 @@ func (h *Handler) pipelineProbePass(nodeID uint, proc string) {
 	}
 }
 
-// setProvisionNote 只在节点仍处供给态时写进度/失败注记（转 online 后不覆盖）。
+// setProvisionNote writes a progress/failure note only while the node is still
+// provisioning (never overwrites once it went online).
 func (h *Handler) setProvisionNote(nodeID uint, note string) {
 	h.db.Model(&storage.Node{}).Where("id = ? AND status = ?", nodeID, "provisioning").
 		Update("provision_note", note)
