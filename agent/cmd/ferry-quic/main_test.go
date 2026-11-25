@@ -18,7 +18,7 @@ import (
 	"time"
 )
 
-// 下面只覆盖起监听之前的参数校验路径：真正 listen/serve 会占端口，不进测试。
+// Only the argument-validation paths before the listener starts are covered below: a real listen/serve would occupy a port, so it stays out of tests.
 
 func TestRunClientMissingCAFile(t *testing.T) {
 	err := runClient(context.Background(), []string{"--ca", filepath.Join(t.TempDir(), "nope.pem")})
@@ -28,7 +28,7 @@ func TestRunClientMissingCAFile(t *testing.T) {
 }
 
 func TestRunClientBadCAPEM(t *testing.T) {
-	// 文件存在但不是 PEM：AppendCertsFromPEM 应拒。
+	// The file exists but is not PEM: AppendCertsFromPEM should reject it.
 	bad := filepath.Join(t.TempDir(), "bad.pem")
 	if err := os.WriteFile(bad, []byte("not a certificate\n"), 0o600); err != nil {
 		t.Fatalf("write bad pem: %v", err)
@@ -40,7 +40,7 @@ func TestRunClientBadCAPEM(t *testing.T) {
 }
 
 func TestRunClientBadListen(t *testing.T) {
-	// 合法 CA 省略 → 直接进 net.Listen，非法地址应在监听处失败。
+	// Omitting a valid CA falls straight through to net.Listen, so a bad address must fail there.
 	err := runClient(context.Background(), []string{"--listen", "256.256.256.256:99999"})
 	if err == nil {
 		t.Fatal("invalid listen address should error")
@@ -81,8 +81,8 @@ func TestRunServerBadCertPair(t *testing.T) {
 	}
 }
 
-// TestRunDispatch 模式分发口径：缺模式/未知模式回用法错误（ErrUsage，
-// main 据此退出 2）；client 模式正常进入启动链路（ctx 已取消即回收）。
+// TestRunDispatch covers mode dispatch: a missing or unknown mode returns a usage
+// error (ErrUsage, main then exits 2); client mode enters the startup path normally (a cancelled ctx is reclaimed immediately).
 func TestRunDispatch(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -96,8 +96,8 @@ func TestRunDispatch(t *testing.T) {
 	}
 }
 
-// TestRunClientServesUntilCancel 覆盖起监听后的主路径：本地桥监听成功，
-// ctx 取消即回收（Serve 按 ctx 口径返回 context.Canceled）。
+// TestRunClientServesUntilCancel covers the client happy path after the listener
+// starts: the local bridge listens successfully, and cancelling the ctx is reclaimed (Serve returns context.Canceled per its ctx contract).
 func TestRunClientServesUntilCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
@@ -109,8 +109,8 @@ func TestRunClientServesUntilCancel(t *testing.T) {
 	}
 }
 
-// TestRunServerServesUntilCancel 覆盖 server 主路径：QUIC（UDP）监听成功，
-// ctx 取消即回收。证书为自签临时对（测试不依赖任何外部资产）。
+// TestRunServerServesUntilCancel covers the server happy path: the QUIC (UDP)
+// listener starts, and cancelling the ctx is reclaimed. The certificate is a self-signed throwaway pair (the test relies on no external asset).
 func TestRunServerServesUntilCancel(t *testing.T) {
 	certPEM, keyPEM := selfSignedPEM(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -125,7 +125,7 @@ func TestRunServerServesUntilCancel(t *testing.T) {
 	}
 }
 
-// selfSignedPEM 生成自签 ECDSA 证书对（server 模式必填 --cert/--key）。
+// selfSignedPEM generates a self-signed ECDSA certificate pair (server mode requires --cert/--key).
 func selfSignedPEM(t *testing.T) (string, string) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

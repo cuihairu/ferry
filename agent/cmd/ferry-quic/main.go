@@ -1,14 +1,14 @@
-// ferry-quic 是 QUIC 传输的独立 sidecar（E-18b，拍板：独立 plugin 二进制）：
-// quic-go（MIT）只落本二进制，agent 主程序不携带（E-4 10MB 门禁不动）。
+// ferry-quic is the standalone sidecar for QUIC transport (E-18b, decision: a separate plugin binary):
+// quic-go (MIT) lands only in this binary, the agent proper carries none of it (the E-4 10MB gate is untouched).
 //
-// 两种模式：
+// Two modes:
 //
 //	ferry-quic client --listen 127.0.0.1:7300 --ca ca.pem
-//	  本地 TCP 收 CONNECT 桥（agent 内置 quic 插件拨这里），按目标拨 QUIC。
+//	  Local TCP CONNECT bridge (the agent's built-in quic plugin dials here); dials QUIC per target.
 //	ferry-quic server --listen :443 --target 127.0.0.1:8000 --cert c.pem --key k.pem
-//	  QUIC（UDP）监听，逐流转发给本机 target 端口。
+//	  Listens on QUIC (UDP) and forwards each stream to the local target port.
 //
-// 诚实口径：raw QUIC（ALPN ferry-quic），不是 hysteria2，不冒称任何现有协议。
+// Honest scope: raw QUIC (ALPN ferry-quic), not hysteria2, and not claimed as any existing protocol.
 package main
 
 import (
@@ -34,19 +34,19 @@ func main() {
 	defer stop()
 	if err := run(ctx, os.Args[1:]); err != nil {
 		if errors.Is(err, context.Canceled) {
-			return // 正常停机
+			return // normal shutdown
 		}
 		if errors.Is(err, ErrUsage) {
-			os.Exit(2) // 用法错误沿用 2
+			os.Exit(2) // usage error keeps exit code 2
 		}
 		log.Fatalf("ferry-quic: %v", err)
 	}
 }
 
-// ErrUsage 表示缺模式或未知模式（main 据此按用法错误退出 2）。
+// ErrUsage means a missing or unknown mode (main exits 2 as a usage error on it).
 var ErrUsage = errors.New("需要模式 client|server")
 
-// run 分发模式：client 起本地桥，server 起 QUIC 监听。用法错误返回 ErrUsage。
+// run dispatches modes: client starts the local bridge, server starts the QUIC listener. Usage errors return ErrUsage.
 func run(ctx context.Context, args []string) error {
 	if len(args) < 1 {
 		usage()
@@ -76,7 +76,7 @@ func runClient(ctx context.Context, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	tlsCfg := &tls.Config{InsecureSkipVerify: *insecure} //nolint:gosec // 引导调试开关，显式 --insecure
+	tlsCfg := &tls.Config{InsecureSkipVerify: *insecure} //nolint:gosec // bootstrap debugging switch, requires an explicit --insecure
 	if *caFile != "" {
 		pem, err := os.ReadFile(*caFile)
 		if err != nil {
