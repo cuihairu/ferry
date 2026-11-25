@@ -1,7 +1,7 @@
-// Package probe 边缘探测：按规格周期探测目标可达性、延迟与丢包
-// （多轮拨号，过半失败判 sick）；direction=in 的回程探测在晚高峰加密。
-// 探测在节点本地完成，结论经 probe.report 上报面板，
-// 面板只收结论做聚合判定，不集中探测。
+// Package probe does edge probing: it periodically measures target reachability, latency and packet loss per spec
+// (several dial rounds, over half failing marks it sick); the direction=in return-path probing intensifies during evening peak.
+// Probes run locally on the node and their conclusions are reported to the panel via probe.report;
+// the panel only collects conclusions for aggregate judgement and does no centralized probing.
 package probe
 
 import (
@@ -16,32 +16,32 @@ import (
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
 
-// 探测口径：单次探测做 probeRounds 轮拨号（丢包=失败轮占比），
-// 轮间停 roundSpacing；过半轮失败按不可达处置。
+// Probing semantics: one probe dials probeRounds times (packet loss = share of failed rounds),
+// pausing roundSpacing between rounds; more than half the rounds failing counts as unreachable.
 const (
 	dialTimeout  = 3 * time.Second
 	probeRounds  = 5
 	roundSpacing = 200 * time.Millisecond
 	sickLossPct  = 50
 
-	// 晚高峰窗口与加密倍数（北京时间 19–23 时，固定 UTC+8 不依赖节点时区）：
-	// 回国体验全在晚高峰，白天数据没有代表性（设计稿 §2.3）。
+	// Evening peak window and intensification factor (19:00-23:00 Beijing time, fixed UTC+8 regardless of the node's timezone):
+	// the China-bound experience lives entirely in the evening peak; daytime data is not representative (design doc §2.3).
 	peakHourStart = 19
 	peakHourEnd   = 23
 	peakDivisor   = 3
 	minPeakGap    = 10 * time.Second
 )
 
-// Runner 按规格周期执行边缘探测。
+// Runner executes edge probes periodically per spec.
 type Runner struct {
 	log   *log.Logger
 	specs []config.ProbeSpec
 
 	sendMu sync.Mutex
-	send   func(agentproto.Envelope) error // 当前连接发送口
+	send   func(agentproto.Envelope) error // sender of the current connection
 }
 
-// New 创建探测运行器。
+// New creates a probe runner.
 func New(specs []config.ProbeSpec, logger *log.Logger) *Runner {
 	if logger == nil {
 		logger = log.Default()
@@ -49,16 +49,16 @@ func New(specs []config.ProbeSpec, logger *log.Logger) *Runner {
 	return &Runner{log: logger, specs: specs}
 }
 
-// SetSend 设置上报发送口；agent 重连后由 app 更新。
+// SetSend sets the report sender; app updates it after the agent reconnects.
 func (r *Runner) SetSend(send func(agentproto.Envelope) error) {
 	r.sendMu.Lock()
 	r.send = send
 	r.sendMu.Unlock()
 }
 
-// Run 阻塞运行到 ctx 取消：每个规格一个探测循环。
-// 隧道探测（E-28 回国回程）直拨规格目标端口——与 relay 拨落地的
-// 网络路径相同，但独立于 relay 进程（转发崩不带崩探测）。
+// Run blocks until the ctx is cancelled: one probe loop per spec.
+// Tunnel probing (E-28 China-bound return path) dials the spec's target port directly -- the same network path
+// the relay uses to reach the landing, but independent of the relay process (a forwarding crash does not take probing down).
 func (r *Runner) Run(ctx context.Context) {
 	var wg sync.WaitGroup
 	for _, spec := range r.specs {
@@ -71,9 +71,9 @@ func (r *Runner) Run(ctx context.Context) {
 	wg.Wait()
 }
 
-// loop 是单个规格的周期探测循环；下次间隔按晚高峰规则取。
+// loop is the periodic probe loop for one spec; the next interval follows the evening-peak rule.
 func (r *Runner) loop(ctx context.Context, spec config.ProbeSpec) {
-	t := time.NewTimer(0) // 启动即探一次
+	t := time.NewTimer(0) // probe once at startup
 	defer t.Stop()
 	for {
 		select {
@@ -86,10 +86,10 @@ func (r *Runner) loop(ctx context.Context, spec config.ProbeSpec) {
 	}
 }
 
-// probeOnce 执行一次多轮探测并上报结论；离线时静默丢弃。
+// probeOnce runs one multi-round probe and reports the conclusion; dropped silently when offline.
 func (r *Runner) probeOnce(spec config.ProbeSpec) {
 	rtt, loss, reachable := measure(spec.Target)
-	// 区域/运营商快照由面板按目标节点落库时补全。
+	// region/ISP snapshots are filled in by the panel when it stores the target node.
 	report := agentproto.ProbeReport{
 		TargetKind: spec.TargetKind,
 		TargetHost: spec.Target,
@@ -119,8 +119,8 @@ func (r *Runner) probeOnce(spec config.ProbeSpec) {
 	}
 }
 
-// measure 对目标做 probeRounds 轮 TCP 拨号：返回平均成功 RTT（毫秒）、
-// 丢包率 0-100 与可达性（任一轮成功即可达）。
+// measure dials the target probeRounds times over TCP: it returns the average successful RTT (ms),
+// the packet loss rate 0-100 and reachability (any successful round means reachable).
 func measure(target string) (rttMs, lossPct int, reachable bool) {
 	ok, sum := 0, 0
 	for i := 0; i < probeRounds; i++ {
@@ -142,8 +142,8 @@ func measure(target string) (rttMs, lossPct int, reachable bool) {
 	return sum / ok, (probeRounds - ok) * 100 / probeRounds, true
 }
 
-// verdictOf 按可达性与丢包定判定：不可达或过半轮失败即 sick——
-// 晚高峰丢包过半即回程劣化，聚合要能按 sick 摘。
+// verdictOf decides by reachability and loss: unreachable or over half the rounds failing means sick --
+// during evening peak, over half lost means a degraded return path, so aggregation must be able to pick sick ones out.
 func verdictOf(lossPct int, reachable bool) string {
 	if !reachable || lossPct >= sickLossPct {
 		return agentproto.ProbeVerdictSick
@@ -151,8 +151,8 @@ func verdictOf(lossPct int, reachable bool) string {
 	return agentproto.ProbeVerdictHealthy
 }
 
-// nextInterval 返回下次探测间隔：direction=in 的回程探测在晚高峰
-// （北京时间 19–23 时）加密为 base/3（下限 10s，且不慢于 base）。
+// nextInterval returns the next probe interval: direction=in return-path probing during evening peak
+// (19:00-23:00 Beijing time) intensifies to base/3 (floor 10s, and never slower than base).
 func nextInterval(spec config.ProbeSpec, now time.Time) time.Duration {
 	interval := time.Duration(spec.IntervalSec) * time.Second
 	if interval <= 0 {
@@ -166,12 +166,12 @@ func nextInterval(spec config.ProbeSpec, now time.Time) time.Duration {
 		peak = minPeakGap
 	}
 	if peak > interval {
-		peak = interval // base 已低于下限，不倒退成更慢
+		peak = interval // base is already below the floor, do not regress to something slower
 	}
 	return peak
 }
 
-// inPeak 判断是否处于晚高峰窗口：按北京时间（固定 UTC+8）。
+// inPeak decides whether the time falls in the evening-peak window: Beijing time (fixed UTC+8).
 func inPeak(now time.Time) bool {
 	h := (now.UTC().Hour() + 8) % 24
 	return h >= peakHourStart && h < peakHourEnd

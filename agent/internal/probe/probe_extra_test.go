@@ -12,7 +12,7 @@ import (
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
 
-// TestNewDefaultsLogger logger 缺省：用默认 logger 且构造可用。
+// TestNewDefaultsLogger covers a nil logger: the default logger is used and the constructor stays usable.
 func TestNewDefaultsLogger(t *testing.T) {
 	r := New(nil, nil)
 	if r == nil || r.log == nil {
@@ -20,13 +20,13 @@ func TestNewDefaultsLogger(t *testing.T) {
 	}
 }
 
-// TestProbeOnceWithoutSend 离线（未设发送口）：结论静默丢弃不报错。
+// TestProbeOnceWithoutSend covers being offline (no sender set): the conclusion is dropped silently without an error.
 func TestProbeOnceWithoutSend(t *testing.T) {
 	r := New([]config.ProbeSpec{{Name: "quiet"}}, log.New(io.Discard, "", 0))
-	r.probeOnce(config.ProbeSpec{Name: "quiet", Target: "127.0.0.1:1"}) // send == nil 分支
+	r.probeOnce(config.ProbeSpec{Name: "quiet", Target: "127.0.0.1:1"}) // the send == nil branch
 }
 
-// TestProbeOnceSendFailure 上报失败：记日志不重试不 panic。
+// TestProbeOnceSendFailure covers a failed report: log it, no retry, no panic.
 func TestProbeOnceSendFailure(t *testing.T) {
 	var buf bytes.Buffer
 	r := New(nil, log.New(&buf, "", 0))
@@ -37,7 +37,7 @@ func TestProbeOnceSendFailure(t *testing.T) {
 	}
 }
 
-// TestNextIntervalDefaultsZero interval 未配（<=0）：回落 30s 缺省。
+// TestNextIntervalDefaultsZero covers an unset interval (<=0): fall back to the 30s default.
 func TestNextIntervalDefaultsZero(t *testing.T) {
 	spec := config.ProbeSpec{Direction: agentproto.DirectionOut, IntervalSec: 0}
 	if got := nextInterval(spec, time.Now()); got != 30*time.Second {

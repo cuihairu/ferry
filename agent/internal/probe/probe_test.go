@@ -13,7 +13,7 @@ import (
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
 
-// collect 收集上报结论的发送口。
+// collect is a sender that gathers reported conclusions.
 type collect struct {
 	mu      sync.Mutex
 	reports []agentproto.ProbeReport
@@ -38,7 +38,7 @@ func (c *collect) all() []agentproto.ProbeReport {
 	return out
 }
 
-// waitReport 等待首条结论上报。
+// waitReport waits for the first reported conclusion.
 func waitReport(t *testing.T, c *collect) []agentproto.ProbeReport {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
@@ -86,7 +86,7 @@ func TestProbeHealthy(t *testing.T) {
 }
 
 func TestProbeUnreachable(t *testing.T) {
-	// 先监听拿端口再关闭，得到一个不可达目标。
+	// listen to grab a port, then close it, yielding an unreachable target.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -115,8 +115,8 @@ func TestProbeUnreachable(t *testing.T) {
 }
 
 func TestProbeTunnelReturnPath(t *testing.T) {
-	// E-28 回国回程探测：海外入口对国内落地的 tunnel 探测照常上报，
-	// direction=in 透传给面板做回程报表。
+	// E-28 China-bound return-path probing: tunnel probes from an overseas entry to a domestic landing report as usual,
+	// and direction=in is passed through to the panel for return-path reporting.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -147,7 +147,7 @@ func TestProbeTunnelReturnPath(t *testing.T) {
 }
 
 func TestMeasureUnreachable(t *testing.T) {
-	// 关闭的本地端口：全轮失败 → 丢包 100、不可达。
+	// a closed local port: every round fails -> 100 loss, unreachable.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -169,7 +169,7 @@ func TestVerdictOf(t *testing.T) {
 	}{
 		{0, true, agentproto.ProbeVerdictHealthy},
 		{20, true, agentproto.ProbeVerdictHealthy},
-		{50, true, agentproto.ProbeVerdictSick}, // 过半轮失败按不可达处置
+		{50, true, agentproto.ProbeVerdictSick}, // more than half the rounds failing counts as unreachable
 		{100, false, agentproto.ProbeVerdictSick},
 	}
 	for _, c := range cases {
@@ -180,7 +180,7 @@ func TestVerdictOf(t *testing.T) {
 }
 
 func TestNextInterval(t *testing.T) {
-	// 晚高峰 = 北京时间 19–23 时（固定 UTC+8，与节点时区无关）。
+	// evening peak = 19:00-23:00 Beijing time (fixed UTC+8, independent of the node's timezone).
 	atCN := func(hourUTC int) time.Time {
 		return time.Date(2026, 10, 7, hourUTC, 0, 0, 0, time.UTC)
 	}
@@ -193,9 +193,9 @@ func TestNextInterval(t *testing.T) {
 		now  time.Time
 		want time.Duration
 	}{
-		{"回程晚高峰加密", in, atCN(12), 40 * time.Second},   // 北京 20 时
-		{"回程平峰不加密", in, atCN(4), 120 * time.Second},   // 北京 12 时
-		{"回程高峰外不加密", in, atCN(15), 120 * time.Second}, // 北京 23 时（窗口右开）
+		{"回程晚高峰加密", in, atCN(12), 40 * time.Second},   // 20:00 Beijing time
+		{"回程平峰不加密", in, atCN(4), 120 * time.Second},   // 12:00 Beijing time
+		{"回程高峰外不加密", in, atCN(15), 120 * time.Second}, // 23:00 Beijing time (right-open window)
 		{"出海晚高峰不加密", out, atCN(12), 120 * time.Second},
 	}
 	for _, c := range cases {
@@ -204,12 +204,12 @@ func TestNextInterval(t *testing.T) {
 		}
 	}
 
-	// 下限保护：base 已很小时不倒退成更慢的间隔。
+	// floor protection: when base is already small, do not regress to a slower interval.
 	small := config.ProbeSpec{Direction: agentproto.DirectionIn, IntervalSec: 6}
 	if got := nextInterval(small, atCN(12)); got != 6*time.Second {
 		t.Fatalf("small base: nextInterval = %v, want 6s", got)
 	}
-	// 下限抬到 10s，但绝不慢于 base。
+	// raise the floor to 10s, but never slower than base.
 	base30 := config.ProbeSpec{Direction: agentproto.DirectionIn, IntervalSec: 30}
 	if got := nextInterval(base30, atCN(12)); got != 10*time.Second {
 		t.Fatalf("base30: nextInterval = %v, want 10s", got)
