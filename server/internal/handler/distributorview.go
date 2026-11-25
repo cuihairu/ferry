@@ -14,13 +14,18 @@ import (
 	"gorm.io/gorm"
 )
 
-// 代理自面（DS-3）：只读视图——自有批次/卡密/客户/订单/用量/结算，
-// 结算动作在管理员面（DS-2）；登录走 POST /distributor/login（DS-1）。
-// 与优惠码不叠加取优（§3.3）在兑换链路落地——优惠体系未开工，现无叠加点。
+// Distributor self-service surface (DS-3): read-only views over own
+// batches/card keys/customers/orders/usage/settlement. Settlement actions
+// live on the admin surface (DS-2); login goes through
+// POST /distributor/login (DS-1). The "never stack with a coupon, take the
+// better one" rule (§3.3) lands in the redemption path — the coupon system
+// is not started, so there is no stacking point yet.
 
-// distAuthMiddleware 代理身份中间件（DS-3）：解析 role=distributor 令牌，
-// 回库校验代理存在且启用（停用即踢）。管理员令牌 claim 无 role 必 401，
-// 与管理面令牌互不越界（同 adminAuthMiddleware 网络边界口径）。
+// distAuthMiddleware is the distributor identity middleware (DS-3): it
+// parses tokens carrying role=distributor and re-checks the row in the
+// database so a missing or disabled distributor is kicked. Admin tokens
+// carry no role claim and therefore always get 401 here — the two surfaces
+// cannot cross (same network-boundary rule as adminAuthMiddleware).
 func (h *Handler) distAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		auth := c.GetHeader("Authorization")
@@ -34,9 +39,11 @@ func (h *Handler) distAuthMiddleware() gin.HandlerFunc {
 			return
 		}
 		claims := &distributorClaims{}
-		// 与 DistributorLogin 签发同源：cfg 秘钥（FERRY_ADMIN_SECRET 生效），
-		// 空回落常量。此前硬编码常量——运营设了 FERRY_ADMIN_SECRET 后
-		// 签发与验签秘钥错位，代理自面整面 401。
+		// Same source as DistributorLogin signing: the configured secret
+		// (FERRY_ADMIN_SECRET takes effect), falling back to the constant
+		// when empty. It used to be a hardcoded constant — once ops set
+		// FERRY_ADMIN_SECRET, signing and verification disagreed and the
+		// whole distributor surface returned 401.
 		secret := h.cfg.AdminSecret
 		if secret == "" {
 			secret = "ferry-admin-secret"
@@ -55,7 +62,8 @@ func (h *Handler) distAuthMiddleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		// 回库校验：代理被删/停用即踢（停用即禁登录口径）。
+		// Re-check the row: a deleted or disabled distributor is kicked
+		// (disabling also blocks login).
 		var d storage.Distributor
 		if err := h.db.First(&d, uint(id)).Error; err != nil || !d.Enabled {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "账户不可用"})
@@ -67,7 +75,8 @@ func (h *Handler) distAuthMiddleware() gin.HandlerFunc {
 	}
 }
 
-// distMe 代理自身资料与账目四元组（GET /distributor/api/me）。
+// distMe returns the distributor's own profile plus the four account
+// figures (GET /distributor/api/me).
 func (h *Handler) distMe(c *gin.Context) {
 	distID := c.GetUint("distID")
 	var d storage.Distributor
@@ -89,7 +98,8 @@ func (h *Handler) distMe(c *gin.Context) {
 	})
 }
 
-// distBatches 自有批次列表含剩余（GET /distributor/api/batches）。
+// distBatches lists own batches with remaining counts
+// (GET /distributor/api/batches).
 func (h *Handler) distBatches(c *gin.Context) {
 	distID := c.GetUint("distID")
 	var batches []storage.CardBatch
@@ -118,8 +128,9 @@ func (h *Handler) distBatches(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
-// distBatchCodes 自有批次卡密（GET /distributor/api/batches/:id/codes）：
-// 批次不属于自己视同不存在（404，与代理互不可见口径一致）。
+// distBatchCodes returns the card keys of an own batch
+// (GET /distributor/api/batches/:id/codes): a batch that is not ours is
+// treated as nonexistent (404, matching the mutual-invisibility rule).
 func (h *Handler) distBatchCodes(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -143,20 +154,22 @@ func (h *Handler) distBatchCodes(c *gin.Context) {
 	c.JSON(http.StatusOK, codes)
 }
 
-// distCustomerRow 是代理客户行：兑换张数与当前用量/到期（只读）。
+// distCustomerRow is a distributor customer row: redeemed key count plus
+// current usage/expiration (read-only).
 type distCustomerRow struct {
 	ID           uint       `json:"id"`
 	Username     string     `json:"username"`
-	RedeemedCnt  int64      `json:"redeemed_cnt"` // 兑换自有卡张数
+	RedeemedCnt  int64      `json:"redeemed_cnt"` // number of own keys redeemed
 	QuotaBytes   int64      `json:"quota_bytes"`
-	UsedBytes    int64      `json:"used_bytes"` // 周期窗口累计（与用户门户同口径）
+	UsedBytes    int64      `json:"used_bytes"` // accumulated over the cycle window (same rule as the user portal)
 	ExpiresAt    *time.Time `json:"expires_at"`
 	Active       bool       `json:"active"`
 	OverQuota    bool       `json:"over_quota"`
-	RedeemedLast *time.Time `json:"redeemed_last"` // 最近一次兑换时间
+	RedeemedLast *time.Time `json:"redeemed_last"` // time of the most recent redemption
 }
 
-// lastAt 取用户最近兑换时间（无记录回 nil）。
+// lastAt returns the user's most recent redemption time (nil when there is
+// no record).
 func lastAt(last map[uint]time.Time, uid uint) *time.Time {
 	if t, ok := last[uid]; ok && !t.IsZero() {
 		return &t
@@ -164,8 +177,9 @@ func lastAt(last map[uint]time.Time, uid uint) *time.Time {
 	return nil
 }
 
-// distCustomers 客户列表（GET /distributor/api/customers）：兑换过自有批次
-// 卡密的用户去重，附兑换张数/最近兑换/周期用量（usageQuery 同门户口径）。
+// distCustomers lists customers (GET /distributor/api/customers): users who
+// redeemed an own-batch key, deduplicated, with redeemed count / last
+// redemption / cycle usage (usageQuery, same rule as the portal).
 func (h *Handler) distCustomers(c *gin.Context) {
 	distID := c.GetUint("distID")
 	var batchIDs []uint
@@ -178,8 +192,9 @@ func (h *Handler) distCustomers(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"customers": out})
 		return
 	}
-	// 已兑换卡行进内存聚合张数与最近兑换（裸聚合 MAX(time) 跨方言扫描不稳，
-	// 代理场景行数可控）。
+	// Aggregate the redeemed key rows in memory for counts and last
+	// redemption: a raw MAX(time) aggregate scans unevenly across SQL
+	// dialects, and distributor row counts are small enough.
 	var redeemed []storage.CardCode
 	if err := h.db.Select("used_by", "used_at").
 		Where("batch_id IN ? AND used_by > 0", batchIDs).Find(&redeemed).Error; err != nil {
@@ -232,8 +247,10 @@ func (h *Handler) distCustomers(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"customers": out})
 }
 
-// distOrders 自有兑换订单（GET /distributor/api/orders）：distributor_id 带
-// 归属的 card 单，附客户用户名，金额面=0（面价在批次与账目，见 ledger）。
+// distOrders lists own redemption orders (GET /distributor/api/orders):
+// card orders carrying our distributor_id, with the customer username
+// attached and the amount side 0 (the list price sits on the batch and in
+// the ledger).
 func (h *Handler) distOrders(c *gin.Context) {
 	distID := c.GetUint("distID")
 	limit := 50
@@ -279,8 +296,9 @@ func (h *Handler) distOrders(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"orders": out})
 }
 
-// distLedger 自有账目流水与余额（GET /distributor/api/ledger，只读——
-// 结算动作在管理员面）。
+// distLedger returns the own account ledger and balance
+// (GET /distributor/api/ledger, read-only — settlement actions live on the
+// admin surface).
 func (h *Handler) distLedger(c *gin.Context) {
 	distID := c.GetUint("distID")
 	limit := 50

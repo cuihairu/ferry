@@ -11,12 +11,16 @@ import (
 	"gorm.io/gorm"
 )
 
-// 二十五批补口：代理中心各 400/404/500 口径——登录限速锁定与库故障、建号
-// 坏绑定与超长密码（bcrypt 拒收）、停用补写与落库失败、更新各校验与回落
-// 再查失败、流水 limit 夹取与两段查询各自失败、账目操作绑定/汇总/落账失败。
-// 留白：签发 JWT 的 HS256 签名分支——字符串密钥恒定可签，错误路径不可达不硬凑。
+// Batch 25 gap-filling: the 400/404/500 conventions across the distributor
+// center — login rate-limit locking and DB fault, create with bad binding and
+// an over-long password (rejected by bcrypt), disable write-back and persist
+// failure, update with each validation and the re-find fallback failing,
+// ledger limit clamping with the two-stage queries failing separately, and
+// ledger ops with binding/aggregate/posting failures.
+// Gaps left: the HS256 signing branch of JWT issuance — a string key can
+// always sign, so the error path is unreachable and is not forced.
 
-// isDistModel 判断语句是否落在代理表上（Find 链 Model 是切片指针）。
+// isDistModel reports whether a statement lands on the distributor table (on the Find chain Model is a slice pointer).
 func isDistModel(v any) bool {
 	switch v.(type) {
 	case *storage.Distributor, []storage.Distributor, *[]storage.Distributor:
@@ -25,7 +29,7 @@ func isDistModel(v any) bool {
 	return false
 }
 
-// isDistLedgerModel 判断语句是否落在代理账目流水表上。
+// isDistLedgerModel reports whether a statement lands on the distributor ledger table.
 func isDistLedgerModel(v any) bool {
 	switch v.(type) {
 	case *storage.DistributorLedger, []storage.DistributorLedger, *[]storage.DistributorLedger:
@@ -34,8 +38,8 @@ func isDistLedgerModel(v any) bool {
 	return false
 }
 
-// failDistQueriesAt 第 n 次（1 起）针对代理表的查询失败：更新后回落再查用
-// 次序定向。
+// failDistQueriesAt fails the n-th query (1-based) against the distributor
+// table: the post-update re-find fallback is targeted by that order.
 func failDistQueriesAt(t *testing.T, db *gorm.DB, n int) {
 	t.Helper()
 	seen := 0
@@ -50,7 +54,7 @@ func failDistQueriesAt(t *testing.T, db *gorm.DB, n int) {
 	})
 }
 
-// failDistCreates 让代理行创建失败（唯一性外的库故障）。
+// failDistCreates makes distributor row creation fail (a DB fault other than uniqueness).
 func failDistCreates(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	db.Callback().Create().Before("gorm:create").Register("test:dist_create", func(tx *gorm.DB) {
@@ -60,7 +64,7 @@ func failDistCreates(t *testing.T, db *gorm.DB) {
 	})
 }
 
-// failDistUpdates 让代理行更新失败（停用补写/部分更新）。
+// failDistUpdates makes distributor row updates fail (disable write-back / partial update).
 func failDistUpdates(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	db.Callback().Update().Before("gorm:update").Register("test:dist_update", func(tx *gorm.DB) {
@@ -70,7 +74,7 @@ func failDistUpdates(t *testing.T, db *gorm.DB) {
 	})
 }
 
-// failDistLedgerQueries 让流水表 Find 失败（对账列表取数）。
+// failDistLedgerQueries makes the ledger table's Find fail (reconciliation list fetch).
 func failDistLedgerQueries(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	db.Callback().Query().Before("gorm:query").Register("test:distledger_query", func(tx *gorm.DB) {
@@ -80,8 +84,10 @@ func failDistLedgerQueries(t *testing.T, db *gorm.DB) {
 	})
 }
 
-// failDistLedgerAt 第 n 次（1 起）针对流水表的语句失败：同一样例里 Find 走
-// gorm:query 链、汇总 Scan 走 gorm:row 链，两条链挂同一个计数器才能按次序定向。
+// failDistLedgerAt fails the n-th statement (1-based) against the ledger
+// table: within one sample, Find goes through the gorm:query chain while the
+// aggregate Scan goes through the gorm:row chain, so both chains must share
+// one counter to target a statement by order.
 func failDistLedgerAt(t *testing.T, db *gorm.DB, n int) {
 	t.Helper()
 	seen := 0
@@ -98,7 +104,7 @@ func failDistLedgerAt(t *testing.T, db *gorm.DB, n int) {
 	db.Callback().Row().Before("gorm:row").Register("test:distledger_r_at", hit)
 }
 
-// failDistLedgerCreates 让流水行落账失败。
+// failDistLedgerCreates makes ledger row posting fail.
 func failDistLedgerCreates(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	db.Callback().Create().Before("gorm:create").Register("test:distledger_create", func(tx *gorm.DB) {
@@ -108,7 +114,7 @@ func failDistLedgerCreates(t *testing.T, db *gorm.DB) {
 	})
 }
 
-// seedDist 经管理面建代理号并返回行 id。
+// seedDist creates a distributor account via the admin side and returns the row id.
 func seedDist(t *testing.T, r *gin.Engine, db *gorm.DB, name string) uint {
 	t.Helper()
 	rec := doJSON(t, r, http.MethodPost, "/api/distributors",
@@ -123,9 +129,9 @@ func seedDist(t *testing.T, r *gin.Engine, db *gorm.DB, name string) uint {
 	return d.ID
 }
 
-// TestDistributorLoginErrors 登录：限速锁定、坏绑定与库故障。
+// TestDistributorLoginErrors: login — rate-limit locking, bad binding, and DB fault.
 func TestDistributorLoginErrors(t *testing.T) {
-	// 连续失败达阈即锁定：第五次失败后落锁，第六次请求直接 429。
+	// Locking kicks in once consecutive failures reach the threshold: the lock lands after the fifth failure and the sixth request gets 429 outright.
 	r, db := newTestRouterWithDB(t)
 	seedDist(t, r, db, "login-l")
 	for i := 0; i < 5; i++ {
@@ -140,13 +146,13 @@ func TestDistributorLoginErrors(t *testing.T) {
 		t.Fatalf("locked: %d %s", rec.Code, rec.Body)
 	}
 
-	// 坏绑定 400。
+	// Bad binding: 400.
 	r, _ = newTestRouterWithDB(t)
 	if rec := doJSON(t, r, http.MethodPost, "/distributor/login", "not json"); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bind: %d %s", rec.Code, rec.Body)
 	}
 
-	// 库故障 500（内部错误，不外泄）。
+	// DB fault: 500 (internal error, never leaked).
 	r, db = newTestRouterWithDB(t)
 	closeSQL(t, db)
 	if rec := doJSON(t, r, http.MethodPost, "/distributor/login",
@@ -156,7 +162,7 @@ func TestDistributorLoginErrors(t *testing.T) {
 	}
 }
 
-// TestListDistributorsErrors 列表：代理取数失败与汇总失败各自冒 500。
+// TestListDistributorsErrors: list — distributor fetch failure and aggregate failure each surface as 500.
 func TestListDistributorsErrors(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	closeSQL(t, db)
@@ -166,21 +172,21 @@ func TestListDistributorsErrors(t *testing.T) {
 
 	r, db = newTestRouterWithDB(t)
 	seedDist(t, r, db, "list-l")
-	failDistLedgerAt(t, db, 1) // 流水表首条语句即汇总（Query 链无前置语句）
+	failDistLedgerAt(t, db, 1) // the ledger table's first statement is the aggregate (the Query chain has no preceding statement)
 	if rec := doJSON(t, r, http.MethodGet, "/api/distributors", nil); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("totals: %d %s", rec.Code, rec.Body)
 	}
 }
 
-// TestCreateDistributorErrors 建号：坏绑定、bcrypt 超长密码、停用补写失败与
-// 落库失败。
+// TestCreateDistributorErrors: create — bad binding, an over-long password
+// rejected by bcrypt, disable write-back failure, and persist failure.
 func TestCreateDistributorErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doJSON(t, r, http.MethodPost, "/api/distributors", "not json"); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bind: %d %s", rec.Code, rec.Body)
 	}
 
-	// bcrypt 超过 72 字节即拒收，冒 500。
+	// bcrypt rejects anything over 72 bytes, surfacing as 500.
 	r, _ = newTestRouterWithDB(t)
 	if rec := doJSON(t, r, http.MethodPost, "/api/distributors", map[string]any{
 		"username": "longpw", "password": strings.Repeat("p", 100),
@@ -188,7 +194,7 @@ func TestCreateDistributorErrors(t *testing.T) {
 		t.Fatalf("long password: %d %s", rec.Code, rec.Body)
 	}
 
-	// 备注入库 + 显式停用补写（Enabled 有 default:true，零值会被略过）。
+	// Note persisted + explicit disable written back (Enabled has default:true, so the zero value would be skipped).
 	r, db := newTestRouterWithDB(t)
 	rec := doJSON(t, r, http.MethodPost, "/api/distributors", map[string]any{
 		"username": "note-l", "password": "secret123",
@@ -205,7 +211,7 @@ func TestCreateDistributorErrors(t *testing.T) {
 		t.Fatalf("not persisted: %+v", d)
 	}
 
-	// 停用补写失败 500。
+	// Disable write-back failure: 500.
 	r, db = newTestRouterWithDB(t)
 	failDistUpdates(t, db)
 	if rec := doJSON(t, r, http.MethodPost, "/api/distributors",
@@ -213,7 +219,7 @@ func TestCreateDistributorErrors(t *testing.T) {
 		t.Fatalf("write-back: %d %s", rec.Code, rec.Body)
 	}
 
-	// 落库失败（非唯一冲突）冒 500。
+	// Persist failure (not a uniqueness conflict) surfaces as 500.
 	r, db = newTestRouterWithDB(t)
 	failDistCreates(t, db)
 	if rec := doJSON(t, r, http.MethodPost, "/api/distributors",
@@ -222,8 +228,8 @@ func TestCreateDistributorErrors(t *testing.T) {
 	}
 }
 
-// TestUpdateDistributorErrors 更新：定位校验、密码重置与校验失败、各写库
-// 故障与回落再查失败。
+// TestUpdateDistributorErrors: update — locate validation, password reset and
+// validation failure, each write-DB fault, and the re-find fallback failing.
 func TestUpdateDistributorErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doJSON(t, r, http.MethodPut, "/api/distributors/abc", map[string]any{"enabled": false}); rec.Code != http.StatusBadRequest {
@@ -243,7 +249,7 @@ func TestUpdateDistributorErrors(t *testing.T) {
 		t.Fatalf("first: %d %s", rec.Code, rec.Body)
 	}
 
-	// 校验面：折扣越界与无可更新字段。
+	// Validation surface: discount out of range and no updatable fields.
 	r, db = newTestRouterWithDB(t)
 	seedDist(t, r, db, "upd-val")
 	for _, tc := range []struct {
@@ -258,7 +264,7 @@ func TestUpdateDistributorErrors(t *testing.T) {
 		}
 	}
 
-	// 密码重置成功（哈希重写不外泄明文）。
+	// Password reset succeeds (the hash is rewritten, the plaintext never leaks).
 	r, db = newTestRouterWithDB(t)
 	seedDist(t, r, db, "upd-pw")
 	if rec := doJSON(t, r, http.MethodPut, "/api/distributors/1",
@@ -273,7 +279,7 @@ func TestUpdateDistributorErrors(t *testing.T) {
 		t.Fatalf("hash not rewritten: %q", d.PasswordHash)
 	}
 
-	// 超长密码 500。
+	// Over-long password: 500.
 	r, db = newTestRouterWithDB(t)
 	seedDist(t, r, db, "upd-pwbad")
 	if rec := doJSON(t, r, http.MethodPut, "/api/distributors/1",
@@ -281,7 +287,7 @@ func TestUpdateDistributorErrors(t *testing.T) {
 		t.Fatalf("long password: %d %s", rec.Code, rec.Body)
 	}
 
-	// 更新语句失败 500。
+	// Update statement failure: 500.
 	r, db = newTestRouterWithDB(t)
 	seedDist(t, r, db, "upd-write")
 	failDistUpdates(t, db)
@@ -290,7 +296,7 @@ func TestUpdateDistributorErrors(t *testing.T) {
 		t.Fatalf("updates: %d %s", rec.Code, rec.Body)
 	}
 
-	// 回落再查失败 500（定位 1 → 更新 → 复查）。
+	// Re-find fallback failure: 500 (locate 1 -> update -> re-check).
 	r, db = newTestRouterWithDB(t)
 	seedDist(t, r, db, "upd-refind")
 	failDistQueriesAt(t, db, 2)
@@ -300,7 +306,7 @@ func TestUpdateDistributorErrors(t *testing.T) {
 	}
 }
 
-// TestDistributorLedgerErrors 流水：定位校验、limit 夹取、取数与汇总各自失败。
+// TestDistributorLedgerErrors: ledger — locate validation, limit clamping, and the fetch and aggregate failing separately.
 func TestDistributorLedgerErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doJSON(t, r, http.MethodGet, "/api/distributors/abc/ledger", nil); rec.Code != http.StatusBadRequest {
@@ -313,7 +319,7 @@ func TestDistributorLedgerErrors(t *testing.T) {
 		t.Fatalf("first: %d %s", rec.Code, rec.Body)
 	}
 
-	// limit 口径：解析失败回落缺省 50、合法值生效、越界夹取到 1 与 200。
+	// limit conventions: a parse failure falls back to the default 50, a legal value takes effect, and out-of-range values clamp to 1 and 200.
 	r, db = newTestRouterWithDB(t)
 	seedDist(t, r, db, "led-l")
 	for _, limit := range []string{"abc", "10", "0", "500"} {
@@ -322,7 +328,7 @@ func TestDistributorLedgerErrors(t *testing.T) {
 		}
 	}
 
-	// 取数失败 500。
+	// Fetch failure: 500.
 	r, db = newTestRouterWithDB(t)
 	seedDist(t, r, db, "led-find")
 	failDistLedgerQueries(t, db)
@@ -330,7 +336,7 @@ func TestDistributorLedgerErrors(t *testing.T) {
 		t.Fatalf("rows: %d %s", rec.Code, rec.Body)
 	}
 
-	// 汇总失败 500（取数 1 走 Query 链，汇总 2 走 Row 链）。
+	// Aggregate failure: 500 (fetch 1 goes through the Query chain, aggregate 2 through the Row chain).
 	r, db = newTestRouterWithDB(t)
 	seedDist(t, r, db, "led-totals")
 	failDistLedgerAt(t, db, 2)
@@ -339,7 +345,7 @@ func TestDistributorLedgerErrors(t *testing.T) {
 	}
 }
 
-// TestWriteLedgerOpErrors 账目操作：定位校验、坏绑定、汇总失败与落账失败。
+// TestWriteLedgerOpErrors: ledger ops — locate validation, bad binding, aggregate failure, and posting failure.
 func TestWriteLedgerOpErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	for _, kind := range []string{"payout", "adjust"} {
@@ -362,14 +368,14 @@ func TestWriteLedgerOpErrors(t *testing.T) {
 		t.Fatalf("bind: %d %s", rec.Code, rec.Body)
 	}
 
-	// 打款非正金额拒收（人工补偿走 adjust，不打零款）。
+	// Payout rejects a non-positive amount (manual compensation goes through adjust; zero payouts are not sent).
 	if rec := doJSON(t, r, http.MethodPost, "/api/distributors/1/payout",
 		map[string]any{"amount_cents": 0}); rec.Code != http.StatusBadRequest ||
 		!strings.Contains(rec.Body.String(), "amount_cents must be") {
 		t.Fatalf("payout zero: %d %s", rec.Code, rec.Body)
 	}
 
-	// 汇总失败 500（校验已过、取数前置无流水语句）。
+	// Aggregate failure: 500 (validation passed; no ledger statement precedes the fetch).
 	r, db = newTestRouterWithDB(t)
 	seedDist(t, r, db, "op-totals")
 	failDistLedgerAt(t, db, 1)
@@ -378,7 +384,7 @@ func TestWriteLedgerOpErrors(t *testing.T) {
 		t.Fatalf("totals: %d %s", rec.Code, rec.Body)
 	}
 
-	// 落账失败 500（adjust 不受余额约束，先过校验再落 Create）。
+	// Posting failure: 500 (adjust is not balance-bound — validation passes first, then the Create runs).
 	r, db = newTestRouterWithDB(t)
 	seedDist(t, r, db, "op-create")
 	failDistLedgerCreates(t, db)

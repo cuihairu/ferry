@@ -15,10 +15,10 @@ import (
 	"gorm.io/gorm"
 )
 
-// utoa 是测试内 id 转字符串的简写。
+// utoa is the test-local shorthand for turning an id into a string.
 func utoa(id uint) string { return strconv.FormatUint(uint64(id), 10) }
 
-// mustJSON 解码响应为 map，失败即 Fatal。
+// mustJSON decodes the response into a map and Fails on error.
 func mustJSON(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
 	var m map[string]any
@@ -31,7 +31,7 @@ func mustJSON(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 func TestDistributorCRUD(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 
-	// 校验面：缺用户名/缺密码/佣金越界。
+	// Validation surface: missing username/missing password/commission out of range.
 	rec := doJSON(t, r, "POST", "/api/distributors", map[string]any{"password": "x12345"})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("missing username: %d %s", rec.Code, rec.Body)
@@ -45,7 +45,7 @@ func TestDistributorCRUD(t *testing.T) {
 		t.Fatalf("discount>100: %d %s", rec.Code, rec.Body)
 	}
 
-	// 建号成功：默认佣金 0、启用，哈希不外泄。
+	// Create succeeds: default commission 0, enabled, the hash never leaks.
 	rec = doJSON(t, r, "POST", "/api/distributors", map[string]any{"username": "d1", "password": "secret123"})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create: %d %s", rec.Code, rec.Body)
@@ -62,13 +62,13 @@ func TestDistributorCRUD(t *testing.T) {
 	}
 	id := uint(created.Distributor["id"].(float64))
 
-	// 重复用户名 409。
+	// Duplicate username: 409.
 	rec = doJSON(t, r, "POST", "/api/distributors", map[string]any{"username": "d1", "password": "x12345"})
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("dup username: %d %s", rec.Code, rec.Body)
 	}
 
-	// 部分更新：佣金 30 + 备注。
+	// Partial update: commission 30 + note.
 	rec = doJSON(t, r, "PUT", "/api/distributors/"+utoa(id), map[string]any{"discount_percent": 30, "note": "华东渠道"})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("update: %d %s", rec.Code, rec.Body)
@@ -81,7 +81,7 @@ func TestDistributorCRUD(t *testing.T) {
 		t.Fatalf("update lost: %+v", d)
 	}
 
-	// 列表附余额（初始 0）。
+	// List carries the balance (initially 0).
 	rec = doJSON(t, r, "GET", "/api/distributors", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list: %d %s", rec.Code, rec.Body)
@@ -97,13 +97,13 @@ func TestDistributorCRUD(t *testing.T) {
 		t.Fatalf("list: %s", rec.Body)
 	}
 
-	// 流水空态：余额 0、无行。
+	// Ledger empty state: balance 0, no rows.
 	rec = doJSON(t, r, "GET", "/api/distributors/"+utoa(id)+"/ledger", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("ledger: %d %s", rec.Code, rec.Body)
 	}
 
-	// 不存在的代理：更新与流水 404。
+	// Non-existent distributor: update and ledger both 404.
 	rec = doJSON(t, r, "PUT", "/api/distributors/999", map[string]any{"enabled": false})
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("update 404: %d %s", rec.Code, rec.Body)
@@ -122,7 +122,7 @@ func TestDistributorLogin(t *testing.T) {
 	}
 	id := uint(mustJSON(t, rec)["distributor"].(map[string]any)["id"].(float64))
 
-	// 成功：token 非空、佣金回显。
+	// Success: the token is non-empty and the commission echoes back.
 	rec = doJSON(t, r, "POST", "/distributor/login", map[string]any{"username": "d1", "password": "secret123"})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("login: %d %s", rec.Code, rec.Body)
@@ -136,7 +136,7 @@ func TestDistributorLogin(t *testing.T) {
 		t.Fatalf("no token: %s", rec.Body)
 	}
 
-	// 错密/未知用户 401。
+	// Wrong password/unknown user: 401.
 	rec = doJSON(t, r, "POST", "/distributor/login", map[string]any{"username": "d1", "password": "wrong"})
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("wrong password: %d %s", rec.Code, rec.Body)
@@ -146,7 +146,7 @@ func TestDistributorLogin(t *testing.T) {
 		t.Fatalf("unknown user: %d %s", rec.Code, rec.Body)
 	}
 
-	// 停用即禁登录。
+	// Disabling blocks login.
 	rec = doJSON(t, r, "PUT", "/api/distributors/"+utoa(id), map[string]any{"enabled": false})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("disable: %d %s", rec.Code, rec.Body)
@@ -161,14 +161,14 @@ func TestRedeemDistributorLedger(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	userID, _ := redeemCreate(t, r, "alice", map[string]any{"grant_type": "add_quota", "grant_value": 1000}, 1)
 
-	// 代理号：佣金 30%。
+	// Distributor account: commission 30%.
 	rec := doJSON(t, r, "POST", "/api/distributors", map[string]any{"username": "d1", "password": "secret123", "discount_percent": 30})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create dist: %d %s", rec.Code, rec.Body)
 	}
 	distID := uint(mustJSON(t, rec)["distributor"].(map[string]any)["id"].(float64))
 
-	// 代理批次：面价 1000 分。
+	// Distributor batch: list price 1000 cents.
 	rec = doJSON(t, r, "POST", "/api/card-batches", map[string]any{
 		"name": "代理批次", "grant_type": "add_quota", "grant_value": 5000,
 		"total": 3, "price_cents": 1000, "distributor_id": distID,
@@ -178,7 +178,7 @@ func TestRedeemDistributorLedger(t *testing.T) {
 	}
 	distCodes := mustJSON(t, rec)["codes"].([]any)
 
-	// 兑换代理卡：订单带归属，sale(+1000) + commission(+300) 同 order_no。
+	// Redeem a distributor card: the order carries the attribution, sale(+1000) + commission(+300) share one order_no.
 	rec = doJSON(t, r, "POST", "/api/redeem", map[string]any{"code": distCodes[0], "user_id": userID})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("redeem: %d %s", rec.Code, rec.Body)
@@ -208,7 +208,7 @@ func TestRedeemDistributorLedger(t *testing.T) {
 	if commission.Kind != "commission" || commission.AmountCents != 300 || commission.OrderNo != orderNo {
 		t.Fatalf("commission row wrong: %+v", commission)
 	}
-	// 余额=佣金 300（sale 留痕不进余额）。
+	// Balance = commission 300 (sale is a trace entry and never enters the balance).
 	rec = doJSON(t, r, "GET", "/api/distributors/"+utoa(distID)+"/ledger", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("ledger api: %d %s", rec.Code, rec.Body)
@@ -217,7 +217,7 @@ func TestRedeemDistributorLedger(t *testing.T) {
 		t.Fatalf("balance: %v %s", got, rec.Body)
 	}
 
-	// 自营批次不落账。
+	// Self-operated batches never post ledger rows.
 	_, selfCodes := redeemCreate(t, r, "bob", map[string]any{"grant_type": "add_quota", "grant_value": 1000, "price_cents": 800}, 1)
 	rec = doJSON(t, r, "POST", "/api/redeem", map[string]any{"code": selfCodes[0], "user_id": userID})
 	if rec.Code != http.StatusOK {
@@ -229,7 +229,7 @@ func TestRedeemDistributorLedger(t *testing.T) {
 		t.Fatalf("self-owned batch wrote ledger: %d", cnt)
 	}
 
-	// 佣金 0：只落 sale 一行。
+	// Commission 0: only one sale row is posted.
 	rec = doJSON(t, r, "POST", "/api/distributors", map[string]any{"username": "d2", "password": "secret123"})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create d2: %d %s", rec.Code, rec.Body)
@@ -253,7 +253,7 @@ func TestRedeemDistributorLedger(t *testing.T) {
 		t.Fatalf("d2 ledger: %+v", d2rows)
 	}
 
-	// 停用代理：卡照常兑换、分润照记（权益必兑现，账目保留）。
+	// Disabled distributor: cards still redeem and revenue share still posts (entitlements must be honored; the accounts stay).
 	if err := db.Model(&storage.Distributor{}).Where("id = ?", distID).Update("enabled", false).Error; err != nil {
 		t.Fatalf("disable: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestRedeemDistributorLedger(t *testing.T) {
 		t.Fatalf("disabled dist ledger rows: %d", rows2)
 	}
 
-	// 归属指向不存在的代理：建批次 400。
+	// Attribution pointing at a non-existent distributor: create batch 400.
 	rec = doJSON(t, r, "POST", "/api/card-batches", map[string]any{
 		"name": "幽灵批次", "grant_type": "add_quota", "grant_value": 1000,
 		"total": 1, "distributor_id": 999,
@@ -276,7 +276,7 @@ func TestRedeemDistributorLedger(t *testing.T) {
 		t.Fatalf("ghost distributor batch: %d %s", rec.Code, rec.Body)
 	}
 
-	// 对账四元组（DS-2 代理维度）：d1 两笔代理卡 → sale=2000、commission=600。
+	// Reconciliation quadruple (DS-2 distributor dimension): d1's two distributor cards -> sale=2000, commission=600.
 	rec = doJSON(t, r, "GET", "/api/distributors", nil)
 	var list struct {
 		Distributors []struct {
@@ -305,7 +305,7 @@ func TestDistributorPayoutAdjust(t *testing.T) {
 	}
 	id := uint(mustJSON(t, rec)["distributor"].(map[string]any)["id"].(float64))
 
-	// 空余额打款超余额拒、adjust 0 拒。
+	// With a zero balance, a payout over the balance is rejected and adjust 0 is rejected.
 	rec = doJSON(t, r, "POST", "/api/distributors/"+utoa(id)+"/payout", map[string]any{"amount_cents": 100})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("payout over balance: %d %s", rec.Code, rec.Body)
@@ -315,7 +315,7 @@ func TestDistributorPayoutAdjust(t *testing.T) {
 		t.Fatalf("adjust zero: %d %s", rec.Code, rec.Body)
 	}
 
-	// adjust +500 入账 → balance 500。
+	// adjust +500 books -> balance 500.
 	rec = doJSON(t, r, "POST", "/api/distributors/"+utoa(id)+"/adjust", map[string]any{"amount_cents": 500, "note": "补偿"})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("adjust: %d %s", rec.Code, rec.Body)
@@ -324,7 +324,7 @@ func TestDistributorPayoutAdjust(t *testing.T) {
 		t.Fatalf("balance after adjust: %v", got)
 	}
 
-	// 打款 800 超余额拒、500 恰好 → balance 0。
+	// Payout 800 over the balance is rejected; 500 exactly -> balance 0.
 	rec = doJSON(t, r, "POST", "/api/distributors/"+utoa(id)+"/payout", map[string]any{"amount_cents": 800})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("payout exceed: %d %s", rec.Code, rec.Body)
@@ -337,7 +337,7 @@ func TestDistributorPayoutAdjust(t *testing.T) {
 		t.Fatalf("balance after payout: %v", got)
 	}
 
-	// 流水两行、404 面。
+	// Two ledger rows, plus the 404 surface.
 	rec = doJSON(t, r, "GET", "/api/distributors/"+utoa(id)+"/ledger", nil)
 	var led struct {
 		Ledger       []map[string]any `json:"ledger"`
@@ -353,10 +353,13 @@ func TestDistributorPayoutAdjust(t *testing.T) {
 	}
 }
 
-// TestPayoutAtomicGuard 覆盖打款落账的原子余额护栏（P1-5）：预检读到旧
-// 余额、落账前另一笔打款（独立连接，模拟并发请求）抢先入账时，条件
-// INSERT 因余额不足落 0 行回 400，不产生新流水——校验与落账之间的窗口
-// 不再透支。内建路由以持库文件路径，供第二连接模拟并发写入者。
+// TestPayoutAtomicGuard covers the atomic balance guard on payout booking
+// (P1-5): when the precheck reads the old balance and another payout (on an
+// independent connection, simulating a concurrent request) books first before
+// the posting runs, the conditional INSERT lands 0 rows for insufficient
+// balance and returns 400 with no new ledger row — the window between
+// validation and booking can no longer overdraft. The router is built on a
+// file-backed DB path so a second connection can act as the concurrent writer.
 func TestPayoutAtomicGuard(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
@@ -377,15 +380,18 @@ func TestPayoutAtomicGuard(t *testing.T) {
 	}
 	id := uint(mustJSON(t, rec)["distributor"].(map[string]any)["id"].(float64))
 
-	// adjust +500 入账 → 预检将看到余额 500。
+	// adjust +500 books -> the precheck will see balance 500.
 	rec = doJSON(t, r, "POST", "/api/distributors/"+utoa(id)+"/adjust", map[string]any{"amount_cents": 500})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("adjust: %d %s", rec.Code, rec.Body)
 	}
 
-	// 模拟并发：预检汇总读取完成、落账语句执行前，另一笔 payout 400 抢先
-	// 入账。钩子挂在 raw 语句之前（打款条件 INSERT 前），经独立连接写入，
-	// 落账语句读时即见——同连接插入会被驱动快照遮住，故用第二连接。
+	// Simulate concurrency: after the precheck aggregate read completes but
+	// before the posting statement executes, another payout of 400 books
+	// first. The hook hangs before the raw statement (ahead of the payout
+	// conditional INSERT) and writes over an independent connection so the
+	// posting statement sees it — an insert on the same connection would be
+	// hidden by the driver snapshot, hence the second connection.
 	raced := false
 	db.Callback().Raw().Before("gorm:raw").Register("t:payoutrace", func(tx *gorm.DB) {
 		if raced {
@@ -407,7 +413,7 @@ func TestPayoutAtomicGuard(t *testing.T) {
 		}
 	})
 
-	// 打款 500：预检 500≥500 放行，落账时余额只剩 100 → 条件 INSERT 落 0 行。
+	// Payout 500: the precheck passes at 500>=500, but only 100 remains at posting time -> the conditional INSERT lands 0 rows.
 	rec = doJSON(t, r, "POST", "/api/distributors/"+utoa(id)+"/payout", map[string]any{"amount_cents": 500})
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "exceeds unsettled balance") {
 		t.Fatalf("lost race should 400: %d %s", rec.Code, rec.Body)
@@ -416,7 +422,7 @@ func TestPayoutAtomicGuard(t *testing.T) {
 		t.Fatal("race hook never fired")
 	}
 
-	// 只有插队那笔落账，余额 100。
+	// Only the entry that cut in line posted; the balance is 100.
 	var cnt int64
 	db.Model(&storage.DistributorLedger{}).Where("distributor_id = ? AND kind = 'payout'", id).Count(&cnt)
 	if cnt != 1 {

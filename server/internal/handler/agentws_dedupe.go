@@ -5,23 +5,27 @@ import (
 	"time"
 )
 
-// 报告消息幂等（FERRY-004）：agent→panel 报告类消息按 (节点, 类型, envelope ID)
-// 保证 at-most-once 副作用——重复帧跳过入库/记账但照常回 ack。定义与可执行判据见
-// docs/design/agent架构设计.md §8。agent 现状发送失败即丢弃（无重传），本层是
-// 契约面 + 防御层；空 ID 不去重（向前兼容旧 agent 的 proc_report）。
+// Idempotency for report messages (FERRY-004): agent->panel report-style messages
+// guarantee at-most-once side effects keyed by (node, type, envelope ID) -- a duplicate
+// frame skips persistence/accounting but still gets its ack. Definitions and the
+// executable criteria are in `docs/design/agent架构设计.md` §8. Agents currently discard on send
+// failure (no retransmission), so this layer is contract surface + defense; an empty ID is
+// never deduplicated (forward compatibility with old agents' proc_report).
 const (
-	dedupeCap = 512              // 每节点窗口容量（FIFO，挤出即失效）
-	dedupeTTL = 10 * time.Minute // 窗口条目存活时长，与节点令牌轮换宽限同量级
+	dedupeCap = 512              // window capacity per node (FIFO, evicted entries become invalid)
+	dedupeTTL = 10 * time.Minute // how long a window entry lives, on the same scale as the node token rotation grace period
 )
 
-// reportDeduper 是单节点的幂等窗口：有界 FIFO + TTL，双界先到先失效。
-// 生命周期挂 Handler（面板进程），跨 agent 重连保留，面板重启清零。
+// reportDeduper is one node's idempotency window: a bounded FIFO + TTL, and whichever bound
+// hits first invalidates the entry.
+// Its lifetime lives with the Handler (the panel process), so it survives agent reconnects and
+// is cleared on a panel restart.
 type reportDeduper struct {
 	mu    sync.Mutex
 	cap   int
 	ttl   time.Duration
 	seen  map[string]time.Time
-	order []string // FIFO 淘汰序；条目可能先被 TTL 路径删除，弹出时按 seen 实况
+	order []string // FIFO eviction order; an entry may already have been deleted by the TTL path, so popping checks seen
 }
 
 func newReportDeduper() *reportDeduper {
@@ -32,7 +36,8 @@ func newReportDeduperCap(capacity int, ttl time.Duration) *reportDeduper {
 	return &reportDeduper{cap: capacity, ttl: ttl, seen: make(map[string]time.Time)}
 }
 
-// repeat 记录一帧并返回是否为窗口内的重复帧；空 ID 恒 false 且不记录。
+// repeat records a frame and reports whether it is a duplicate inside the window; an empty ID
+// always returns false and is not recorded.
 func (d *reportDeduper) repeat(msgType, id string) bool {
 	if id == "" {
 		return false
@@ -45,7 +50,7 @@ func (d *reportDeduper) repeat(msgType, id string) bool {
 		if now.Sub(at) < d.ttl {
 			return true
 		}
-		delete(d.seen, key) // TTL 过期：按新帧重新记录
+		delete(d.seen, key) // TTL expired: re-record it as a fresh frame
 	}
 	for len(d.seen) >= d.cap {
 		oldest := d.order[0]
@@ -57,7 +62,8 @@ func (d *reportDeduper) repeat(msgType, id string) bool {
 	return false
 }
 
-// repeatReport 记录一帧 agent 报告并返回是否为幂等窗口内的重复帧（按节点分桶）。
+// repeatReport records an agent report frame and reports whether it is a duplicate inside the
+// idempotency window (bucketed per node).
 func (h *Handler) repeatReport(nodeID int64, msgType, id string) bool {
 	if id == "" {
 		return false

@@ -20,15 +20,18 @@ import (
 	"gorm.io/gorm"
 )
 
-// wsUpgrader 是 agent 出站长连接的升级器（P2 显式 CheckOrigin）：认证边界是
-// hello 令牌（agent 出站、升级后才验），Origin 头只防浏览器跨源页面发起的
-// CSWSH——agent 服务端连接不带 Origin 放行，带 Origin 的要求同源。此前未设
-// CheckOrigin，依赖 gorilla 隐式默认，策略不明；显式化后行为与其默认一致。
+// wsUpgrader is the upgrader for the agent's outbound long-lived connection (P2
+// explicit CheckOrigin): the authentication boundary is the hello token (sent by the agent,
+// verified only after the upgrade), and the Origin header only guards against CSWSH from
+// browser pages across origins -- a plain agent-to-server connection carries no Origin and is
+// allowed, while one carrying an Origin must be same-origin. CheckOrigin was not set before,
+// relying on gorilla's implicit default of unknown policy; the explicit form keeps the same
+// behavior as that default.
 var wsUpgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		origin := r.Header.Get("Origin")
 		if origin == "" {
-			return true // agent 出站连接不带 Origin
+			return true // an agent-to-server connection carries no Origin
 		}
 		u, err := url.Parse(origin)
 		if err != nil {
@@ -38,18 +41,20 @@ var wsUpgrader = websocket.Upgrader{
 	},
 }
 
-// maxAgentFrameBytes 是单帧 WebSocket 消息上限（P1-6）：gorilla 默认
-// readLimit 为 0（不限制帧长），被攻破/故障的 agent 一发巨帧即可耗尽面板
-// 内存。8 MiB 覆盖超大批量帧的合理上限。
+// maxAgentFrameBytes is the maximum size of a single WebSocket frame (P1-6): gorilla's
+// default readLimit is 0 (unlimited), so a compromised or malfunctioning agent can exhaust
+// panel memory with one huge frame. 8 MiB is a reasonable cap that covers oversized batch frames.
 const maxAgentFrameBytes = 8 << 20
 
-// maxBatchItems 是单帧批量上报条数上限（P1-6）：超限截断到上限并告警，
-// 防一次帧把面板内存与 SQLite 写爆。1000 条已是远超正常心跳/周期上报的
-// 量级（正常每帧个位~十位），且 1000 行×14 列的单条 INSERT 仍在方言绑定
-// 变量上限内。
+// maxBatchItems is the cap on batch items per frame (P1-6): over the cap the batch is
+// truncated and an alarm is raised, so one frame cannot blow out panel memory or SQLite
+// writes. 1000 items is already far beyond the normal heartbeat/periodic-report scale
+// (normally single digits to tens per frame), and a single 1000-row x 14-column INSERT is still
+// within the dialect's bind-variable ceiling.
 const maxBatchItems = 1000
 
-// capBatch 按上限截断批量条目；超限返回 true 供调用方记告警。
+// capBatch truncates batch items to the cap; returns true when the cap was exceeded so the
+// caller can raise an alarm.
 func capBatch[T any](items []T, max int) ([]T, bool) {
 	if len(items) <= max {
 		return items, false
@@ -57,12 +62,13 @@ func capBatch[T any](items []T, max int) ([]T, bool) {
 	return items[:max], true
 }
 
-// createChunkRows 是单条批量 INSERT 的行数上限（P1-6）：过宽的
-// multi-VALUES 语句会触达方言绑定变量上限（sqlite ~32766、mysql/pg
-// 65535），1000 行×13 列远在安全区，且分片后内存随片释放。
+// createChunkRows is the row cap on a single batched INSERT (P1-6): an overly wide
+// multi-VALUES statement can hit the dialect's bind-variable ceiling (sqlite ~32766,
+// mysql/pg 65535), 1000 rows x 13 columns is far inside the safe zone, and per-chunk
+// memory is released as each chunk finishes.
 const createChunkRows = 1000
 
-// createChunked 按片批量落库：分片失败即停，错误交调用方。
+// createChunked writes rows in chunks: a failed chunk stops the loop and the error goes to the caller.
 func createChunked[T any](db *gorm.DB, rows []T, per int) error {
 	for i := 0; i < len(rows); i += per {
 		end := i + per
@@ -76,7 +82,7 @@ func createChunked[T any](db *gorm.DB, rows []T, per int) error {
 	return nil
 }
 
-// authNode 按令牌查启用的节点，返回节点 ID。
+// authNode looks up an enabled node by token and returns the node ID.
 func (h *Handler) authNode(token string) (int64, error) {
 	var revoked int64
 	if err := h.db.Raw("SELECT COUNT(*) FROM node_token_revocations WHERE token = ?", token).
@@ -103,16 +109,16 @@ func (h *Handler) authNode(token string) (int64, error) {
 // an agent's reconnect window.
 const nodeTokenGracePeriod = 10 * time.Minute
 
-// agentWS 处理 agent 的出站长连接：hello 认证 → 注册在线 → 心跳与上报。
+// agentWS handles the agent's outbound long-lived connection: hello auth -> register online -> heartbeat and reports.
 func (h *Handler) agentWS(c *gin.Context) {
 	conn, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		return // Upgrade 已写回响应
+		return // the Upgrade has already written the response
 	}
 	defer conn.Close()
 	conn.SetReadLimit(maxAgentFrameBytes)
 
-	// 第一条消息必须是 hello，限时完成认证。
+	// the first message must be hello, with authentication finished inside the deadline
 	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	env, err := readEnvelope(conn)
 	if err != nil || env.Type != agentproto.MsgHello {
@@ -131,11 +137,12 @@ func (h *Handler) agentWS(c *gin.Context) {
 		return
 	}
 
-	// 注册元数据：首次注册落 agent 上报的初值，之后以面板为准；
-	// hello_ack 回传面板权威值供 agent 校准。
+	// registration metadata: on first registration the initial values reported by the agent are
+	// recorded, and afterwards the panel is authoritative; hello_ack carries the panel's
+	// authoritative values back so the agent can calibrate itself.
 	meta := h.syncNodeMeta(nodeID, hello.Meta)
 
-	// agent 版本随每次 hello 落库（A-23 自升级结果即版本变化）。
+	// the agent version is written to the DB with every hello (an A-23 self-upgrade result is a version change).
 	if hello.Version != "" {
 		if err := h.db.Model(&storage.Node{}).Where("id=?", nodeID).
 			Update("agent_version", hello.Version).Error; err != nil {
@@ -143,17 +150,18 @@ func (h *Handler) agentWS(c *gin.Context) {
 		}
 	}
 
-	// 认证通过：应答、注册、解除读限时。
+	// authentication passed: reply, register, and clear the read deadline
 	ack, _ := agentproto.NewEnvelope(env.ID, agentproto.MsgHelloAck, agentproto.HelloAck{
 		ServerTime:           time.Now(),
 		HeartbeatIntervalSec: h.cfg.HeartbeatIntervalSec,
 		Meta:                 meta,
 	})
 	hc := agenthub.NewConn(nodeID, conn)
-	// 先注册再回 hello_ack：ack 到达客户端即可能触发面板下发请求，
-	// 必须保证此刻连接已在册（否则请求会撞上「已应答但未注册」的窗口）。
+	// Register before replying hello_ack: once the ack reaches the client it may trigger a panel
+	// downlink request, so the connection must already be registered at that moment (otherwise the
+	// request can land in the "replied but not registered" window).
 	if old := h.hub.Register(hc); old != nil {
-		old.Close() // 同节点重复接入，顶替旧连接
+		old.Close() // the same node re-joining: replace the old connection
 	}
 	if err := hc.Send(ack); err != nil {
 		h.hub.Unregister(nodeID, hc)
@@ -164,8 +172,9 @@ func (h *Handler) agentWS(c *gin.Context) {
 	log.Printf("agent online node=%d agent_id=%s hostname=%s", nodeID, hello.AgentID, hello.Hostname)
 	h.setNodeStatus(nodeID, "online", false)
 
-	// OS-4 入池流水线：注册 IP 补地址（供给节点无既定入口地址时），
-	// provisioning 节点异步推进模板配置下发（阻塞等 ack，不占连接读循环）。
+	// OS-4 onboarding pipeline: fill in the registered IP as the address (when a provisioning
+	// node has no established entry address), and asynchronously push template configuration
+	// deployment for provisioning nodes (blocking on the ack, without occupying the read loop).
 	if ip := c.ClientIP(); ip != "" {
 		h.db.Model(&storage.Node{}).Where("id=? AND address=''", nodeID).Update("address", ip)
 	}
@@ -179,15 +188,18 @@ func (h *Handler) agentWS(c *gin.Context) {
 	log.Printf("agent offline node=%d", nodeID)
 }
 
-// setNodeStatus 更新节点在线状态；touch 为真时同时刷新 last_seen。
-// 心跳与上下线是高频写，失败仅记日志不打断连接。
+// setNodeStatus updates the node's online status; when touch is true, last_seen is refreshed too.
+// Heartbeats and online/offline transitions are high-frequency writes, so a failure is only
+// logged and never breaks the connection.
 func (h *Handler) setNodeStatus(nodeID int64, status string, touch bool) {
 	updates := map[string]any{"status": status}
 	if touch {
 		updates["last_seen"] = time.Now()
 	}
-	// provisioning（OS-4 供给流水线）的状态迁移归流水线状态机：配置下发生效
-	// 且目标进程 running 上报才转 online，上下线不覆盖；last_seen 照常刷新。
+	// provisioning (the OS-4 onboarding pipeline) state transitions belong to the pipeline's state
+	// machine: it only flips to online once the configuration deployment takes effect and the
+	// target process reports running, so online/offline never overrides it; last_seen is still
+	// refreshed as usual.
 	res := h.db.Model(&storage.Node{}).Where("id=? AND status != 'provisioning'", nodeID).Updates(updates)
 	if res.Error != nil {
 		log.Printf("update node status node=%d: %v", nodeID, res.Error)
@@ -198,9 +210,10 @@ func (h *Handler) setNodeStatus(nodeID int64, status string, touch bool) {
 	}
 }
 
-// syncNodeMeta 同步节点注册元数据，返回面板权威值。
-// 首次注册（meta_init 未置位）落 agent 上报的初值；
-// 之后面板可改且以面板为准，注册不再覆盖。
+// syncNodeMeta syncs a node's registration metadata and returns the panel's authoritative values.
+// On first registration (meta_init not yet set) the initial values reported by the agent are
+// recorded; afterwards the panel may change them and takes precedence, so registration no longer
+// overwrites them.
 func (h *Handler) syncNodeMeta(nodeID int64, reported agentproto.NodeMeta) agentproto.NodeMeta {
 	var node storage.Node
 	if err := h.db.Where("id=?", nodeID).First(&node).Error; err != nil {
@@ -208,8 +221,9 @@ func (h *Handler) syncNodeMeta(nodeID int64, reported agentproto.NodeMeta) agent
 		return agentproto.NodeMeta{}
 	}
 	if node.MetaInit {
-		// OS-4 元数据补全：面板接管（meta_init）下只补 agent 可探测的空白
-		// 字段（城市/机房/运营商），模板与面板既定值不被注册覆盖。
+		// OS-4 metadata completion: once the panel takes over (meta_init), only the blank fields the
+		// agent can probe (city/datacenter/ISP) are filled in; template and panel-set values are
+		// not overwritten by registration.
 		fills := map[string]any{}
 		if node.City == "" && reported.City != "" {
 			fills["city"] = reported.City
@@ -258,7 +272,7 @@ func (h *Handler) syncNodeMeta(nodeID int64, reported agentproto.NodeMeta) agent
 	return m
 }
 
-// nodeMetaFromRow 把节点行的注册元数据转回契约结构。
+// nodeMetaFromRow converts a node row's registration metadata back into the contract structure.
 func nodeMetaFromRow(n *storage.Node) agentproto.NodeMeta {
 	var labels []string
 	if n.Labels != "" {
@@ -277,8 +291,9 @@ func nodeMetaFromRow(n *storage.Node) agentproto.NodeMeta {
 	}
 }
 
-// saveProbeReports 批量落边缘探测结论存证。
-// 目标节点按 ID 或地址解析（面板为权威），解析到则补全区域/运营商快照。
+// saveProbeReports persists edge probe verdicts in a batch as records.
+// The target node is resolved by ID or address (the panel is authoritative), and when it
+// resolves, the region/ISP snapshot is filled in.
 func (h *Handler) saveProbeReports(nodeID int64, items []agentproto.ProbeReport) error {
 	if len(items) == 0 {
 		return nil
@@ -322,7 +337,7 @@ func (h *Handler) saveProbeReports(nodeID int64, items []agentproto.ProbeReport)
 	return createChunked(h.db, rows, createChunkRows)
 }
 
-// saveNodeTraffic 批量落节点级进程流量记账（A-20）。
+// saveNodeTraffic persists node-level per-process traffic accounting in a batch (A-20).
 func (h *Handler) saveNodeTraffic(nodeID int64, items []agentproto.ProcTraffic) error {
 	if len(items) == 0 {
 		return nil
@@ -343,8 +358,9 @@ func (h *Handler) saveNodeTraffic(nodeID int64, items []agentproto.ProcTraffic) 
 	return createChunked(h.db, rows, createChunkRows)
 }
 
-// saveUserTraffic 把 per-user 增量落 traffic_logs（P1-3 逐用户映射）：
-// xray email 按 users.username 匹配，未注册的邮箱记日志丢弃，不静默造用户。
+// saveUserTraffic writes per-user deltas to traffic_logs (P1-3 per-user mapping):
+// the xray email is matched against users.username, and unregistered emails are logged and
+// dropped rather than silently creating users.
 func (h *Handler) saveUserTraffic(nodeID int64, items []agentproto.ProcTraffic) error {
 	emails := map[string]bool{}
 	for _, it := range items {
@@ -369,9 +385,11 @@ func (h *Handler) saveUserTraffic(nodeID int64, items []agentproto.ProcTraffic) 
 	for _, u := range users {
 		byName[u.Username] = u.ID
 	}
-	// 未命中当前用户名的邮箱，按改名别名继续归属（P2 流量漏计修复）：
-	// 改名后节点侧配置未重推期间旧 email 仍在上报，旧名已作别名留存——
-	// 别名兜底映射到原用户，不静默丢弃。当前用户名匹配优先（先加不进别名）。
+	// Emails that miss the current username are still attributed through rename aliases (P2 fix
+	// for under-counted traffic): after a rename, the old email keeps being reported while the
+	// node-side config has not been re-pushed, and the old name is retained as an alias -- so
+	// the alias is a fallback mapping back to the original user, not a silent drop. Matching
+	// the current username takes precedence (added to the map first).
 	aliasEmails := make([]string, 0)
 	for e := range emails {
 		if _, ok := byName[e]; !ok {
@@ -400,7 +418,7 @@ func (h *Handler) saveUserTraffic(nodeID int64, items []agentproto.ProcTraffic) 
 				unknown[u.Email] = true
 				continue
 			}
-			// UserID 可空（P2：删除用户 SET NULL 保历史），在册用户必有 ID。
+			// UserID may be nil (P2: deleting a user sets it to NULL to preserve history); a live user always has one.
 			rows = append(rows, storage.TrafficLog{
 				UserID: &uid, NodeID: &nid,
 				RxBytes: int64(u.Rx), TxBytes: int64(u.Tx), RecordedAt: it.At,
@@ -421,8 +439,9 @@ func (h *Handler) saveUserTraffic(nodeID int64, items []agentproto.ProcTraffic) 
 	if err := createChunked(h.db, rows, createChunkRows); err != nil {
 		return err
 	}
-	// G2 用户在线态与最近接入节点：本次有流量增量即视为活跃，按已知
-	// 用户集合批量刷新 last_node_id / last_seen_at（节点级由 node_id 落行）。
+	// G2 user online state and most recent node: any traffic delta this round counts as active, so
+	// last_node_id / last_seen_at are refreshed in a batch over the known user set (the
+	// node-level row is written separately by node_id).
 	active := make([]uint, 0, len(byName))
 	for _, uid := range byName {
 		active = append(active, uid)
@@ -432,7 +451,7 @@ func (h *Handler) saveUserTraffic(nodeID int64, items []agentproto.ProcTraffic) 
 		Updates(map[string]any{"last_node_id": nid, "last_seen_at": now}).Error
 }
 
-// findNodeByAddress 按 host:port 解析节点。
+// findNodeByAddress resolves a node by host:port.
 func (h *Handler) findNodeByAddress(hostport string) *storage.Node {
 	host, portStr, err := net.SplitHostPort(hostport)
 	if err != nil {
@@ -462,8 +481,8 @@ func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID 
 				continue
 			}
 			h.setNodeStatus(nodeID, "online", true)
-			// 进程快照落库（SAVE-3）：指标（缓存命中统计等）随之更新，
-			// 失败只记日志不阻断心跳应答。
+			// Persist the process snapshot (SAVE-3): metrics (cache hit statistics, etc.) are updated
+			// with it, and a failure only logs -- it never blocks the heartbeat reply.
 			if procs, over := capBatch(hb.Procs, maxBatchItems); over {
 				log.Printf("heartbeat proc batch over limit node=%d: %d", nodeID, len(hb.Procs))
 				hb.Procs = procs
@@ -482,8 +501,9 @@ func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID 
 			if err := env.Decode(&al); err != nil {
 				continue
 			}
-			// 报告幂等（FERRY-004，语义见 docs/design/agent架构设计.md §8）：
-			// 重复帧跳过副作用但照常回 ack，agent 视 ack 即可丢弃重传。
+			// Report idempotency (FERRY-004, semantics in `docs/design/agent架构设计.md` §8):
+			// a duplicate frame skips the side effects but still gets its ack, so the agent
+			// can drop its retransmission on seeing the ack.
 			if !h.repeatReport(nodeID, env.Type, env.ID) {
 				h.recordAlert(uint(nodeID), al)
 			}
@@ -520,12 +540,13 @@ func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID 
 				log.Printf("proc report batch over limit node=%d: %d", nodeID, len(pr.Procs))
 				pr.Procs = procs
 			}
-			// 单向消息无 ack，去重只保副作用不重复触发（FERRY-004）。
+			// One-way message with no ack: dedup only guards against repeated side effects (FERRY-004).
 			if h.repeatReport(nodeID, env.Type, env.ID) {
 				continue
 			}
-			// 进程恢复运行 → 自动消解对应的崩溃告警（A-22）；
-			// provisioning 节点的目标进程 running 即「探测通过」判定（OS-4）。
+			// A process back to running -> the matching crash alert resolves itself (A-22);
+			// for a provisioning node, the target process reporting running is the "probe passed"
+			// verdict (OS-4).
 			for _, ps := range pr.Procs {
 				if ps.State == "running" {
 					h.resolveProcCrashAlerts(uint(nodeID), ps.Name)
@@ -541,8 +562,9 @@ func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID 
 				log.Printf("traffic batch over limit node=%d: %d", nodeID, len(tr.Items))
 				tr.Items = items
 			}
-			// traffic 是周期增量（计费口径），重复帧双算=多扣费，幂等必须挡在
-			// 记账前；ack 不受影响（FERRY-004）。
+			// traffic carries periodic deltas (a billing figure), so a duplicated frame counted twice means
+			// overcharging; idempotency must be enforced before accounting, and the ack is unaffected
+			// (FERRY-004).
 			if !h.repeatReport(nodeID, env.Type, env.ID) {
 				if err := h.saveNodeTraffic(nodeID, tr.Items); err != nil {
 					log.Printf("save node traffic node=%d: %v", nodeID, err)
@@ -566,8 +588,9 @@ func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID 
 				return
 			}
 		default:
-			// 应答类消息交给等待中的请求（P2 节点归属校验：只认本节点挂起的
-			// 等待者，跨节点同 ID 的伪应答找不到等待者被丢弃）。
+			// Reply-style messages go to whichever request is waiting (P2 node-ownership check: only this
+			// node's pending waiters count; a bogus cross-node reply with the same ID finds no
+			// waiter and is dropped).
 			if h.hub.Deliver(nodeID, env) {
 				continue
 			}
