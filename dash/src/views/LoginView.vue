@@ -5,8 +5,8 @@ import { ElMessage } from 'element-plus'
 import { ApiError, adminLogin } from '../api'
 import { setToken } from '../auth'
 
-// 管理员登录（安全设计 §1）：密码通过后，绑定两步验证者补 6 位 TOTP 或恢复码
-// ——后端回机器码 totp_required/totp_invalid 驱动本页出验证码输入位。
+// Admin login (security design §1): once the password passes, accounts bound to 2FA add a 6-digit TOTP or
+// recovery code — the backend's machine codes totp_required/totp_invalid drive this page's code input.
 const route = useRoute()
 const router = useRouter()
 const form = reactive({ username: '', password: '', totp: '' })

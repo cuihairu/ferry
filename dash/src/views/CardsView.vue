@@ -9,8 +9,8 @@ import {
 } from '../api'
 import { GB, formatBytes, formatDate } from '../utils/format'
 
-// PAY-6：卡密批次管理 + 卡密明细（复制/禁用）+ CSV 导出。
-// DS-2：代理管理卡（建号/停用/佣金比例）、结算打款 payout、账目流水。
+// PAY-6: card batch management + code details (copy/disable) + CSV export.
+// DS-2: distributor-managed cards (create/disable/commission rate), settlement payout, and the ledger trail.
 
 const batches = ref<CardBatch[]>([])
 const loading = ref(false)
@@ -26,7 +26,7 @@ async function load() {
   }
 }
 
-// ---- 代理（DS-2 管理面）----
+// ---- Distributors (DS-2 admin surface) ----
 const distributors = ref<Distributor[]>([])
 
 async function loadDistributors() {
@@ -43,7 +43,7 @@ onMounted(() => {
   loadDistributors()
 })
 
-// ---- 代理建号 / 编辑（DS-2）----
+// ---- Distributor create / edit (DS-2) ----
 const distVisible = ref(false)
 const distSaving = ref(false)
 const distForm = reactive({ username: '', password: '', discountPercent: 0, note: '' })
@@ -101,7 +101,7 @@ async function saveDistEdit() {
       note: editForm.note.trim(),
       enabled: editForm.enabled,
     }
-    // 密码留空=不重置（部分更新口径）。
+    // An empty password = no reset (partial-update semantics).
     if (editForm.password) body.password = editForm.password
     await updateDistributor(editForm.id, body)
     editVisible.value = false
@@ -129,7 +129,7 @@ async function toggleDist(d: Distributor) {
   }
 }
 
-// ---- 代理流水 / 结算打款 / 人工调（DS-2）----
+// ---- Distributor ledger / settlement payout / manual adjustment (DS-2) ----
 const ledVisible = ref(false)
 const ledLoading = ref(false)
 const ledDistributor = ref<Distributor | null>(null)
@@ -201,12 +201,12 @@ async function doAdjust() {
   }
 }
 
-/** yuan 分转元两位小数展示。 */
+/** yuan renders cents as yuan with two decimals. */
 function yuan(cents?: number): string {
   return ((cents ?? 0) / 100).toFixed(2)
 }
 
-/** ledAmount 流水金额按余额影响方向展示：sale/commission 加、payout 减、adjust 带符号。 */
+/** ledAmount renders a ledger amount by its balance direction: sale/commission add, payout subtracts, adjust keeps its sign. */
 function ledAmount(r: DistributorLedger): string {
   const v = r.kind === 'payout' ? -r.amount_cents : r.amount_cents
   return `${v < 0 ? '-' : '+'}¥${(Math.abs(v) / 100).toFixed(2)}`
@@ -219,13 +219,13 @@ const ledgerKind: Record<DistributorLedger['kind'], { text: string; type: 'succe
   adjust: { text: '调整', type: 'danger' },
 }
 
-/** distName 批次归属代理名（0=面板自营）。 */
+/** distName is the name of the distributor owning a batch (0 = sold through the panel itself). */
 function distName(id: number): string {
   if (!id) return ''
   return distributors.value.find((d) => d.id === id)?.username ?? `#${id}`
 }
 
-// ---- 建批次 ----
+// ---- Create batch ----
 const createVisible = ref(false)
 const saving = ref(false)
 const form = reactive({
@@ -235,7 +235,7 @@ const form = reactive({
   priceYuan: 0,
   total: 10,
   expiredAt: null as Date | null,
-  distributorId: 0, // 归属代理：0=面板自营（DS-1），建时定不可自改
+  distributorId: 0, // owning distributor: 0 = panel-operated (DS-1), fixed at creation and not self-editable
 })
 
 function openCreate() {
@@ -258,7 +258,7 @@ async function save() {
     const body: Record<string, unknown> = {
       name,
       grant_type: form.grantType,
-      // 加配额按 GiB 录入，后端口径为字节；售价按元录入，口径为分。
+      // Added quota is entered in GiB while the backend unit is bytes; the sale price is entered in yuan while the unit is cents.
       grant_value: form.grantType === 'add_quota' ? Math.round(form.grantValue * GB) : form.grantValue,
       price_cents: Math.round(form.priceYuan * 100),
       total: form.total,
@@ -277,7 +277,7 @@ async function save() {
   }
 }
 
-// ---- 卡密明细 ----
+// ---- Code details ----
 const codesVisible = ref(false)
 const codes = ref<CardCode[]>([])
 const activeBatch = ref<CardBatch | null>(null)
@@ -308,7 +308,7 @@ async function disableCode(row: CardCode) {
   }
 }
 
-// ---- 导出 / 删除 ----
+// ---- Export / delete ----
 async function exportBatch(b: CardBatch) {
   try {
     const res = await fetch(`/api/card-batches/${b.id}/export.csv`)
@@ -336,7 +336,7 @@ async function remove(b: CardBatch) {
   }
 }
 
-// ---- 展示辅助 ----
+// ---- Display helpers ----
 function grantText(b: CardBatch): string {
   return b.grant_type === 'add_quota' ? `+${formatBytes(b.grant_value)}` : `+${b.grant_value} 天`
 }

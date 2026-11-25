@@ -8,9 +8,9 @@ import {
 } from '../api'
 import { formatBytes, formatDate } from '../utils/format'
 
-// 代理工作台（DS-3）：只读视图——账目概览 / 批次与卡密 / 客户 / 兑换订单 /
-// 结算流水；结算动作在管理员面。与优惠码不叠加取优在兑换链路（优惠体系未
-// 开工，现无叠加点）。
+// Distributor workbench (DS-3): read-only views — ledger overview / batches and codes / customers / redeemed
+// orders / settlement ledger; settlement actions live on the admin surface. Coupon stacking resolution happens
+// in the redemption path (the coupon system is not built yet, so there is no stacking point today).
 
 const me = ref<DistMe | null>(null)
 const tab = ref('overview')
@@ -27,7 +27,7 @@ function yuan(cents?: number): string {
   return ((cents ?? 0) / 100).toFixed(2)
 }
 
-// ---- 批次与卡密 ----
+// ---- Batches and codes ----
 const batches = ref<CardBatch[]>([])
 const codesVisible = ref(false)
 const codes = ref<CardCode[]>([])
@@ -72,7 +72,7 @@ const codeState: Record<CardCode['status'], { text: string; type: 'success' | 'i
   disabled: { text: '已禁用', type: 'danger' },
 }
 
-// ---- 客户 ----
+// ---- Customers ----
 const customers = ref<DistCustomer[]>([])
 
 async function loadCustomers() {
@@ -84,7 +84,7 @@ async function loadCustomers() {
   }
 }
 
-// ---- 兑换订单 ----
+// ---- Redeemed orders ----
 const orders = ref<DistOrderRow[]>([])
 
 async function loadOrders() {
@@ -96,7 +96,7 @@ async function loadOrders() {
   }
 }
 
-// ---- 结算流水 ----
+// ---- Settlement ledger ----
 const ledger = ref<DistributorLedger[]>([])
 const balance = ref(0)
 
@@ -110,7 +110,7 @@ async function loadLedger() {
   }
 }
 
-/** ledAmount 金额按余额影响方向展示：sale/commission 加、payout 减、adjust 带符号。 */
+/** ledAmount renders an amount by its balance direction: sale/commission add, payout subtracts, adjust keeps its sign. */
 function ledAmount(r: DistributorLedger): string {
   const v = r.kind === 'payout' ? -r.amount_cents : r.amount_cents
   return `${v < 0 ? '-' : '+'}¥${(Math.abs(v) / 100).toFixed(2)}`

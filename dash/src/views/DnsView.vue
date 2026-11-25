@@ -8,11 +8,11 @@ import {
   type CertTask, type DNSFront, type DNSProvider,
 } from '../api'
 
-// 域名前置（BR-2）与证书编排（BR-4）：DNS 商凭证、前置记录、证书任务。
-// 凭证加密落库（R24 口径）：表单不回显明文，留空表示保留原值；
-// 记录常态指向 primary_ip，被封恢复 L1 切备用 IP 轮换、探测恢复回切——
-// 域名不换、IP 随换。备用 IP 每行一个，提交时转 JSON 数组。
-// 证书任务面板管编排与到期（30 天自动续），签发执行 acme.sh 工具位。
+// Domain fronting (BR-2) and certificate orchestration (BR-4): DNS vendor credentials, fronting records, certificate tasks.
+// Credentials are stored encrypted (R24 criterion): the form never echoes plaintext, and leaving it empty keeps the original value;
+// a record normally points at primary_ip; when blocked, recovery stage L1 rotates to backup IPs and flips back once probing recovers —
+// the domain stays, the IP moves. One backup IP per line, converted to a JSON array on submit.
+// The certificate task panel owns orchestration and expiry (auto-renew at 30 days), while issuance runs in the acme.sh tool slot.
 
 const providers = ref<DNSProvider[]>([])
 const fronts = ref<DNSFront[]>([])
@@ -33,7 +33,7 @@ async function load() {
 }
 onMounted(load)
 
-// ---- DNS 商凭证 ----
+// ---- DNS vendor credentials ----
 const provDialog = ref(false)
 const provEditing = ref<DNSProvider | null>(null)
 const provForm = ref({ name: '', type: 'cloudflare', api_key: '' })
@@ -80,13 +80,13 @@ async function removeProvider(row: DNSProvider) {
   }
 }
 
-// ---- 前置记录 ----
+// ---- Fronting records ----
 const frontDialog = ref(false)
 const frontEditing = ref<DNSFront | null>(null)
 const emptyFront = () => ({ name: '', domain: '', provider_id: 0, primary_ip: '', backups: '' })
 const frontForm = ref(emptyFront())
 
-// backups 文本域每行一个 IP ↔ 表单 JSON 字符串数组。
+// The backups textarea holds one IP per line <-> the form's JSON string array.
 function toLines(raw: string): string {
   try {
     const ips: string[] = JSON.parse(raw || '[]')
@@ -153,9 +153,9 @@ async function removeFront(row: DNSFront) {
   }
 }
 
-// ---- 分地域对账（E-27）----
-// 池摘挂自动触发同步，这里是补偿入口：自动同步失败或人工改库后手动对齐
-// {区域slug}.{前置域名} A 记录到各区域代表入口。
+// ---- Region reconciliation (E-27) ----
+// Pool attach/detach triggers a sync automatically; this is the compensation entry point: when an automatic sync
+// fails or after manual edits, align the {region-slug}.{front-domain} A records to each region's representative entry by hand.
 const syncing = ref(false)
 async function syncGeo() {
   syncing.value = true
@@ -169,7 +169,7 @@ async function syncGeo() {
   }
 }
 
-// ---- 证书任务（BR-4）----
+// ---- Certificate tasks (BR-4) ----
 const certDialog = ref(false)
 const certEditing = ref<CertTask | null>(null)
 const issuing = ref<number[]>([])

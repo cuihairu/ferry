@@ -7,7 +7,7 @@ import './styles/theme.css'
 import App from './App.vue'
 import { router } from './router'
 
-// 暗色为主（P0-14）：直接挂 dark 类，走自定 Linear 风格变量。
+// Dark-first (P0-14): apply the dark class directly and use our own Linear-style variables.
 document.documentElement.classList.add('dark')
 
 createApp(App).use(createPinia()).use(router).use(ElementPlus).mount('#app')

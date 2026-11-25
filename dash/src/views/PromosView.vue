@@ -8,8 +8,8 @@ import {
 import { get } from '../api'
 import { formatDate } from '../utils/format'
 
-// 促销管理（PROMO-2，运营设计 §5）：优惠码 CRUD 与核销进度。
-// 取优口径=一单一优惠源不叠加；快照随订单落库，删除码不影响历史对账。
+// Promotion management (PROMO-2, operations design §5): coupon CRUD and redemption progress.
+// Best-discount rule = one discount source per order, no stacking; the snapshot is stored with the order, so deleting a code never affects past reconciliation.
 
 const rows = ref<CouponRow[]>([])
 const batches = ref<CardBatch[]>([])
@@ -53,15 +53,15 @@ function stateText(row: CouponRow): { text: string; type: 'success' | 'warning' 
   return { text: '进行中', type: 'success' }
 }
 
-// ---- 新建/编辑（同一表单）----
+// ---- Create/edit (one shared form) ----
 const dialogVisible = ref(false)
 const saving = ref(false)
 const editing = ref<CouponRow | null>(null)
 const form = reactive({
   code: '',
   kind: 'cut' as CouponRow['kind'],
-  valueYuan: 5, // cut 录元，口径分
-  pctOff: 10, // pct 录百分比，口径基点
+  valueYuan: 5, // cut stores yuan, the stored unit is cents
+  pctOff: 10, // pct stores a percentage, the stored unit is basis points
   scopeAll: true,
   batchId: 0,
   minAmountYuan: 0,

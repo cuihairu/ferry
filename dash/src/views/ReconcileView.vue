@@ -4,9 +4,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { getReconcile, refundOrder, listDistributors, type Grant, type ReconcileData, type ReconcileRow, type Distributor } from '../api'
 import { formatBytes, formatDate } from '../utils/format'
 
-// PAY-9：三账对账——订单/流水/发放按订单分组，标出缺失环节；游离记录单独列出。
-// OD-2：paid 订单可标记退款（钱款退回经渠道后台操作，此处只做状态流转与留痕）。
-// DS-2：代理维度汇总——售卡收入/佣金/已结算/未结算四元组（数据同卡密页代理卡）。
+// PAY-9: three-ledger reconciliation — orders/transactions/grants grouped by order, with missing links flagged; stray records are listed separately.
+// OD-2: a paid order can be marked refunded (the money return is executed in the channel back office; this only does the state transition and keeps the record).
+// DS-2: distributor-dimension summary — the sales revenue / commission / settled / unsettled quadruple (same data as the distributor card on the cards page).
 
 const loading = ref(false)
 const orders = ref<ReconcileRow[]>([])
@@ -45,7 +45,7 @@ onMounted(() => {
   loadDistributors()
 })
 
-// 缺失环节的订单数（一眼看出账面健康度）。
+// Number of orders with a missing link (a one-glance read on ledger health).
 const missingCount = computed(() => orders.value.filter((o) => o.missing.length > 0).length)
 
 const stats = computed(() => [
@@ -57,7 +57,7 @@ const stats = computed(() => [
   { label: '缺失环节', value: String(missingCount.value) },
 ])
 
-/** yuan 分转元两位小数展示。 */
+/** yuan renders cents as yuan with two decimals. */
 function yuan(cents: number): string {
   return (cents / 100).toFixed(2)
 }
@@ -83,7 +83,7 @@ function grantText(g: Grant): string {
 
 const refunding = ref('')
 
-/** onRefund 标记退款：先渠道后台退钱，此处补状态流转与留痕（note 记退款单号/原因）。 */
+/** onRefund marks a refund: the money return happens in the channel back office first; this then completes the state transition and keeps the record (note holds the refund reference/reason). */
 async function onRefund(row: ReconcileRow) {
   let note: string
   try {

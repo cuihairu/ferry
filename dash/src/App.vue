@@ -4,14 +4,15 @@ import { useRoute, useRouter } from 'vue-router'
 import { get } from './api'
 import { logout, logoutDist, role } from './auth'
 
-// P0-14：侧边导航 + 顶栏 + 内容区。顶栏常驻面板健康灯；安全批（§1）起
-// 登录页独占视口（藏侧栏），顶栏右侧退出登录。DS-3：代理角色侧栏只渲染
-// 代理工作台一项，退出清代理会话。
+// P0-14: side navigation + top bar + content area. The top bar always carries the panel health light;
+// since the security batch (§1) the login page owns the viewport on its own (side bar hidden) and the
+// top bar's right side signs out. DS-3: the distributor role's side bar renders only the distributor
+// workbench entry, and signing out clears the distributor session.
 const route = useRoute()
 const router = useRouter()
 const healthOk = ref(false)
 
-// 登录页独占视口；代理登录页同理。
+// The login page owns the viewport; the distributor login page works the same way.
 const bareView = computed(() => route.path === '/login' || route.path === '/dist-login')
 const isDistributor = computed(() => role.value === 'distributor')
 

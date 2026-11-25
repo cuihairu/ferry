@@ -22,8 +22,8 @@ import {
 } from '../api'
 import { GB, formatDate } from '../utils/format'
 
-// P1-5：默认用户模板——新建用户可套用的默认配额/时长/重置周期。
-// TOUCH-7：断联容灾——断联态开关与入口域名维护（订阅注释的备用信息数据源）。
+// P1-5: default user template — the default quota/duration/reset cycle applied to newly created users.
+// TOUCH-7: outage disaster tolerance — the outage switch and entry domain maintenance (the data source for backup info in subscription comments).
 
 const cycleOptions = [
   { value: 'none', label: '不限' },
@@ -66,7 +66,7 @@ async function save() {
   }
 }
 
-// ---- 断联容灾（TOUCH-7）----
+// ---- Outage disaster tolerance (TOUCH-7) ----
 
 const outage = ref(false)
 const domains = ref<EntryDomain[]>([])
@@ -134,10 +134,11 @@ async function removeDomain(row: EntryDomain) {
   }
 }
 
-// ---- 两步验证（安全设计 §1）----
+// ---- Two-factor verification (security design §1) ----
 
-// 绑定两步走 setup→enable：setup 只把密钥加密暂存并回二维码/密钥串，enable
-// 校验一次 TOTP 才落库并回一次性恢复码——二维码没扫成不留半绑定态。
+// Binding is two steps, setup -> enable: setup only encrypts and stashes the secret and returns the QR
+// code / secret string; enable persists it after verifying one TOTP and returns one-time recovery codes —
+// an unscanned QR never leaves a half-bound state.
 const twoFA = reactive({
   enabled: false,
   setup: false,
@@ -221,7 +222,7 @@ async function copyRecoveryCodes() {
   }
 }
 
-// ---- 登录日志（安全设计 §1）----
+// ---- Login logs (security design §1) ----
 
 const logs = reactive({ items: [] as LoginLogRow[], total: 0, page: 1, pageSize: 20, loading: false })
 
@@ -320,7 +321,7 @@ onMounted(loadLogs)
       未绑定者登录行为不变。绑定需面板已配置主密钥 FERRY_SECRET_KEY。
     </p>
 
-    <!-- 绑定中：二维码 + 密钥串 + 校验码确认 -->
+    <!-- Binding: QR code + secret string + verification-code confirmation -->
     <div v-if="twoFA.setup" class="twofa-setup">
       <div class="twofa-cols">
         <img v-if="twoFA.qr" :src="twoFA.qr" alt="TOTP 二维码" class="twofa-qr" />
@@ -339,7 +340,7 @@ onMounted(loadLogs)
       </div>
     </div>
 
-    <!-- 已绑定：关闭入口 -->
+    <!-- Bound: the disable entry -->
     <div v-else-if="twoFA.enabled" class="twofa-row">
       <el-tag type="success" effect="plain">已开启</el-tag>
       <el-input
@@ -349,12 +350,12 @@ onMounted(loadLogs)
       <el-button type="danger" plain @click="doDisable">关闭两步验证</el-button>
     </div>
 
-    <!-- 未绑定 -->
+    <!-- Unbound -->
     <div v-else>
       <el-button type="primary" @click="startBind">绑定两步验证</el-button>
     </div>
 
-    <!-- 恢复码一次性展示（明文只此一次，落库只存哈希） -->
+    <!-- One-time display of the recovery codes (plaintext shown only here; only hashes are stored) -->
     <el-alert v-if="recoveryCodes.length" type="warning" :closable="false" class="recovery">
       <template #title>
         恢复码只显示这一次，请立即保存——每个只能用一次（登录时输在验证码框即可），用一个销一个。

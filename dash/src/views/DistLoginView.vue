@@ -5,8 +5,9 @@ import { ElMessage } from 'element-plus'
 import { distLogin } from '../api'
 import { setDistToken } from '../auth'
 
-// 代理登录（DS-3 §3.2）：POST /distributor/login 独立端点，令牌落
-// ferry.dist.token 独立键；无 2FA（代理非管理员），防爆破在后端限速。
+// Distributor login (DS-3 §3.2): POST /distributor/login is a separate endpoint and the token is stored
+// under its own ferry.dist.token key; no 2FA (distributors are not admins), brute-force protection is
+// rate limiting on the backend.
 const route = useRoute()
 const router = useRouter()
 const form = reactive({ username: '', password: '' })

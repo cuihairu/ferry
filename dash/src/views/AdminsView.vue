@@ -6,9 +6,10 @@ import {
   type AdminRow,
 } from '../api'
 
-// 多级管理员/子管理员配额（P2-2）：super 管理子管理员（operator）名册——
-// 建号（密码+建用户配额）、改密/启停/提额、降级（摘身份不删行）。
-// super 账号本体不可经此面改动（防自锁）。
+// Multi-level admins / sub-admin quotas (P2-2): super manages the sub-admin (operator) roster —
+// create accounts (password + user-creation quota), change password / enable-disable / raise quota, demote
+// (strip the role without deleting the row).
+// A super account itself cannot be changed through this surface (avoids self-lockout).
 
 const loading = ref(false)
 const rows = ref<AdminRow[]>([])
@@ -30,7 +31,7 @@ const ROLE_TAG: Record<string, { text: string; type: 'danger' | 'warning' }> = {
   operator: { text: '子管理员', type: 'warning' },
 }
 
-// 新建子管理员
+// Create sub-admin
 const creating = ref(false)
 const showCreate = ref(false)
 const form = ref({ username: '', password: '', maxUsers: 0 })
@@ -58,7 +59,7 @@ async function submitCreate() {
   }
 }
 
-// 编辑：密码留空不改；配额 0=不限
+// Edit: an empty password means unchanged; quota 0 = unlimited
 const editing = ref(false)
 const showEdit = ref(false)
 const editRow = ref<AdminRow | null>(null)

@@ -4,8 +4,9 @@ import { ElMessage } from 'element-plus'
 import { get, postRaw, type Node, type NodeConfigRow, type RoutingConfig } from '../api'
 import { formatDate } from '../utils/format'
 
-// SAVE-1：分流规则库——版本史（node_configs 快照）、数据文件推送（config.push
-// 通道 kind=rulelib:<name>，agent 落资产目录）、配置模板合成分流段的渲染预览。
+// SAVE-1: routing rule library — version history (node_configs snapshots), data file push (via the
+// config.push channel with kind=rulelib:<name>, the agent drops it into the asset directory), and a
+// rendered preview of the routing section synthesized from the config template.
 
 const props = defineProps<{ node: Node | null }>()
 const visible = defineModel<boolean>({ default: false })

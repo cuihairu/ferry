@@ -7,10 +7,10 @@ import {
   type CloudProvider, type ProvisionJob, type ProvisionTemplate,
 } from '../api'
 
-// OS-1：供给配置——云提供商凭证与机型模板。
-// 凭证机密加密落库（R24 口径）：表单不回显明文，留空表示保留原值；
-// 模板含机型/区域/带宽/计费/方向线路标签，OS-2 渲染 HCL、OS-4 入池补全元数据。
-// OS-2：模板可触发 plan/apply（后台执行），job 留痕列表看结果与日志尾部。
+// OS-1: provisioning configuration — cloud provider credentials and machine-type templates.
+// Credential secrets are stored encrypted (R24 criterion): the form never echoes plaintext, and leaving it empty keeps the original value;
+// a template carries machine type/region/bandwidth/billing/direction line labels; OS-2 renders HCL and OS-4 fills in metadata when it joins the pool.
+// OS-2: a template can trigger plan/apply (run in the background); the job record list shows results and the log tail.
 
 const providers = ref<CloudProvider[]>([])
 const templates = ref<ProvisionTemplate[]>([])
@@ -31,7 +31,7 @@ async function load() {
 }
 onMounted(load)
 
-// ---- 供给执行（OS-2）----
+// ---- Provisioning runs (OS-2) ----
 const running = ref<number[]>([])
 
 async function runTpl(row: ProvisionTemplate, action: 'plan' | 'apply') {
@@ -48,7 +48,7 @@ async function runTpl(row: ProvisionTemplate, action: 'plan' | 'apply') {
   try {
     await runProvision(row.id, action)
     ElMessage.success(action === 'apply' ? 'apply 已受理，执行中' : 'plan 已受理，执行中')
-    setTimeout(load, 1500) // 稍后刷新 job 状态
+    setTimeout(load, 1500) // refresh the job status shortly after
   } catch (e) {
     ElMessage.error(String(e))
   } finally {
@@ -56,7 +56,7 @@ async function runTpl(row: ProvisionTemplate, action: 'plan' | 'apply') {
   }
 }
 
-// ---- 提供商 ----
+// ---- Providers ----
 const provDialog = ref(false)
 const provEditing = ref<CloudProvider | null>(null)
 const provForm = ref({ name: '', type: '', access_key: '' })
@@ -103,7 +103,7 @@ async function removeProvider(row: CloudProvider) {
   }
 }
 
-// ---- 机型模板 ----
+// ---- Machine-type templates ----
 const tplDialog = ref(false)
 const tplEditing = ref<ProvisionTemplate | null>(null)
 const emptyTpl = () => ({

@@ -11,13 +11,15 @@ import {
 } from '../api'
 import { formatBytes } from '../utils/format'
 
-// E-23：成本看板——节点流量花费（仅按流量计费有边际成本）、区域/运营商
-// 汇总、月度预估（自然月至今折算）与高成本告警阈值；超阈值节点在告警列表单发。
-// E-29：晚高峰回程报表同页——24 小时回程质量分段 + 晚高峰（19–23 时）与平峰对比。
-// SAVE-6：配额联动——用户流量/费用超阈值自动订阅降档（只出低成本档入口），
-// 配置与降档留痕同页。
-// SAVE-7：流量节省报表同页——分流直连/广告拦截按日汇总与折算费用（同口径）。
-// E-31：成本参考库同页——公开价格表导入 + 手录价 vs 牌价偏差提示（只提示不改价）。
+// E-23: cost dashboard — node traffic cost (only metered billing has marginal cost), region/ISP summaries,
+// monthly projection (converted from the calendar month to date) and the high-cost alert threshold; nodes past
+// the threshold get individual alerts in the alert list.
+// E-29: the evening-peak return-trip report shares the page — 24-hour return-quality segments plus an evening-peak
+// (19-23) vs off-peak comparison.
+// SAVE-6: quota linkage — past a traffic/cost threshold the user's subscription is downgraded automatically
+// (only low-cost-tier entries); the setting and downgrade records live on this page.
+// SAVE-7: the traffic savings report shares the page — direct/interception aggregated daily with converted cost (same criterion).
+// E-31: the cost reference library shares the page — public price-table import + hand-entered vs list-price deviation hints (hints only, never price changes).
 
 interface CostReport {
   nodes: NodeCost[]
@@ -33,14 +35,14 @@ const evening = ref<EveningReport | null>(null)
 const thresholdYuan = ref(50)
 const saving = ref(false)
 
-// 配额联动（SAVE-6）
+// Quota linkage (SAVE-6)
 const link = ref<QuotaLinkData | null>(null)
 const linkSetting = ref<QuotaLinkSetting>({ enabled: false, traffic_percent: 90, cost_cents: 0, max_price_cents: 0 })
 const linkCostYuan = ref(0)
 const linkPriceYuan = ref(0)
 const linkSaving = ref(false)
 
-// 节省报表（SAVE-7）
+// Savings report (SAVE-7)
 const savings = ref<SaveStatsReport | null>(null)
 
 async function load() {
@@ -115,7 +117,7 @@ function linkState(row: QuotaActionRow): string {
   return row.released_at ? '已恢复' : '降档中'
 }
 
-// 晚高峰回程报表视图：无样本显示 —，避免把 0 当成测过。
+// Evening-peak return-trip report view: show — when there are no samples, so 0 is never mistaken for a measurement.
 function ms(v: number): string {
   return v > 0 ? v.toFixed(0) + ' ms' : '—'
 }
@@ -132,17 +134,18 @@ function isPeak(h: number): boolean {
 function peakClass({ row }: { row: { hour: number } }): string {
   return isPeak(row.hour) ? 'peak-row' : ''
 }
-// 有回程样本才渲染报表，避免全空表。
+// Render the report only when return-trip samples exist, avoiding an all-empty table.
 const hasEveningData = (): boolean => !!evening.value && evening.value.peak.samples + evening.value.offpeak.samples > 0
-// 小时行含样本才入表，空钟点不占行。
+// Only hour rows with samples enter the table; empty hours take no row.
 function eveningRows() {
   return (evening.value?.hours ?? []).filter((h) => h.samples > 0)
 }
 
-// ---- 成本参考库（E-31）----
+// ---- Cost reference library (E-31) ----
 
-// 批量对账：机房+月固定成本齐全的节点逐个比对牌价；未导入价格表（400）
-// 静默保持空态，由空态文案指引导入，首访不弹错。
+// Batch reconciliation: nodes with both datacenter and monthly fixed cost filled in are compared against list
+// prices one by one; when no price table has been imported (400) the empty state stays silently and the empty-state
+// copy guides the import — no error on a first visit.
 const refCheck = ref<RefCheckReport | null>(null)
 const refCheckLoading = ref(false)
 
@@ -157,7 +160,7 @@ async function loadRefCheck(quiet = true) {
   }
 }
 
-// 价格表导入：JSON 数组文本原样交给后端校验（脏表拒绝），空串清空停用。
+// Price-table import: the JSON array text is handed to the backend for validation as-is (a dirty table is rejected); an empty string clears and disables it.
 const refTable = ref('')
 const refSaving = ref(false)
 
@@ -175,7 +178,7 @@ async function saveRefTable() {
   }
 }
 
-// 单点试查：自由键查牌价，可选带手录价比偏差。
+// Single-point probe: look up a list price by a free-form key, optionally compare the deviation against the hand-entered price.
 const probeForm = reactive({ provider: '', region: '', spec: '', manual: '', currency: '' })
 const probeResult = ref<RefProbe | null>(null)
 const probeLoading = ref(false)
@@ -205,7 +208,7 @@ function refPct(pct: number): string {
   return (pct > 0 ? '+' : '') + pct + '%'
 }
 
-// ---- 价格关注（E-32）：条件 CRUD；扫描与告警在服务端小时级跑 ----
+// ---- Price watch (E-32): condition CRUD; scanning and alerting run server-side hourly ----
 
 const watches = ref<PriceWatch[]>([])
 const watchesLoading = ref(false)

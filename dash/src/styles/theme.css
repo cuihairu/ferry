@@ -1,4 +1,4 @@
-/* Linear 风格暗色主题（P0-14）：自定 token 口径，覆盖 Element Plus 变量避免默认蓝紫。 */
+/* Linear-style dark theme (P0-14): our own token values, overriding the Element Plus variables to avoid the default blue-purple. */
 :root {
   --ferry-bg: #0e1015;
   --ferry-bg-panel: #15171e;
@@ -45,7 +45,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* ---- 布局 ---- */
+/* ---- Layout ---- */
 .layout {
   min-height: 100vh;
 }
@@ -99,7 +99,7 @@ body {
   background: var(--ferry-ok);
 }
 
-/* 页面容器统一留白与标题层级 */
+/* Consistent padding and heading hierarchy for the page container */
 .page {
   max-width: 1200px;
   margin: 0 auto;

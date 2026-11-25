@@ -4,7 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { get, post, put, del, type User, type UserTemplate } from '../api'
 import { GB, quotaText, formatDate } from '../utils/format'
 
-// P0-15：用户表格 + 新建/编辑对话框 + 订阅链接复制与重置。
+// P0-15: user table + create/edit dialog + subscription link copy and reset.
 
 const users = ref<User[]>([])
 const loading = ref(false)
@@ -37,7 +37,7 @@ const form = reactive({
   ipLimit: 0,
 })
 
-// 重置周期选项（P1-4）：none 不限、day/week/month 按日历窗口重算用量。
+// Reset-cycle options (P1-4): none = unlimited; day/week/month recompute usage over calendar windows.
 const cycleOptions = [
   { value: 'none', label: '不限' },
   { value: 'day', label: '每日' },
@@ -71,7 +71,7 @@ function openEdit(u: User) {
   dialogVisible.value = true
 }
 
-// 套用默认模板（P1-5）：把设置里的默认配额/时长/周期/带宽限额填进表单，可再改。
+// Apply the default template (P1-5): fill the settings' default quota/duration/cycle/bandwidth limits into the form, still editable.
 async function applyTemplate() {
   try {
     const t = await get<UserTemplate>('/api/user-template')
@@ -94,7 +94,7 @@ async function save() {
   }
   saving.value = true
   try {
-    // 后端对 expires_at 采用 PATCH 语义：传 null 不清除，清空需显式 clear_expire。
+    // The backend applies PATCH semantics to expires_at: passing null does not clear it; clearing requires an explicit clear_expire.
     const body: Record<string, unknown> = {
       username,
       quota_bytes: Math.round(form.quotaGb * GB),
@@ -129,7 +129,7 @@ function subUrl(u: User): string {
   return `${location.origin}/sub/${u.sub_token}`
 }
 
-// 带宽限额展示：0=不限（P2-3）。
+// Bandwidth limit display: 0 = unlimited (P2-3).
 function bwText(u: User): string {
   if (!u.bw_up_mbps && !u.bw_down_mbps) return '不限'
   const parts: string[] = []
@@ -166,8 +166,8 @@ async function remove(u: User) {
   await load()
 }
 
-// 用户迁移（导入/导出）：导出全量 JSON 备份；导入读文件解析后批量建号，
-// 成功提示 created/skipped，跳过明细弹窗列原因（上限 20 行）。
+// User migration (import/export): export a full JSON backup; import parses the file and creates accounts in
+// batch, reporting created/skipped on success, with a dialog listing skip reasons (capped at 20 rows).
 async function doExport() {
   try {
     const data = await get<{ users: User[]; count: number }>('/api/users/export')

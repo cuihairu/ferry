@@ -1,6 +1,6 @@
 export const GB = 1024 ** 3
 
-/** formatBytes 人类可读字节数；纯数值函数，不做「不限」等业务措辞。 */
+/** formatBytes renders human-readable byte sizes; a purely numeric function that does no business wording such as "unlimited". */
 export function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`
   const units = ['KiB', 'MiB', 'GiB', 'TiB']
@@ -13,12 +13,12 @@ export function formatBytes(n: number): string {
   return `${v.toFixed(v >= 100 ? 0 : 1)} ${units[i]}`
 }
 
-/** quotaText 配额展示：0 = 不限。 */
+/** quotaText renders a quota for display: 0 = unlimited. */
 export function quotaText(bytes: number): string {
   return bytes === 0 ? '不限' : formatBytes(bytes)
 }
 
-/** formatDate 本地时间展示，空值给破折号。 */
+/** formatDate renders local time; empty values yield a dash. */
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return '—'
   const d = new Date(iso)

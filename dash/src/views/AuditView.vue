@@ -4,8 +4,8 @@ import { ElMessage } from 'element-plus'
 import { getAuditLogs, type AuditLogRow } from '../api'
 import { formatDate } from '../utils/format'
 
-// 操作审计（AU-2，P2-6 转正）：管理员写操作流水查询——谁/何时/动作/对象/
-// 请求体快照（脱敏）/成败/IP；过滤=操作者/方法/时间范围，分页加载。
+// Action audit (AU-2, promoted in P2-6): a query over the admin write-action trail — who / when / action /
+// target / request-body snapshot (sanitized) / success / IP; filter by actor / method / time range, paged.
 
 const rows = ref<AuditLogRow[]>([])
 const loading = ref(false)

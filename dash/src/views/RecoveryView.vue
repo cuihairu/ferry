@@ -3,9 +3,10 @@ import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getRecoveries, getRecoveryActions, type Recovery, type RecoveryAction } from '../api'
 
-// 封禁恢复流水线（BR-1）与动作回放（BR-5）：入口被判封自动入线，
-// L1 域名切 DNS → L2 预备机补位 → L3 开新机 分级推进，探测恢复随时收尾；
-// 每级尝试落痕（recovery_actions），终态 failed 经通知通道升级人工。
+// Block-recovery pipeline (BR-1) and action replay (BR-5): an entry judged blocked joins the pipeline
+// automatically; stages advance L1 switch DNS -> L2 stand-by machine fills in -> L3 provision a new
+// machine, closing out whenever probing recovers; every stage attempt is recorded (recovery_actions),
+// and a failed final state escalates to a human through the notification channel.
 
 const recoveries = ref<Recovery[]>([])
 const loading = ref(false)
@@ -22,7 +23,7 @@ async function load() {
 }
 onMounted(load)
 
-// ---- 回放 ----
+// ---- Replay ----
 const replayVisible = ref(false)
 const replayRec = ref<Recovery | null>(null)
 const actions = ref<RecoveryAction[]>([])

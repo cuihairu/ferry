@@ -10,9 +10,10 @@ import {
 } from '../api'
 import { formatDate } from '../utils/format'
 
-// NT-1：站内信通知中心——公告扇出给全部启用用户，全量列表供排障与清理。
-// 到期/流量预警由 NT-2 定时扫描落行，这里只管发布与查看。
-// HERALD-1：事件 outbox 同页——pending/failed 计数标红提示通道故障，死信可重投。
+// NT-1: in-app notification center — announcements fan out to every enabled user; the full list exists for
+// troubleshooting and cleanup.
+// Expiry/traffic warnings are written by NT-2's scheduled scans; this page only publishes and views.
+// HERALD-1: the event outbox shares the page — red pending/failed counts flag a channel failure, and dead letters can be requeued.
 
 const loading = ref(false)
 const rows = ref<NotificationRow[]>([])
@@ -36,7 +37,7 @@ onMounted(() => {
   loadSamples()
 })
 
-// 事件 outbox（HERALD-1）
+// Event outbox (HERALD-1)
 const events = ref<EventRow[]>([])
 const eventCounts = ref<{ pending: number; sent: number; failed: number }>({ pending: 0, sent: 0, failed: 0 })
 const eventStatus = ref('')
@@ -65,7 +66,7 @@ async function retry(row: EventRow) {
   }
 }
 
-// 通道投递与自检（HC-1/2）：按通道聚合回执出健康徽标，自检走完整投递链路。
+// Channel delivery and self-check (HC-1/2): receipts are aggregated per channel into health badges, and the self-check walks the full delivery path.
 const deliveries = ref<EventDeliveryRow[]>([])
 const channels = ref<EventChannelHealth[]>([])
 const channelFilter = ref('')
@@ -104,7 +105,7 @@ const HEALTH_TAG: Record<string, { text: string; type: 'success' | 'warning' | '
   down: { text: '故障', type: 'danger' },
 }
 
-// 通知样例预览（HC-3）：每类告警取最近一条实单，配置通道时零漂移对照。
+// Notification sample preview (HC-3): the most recent real record per alert class, for a zero-drift comparison when configuring a channel.
 const samples = ref<EventSample[]>([])
 const sampleKind = ref('')
 
@@ -138,10 +139,11 @@ const filtered = computed(() =>
   typeFilter.value ? rows.value.filter((r) => r.type === typeFilter.value) : rows.value,
 )
 
-// 发布公告：标题必填，正文选填；开始/结束选填（P2-5 窗口）——开始在未来
-// 即定时发布（到点由定时扫描扇出），结束到点自动撤下（panel/RSS 不可见）；
-// 受众筛选（运营设计 §1.1「全员/分组」）：all=全部启用用户，expiring:N=仅
-// N 天内到期的启用用户（名单以扇出时刻为准，定时公告到点才解析）。
+// Publish an announcement: title required, body optional; start/end optional (the P2-5 window) — a start in the
+// future means scheduled publication (fan-out happens at that time via the scheduled scan), and the end time takes
+// it down automatically (hidden from panel/RSS);
+// audience filter (operations design §1.1 "everyone/grouped"): all = every enabled user, expiring:N = only enabled
+// users expiring within N days (the roster is fixed at fan-out time; scheduled announcements resolve it then).
 const AUDIENCES = [
   { value: 'all', label: '全员' },
   { value: 'expiring:3', label: '3 天内到期' },
@@ -187,8 +189,8 @@ async function publish() {
   }
 }
 
-// 公告触达与重发（P2-5 ②③）：锚点行+发 n/读 m 统计；重发=补一轮外通道
-//（TG/邮件）投递，6h/公告限频。
+// Announcement reach and resend (P2-5 (2)(3)): the anchor row plus sent n / read m statistics; resend = one more
+// round of external-channel (TG/email) delivery, rate-limited to 6h per announcement.
 const announcements = ref<AnnouncementStat[]>([])
 const announcementsLoading = ref(false)
 
@@ -237,7 +239,7 @@ async function resend(a: AnnouncementStat) {
 
 async function remove(row: NotificationRow) {
   try {
-    // 锚点行（user_id=0，公告）级联撤回：扇出的用户副本一并删除。
+    // The anchor row (user_id=0, the announcement) is withdrawn by cascade: the fanned-out user copies are deleted with it.
     const tip = row.user_id === 0
       ? `删除公告「${row.title}」将同时撤回所有用户的扇出副本，确认？`
       : `删除通知「${row.title}」？`

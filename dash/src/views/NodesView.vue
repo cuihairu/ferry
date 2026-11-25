@@ -5,8 +5,8 @@ import { get, post, put, del, resolveAlert, upgradeNode, getNodeProcs, rotateNod
 import QRCode from 'qrcode'
 import RuleLibDialog from '../components/RuleLibDialog.vue'
 
-// E-24：节点视图——节点列表（入口/落地筛选 + 方向/线路列）、
-// 区域/运营商视角（状态灯 + 节点计数，两者同构）。协议/配置编辑见对话框。
+// E-24: the node view — node list (entry/landing filter + direction/line columns) and the region/ISP
+// perspective (status lights + node counts, structurally identical). Protocol/config editing lives in dialogs.
 
 const PROTOCOLS = [
   { value: 'vless', label: 'VLESS' },
@@ -16,8 +16,8 @@ const PROTOCOLS = [
   { value: 'hysteria2', label: 'Hysteria2 (hy2)' },
 ]
 
-// 配置模板示例（按协议）：同一套模板机制（node.Config JSON），hy2 追加
-// password/sni/obfs/up/down 字段；内核配置模板见部署文档 procs[].config_path。
+// Config template examples (per protocol): one template mechanism (node.Config JSON) throughout, with hy2
+// adding the password/sni/obfs/up/down fields; for kernel config templates see the deployment doc's procs[].config_path.
 const CONFIG_EXAMPLES: Record<string, string> = {
   vless: '{"uuid":"...","tls":true,"sni":"cdn.example.com","net":"ws","host":"cdn.example.com","path":"/ws"}',
   vmess: '{"uuid":"...","scy":"aes-128-gcm","net":"ws","path":"/ws","host":"cdn.example.com","tls":true,"sni":"cdn.example.com"}',
@@ -51,7 +51,7 @@ const ROLE_TEXT: Record<string, string> = { entry: '入口', landing: '落地', 
 const ROLE_TYPE: Record<string, 'primary' | 'warning' | 'info'> = { entry: 'primary', landing: 'warning', both: 'info' }
 const DIR_TEXT: Record<string, string> = { out: '出海', in: '回国', both: '双向' }
 
-// ---- 数据 ----
+// ---- Data ----
 const nodes = ref<Node[]>([])
 const dims = ref<DimensionStatus[]>([])
 const alerts = ref<Alert[]>([])
@@ -84,14 +84,14 @@ async function load() {
 }
 onMounted(load)
 
-// ---- 负载看板（E-25）：连接数/实测吞吐/带宽利用率，超 80% 红标 ----
+// ---- Load dashboard (E-25): connection count / measured throughput / bandwidth utilization; over 80% flagged red ----
 const loads = ref<NodeLoad[]>([])
 
 function loadOf(id: number): NodeLoad | undefined {
   return loads.value.find((l) => l.node_id === id)
 }
 
-// loadCell 负载列视图模型：无采样 has=false 展示「—」。
+// loadCell is the load column view model: has=false when unsampled, rendered as "—".
 function loadCell(id: number): { has: boolean; pct: number; over: boolean; status: 'success' | 'warning' | 'exception'; text: string } {
   const l = loadOf(id)
   if (!l || l.util_pct < 0) {
@@ -107,7 +107,7 @@ function loadCell(id: number): { has: boolean; pct: number; over: boolean; statu
 }
 
 async function togglePool(row: Node) {
-  // 摘除/复位/预备回池三态切换：suspended→复位、standby→回池、active→摘除。
+  // Three-state toggle among remove / reset / stage-back-to-pool: suspended -> reset, standby -> back to pool, active -> remove.
   if (row.pool_state === 'suspended' || row.pool_state === 'standby') {
     try {
       await post(`/api/pool/${row.id}/resume`)
@@ -147,7 +147,7 @@ async function markStandby(row: Node) {
   }
 }
 
-// ---- 告警（A-22）：活跃告警计数与节点映射 ----
+// ---- Alerts (A-22): active alert counts and the node mapping ----
 const activeAlerts = computed(() => alerts.value.filter((a) => a.state === 'active'))
 const alertCountByNode = computed(() => {
   const m = new Map<number, number>()
@@ -167,7 +167,7 @@ const ALERT_SEV_TYPE: Record<string, 'warning' | 'danger' | 'info'> = {
   warning: 'warning',
 }
 
-// 告警对话框：活跃在前，可过滤状态、手动处理。
+// Alert dialog: active ones first, filterable by state, resolvable manually.
 const alertVisible = ref(false)
 const alertFilter = ref<'active' | 'resolved' | 'all'>('active')
 const alertBusy = ref(false)
@@ -195,7 +195,7 @@ async function resolveOne(a: Alert) {
   }
 }
 
-// ---- 视角聚合（区域/运营商同构）----
+// ---- Perspective aggregation (region and ISP are structurally identical) ----
 interface DimCard {
   key: string
   state: string
@@ -238,7 +238,7 @@ const STATE_TEXT: Record<string, string> = {
   unknown: '无数据',
 }
 
-// ---- 编辑 ----
+// ---- Edit ----
 const dialogVisible = ref(false)
 const ruleLibFor = ref<Node | null>(null)
 const ruleLibVisible = ref(false)
@@ -266,7 +266,7 @@ function openRuleLib(n: Node) {
   ruleLibVisible.value = true
 }
 
-// 分享对话框（P1-9）：单节点分享链接 + 二维码（服务端出链接，本地渲染二维码）。
+// Share dialog (P1-9): single-node share link + QR code (the server provides the link, the QR renders locally).
 const shareVisible = ref(false)
 const shareName = ref('')
 const shareLink = ref('')
@@ -309,7 +309,7 @@ async function revokeToken(n: Node) {
   ElMessage.success('旧令牌已吊销')
 }
 
-// 进程状态对话框（SAVE-3）：agent 心跳上报的被管进程快照（含缓存命中统计）。
+// Process status dialog (SAVE-3): snapshots of the managed processes reported by the agent heartbeat (including cache-hit statistics).
 const procsVisible = ref(false)
 const procsBusy = ref(false)
 const procsFor = ref<Node | null>(null)
@@ -330,7 +330,7 @@ async function openProcs(n: Node) {
   }
 }
 
-// ---- 批量操作（A-15）：选中节点统一下发 proc 操作与配置 ----
+// ---- Batch actions (A-15): push proc operations and config to all selected nodes at once ----
 const tableRef = ref()
 const selected = ref<Node[]>([])
 const procBusy = ref(false)
@@ -341,7 +341,7 @@ function clearSelection() {
   tableRef.value?.clearSelection()
 }
 
-// summarizeProc 汇总批量回执：全成功给成功提示，有失败列出节点名与原因。
+// summarizeProc aggregates the batch receipts: all-success shows a success toast, any failure lists node names and reasons.
 function summarizeProc(results: BatchProcResult[], names: Map<number, string>, action: string) {
   const fail = results.filter((r) => !r.ok)
   if (!fail.length) {
@@ -371,14 +371,14 @@ async function runProc(action: 'start' | 'stop' | 'reload') {
   }
 }
 
-// 批量下发配置对话框：同一份 payload 推到所有选中节点，逐节点回执。
+// Batch config push dialog: one payload pushed to every selected node, with per-node receipts.
 const cfgVisible = ref(false)
 const cfgBusy = ref(false)
 const cfgForm = reactive({ proc: 'xray', kind: 'xray', payload: '' })
 const JSON_CONFIG_PLACEHOLDER = '{"inbounds": [...]}'
 
-// hysteria2 内核配置示例（YAML）：accong 混淆口令 + 带宽上限 + QUIC 监听，
-// 字段与 hysteria2 server 二进制同口径；up/down 建议与节点套餐一致。
+// hysteria2 kernel config example (YAML): accong obfuscation password + bandwidth cap + QUIC listener,
+// with fields matching the hysteria2 server binary; up/down should match the node's plan.
 const HY2_SERVER_CONFIG_EXAMPLE = `listen: :443
 
 tls:
@@ -408,8 +408,8 @@ async function sendCfg() {
     ElMessage.warning('进程与配置内容必填')
     return
   }
-  // hysteria2 内核配置是 YAML（不校验语法，agent 侧 validate/校验命令兜底）；
-  // 其余（xray）仍是 JSON，面板先行拦掉语法错。
+  // The hysteria2 kernel config is YAML (no syntax validation here; the agent-side validate/check command is the backstop);
+  // the rest (xray) is still JSON, and the panel rejects syntax errors up front.
   if (cfgForm.proc.trim() !== 'hysteria2') {
     try {
       JSON.parse(cfgForm.payload)
@@ -442,8 +442,8 @@ async function sendCfg() {
   }
 }
 
-// 自升级对话框（A-23）：面板下发 upgrade 指令，agent 下载替换重启，
-// 结果经 Agent 版本列体现（hello 上报新版本）。
+// Self-upgrade dialog (A-23): the panel sends the upgrade instruction, the agent downloads, replaces and restarts,
+// and the result shows up in the agent version column (the new version is reported in hello).
 const upgradeVisible = ref(false)
 const upgradeBusy = ref(false)
 const upgradeFor = ref<Node | null>(null)
@@ -512,7 +512,7 @@ function openEdit(n: Node) {
   dialogVisible.value = true
 }
 
-// 按当前协议填充配置模板示例（覆盖现有内容前先确认非空）。
+// Fill in the config template example for the current protocol (confirm before overwriting non-empty content).
 async function fillConfigExample() {
   const example = CONFIG_EXAMPLES[form.protocol]
   if (!example) {
@@ -611,7 +611,7 @@ async function remove(n: Node) {
       <el-button type="primary" @click="openCreate">新建节点</el-button>
     </div>
 
-    <!-- 批量操作条（A-15）：选中节点统一 proc/配置下发 -->
+    <!-- Batch action bar (A-15): push proc/config to all selected nodes at once -->
     <div v-if="view === 'nodes' && selected.length" class="batch-bar">
       <span class="batch-count">已选 {{ selected.length }}</span>
       <el-button :loading="procBusy" @click="runProc('start')">启动</el-button>
@@ -621,7 +621,7 @@ async function remove(n: Node) {
       <el-button @click="clearSelection">取消选择</el-button>
     </div>
 
-    <!-- 节点视角 -->
+    <!-- Node perspective -->
     <el-table
       v-if="view === 'nodes'"
       ref="tableRef"
@@ -726,7 +726,7 @@ async function remove(n: Node) {
       </el-table-column>
     </el-table>
 
-    <!-- 区域 / 运营商视角（同构） -->
+    <!-- Region / ISP perspective (structurally identical) -->
     <template v-else>
       <div v-loading="loading" class="dim-grid">
         <div v-for="card in dimCards(view === 'region' ? 'region' : 'isp')" :key="card.key" class="dim-card">
@@ -809,7 +809,7 @@ async function remove(n: Node) {
       </template>
     </el-dialog>
 
-    <!-- 分享（P1-9）：链接 + 二维码 -->
+    <!-- Share (P1-9): link + QR code -->
     <el-dialog v-model="shareVisible" :title="`分享 ${shareName}`" width="320px">
       <div class="share-body">
         <img v-if="shareQr" :src="shareQr" alt="分享二维码" class="share-qr" />
@@ -818,7 +818,7 @@ async function remove(n: Node) {
       </div>
     </el-dialog>
 
-    <!-- 批量下发配置（A-15）：同一份配置推到选中节点 -->
+    <!-- Batch config push (A-15): the same config pushed to the selected nodes -->
     <el-dialog v-model="cfgVisible" :title="`下发配置到 ${selected.length} 个节点`" width="560px">
       <el-form label-width="80px">
         <el-form-item label="进程">
@@ -851,7 +851,7 @@ async function remove(n: Node) {
       </template>
     </el-dialog>
 
-    <!-- 自升级（A-23）：下发 upgrade 指令 -->
+    <!-- Self-upgrade (A-23): send the upgrade instruction -->
     <el-dialog v-model="upgradeVisible" :title="`升级 ${upgradeFor?.name ?? ''}`" width="480px">
       <el-form label-width="90px">
         <el-form-item label="目标版本">
@@ -872,7 +872,7 @@ async function remove(n: Node) {
       </template>
     </el-dialog>
 
-    <!-- 告警（A-22）：活跃告警列表，可手动处理 -->
+    <!-- Alerts (A-22): the active alert list, manually resolvable -->
     <el-dialog v-model="alertVisible" title="异常告警" width="720px">
       <div class="alert-bar">
         <el-radio-group v-model="alertFilter">
@@ -902,7 +902,7 @@ async function remove(n: Node) {
       </div>
     </el-dialog>
 
-    <!-- 进程状态（SAVE-3）：心跳快照回读，指标列为缓存命中统计等 -->
+    <!-- Process status (SAVE-3): heartbeat snapshots read back, with metrics columns such as cache-hit statistics -->
     <el-dialog v-model="procsVisible" :title="`进程 · ${procsFor?.name ?? ''}`" width="680px">
       <el-table :data="procsRows" v-loading="procsBusy" size="small" empty-text="暂无上报（agent 心跳携带进程快照后出现）">
         <el-table-column prop="proc" label="进程" width="130" />
@@ -973,7 +973,7 @@ async function remove(n: Node) {
   font-size: 12px;
 }
 
-/* ---- 分享对话框 ---- */
+/* ---- Share dialog ---- */
 .share-body {
   display: flex;
   flex-direction: column;
@@ -988,7 +988,7 @@ async function remove(n: Node) {
   padding: 6px;
 }
 
-/* ---- 区域/运营商视角 ---- */
+/* ---- Region/ISP perspective ---- */
 .dim-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -1045,7 +1045,7 @@ async function remove(n: Node) {
   text-align: center;
 }
 
-/* ---- 升级对话框（A-23） ---- */
+/* ---- Upgrade dialog (A-23) ---- */
 .upgrade-msg {
   margin: 0 0 8px;
   font-size: 13px;
@@ -1057,7 +1057,7 @@ async function remove(n: Node) {
   color: var(--ferry-text-dim);
 }
 
-/* ---- 告警对话框（A-22） ---- */
+/* ---- Alert dialog (A-22) ---- */
 .alert-bar {
   margin-bottom: 12px;
 }

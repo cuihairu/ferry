@@ -1,8 +1,8 @@
 import { auth, logout, logoutDist } from './auth'
 
-// API 客户端：统一解析后端 {error} 错误载荷；管理员 JWT 随身携带，管理面
-// 401（令牌过期）清会话回登录页。code 是后端机器可读错误码（如登录的
-// totp_required/totp_invalid，安全设计 §1）。
+// API client: uniformly parses the backend's {error} payload; the admin JWT travels along, and an
+// admin-surface 401 (expired token) clears the session and returns to the login page. code is the
+// backend's machine-readable error code (e.g. totp_required/totp_invalid on login, security design §1).
 export class ApiError extends Error {
   status: number
   code: string
@@ -16,7 +16,7 @@ export class ApiError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = { ...((init?.headers as Record<string, string>) ?? {}) }
   if (init?.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json'
-  // DS-3：代理自面端点注入独立代理令牌，管理面沿用管理员令牌。
+  // DS-3: distributor self-service endpoints inject the separate distributor token; the admin surface keeps the admin token.
   const isDist = path.startsWith('/distributor/api') || path === '/distributor/login'
   const token = isDist ? auth.distToken : auth.token
   if (token) headers['Authorization'] = `Bearer ${token}`
@@ -26,7 +26,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     if (res.status === 401) {
       if (isDist && auth.distToken && path !== '/distributor/login') {
-        // 代理令牌过期或被停用（停用即踢）——清代理会话回代理登录页。
+        // The distributor token expired or was disabled (disabling kicks immediately) — clear the distributor session and return to the distributor login page.
         logoutDist()
         window.location.assign('/dist-login')
       } else if (!isDist && auth.token && path !== '/admin/login') {
@@ -59,7 +59,7 @@ export function del<T>(path: string): Promise<T> {
   return request<T>(path, { method: 'DELETE' })
 }
 
-// postRaw 以原始请求体 POST（规则库数据文件分发用，SAVE-1）。
+// postRaw POSTs a raw request body (used for rule library data file distribution, SAVE-1).
 export function postRaw<T>(path: string, body: Blob): Promise<T> {
   return request<T>(path, {
     method: 'POST',
@@ -68,7 +68,7 @@ export function postRaw<T>(path: string, body: Blob): Promise<T> {
   })
 }
 
-// ---- 资源类型（对齐 server 的 JSON 载荷）----
+// ---- Resource types (aligned with the server's JSON payloads) ----
 
 export interface Node {
   id: number
@@ -96,7 +96,7 @@ export interface Node {
   pool_reason: string
 }
 
-/** DimensionStatus 是区域/运营商聚合判定的状态灯（GET /api/dimension-status）。 */
+/** DimensionStatus is the status light for the region/ISP aggregate verdict (GET /api/dimension-status). */
 export interface DimensionStatus {
   scope: 'region' | 'isp'
   key: string
@@ -104,7 +104,7 @@ export interface DimensionStatus {
   reason: string
 }
 
-/** LandingAssignment 是一条落地分配（E-20）：入口或区域 → 落地与权重。 */
+/** LandingAssignment is one landing assignment (E-20): entry or region -> landing and weight. */
 export interface LandingAssignment {
   id: number
   entry_node_id: number | null
@@ -119,14 +119,14 @@ export interface LandingAssignment {
   release_reason: string
 }
 
-/** TransportHealth 是一种传输在区域内的存活概要（E-17）。 */
+/** TransportHealth is the liveness summary of one transport within a region (E-17). */
 export interface TransportHealth {
   transport: string
   total: number
   alive: number
 }
 
-/** TransportRow 是一个区域的传输判定：现行主流、推荐与换线建议。 */
+/** TransportRow is the transport verdict for a region: current mainstream, recommended, and whether a line switch is advised. */
 export interface TransportRow {
   region: string
   transports: TransportHealth[]
@@ -135,19 +135,19 @@ export interface TransportRow {
   switchneeded: boolean
 }
 
-/** AllocPolicy 是落地自动分配的每方向档位与低峰再平衡窗口（E-21/E-22）。 */
+/** AllocPolicy holds the per-direction tiers for automatic landing assignment plus the off-peak rebalancing window (E-21/E-22). */
 export interface AllocPolicy {
   out: string
   in: string
   rebalance_start: number
   rebalance_end: number
-  /** balanced 乘法 score 系数（dash 可配）；缺省 0.5/0.3/0.2 即现公式口径。 */
+  /** Multiplicative score coefficients for balanced (configurable in dash); the 0.5/0.3/0.2 defaults match the current formula. */
   w_load: number
   w_cost: number
   w_premium: number
 }
 
-/** AllocData 是策略与生效中的 auto 分配行。 */
+/** AllocData bundles the policy with the auto-assignment rows currently in effect. */
 export interface AllocData {
   policy: AllocPolicy
   rows: LandingAssignment[]
@@ -161,18 +161,18 @@ export function putAllocPolicy(policy: AllocPolicy): Promise<AllocPolicy> {
   return put<AllocPolicy>('/api/alloc/policy', policy)
 }
 
-/** QuotaLinkSetting 是配额联动配置（SAVE-6）：超阈值自动把该用户订阅降档到低成本档入口。 */
+/** QuotaLinkSetting is the quota-linkage configuration (SAVE-6): past a threshold, the user's subscription is automatically downgraded to a low-cost-tier entry. */
 export interface QuotaLinkSetting {
   enabled: boolean
-  /** 流量档阈值（1-100）：窗口用量达个人配额的 N% 触发；0=不按流量档触发 */
+  /** Traffic-tier threshold (1-100): triggers when window usage reaches N% of the personal quota; 0 = no traffic-tier trigger */
   traffic_percent: number
-  /** 费用档阈值（分）：窗口折算费用达 N 分触发；0=不按费用档触发 */
+  /** Cost-tier threshold (cents): triggers when the window's converted cost reaches N cents; 0 = no cost-tier trigger */
   cost_cents: number
-  /** 降档成本档线（分/GB）：包月或单价不超线的节点视为低成本档；0=只有包月 */
+  /** Downgrade cost-tier line (cents/GB): nodes with a monthly plan or unit price at or below the line count as low-cost tier; 0 = monthly plans only */
   max_price_cents: number
 }
 
-/** QuotaActionRow 是一条配额联动降档留痕（released_at 空=降档生效中）。 */
+/** QuotaActionRow is one quota-linkage downgrade record (empty released_at = downgrade still in effect). */
 export interface QuotaActionRow {
   id: number
   user_id: number
@@ -187,7 +187,7 @@ export interface QuotaActionRow {
   release_reason: string
 }
 
-/** QuotaLinkData 是联动配置、降档留痕（生效中在前）与用户名映射。 */
+/** QuotaLinkData is the linkage setting, the downgrade records (active ones first) and the username mapping. */
 export interface QuotaLinkData {
   setting: QuotaLinkSetting
   rows: QuotaActionRow[]
@@ -202,7 +202,7 @@ export function putQuotaLink(setting: QuotaLinkSetting): Promise<QuotaLinkSettin
   return put<QuotaLinkSetting>('/api/quota-link', setting)
 }
 
-/** EventRow 是一条事件 outbox 行（HERALD-1，failed=重试超限死信标红）。 */
+/** EventRow is one event outbox row (HERALD-1; failed = retries exhausted, dead-lettered and flagged red). */
 export interface EventRow {
   id: number
   kind: string
@@ -219,7 +219,7 @@ export interface EventRow {
   created_at: string
 }
 
-/** EventsData 是事件列表与各状态计数（failed>0 即通道故障未消化）。 */
+/** EventsData is the event list plus per-status counts (failed>0 means an un-drained channel failure). */
 export interface EventsData {
   rows: EventRow[]
   counts: { pending: number; sent: number; failed: number }
@@ -233,7 +233,7 @@ export function retryEvent(id: number): Promise<{ ok: boolean }> {
   return post<{ ok: boolean }>(`/api/events/${id}/retry`)
 }
 
-/** EventDeliveryRow 是一条通道投递回执（HC-1，Herald 回执落库）。 */
+/** EventDeliveryRow is one channel delivery receipt (HC-1, Herald receipts persisted). */
 export interface EventDeliveryRow {
   id: number
   event_id: number
@@ -263,7 +263,7 @@ export function testEventChannel(): Promise<EventRow> {
   return post<EventRow>('/api/events/test')
 }
 
-/** EventSample 是一类告警最近一次实际落库的样例（HC-3，零漂移预览）。 */
+/** EventSample is the most recent sample actually persisted for an alert class (HC-3, zero-drift preview). */
 export interface EventSample {
   kind: string
   severity: 'critical' | 'warning' | 'info'
@@ -277,7 +277,7 @@ export function getEventSamples(): Promise<EventSample[]> {
   return get('/api/events/samples')
 }
 
-/** NodeCost 是一个节点的月度成本视图（E-23）。 */
+/** NodeCost is one node's monthly cost view (E-23). */
 export interface NodeCost {
   id: number
   name: string
@@ -291,7 +291,7 @@ export interface NodeCost {
   projected_cents: number
 }
 
-/** GroupCost 是区域/运营商维度的成本汇总（E-23）。 */
+/** GroupCost is the cost summary along the region/ISP dimension (E-23). */
 export interface GroupCost {
   key: string
   nodes: number
@@ -300,7 +300,7 @@ export interface GroupCost {
   projected_cents: number
 }
 
-/** NodeLoad 是节点负载快照：连接数/实测吞吐/带宽利用率（E-25，util_pct=-1 无采样）。 */
+/** NodeLoad is a node load snapshot: connection count / measured throughput / bandwidth utilization (E-25, util_pct=-1 means no sample). */
 export interface NodeLoad {
   node_id: number
   conns: number
@@ -309,7 +309,7 @@ export interface NodeLoad {
   util_pct: number
 }
 
-/** EveningHour 是一个钟点段的回程质量（E-29，availability_pct=-1 无样本）。 */
+/** EveningHour is the return-trip quality of one hour slot (E-29, availability_pct=-1 means no samples). */
 export interface EveningHour {
   hour: number
   samples: number
@@ -318,7 +318,7 @@ export interface EveningHour {
   availability_pct: number
 }
 
-/** EveningWindow 是晚高峰/平峰的汇总对比块。 */
+/** EveningWindow is a summary comparison block for evening peak / off-peak. */
 export interface EveningWindow {
   samples: number
   avg_rtt_ms: number
@@ -326,7 +326,7 @@ export interface EveningWindow {
   availability_pct: number
 }
 
-/** EveningReport 是晚高峰回程报表：24 小时明细 + 晚高峰（19–23 时）/平峰汇总。 */
+/** EveningReport is the evening-peak return-trip report: 24-hour detail plus evening-peak (19-23) / off-peak summaries. */
 export interface EveningReport {
   days: number
   hours: EveningHour[]
@@ -357,14 +357,14 @@ export interface User {
   last_seen_at?: string | null
 }
 
-/** NodeShare 是单节点分享链接（P1-9）。 */
+/** NodeShare is a single-node share link (P1-9). */
 export interface NodeShare {
   node_id: number
   name: string
   link: string
 }
 
-/** BatchProcResult 是批量进程操作的逐节点回执（A-15）。 */
+/** BatchProcResult is the per-node receipt of a batch process operation (A-15). */
 export interface BatchProcResult {
   node_id: number
   proc: string
@@ -373,7 +373,7 @@ export interface BatchProcResult {
   error?: string
 }
 
-/** BatchConfigResult 是批量配置下发的逐节点回执（A-15）。 */
+/** BatchConfigResult is the per-node receipt of a batch config push (A-15). */
 export interface BatchConfigResult {
   node_id: number
   ok: boolean
@@ -383,7 +383,7 @@ export interface BatchConfigResult {
   http_status?: number
 }
 
-/** Alert 是一条异常告警（A-22）：agent 上报的进程崩溃/证书临期/高负载/配置错误。 */
+/** Alert is one anomaly alert (A-22): process crash / cert near expiry / high load / config error reported by the agent. */
 export interface Alert {
   id: number
   node_id: number
@@ -421,7 +421,7 @@ export function resolveAlert(id: number): Promise<Alert> {
   return post<Alert>(`/api/alerts/${id}/resolve`)
 }
 
-/** UpgradeResult 是自升级指令受理回执（A-23）。 */
+/** UpgradeResult is the acceptance receipt of a self-upgrade instruction (A-23). */
 export interface UpgradeResult {
   node_id: number
   version: string
@@ -433,7 +433,7 @@ export function upgradeNode(id: number, body: { version: string; url: string; sh
   return post<UpgradeResult>(`/api/nodes/${id}/upgrade`, body)
 }
 
-/** UserTemplate 是默认用户模板（P1-5）：新建用户可套用的默认配额/时长/重置周期/带宽限额。 */
+/** UserTemplate is the default user template (P1-5): default quota / duration / reset cycle / bandwidth limits that can be applied when creating a user. */
 export interface UserTemplate {
   quota_bytes: number
   expire_days: number
@@ -453,7 +453,7 @@ export interface CardBatch {
   created_by: string
   created_at: string
   remaining: number
-  distributor_id: number // DS-1：0=面板自营
+  distributor_id: number // DS-1: 0 = sold through the panel itself
 }
 
 export interface CardCode {
@@ -466,7 +466,7 @@ export interface CardCode {
   used_at: string | null
 }
 
-// ---- 支付三账对账（PAY-9）----
+// ---- Payment three-ledger reconciliation (PAY-9) ----
 
 export interface PaymentOrder {
   id: number
@@ -480,7 +480,7 @@ export interface PaymentOrder {
   grant_value?: number
   created_at: string
   paid_at: string | null
-  /** 退款留痕（OD-2）：钱款退回经渠道后台操作，面板只记状态流转。 */
+  /** Refund record (OD-2): money returns are executed in the channel's back office; the panel only records the state transition. */
   refund_at?: string | null
   refund_note?: string
 }
@@ -507,14 +507,14 @@ export interface Grant {
   created_at: string
 }
 
-/** ReconcileRow 是一个订单的三账视图：订单本体 + 挂靠的流水/发放 + 缺失环节文案。 */
+/** ReconcileRow is the three-ledger view of one order: the order itself + attached transactions/grants + wording for the missing links. */
 export interface ReconcileRow extends PaymentOrder {
   transactions: PaymentTransaction[]
   grants: Grant[]
   missing: string[]
 }
 
-/** ReconcileOrphan 是游离记录：有流水/发放却找不到对应订单。 */
+/** ReconcileOrphan is a stray record: it has a transaction/grant but no matching order. */
 export interface ReconcileOrphan {
   kind: 'transaction' | 'grant'
   order_no: string
@@ -539,17 +539,17 @@ export function getReconcile(limit?: number): Promise<ReconcileData> {
   return get<ReconcileData>(`/api/payments/reconcile${limit ? `?limit=${limit}` : ''}`)
 }
 
-/** 单笔订单三账详情（OD-2）。 */
+/** Three-ledger detail for a single order (OD-2). */
 export function getPaymentOrder(orderNo: string): Promise<ReconcileRow> {
   return get<ReconcileRow>(`/api/payments/orders/${encodeURIComponent(orderNo)}`)
 }
 
-/** 退款流转（OD-2）：仅 paid 可退，钱款退回经渠道后台操作，此处只记留痕。 */
+/** Refund transition (OD-2): only paid orders can be refunded; the money return happens in the channel's back office, so this only records it. */
 export function refundOrder(orderNo: string, note: string): Promise<ReconcileRow> {
   return post<ReconcileRow>(`/api/payments/orders/${encodeURIComponent(orderNo)}/refund`, { note })
 }
 
-// ---- 分流规则库（SAVE-1）----
+// ---- Routing rule library (SAVE-1) ----
 
 export interface RuleSet {
   name: string
@@ -578,9 +578,9 @@ export interface NodeConfigRow {
   created_at: string
 }
 
-// ---- 供给配置（OS-1）----
+// ---- Provisioning configuration (OS-1) ----
 
-/** CloudProvider 是云提供商凭证视图：机密不回显，只有 has_access_key。 */
+/** CloudProvider is the cloud provider credential view: secrets are never echoed back, only has_access_key. */
 export interface CloudProvider {
   id: number
   name: string
@@ -605,7 +605,7 @@ export function deleteProvider(id: number): Promise<{ ok: boolean }> {
   return del<{ ok: boolean }>(`/api/providers/${id}`)
 }
 
-/** ProvisionTemplate 是机型模板：OS-2 渲染 HCL 供给，OS-4 入池补全元数据。 */
+/** ProvisionTemplate is a machine-type template: OS-2 renders the HCL provisioning, OS-4 fills in metadata when it joins the pool. */
 export interface ProvisionTemplate {
   id: number
   name: string
@@ -639,7 +639,7 @@ export function deleteTemplate(id: number): Promise<{ ok: boolean }> {
   return del<{ ok: boolean }>(`/api/provision-templates/${id}`)
 }
 
-/** ProvisionJob 是一次供给执行留痕（OS-2）。 */
+/** ProvisionJob is the record of one provisioning run (OS-2). */
 export interface ProvisionJob {
   id: number
   template_id: number
@@ -659,9 +659,9 @@ export function getProvisionJobs(limit?: number): Promise<ProvisionJob[]> {
   return get<ProvisionJob[]>(`/api/provision-jobs${limit ? `?limit=${limit}` : ''}`)
 }
 
-// ---- 域名前置（BR-2）----
+// ---- Domain fronting (BR-2) ----
 
-/** DNSProvider 是 DNS 商凭证视图：机密不回显，只有 has_api_key。 */
+/** DNSProvider is the DNS vendor credential view: secrets are never echoed back, only has_api_key. */
 export interface DNSProvider {
   id: number
   name: string
@@ -686,14 +686,14 @@ export function deleteDNSProvider(id: number): Promise<{ ok: boolean }> {
   return del<{ ok: boolean }>(`/api/dns-providers/${id}`)
 }
 
-/** DNSFront 是域名前置记录：常态指向 primary_ip，判封切备用 IP 轮换，恢复回切。 */
+/** DNSFront is a domain-fronting record: normally it points at primary_ip, switches to a rotating backup IP on a block verdict, and switches back on recovery. */
 export interface DNSFront {
   id: number
   name: string
   domain: string
   provider_id: number
   primary_ip: string
-  backup_ips: string // JSON 字符串数组
+  backup_ips: string // JSON string array
   switched: boolean
   current_ip: string
   switch_index: number
@@ -717,14 +717,14 @@ export function deleteDNSFront(id: number): Promise<{ ok: boolean }> {
   return del<{ ok: boolean }>(`/api/dns-fronts/${id}`)
 }
 
-/** 分地域对账补偿入口（E-27）：把 {区域slug}.{前置域名} A 记录对齐各区域代表入口。 */
+/** Region-by-region reconciliation/compensation entry point (E-27): aligns the {region-slug}.{front-domain} A records with each region's representative entry. */
 export function geoSyncDns(): Promise<{ changed: number }> {
   return post<{ changed: number }>('/api/dns-fronts/geo-sync', {})
 }
 
-// ---- 证书任务（BR-4）----
+// ---- Certificate tasks (BR-4) ----
 
-/** CertTask 是一张证书的编排任务：面板管编排与到期，签发执行 acme.sh。 */
+/** CertTask is the orchestration task for one certificate: the panel owns orchestration and expiry, while acme.sh performs the issuance. */
 export interface CertTask {
   id: number
   name: string
@@ -761,7 +761,7 @@ export function issueCertTask(id: number): Promise<{ ok: boolean }> {
   return post<{ ok: boolean }>(`/api/cert-tasks/${id}/issue`)
 }
 
-/** Recovery 是一条封禁恢复流水线（BR-1）：一节点同一时间至多一条。 */
+/** Recovery is one block-recovery pipeline (BR-1): at most one per node at a time. */
 export interface Recovery {
   id: number
   node_id: number
@@ -777,7 +777,7 @@ export interface Recovery {
   finished_at: string | null
 }
 
-/** RecoveryAction 是流水线每级动作的留痕（BR-5）：回放用。 */
+/** RecoveryAction is the record of each pipeline stage's action (BR-5): kept for replay. */
 export interface RecoveryAction {
   id: number
   recovery_id: number
@@ -800,7 +800,7 @@ export function getRecoveryActions(id: number): Promise<RecoveryAction[]> {
   return get<RecoveryAction[]>(`/api/recoveries/${id}/actions`)
 }
 
-// ---- 站内信通知中心（NT-1）----
+// ---- In-app notification center (NT-1) ----
 
 export interface NotificationRow {
   id: number
@@ -816,7 +816,7 @@ export function getNotifications(limit?: number): Promise<NotificationRow[]> {
   return get<NotificationRow[]>(`/api/notifications${limit ? `?limit=${limit}` : ''}`)
 }
 
-/** 发布公告：starts_at/ends_at 选填（RFC3339，P2-5 窗口；start 未来=定时发布）；audience 受众（all/expiring:N）。 */
+/** Publish an announcement: starts_at/ends_at are optional (RFC3339, the P2-5 window; a future starts_at means scheduled publication); audience is the target group (all/expiring:N). */
 export function createAnnouncement(
   title: string,
   body: string,
@@ -825,7 +825,7 @@ export function createAnnouncement(
   return post('/api/notifications/announcement', { title, body, ...opts })
 }
 
-/** AnnouncementStat 是公告触达行（P2-5 ②）：锚点行+发 n/读 m。 */
+/** AnnouncementStat is an announcement reach row (P2-5 (2)): the anchor row plus n sent / m read. */
 export interface AnnouncementStat {
   id: number
   title: string
@@ -844,7 +844,7 @@ export function getAnnouncements(limit?: number): Promise<AnnouncementStat[]> {
   return get<AnnouncementStat[]>(`/api/notifications/announcements${limit ? `?limit=${limit}` : ''}`)
 }
 
-/** 外通道重发（P2-5 ③）：补一轮 notice 事件外发，6h/公告限频（429）。 */
+/** External-channel resend (P2-5 (3)): sends one more round of notice events outward, rate-limited to 6h per announcement (429). */
 export function resendAnnouncement(id: number): Promise<{ emitted: number }> {
   return post(`/api/notifications/announcements/${id}/resend`)
 }
@@ -853,9 +853,9 @@ export function deleteNotification(id: number): Promise<{ ok: boolean }> {
   return del(`/api/notifications/${id}`)
 }
 
-// ---- 节点被管进程状态（SAVE-3：心跳快照落库，含缓存命中统计）----
+// ---- Managed process status on nodes (SAVE-3: heartbeat snapshots persisted, including cache hit statistics) ----
 
-/** NodeProcRow 是节点被管进程的最近状态快照（agent 心跳上报）。 */
+/** NodeProcRow is the most recent status snapshot of a node's managed processes (reported by the agent heartbeat). */
 export interface NodeProcRow {
   proc: string
   state: 'running' | 'stopped' | 'crashed' | string
@@ -869,9 +869,9 @@ export function getNodeProcs(id: number): Promise<NodeProcRow[]> {
   return get<NodeProcRow[]>(`/api/nodes/${id}/procs`)
 }
 
-// ---- 流量节省报表（SAVE-7：save_stats 按日汇总，与成本看板同页）----
+// ---- Traffic savings report (SAVE-7: save_stats aggregated daily, sharing the cost dashboard page) ----
 
-/** SaveStatsRow 是一个节点一天的节省汇总（直连/拦截字节 + 折算费用）。 */
+/** SaveStatsRow is one node's savings summary for a day (direct/blocked bytes + converted cost). */
 export interface SaveStatsRow {
   node_id: number
   name: string
@@ -882,7 +882,7 @@ export interface SaveStatsRow {
   cost_cents: number
 }
 
-/** SaveStatsReport 是节省报表：按日行 + 全网合计（days 窗口内）。 */
+/** SaveStatsReport is the savings report: per-day rows plus a network-wide total (within the days window). */
 export interface SaveStatsReport {
   days: number
   rows: SaveStatsRow[]
@@ -898,9 +898,9 @@ export function getSaveStats(days?: number): Promise<SaveStatsReport> {
   return get<SaveStatsReport>(`/api/save-stats${days ? `?days=${days}` : ''}`)
 }
 
-// ---- 入口域名与断联态（TOUCH-3/TOUCH-7：断联容灾数据源与开关）----
+// ---- Entry domains and outage state (TOUCH-3/TOUCH-7: data source and switch for disaster tolerance) ----
 
-/** EntryDomain 是入口域名（断联容灾与域名例行邮件的共同数据源）。 */
+/** EntryDomain is an entry domain (the shared data source of disaster tolerance and routine domain emails). */
 export interface EntryDomain {
   id: number
   domain: string
@@ -926,7 +926,7 @@ export function deleteEntryDomain(id: number): Promise<void> {
   return del(`/api/entry-domains/${id}`)
 }
 
-/** OutageState 是断联态标记（管理员手动开关，订阅注释随之加警告行）。 */
+/** OutageState is the outage flag (manually toggled by an admin; the subscription comment then gains a warning line). */
 export interface OutageState {
   enabled: boolean
 }
@@ -939,7 +939,7 @@ export function putOutage(enabled: boolean): Promise<OutageState> {
   return put('/api/outage', { enabled })
 }
 
-// ---- 管理员登录与两步验证（安全设计 §1）----
+// ---- Admin login and two-factor verification (security design §1) ----
 
 export function adminLogin(body: { username: string; password: string; totp?: string }): Promise<{ token: string }> {
   return post<{ token: string }>('/admin/login', body)
@@ -953,7 +953,7 @@ export function setupTwoFA(): Promise<{ secret: string; otpauth_url: string }> {
   return post('/admin/2fa/setup')
 }
 
-/** 绑定确认：校验一次 TOTP 后生效，明文恢复码只此一次返回。 */
+/** Binding confirmation: it takes effect after one TOTP is verified; the plaintext recovery codes are returned exactly once. */
 export function enableTwoFA(code: string): Promise<{ recovery_codes: string[] }> {
   return post('/admin/2fa/enable', { code })
 }
@@ -962,7 +962,7 @@ export function disableTwoFA(password: string): Promise<{ ok: boolean }> {
   return post('/admin/2fa/disable', { password })
 }
 
-/** LoginLogRow 是一条登录审计（login_logs，安全设计 §1）。 */
+/** LoginLogRow is one login audit record (login_logs, security design §1). */
 export interface LoginLogRow {
   id: number
   username: string
@@ -976,10 +976,10 @@ export function getLoginLogs(page: number, pageSize: number): Promise<{ items: L
   return get(`/admin/login-logs?page=${page}&page_size=${pageSize}`)
 }
 
-// ---- 操作审计（AU，P2-6 转正）----
-// 管理员写操作流水（audit_logs）：谁/动作/对象/请求体快照（脱敏）/成败。
+// ---- Action audit (AU, promoted in P2-6) ----
+// The admin write-action trail (audit_logs): who / action / target / request-body snapshot (sanitized) / success or failure.
 
-/** AuditLogRow 是一条写操作审计（audit_logs，AU-1）。 */
+/** AuditLogRow is one write-action audit record (audit_logs, AU-1). */
 export interface AuditLogRow {
   id: number
   actor: string
@@ -1001,7 +1001,7 @@ export interface AuditQuery {
   offset?: number
 }
 
-// 多级管理员/子管理员配额（P2-2）：super 管理子管理员（operator）名册。
+// Multi-level admins / sub-admin quotas (P2-2): the roster of sub-admins (operator) managed by super.
 export interface AdminRow {
   id: number
   username: string
@@ -1042,26 +1042,26 @@ export function getAuditLogs(q: AuditQuery): Promise<{ audit_logs: AuditLogRow[]
   return get(`/api/audit-logs?${p}`)
 }
 
-// ---- 优惠码（PROMO-1/2，运营设计 §5）----
-// 一单一优惠源不叠加（DS §3.3）；核销在门户下单，快照落订单三账可对。
+// ---- Coupons (PROMO-1/2, operations design §5) ----
+// One discount source per order, no stacking (DS §3.3); redemption happens at portal checkout, and the snapshot lands in the order's three ledgers for reconciliation.
 
 export interface CouponRow {
   id: number
   code: string
   kind: 'cut' | 'pct'
-  value: number // cut=减额（分）；pct=减幅（基点，10000=不打折）
+  value: number // cut = amount off (cents); pct = percentage off (basis points, 10000 = no discount)
   scope: string // all | batch:<id>
-  min_amount: number // 使用门槛（分），0=无门槛
+  min_amount: number // usage threshold (cents), 0 = none
   starts_at: string | null
   ends_at: string | null
-  total: number // 发放总量，0=不限
-  per_user: number // 每用户限用次数
+  total: number // total issued, 0 = unlimited
+  per_user: number // per-user usage limit
   used: number
   created_at: string
 }
 
 export interface CouponInput {
-  code?: string // 留空自动生成（FERRY-XXXXXXXX）
+  code?: string // auto-generated when left empty (FERRY-XXXXXXXX)
   kind: 'cut' | 'pct'
   value: number
   scope?: string
@@ -1088,17 +1088,17 @@ export function deleteCoupon(id: number): Promise<{ ok: boolean }> {
   return del(`/api/coupons/${id}`)
 }
 
-// ---- 成本参考库（E-31，套餐与成本设计 §4）----
-// 手录成本唯一权威，参考价只产偏差提示不改价。
+// ---- Cost reference library (E-31, plan and cost design §4) ----
+// Hand-entered costs are the sole authority; reference prices only produce deviation hints and never change prices.
 
-/** RefQuery 是一次牌价试查的定位键（商家/区域/配置档）。 */
+/** RefQuery is the lookup key for one list-price probe (vendor/region/plan). */
 export interface RefQuery {
   provider: string
   region: string
   spec: string
 }
 
-/** RefQuote 是一条参考牌价（快照口径）。 */
+/** RefQuote is one reference list price (snapshot semantics). */
 export interface RefQuote {
   monthly_cents: number
   traffic_price: number
@@ -1107,13 +1107,13 @@ export interface RefQuote {
   at: string
 }
 
-/** RefDeviation 是手录价 vs 牌价的偏差结论（pct 正=手录贵）。 */
+/** RefDeviation is the verdict on hand-entered price vs list price (positive pct = hand-entered is pricier). */
 export interface RefDeviation {
   pct: number
   off: boolean
 }
 
-/** RefProbe 是单点试查结果；未命中 hit=false，不可比时给 reason。 */
+/** RefProbe is a single-point probe result; hit=false on a miss, and reason explains incomparable cases. */
 export interface RefProbe {
   source: string
   query: RefQuery
@@ -1123,7 +1123,7 @@ export interface RefProbe {
   reason?: string
 }
 
-/** RefCheckReport 是批量对账报告（只列命中且可比的行）。 */
+/** RefCheckReport is the batch reconciliation report (only lists rows that were hit and are comparable). */
 export interface RefCheckReport {
   source: string
   tolerance_pct: number
@@ -1157,10 +1157,10 @@ export function saveCostRefTable(table: string): Promise<{ saved?: boolean; clea
   return put('/api/cost/ref-table', { table })
 }
 
-// ---- 价格关注（E-32，套餐与成本设计 §4.2）----
-// 关注条件盯一个牌价键，扫描命中降价/到位经 Herald price_alert 提示。
+// ---- Price watch (E-32, plan and cost design §4.2) ----
+// A watch condition tracks one list-price key; when a scan hits a price drop or the target price, Herald sends a price_alert.
 
-/** PriceWatch 是一条关注条件（含扫描动态：最新/上次快照与涨跌）。 */
+/** PriceWatch is one watch condition (including scan dynamics: latest/previous snapshot and the price change). */
 export interface PriceWatch {
   id: number
   provider: string
@@ -1177,7 +1177,7 @@ export interface PriceWatch {
   snapshot_done: boolean
 }
 
-/** PriceSnapshot 是一次关注键的牌价快照。 */
+/** PriceSnapshot is one list-price snapshot of a watch key. */
 export interface PriceSnapshot {
   id: number
   watch_id: number
@@ -1207,7 +1207,7 @@ export function listPriceSnapshots(id: number, limit = 20): Promise<PriceSnapsho
   return get(`/api/cost/watches/${id}/snapshots?limit=${limit}`)
 }
 
-// 分销代理（DS-1 账目层 / DS-2 管理面）。
+// Distributor agents (DS-1 ledger layer / DS-2 admin surface).
 export interface Distributor {
   id: number
   username: string
@@ -1248,7 +1248,7 @@ export function distributorLedger(id: number, limit = 50): Promise<{ ledger: Dis
   return get(`/api/distributors/${id}/ledger?limit=${limit}`)
 }
 
-// payout 结算打款（金额不超未结算余额）、adjust 人工调（±金额，0 拒）。
+// payout settles money out (the amount must not exceed the unsettled balance); adjust is a manual adjustment (positive or negative amount, 0 refused).
 export function distributorPayout(id: number, input: { amount_cents: number; note?: string }): Promise<{ balance_cents: number }> {
   return post(`/api/distributors/${id}/payout`, input)
 }
@@ -1257,7 +1257,7 @@ export function distributorAdjust(id: number, input: { amount_cents: number; not
   return post(`/api/distributors/${id}/adjust`, input)
 }
 
-// 代理自面（DS-3）：只读视图，结算动作在管理员面（DS-2）。
+// Distributor self-service surface (DS-3): read-only views; settlement actions live on the admin surface (DS-2).
 export function distLogin(input: { username: string; password: string }): Promise<{ token: string; id: number; username: string; discount_percent: number }> {
   return post('/distributor/login', input)
 }

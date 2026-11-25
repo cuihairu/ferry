@@ -4,10 +4,11 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { get, post, put, del, getAlloc, putAllocPolicy, type Node, type LandingAssignment, type TransportRow, type AllocPolicy } from '../api'
 import { formatDate } from '../utils/format'
 
-// E-20：手动落地分配——为入口节点或区域整体指定落地与权重。
-// 分配落库留痕、释放不删行；经 config.push 下发落地列表的生效链路
-// 随 agent relay 配置化（E-5）接入，当前以分配记录为准。
-// E-17：区域传输判定面板——哪种活着用哪种的换线建议。
+// E-20: manual landing assignment — assign landings and weights for an entry node or a whole region.
+// Assignments are persisted as records and releasing never deletes a row; the activation path that pushes
+// the landing list via config.push plugs in together with the agent relay's configuration support (E-5),
+// so the assignment records are authoritative for now.
+// E-17: the region transport verdict panel — the switch advice of "use whichever is alive".
 
 const rows = ref<LandingAssignment[]>([])
 const nodes = ref<Node[]>([])
@@ -17,7 +18,7 @@ const policySaving = ref(false)
 const loading = ref(false)
 const scope = ref<'active' | 'all'>('active')
 
-// E-21：加权最小连接自动分配——出海/回国两池各选档位。
+// E-21: weighted-least-connections auto assignment — each of the outbound/return pools picks its tier.
 const POLICY_OPTIONS = [
   { value: '', label: '按方向缺省' },
   { value: 'least_conn', label: '最小连接' },
@@ -82,7 +83,7 @@ const entries = computed(() => nodes.value.filter((n) => n.role === 'entry' || n
 const landings = computed(() => nodes.value.filter((n) => n.role === 'landing' || n.role === 'both'))
 const regions = computed(() => [...new Set(entries.value.map((n) => n.region).filter(Boolean))])
 
-// ---- 新建 ----
+// ---- Create ----
 const dialogVisible = ref(false)
 const saving = ref(false)
 const form = reactive({
