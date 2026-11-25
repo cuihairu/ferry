@@ -232,3 +232,58 @@ func indexOf(h, n string) int {
 	}
 	return -1
 }
+
+// TestProviderNoteRegion covers F-0323 (account remark) and F-0324 (account
+// scope): both are set at create, echoed in views, and updatable without
+// clearing the credentials.
+func TestProviderNoteRegion(t *testing.T) {
+	r, _ := newTestRouterWithMasterKey(t)
+
+	note := "team E edge account"
+	region := "fra"
+	rec := doJSON(t, r, "POST", "/api/providers", map[string]any{
+		"name": "vultr-fra", "type": "vultr", "access_key": "sk-secret",
+		"note": note, "region": region,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", rec.Code, rec.Body)
+	}
+	var pv struct {
+		ID     uint   `json:"id"`
+		Note   string `json:"note"`
+		Region string `json:"region"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &pv); err != nil {
+		t.Fatal(err)
+	}
+	if pv.Note != note || pv.Region != region {
+		t.Fatalf("create view = %+v", pv)
+	}
+
+	// Update: change the note and region, keep the credentials untouched
+	// (no access_key in the payload).
+	newNote := "renewed Q3"
+	newRegion := "nyc1"
+	rec = doJSON(t, r, "PUT", "/api/providers/"+strconv.Itoa(int(pv.ID)), map[string]any{
+		"note": newNote, "region": newRegion,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update status = %d body=%s", rec.Code, rec.Body)
+	}
+	pv = struct {
+		ID     uint   `json:"id"`
+		Note   string `json:"note"`
+		Region string `json:"region"`
+	}{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &pv); err != nil {
+		t.Fatal(err)
+	}
+	if pv.Note != newNote || pv.Region != newRegion {
+		t.Fatalf("update view = %+v", pv)
+	}
+	list := doJSON(t, r, "GET", "/api/providers", nil)
+	if list.Code != http.StatusOK || !containsStr(list.Body.String(), newNote) ||
+		!containsStr(list.Body.String(), newRegion) {
+		t.Fatalf("list = %d %s", list.Code, list.Body)
+	}
+}

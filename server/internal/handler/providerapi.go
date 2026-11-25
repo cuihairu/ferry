@@ -24,13 +24,25 @@ type providerView struct {
 	Type         string `json:"type"`
 	Enabled      bool   `json:"enabled"`
 	HasAccessKey bool   `json:"has_access_key"`
+	Note         string `json:"note"`   // F-0323 account remark
+	Region       string `json:"region"` // F-0324 account scope
 }
 
 type providerInput struct {
-	Name      string `json:"name"`
-	Type      string `json:"type"`
-	AccessKey string `json:"access_key"` // plaintext only ever appears in create/replace requests
-	Enabled   *bool  `json:"enabled,omitempty"`
+	Name      string  `json:"name"`
+	Type      string  `json:"type"`
+	AccessKey string  `json:"access_key"` // plaintext only ever appears in create/replace requests
+	Enabled   *bool   `json:"enabled,omitempty"`
+	Note      *string `json:"note,omitempty"`   // F-0323; absent keeps the current value on update
+	Region    *string `json:"region,omitempty"` // F-0324; absent keeps the current value on update
+}
+
+// providerViewOf builds the masked outward view from a row.
+func providerViewOf(r storage.Provider) providerView {
+	return providerView{
+		ID: r.ID, Name: r.Name, Type: r.Type, Enabled: r.Enabled,
+		HasAccessKey: r.AccessKey != "", Note: r.Note, Region: r.Region,
+	}
 }
 
 func (h *Handler) listProviders(c *gin.Context) {
@@ -41,10 +53,7 @@ func (h *Handler) listProviders(c *gin.Context) {
 	}
 	out := make([]providerView, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, providerView{
-			ID: r.ID, Name: r.Name, Type: r.Type, Enabled: r.Enabled,
-			HasAccessKey: r.AccessKey != "",
-		})
+		out = append(out, providerViewOf(r))
 	}
 	c.JSON(http.StatusOK, out)
 }
@@ -69,6 +78,12 @@ func (h *Handler) createProvider(c *gin.Context) {
 		enabled = *in.Enabled
 	}
 	row := storage.Provider{Name: in.Name, Type: in.Type, AccessKey: sealed, Enabled: enabled}
+	if in.Note != nil {
+		row.Note = *in.Note
+	}
+	if in.Region != nil {
+		row.Region = *in.Region
+	}
 	if err := h.db.Create(&row).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
@@ -84,8 +99,7 @@ func (h *Handler) createProvider(c *gin.Context) {
 		}
 		row.Enabled = false
 	}
-	c.JSON(http.StatusOK, providerView{ID: row.ID, Name: row.Name, Type: row.Type,
-		Enabled: row.Enabled, HasAccessKey: true})
+	c.JSON(http.StatusOK, providerViewOf(row))
 }
 
 // updateProvider updates a provider: a non-empty access_key replaces the secret, empty keeps the current value.
@@ -122,12 +136,18 @@ func (h *Handler) updateProvider(c *gin.Context) {
 		}
 		row.AccessKey = sealed
 	}
+	// Absent note/region keep their current values (F-0323/F-0324).
+	if in.Note != nil {
+		row.Note = *in.Note
+	}
+	if in.Region != nil {
+		row.Region = *in.Region
+	}
 	if err := h.db.Save(&row).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
-	c.JSON(http.StatusOK, providerView{ID: row.ID, Name: row.Name, Type: row.Type,
-		Enabled: row.Enabled, HasAccessKey: row.AccessKey != ""})
+	c.JSON(http.StatusOK, providerViewOf(row))
 }
 
 func (h *Handler) deleteProvider(c *gin.Context) {

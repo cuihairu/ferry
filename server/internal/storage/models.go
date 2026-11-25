@@ -563,11 +563,16 @@ type DistributorLedger struct {
 // supply engine. AccessKey is an AES-256-GCM ciphertext (encrypted via the unified secret entry point), the interface layer never
 // echoes the plaintext back, and it is decrypted only when the server runs supply.
 type Provider struct {
-	ID        uint      `gorm:"primaryKey" json:"id"`
-	Name      string    `gorm:"size:64;not null" json:"name"`
-	Type      string    `gorm:"size:32;not null" json:"type"`        // OpenTofu provider name (vultr/hetzner/…)
-	AccessKey string    `gorm:"size:512;not null" json:"access_key"` // ciphertext, presented at the interface layer as has_access_key
-	Enabled   bool      `gorm:"default:true" json:"enabled"`
+	ID        uint   `gorm:"primaryKey" json:"id"`
+	Name      string `gorm:"size:64;not null" json:"name"`
+	Type      string `gorm:"size:32;not null" json:"type"`        // OpenTofu provider name (vultr/hetzner/…)
+	AccessKey string `gorm:"size:512;not null" json:"access_key"` // ciphertext, presented at the interface layer as has_access_key
+	Enabled   bool   `gorm:"default:true" json:"enabled"`
+	// Note is the admin remark for the account (F-0323).
+	Note string `gorm:"size:255" json:"note"`
+	// Region is the account's operating scope: a region or tenant identifier
+	// the credentials are scoped to (F-0324; empty = whole account).
+	Region    string    `gorm:"size:64" json:"region"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
