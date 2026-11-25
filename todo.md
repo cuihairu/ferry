@@ -1194,25 +1194,37 @@ External Client
 ## 4.5 成本核算与对账
 
 -   [ ] `F-0581` 按 Provider 统计实际账单金额。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0581 | 区级未满足原因：区级结构缺口：无实际账单、无 Provider/Account/Path 桶（Build 仅 byRegion/byISP 估算）——§4.5 F-0581~F-0597 未满足。）
+    - 备注（Task ID: F-0581 | Status: Done | Evidence: GET /cost/spend?scope=provider 按 Provider 汇总实际账单 (billing/stats.go spendRecords) | Verification: TestSpendByScope/TestSpendTrend/TestDetectAnomalies/TestImportFileFX/TestBillingAPISpend（go test ./... 全绿 2026-11-26） | Commit: 2be063c）
 -   [ ] `F-0582` 按账号统计实际账单金额。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0582 | Status: Done | Evidence: scope=account 按账号汇总实际账单 (billing/stats.go) | Verification: TestSpendByScope/TestSpendTrend/TestDetectAnomalies/TestImportFileFX/TestBillingAPISpend（go test ./... 全绿 2026-11-26） | Commit: 2be063c）
 -   [ ] `F-0583` 按区域统计实际账单金额。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0583 | Status: Done | Evidence: scope=region 按区域汇总实际账单，支持期间过滤 (billing/stats.go) | Verification: TestSpendByScope/TestSpendTrend/TestDetectAnomalies/TestImportFileFX/TestBillingAPISpend（go test ./... 全绿 2026-11-26） | Commit: 2be063c）
 -   [ ] `F-0584` 按资源统计实际账单金额。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0584 | Status: Done | Evidence: scope=resource 按资源汇总账单明细 (billing/stats.go spendItems) | Verification: TestSpendByScope/TestSpendTrend/TestDetectAnomalies/TestImportFileFX/TestBillingAPISpend（go test ./... 全绿 2026-11-26） | Commit: 2be063c）
 -   [ ] `F-0585` 按 Node 统计分摊成本。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0585 | Status: Done | Evidence: scope=node 按节点汇总分摊成本（CostAllocation target=node 按币种分组）(spendAllocatedNodes) | Verification: TestSpendByScope/TestSpendTrend/TestDetectAnomalies/TestImportFileFX/TestBillingAPISpend（go test ./... 全绿 2026-11-26） | Commit: 2be063c）
 -   [ ] `F-0586` 按 Path 统计估算成本。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0586 | Status: Done | Evidence: scope=path 按线路汇总估算成本（CostEstimate path_id 已知价）(spendPathEstimates) | Verification: TestSpendByScope/TestSpendTrend/TestDetectAnomalies/TestImportFileFX/TestBillingAPISpend（go test ./... 全绿 2026-11-26） | Commit: 2be063c）
 -   [ ] `F-0587` 对比估算成本与实际账单。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0587 | Status: Done | Evidence: Reconcile 对比估算与实际并算 Diff=Actual-Estimate (billing/allocation.go, TestBillingAPI) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
 -   [ ] `F-0588` 识别账单缺失的资源。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0588 | Status: Done | Evidence: GET /cost/anomalies：已同步资源在期间内无账单明细即 missing_bill (billing/anomaly.go) | Verification: TestSpendByScope/TestSpendTrend/TestDetectAnomalies/TestImportFileFX/TestBillingAPISpend（go test ./... 全绿 2026-11-26） | Commit: 2be063c）
 -   [ ] `F-0589` 识别账单中无法匹配的资源。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0589 | Status: Done | Evidence: 账单明细 resource_id 无对应云资源即 unmatched_resource (billing/anomaly.go) | Verification: TestSpendByScope/TestSpendTrend/TestDetectAnomalies/TestImportFileFX/TestBillingAPISpend（go test ./... 全绿 2026-11-26） | Commit: 2be063c）
 -   [ ] `F-0590` 识别成本异常增长。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0590 | Status: Done | Evidence: 月度环比涨幅超阈值（默认 100%，growth_pct 可调）即 spend_spike (DetectAnomalies) | Verification: TestSpendByScope/TestSpendTrend/TestDetectAnomalies/TestImportFileFX/TestBillingAPISpend（go test ./... 全绿 2026-11-26） | Commit: 2be063c）
 -   [ ] `F-0591` 支持账单差异确认。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0591 | Status: Done | Evidence: ConfirmReconciliation 状态 confirmed/adjusted + Note (billing/allocation.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
 -   [ ] `F-0592` 支持成本调整备注和审批记录。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0592 | Status: Done | Evidence: CostReconciliation.Note/ApprovedBy 审批记录 (storage/billing.go, billingapi.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
 -   [ ] `F-0593` 支持按日、月、账单周期汇总。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0593 | Status: Done | Evidence: GET /cost/spend/trend?bucket=day|month|cycle 按日/月/账单周期汇总 (billing/stats.go SpendTrend) | Verification: TestSpendByScope/TestSpendTrend/TestDetectAnomalies/TestImportFileFX/TestBillingAPISpend（go test ./... 全绿 2026-11-26） | Commit: 2be063c）
 -   [ ] `F-0594` 支持多币种原币展示。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0594 | Status: Done | Evidence: 所有汇总行按币种分组，原币展示不混算 (billing/stats.go SpendRow.Currency) | Verification: TestSpendByScope/TestSpendTrend/TestDetectAnomalies/TestImportFileFX/TestBillingAPISpend（go test ./... 全绿 2026-11-26） | Commit: 2be063c）
 -   [ ] `F-0595` 支持按指定汇率转换为报表币种。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0595 | Status: Done | Evidence: 导入行可携 fx_rate，落 ReportAmountCents 报表金额并入汇总 report_cents (billing/import.go, stats.go) | Verification: TestSpendByScope/TestSpendTrend/TestDetectAnomalies/TestImportFileFX/TestBillingAPISpend（go test ./... 全绿 2026-11-26） | Commit: 2be063c）
 -   [ ] `F-0596` 记录汇率来源和日期。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0596 | Status: Done | Evidence: fx_rate_source/fx_rate_date 随记录保存 (billing/import.go parseFXDate, TestImportFileFX) | Verification: TestSpendByScope/TestSpendTrend/TestDetectAnomalies/TestImportFileFX/TestBillingAPISpend（go test ./... 全绿 2026-11-26） | Commit: 2be063c）
 -   [ ] `F-0597` 明确未结算账单和已结算账单状态。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0597 | Status: Done | Evidence: CostRecord.Status unsettled/settled (storage/billing.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
 
