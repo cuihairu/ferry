@@ -701,8 +701,8 @@ External Client
     - 备注（Task ID: F-0212 | Status: Done | Evidence: router.go:99 api 组 auditMiddleware 覆盖节点写；TestAuditLogsCaptureWriteOps | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0213` 为 Node 查询建立实际需要的索引。
     - 备注（Task ID: F-0213 | Status: Done | Evidence: models.go 索引标签（token uniqueIndex :72 等 36+）+storage 测试建表 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0214` 定义节点删除时的关联检查和数据保留规则。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0214 | 未满足原因：deleteNode(node.go:155-179) 无前置关联检查（无 count/dependency）；NodeConfig/TrafficLog/ProbeReport/Alert/Recovery 均无 FK（仅 TrafficLog.Node SET NULL models.go:142 一条保留规则）。）
+-   [x] `F-0214` 定义节点删除时的关联检查和数据保留规则。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 完成（F-0214 | deleteNode 前置三重关联检查（409 拒删）：Path entry/landing/relay 引用、LandingAssignment 未 released、Recovery state=running；保留规则：TrafficLog 留行但 SET NULL 去归属（既有约束）、ProbeReport/Alert/NodeConfig 留行按 node id 可查。 | Verification: TestNodeDeleteDependencyChecks | Commit: 1c9ffad）
 
 ## 2.2 Capability
 
