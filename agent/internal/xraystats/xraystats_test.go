@@ -17,18 +17,18 @@ import (
 	"golang.org/x/net/http2/h2c"
 )
 
-// errShortProto 是测试解请求时的截断哨兵。
+// errShortProto is the truncation sentinel used when the test parses a request.
 var errShortProto = errors.New("bad proto length")
 
-// capturedReq 记录假服务收到的请求关键参数。
+// capturedReq records the key request parameters the fake service received.
 type capturedReq struct {
 	pattern string
 	reset   bool
 }
 
-// startFakeStats 起一个 h2c 假 StatsService：QueryStats 返回固定结果，
-// 并记录收到的请求供断言（pattern/reset 是否按约传递）。
-// 传输口径与真机一致：gRPC over h2c，应答带 gRPC 分帧与 grpc-status trailer。
+// startFakeStats starts an h2c fake StatsService: QueryStats returns a fixed result,
+// and records the requests it received for assertions (whether pattern/reset were passed as promised).
+// The transport matches a real machine: gRPC over h2c, with the reply carrying gRPC framing and a grpc-status trailer.
 func startFakeStats(t *testing.T, resp []Stat) (*httptest.Server, *capturedReq) {
 	t.Helper()
 	seen := &capturedReq{}
@@ -42,7 +42,7 @@ func startFakeStats(t *testing.T, resp []Stat) (*httptest.Server, *capturedReq) 
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		// 请求体剥 gRPC 分帧后解 Request，验证客户端编码
+		// strip the gRPC framing from the request body and parse the Request, checking the client's encoding
 		if len(body) < 5 {
 			http.Error(w, "short body", http.StatusBadRequest)
 			return
@@ -54,7 +54,7 @@ func startFakeStats(t *testing.T, resp []Stat) (*httptest.Server, *capturedReq) 
 		}
 		seen.pattern, seen.reset = req.pattern, req.reset
 
-		// 应答：content-type + 声明 trailer，body 为分帧后的 Response
+		// the reply: content-type + a declared trailer, the body being the framed Response
 		w.Header().Set("Content-Type", "application/grpc+proto")
 		w.Header().Set("Trailer", "Grpc-Status")
 		payload := encodeQueryStatsResp(resp)
@@ -69,7 +69,7 @@ func startFakeStats(t *testing.T, resp []Stat) (*httptest.Server, *capturedReq) 
 	return srv, seen
 }
 
-// decodeQueryStatsReq 解 QueryStatsRequest{1:pattern, 2:reset}（测试断言用）。
+// decodeQueryStatsReq parses QueryStatsRequest{1:pattern, 2:reset} (used by test assertions).
 func decodeQueryStatsReq(b []byte) (capturedReq, error) {
 	var out capturedReq
 	for len(b) > 0 {
@@ -104,7 +104,7 @@ func decodeQueryStatsReq(b []byte) (capturedReq, error) {
 	return out, nil
 }
 
-// encodeQueryStatsResp 编 QueryStatsResponse{1: repeated Stat}（假服务用）。
+// encodeQueryStatsResp encodes QueryStatsResponse{1: repeated Stat} (used by the fake service).
 func encodeQueryStatsResp(stats []Stat) []byte {
 	var b []byte
 	for _, s := range stats {
@@ -116,8 +116,8 @@ func encodeQueryStatsResp(stats []Stat) []byte {
 	return b
 }
 
-// TestQueryUserStats 覆盖主通路：请求按约编码（pattern/reset）、
-// 应答正确解为 per-email 上下行。
+// TestQueryUserStats covers the main path: the request is encoded as promised (pattern/reset)
+// and the reply decodes correctly into per-email up/down.
 func TestQueryUserStats(t *testing.T) {
 	resp := []Stat{
 		{Name: "user>>>alice>>>traffic>>>uplink", Value: 120},
@@ -143,8 +143,8 @@ func TestQueryUserStats(t *testing.T) {
 	}
 }
 
-// TestQueryUserStatsGrpcError 覆盖 agent 报错路径：grpc-status 非 0
-// （如 xray api 未开）要向上传错（含 percent-escape 解码）而不是空表。
+// TestQueryUserStatsGrpcError covers the agent error path: a non-zero grpc-status
+// (e.g. the xray api not being enabled) must propagate upward with the error (including percent-escape decoding) instead of an empty table.
 func TestQueryUserStatsGrpcError(t *testing.T) {
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/grpc+proto")
@@ -166,7 +166,7 @@ func TestQueryUserStatsGrpcError(t *testing.T) {
 	}
 }
 
-// TestQueryUserStatsConnRefused 覆盖连接失败：查询要报错而不是静默空表。
+// TestQueryUserStatsConnRefused covers a failed connection: the query must error instead of silently returning an empty table.
 func TestQueryUserStatsConnRefused(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -183,15 +183,15 @@ func TestQueryUserStatsConnRefused(t *testing.T) {
 	}
 }
 
-// TestParseUserStats 覆盖计数器名解析：user>>> 聚合、其余忽略、同名累加。
+// TestParseUserStats covers counter-name parsing: user>>> aggregated, everything else ignored, same names accumulated.
 func TestParseUserStats(t *testing.T) {
 	got := ParseUserStats([]Stat{
 		{Name: "user>>>a@ferry>>>traffic>>>uplink", Value: 1},
-		{Name: "user>>>a@ferry>>>traffic>>>uplink", Value: 2}, // 同名条目累加
+		{Name: "user>>>a@ferry>>>traffic>>>uplink", Value: 2}, // same-name entries accumulate
 		{Name: "user>>>a@ferry>>>traffic>>>downlink", Value: 10},
-		{Name: "inbound>>>in-1>>>traffic>>>uplink", Value: 99}, // 非 user 条目忽略
-		{Name: "user>>>b@ferry>>>traffic>>>unknown", Value: 7}, // 未知方向忽略
-		{Name: "user>>>b@ferry>>>something", Value: 8},         // 段数不符忽略
+		{Name: "inbound>>>in-1>>>traffic>>>uplink", Value: 99}, // non-user entries ignored
+		{Name: "user>>>b@ferry>>>traffic>>>unknown", Value: 7}, // unknown directions ignored
+		{Name: "user>>>b@ferry>>>something", Value: 8},         // wrong segment counts ignored
 	})
 	if len(got) != 1 {
 		t.Fatalf("users = %d, want 1 (b@ferry 条目全部无效): %+v", len(got), got)
@@ -204,8 +204,8 @@ func TestParseUserStats(t *testing.T) {
 	}
 }
 
-// TestQueryOutboundStats 覆盖分流出站计数查询（SAVE-4/7）：请求
-// pattern=outbound>>> reset=true，direct 与 block 同一次查询分别取增量。
+// TestQueryOutboundStats covers the routed outbound counter query (SAVE-4/7): the request uses
+// pattern=outbound>>> with reset=true, taking the direct and block deltas in the same query.
 func TestQueryOutboundStats(t *testing.T) {
 	resp := []Stat{
 		{Name: "outbound>>>block>>>traffic>>>uplink", Value: 123},
@@ -231,18 +231,18 @@ func TestQueryOutboundStats(t *testing.T) {
 	}
 }
 
-// TestParseOutboundStats 覆盖分流出站计数解析：只认 direct/block 出站的
-// traffic 计数（上下行各自求和），其余出站/入站/近似名/段数不符忽略。
+// TestParseOutboundStats covers routed outbound counter parsing: only the traffic counters of the
+// direct/block outbounds count (up and down summed separately); other outbounds/inbounds/near-miss names/wrong segment counts are ignored.
 func TestParseOutboundStats(t *testing.T) {
 	got := ParseOutboundStats([]Stat{
 		{Name: "outbound>>>block>>>traffic>>>uplink", Value: 10},
-		{Name: "outbound>>>block>>>traffic>>>uplink", Value: 5}, // 同名累加
+		{Name: "outbound>>>block>>>traffic>>>uplink", Value: 5}, // same names accumulate
 		{Name: "outbound>>>block>>>traffic>>>downlink", Value: 2},
 		{Name: "outbound>>>direct>>>traffic>>>uplink", Value: 100},
 		{Name: "outbound>>>direct>>>traffic>>>downlink", Value: 30},
-		{Name: "inbound>>>in-1>>>traffic>>>uplink", Value: 50},     // 入站忽略
-		{Name: "outbound>>>blocked>>>traffic>>>uplink", Value: 30}, // 近似名不误收
-		{Name: "outbound>>>block>>>something", Value: 7},           // 段数不符忽略
+		{Name: "inbound>>>in-1>>>traffic>>>uplink", Value: 50},     // inbounds ignored
+		{Name: "outbound>>>blocked>>>traffic>>>uplink", Value: 30}, // near-miss names are never taken in by mistake
+		{Name: "outbound>>>block>>>something", Value: 7},           // wrong segment counts ignored
 	})
 	if got.Blocked != 17 {
 		t.Fatalf("blocked = %d, want 17", got.Blocked)
@@ -252,14 +252,14 @@ func TestParseOutboundStats(t *testing.T) {
 	}
 }
 
-// TestCollectorQueries 覆盖 Collector 三口径：节点级增量=用户增量求和
-// 且 conns 恒 0、per-email 零增量不上报、出站按 pattern 分别查询。
+// TestCollectorQueries covers the Collector's three rules: the node-level delta is the sum of user deltas
+// with conns always 0, per-email zero deltas are never reported, and outbounds are queried separately per pattern.
 func TestCollectorQueries(t *testing.T) {
 	srv, seen := startFakeStats(t, []Stat{
 		{Name: "user>>>alice>>>traffic>>>uplink", Value: 10},
 		{Name: "user>>>alice>>>traffic>>>downlink", Value: 40},
 		{Name: "user>>>bob>>>traffic>>>downlink", Value: 2},
-		{Name: "user>>>idle>>>traffic>>>downlink", Value: 0}, // 零增量不上报
+		{Name: "user>>>idle>>>traffic>>>downlink", Value: 0}, // a zero delta is never reported
 	})
 	addr := strings.TrimPrefix(srv.URL, "http://")
 	c := NewCollector(addr, log.New(io.Discard, "", 0))
@@ -291,13 +291,13 @@ func TestCollectorQueries(t *testing.T) {
 	}
 }
 
-// TestCollectorOutbound 出站采集走 outbound>>> 口径。
+// TestCollectorOutbound covers outbound collection using the outbound>>> rule.
 func TestCollectorOutbound(t *testing.T) {
 	srv, seen := startFakeStats(t, []Stat{
 		{Name: "outbound>>>direct>>>traffic>>>uplink", Value: 100},
 		{Name: "outbound>>>block>>>traffic>>>uplink", Value: 7},
 	})
-	c := NewCollector(strings.TrimPrefix(srv.URL, "http://"), nil) // nil logger 走默认
+	c := NewCollector(strings.TrimPrefix(srv.URL, "http://"), nil) // a nil logger uses the default
 	direct, blocked, err := c.CollectOutbound("xray")
 	if err != nil {
 		t.Fatalf("CollectOutbound = %v", err)
@@ -310,7 +310,7 @@ func TestCollectorOutbound(t *testing.T) {
 	}
 }
 
-// TestCollectorQueryError 查询失败三口径各自冒错，不吞错。
+// TestCollectorQueryError covers all three query-failure rules erroring individually, never swallowing an error.
 func TestCollectorQueryError(t *testing.T) {
 	c := NewCollector("127.0.0.1:1", log.New(io.Discard, "", 0))
 	if _, _, _, err := c.Collect("xray"); err == nil {
@@ -324,8 +324,8 @@ func TestCollectorQueryError(t *testing.T) {
 	}
 }
 
-// TestPBSkip 非关注字段体的跳过：varint/fixed64/length-delimited/fixed32
-// 四种 wire type 都能跳过，长度越界与未知 wire type 报错。
+// TestPBSkip covers skipping the bodies of fields we do not care about: varint/fixed64/length-delimited/fixed32,
+// all four wire types are skippable, while a length out of range and an unknown wire type error.
 func TestPBSkip(t *testing.T) {
 	rest := []byte("tail")
 	cases := []struct {

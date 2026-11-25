@@ -1,9 +1,9 @@
-// Package xraystats 对接 xray gRPC stats API 采集真实用户流量（P1-3，
-// 来源：Marzban xray_api/stats.py QueryStats）。
-// 客户端只读 QueryStats：pattern=user>>>、reset=true，拿到自上次查询
-// 的 per-email 上下行增量；节点本地直连（api 只暴露在 127.0.0.1）。
-// 传输层用本包 grpc.go 的极简 unary 客户端（E-4 核心尺寸预算口径，
-// 不引 google.golang.org/grpc）。
+// Package xraystats talks to the xray gRPC stats API to collect real per-user traffic (P1-3,
+// source: Marzban's xray_api/stats.py QueryStats).
+// The client only reads QueryStats: pattern=user>>> with reset=true, yielding the per-email up/down
+// deltas since the last query; it connects straight to the node's localhost (the api is exposed on 127.0.0.1 only).
+// The transport layer uses this package's minimal unary client from grpc.go (per the E-4 core size budget,
+// without importing google.golang.org/grpc).
 package xraystats
 
 import (
@@ -16,32 +16,32 @@ import (
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
 
-// queryStatsMethod 是 StatsService 的 QueryStats 全名（xray 官方 proto）。
+// queryStatsMethod is the full name of StatsService's QueryStats (the official xray proto).
 const queryStatsMethod = "/xray.app.stats.command.StatsService/QueryStats"
 
-// collectTimeout 是单次 stats 查询超时。
+// collectTimeout is the timeout of one stats query.
 const collectTimeout = 5 * time.Second
 
-// Stat 是 QueryStats 结果的一个计数器。
+// Stat is one counter of a QueryStats result.
 type Stat struct {
 	Name  string
 	Value uint64
 }
 
-// UserBytes 是一个用户的上下行字节增量。
+// UserBytes is one user's up/down byte delta.
 type UserBytes struct {
-	Rx uint64 // 用户收（downlink）
-	Tx uint64 // 用户发（uplink）
+	Rx uint64 // bytes received by the user (downlink)
+	Tx uint64 // bytes sent by the user (uplink)
 }
 
-// Client 是 xray stats 客户端：每次查询现建连接（周期采集间隔秒级，
-// 免重连状态机，xray 重启后自愈）。
+// Client is the xray stats client: it builds a fresh connection per query (the collection period is in seconds,
+// so there is no reconnect state machine and it heals itself after an xray restart).
 type Client struct {
-	addr string // xray api 监听，如 127.0.0.1:10085
+	addr string // the xray api listener, e.g. 127.0.0.1:10085
 	log  *log.Logger
 }
 
-// New 创建客户端。
+// New creates a client.
 func New(addr string, logger *log.Logger) *Client {
 	if logger == nil {
 		logger = log.Default()
@@ -49,9 +49,9 @@ func New(addr string, logger *log.Logger) *Client {
 	return &Client{addr: addr, log: logger}
 }
 
-// QueryUserStats 查询并清零全部用户统计，返回 per-email 上下行增量。
-// xray 侧需开启 per-user 统计（policy.levels[].statsUserUplink/Downlink
-// 与 stats service/api inbound，部署侧口径）；未开启时返回空表不报错。
+// QueryUserStats queries and resets all user statistics, returning the per-email up/down deltas.
+// The xray side must enable per-user statistics (policy.levels[].statsUserUplink/Downlink
+// plus the stats service/api inbound -- a deployment-side rule); when it is off, an empty table returns without error.
 func (c *Client) QueryUserStats(ctx context.Context) (map[string]UserBytes, error) {
 	payload, err := grpcUnary(ctx, c.addr, queryStatsMethod, encodeQueryStatsReq("user>>>", true))
 	if err != nil {
@@ -64,9 +64,9 @@ func (c *Client) QueryUserStats(ctx context.Context) (map[string]UserBytes, erro
 	return ParseUserStats(stats), nil
 }
 
-// ParseUserStats 把 QueryStats 结果聚合为 per-email 上下行：
-// name 形如 user>>>EMAIL>>>traffic>>>uplink|downlink，其余条目忽略。
-// 口径对齐 traffic_logs 用户视角：downlink=收（rx），uplink=发（tx）。
+// ParseUserStats aggregates a QueryStats result into per-email up/down:
+// a name looks like user>>>EMAIL>>>traffic>>>uplink|downlink, and anything else is ignored.
+// Semantics align with traffic_logs' user view: downlink = received (rx), uplink = sent (tx).
 func ParseUserStats(stats []Stat) map[string]UserBytes {
 	out := map[string]UserBytes{}
 	for _, s := range stats {
@@ -90,22 +90,22 @@ func ParseUserStats(stats []Stat) map[string]UserBytes {
 	return out
 }
 
-// 分流出站的 tag（SAVE-1 直连 / SAVE-4 屏蔽，与 routing.Merge 补的出站一致）。
+// the routed outbound tags (SAVE-1 direct / SAVE-4 blocked, matching the outbounds routing.Merge adds).
 const (
 	directOutboundTag = "direct"
 	blockOutboundTag  = "block"
 )
 
-// OutboundBytes 是一次查询周期内分流出站的字节增量（节省报表数据源）。
+// OutboundBytes is the routed outbound byte delta within one query cycle (a savings-report data source).
 type OutboundBytes struct {
-	Direct  uint64 // 直连分流出站（SAVE-1：命中国内/静态清单不进隧道）
-	Blocked uint64 // 屏蔽出站（SAVE-4：blackhole 收到的请求字节）
+	Direct  uint64 // direct routed outbound (SAVE-1: hits on domestic/static lists never enter the tunnel)
+	Blocked uint64 // blocked outbound (SAVE-4: the request bytes the blackhole received)
 }
 
-// QueryOutboundStats 查询并清零分流出站的流量计数，返回本周期
-// 直连与拦截的字节增量。reset=true 清零全部 outbound 计数，直连与
-// 屏蔽必须在同一次查询里一起取（分开查会互相清成零）。
-// 未配置对应清单时相应计数恒 0 不报错。
+// QueryOutboundStats queries and resets the routed outbound traffic counters, returning this cycle's
+// direct and blocked byte deltas. reset=true zeroes every outbound counter, so the direct and
+// blocked ones must be taken in the same query (querying them separately would zero each other out).
+// when the corresponding list is not configured, that counter stays 0 without an error.
 func (c *Client) QueryOutboundStats(ctx context.Context) (OutboundBytes, error) {
 	payload, err := grpcUnary(ctx, c.addr, queryStatsMethod, encodeQueryStatsReq("outbound>>>", true))
 	if err != nil {
@@ -118,8 +118,8 @@ func (c *Client) QueryOutboundStats(ctx context.Context) (OutboundBytes, error) 
 	return ParseOutboundStats(stats), nil
 }
 
-// ParseOutboundStats 聚合 outbound>>><tag>>>traffic>>>uplink|downlink 中
-// direct 与 block 出站的字节增量（各自上下行求和；黑洞出站通常只有 uplink）。
+// ParseOutboundStats aggregates the byte deltas of the direct and block outbounds from
+// outbound>>><tag>>>traffic>>>uplink|downlink (summing each one's up and down; a blackhole outbound usually has only uplink).
 func ParseOutboundStats(stats []Stat) OutboundBytes {
 	var out OutboundBytes
 	for _, s := range stats {
@@ -140,17 +140,17 @@ func ParseOutboundStats(stats []Stat) OutboundBytes {
 	return out
 }
 
-// Collector 把 stats 查询适配为 traffic 包的采集口径（Collector + UserCollector）。
+// Collector adapts the stats queries to the traffic package's collection rules (Collector + UserCollector).
 type Collector struct {
 	client *Client
 }
 
-// NewCollector 创建 xray kind 的流量采集器。
+// NewCollector creates a traffic collector of the xray kind.
 func NewCollector(addr string, logger *log.Logger) *Collector {
 	return &Collector{client: New(addr, logger)}
 }
 
-// Collect 返回节点级增量（全部用户增量求和）；conns 无来源恒 0。
+// Collect returns the node-level delta (the sum of all user deltas); conns has no source and is always 0.
 func (c *Collector) Collect(proc string) (rx, tx uint64, conns int, err error) {
 	users, err := c.CollectUsers(proc)
 	if err != nil {
@@ -163,7 +163,7 @@ func (c *Collector) Collect(proc string) (rx, tx uint64, conns int, err error) {
 	return rx, tx, 0, nil
 }
 
-// CollectUsers 返回一次查询周期内 per-email 的流量增量。
+// CollectUsers returns the per-email traffic deltas within one query cycle.
 func (c *Collector) CollectUsers(proc string) ([]agentproto.UserTraffic, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), collectTimeout)
 	defer cancel()
@@ -174,14 +174,14 @@ func (c *Collector) CollectUsers(proc string) ([]agentproto.UserTraffic, error) 
 	out := make([]agentproto.UserTraffic, 0, len(byEmail))
 	for email, u := range byEmail {
 		if u.Rx == 0 && u.Tx == 0 {
-			continue // 零增量不进上报，避免空行噪音
+			continue // a zero delta is never reported, keeping empty-line noise out
 		}
 		out = append(out, agentproto.UserTraffic{Email: email, Rx: u.Rx, Tx: u.Tx})
 	}
 	return out, nil
 }
 
-// CollectOutbound 返回一次查询周期内直连与拦截出站的字节增量（SAVE-4/7）。
+// CollectOutbound returns the direct and blocked outbound byte deltas within one query cycle (SAVE-4/7).
 func (c *Collector) CollectOutbound(proc string) (direct, blocked uint64, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), collectTimeout)
 	defer cancel()

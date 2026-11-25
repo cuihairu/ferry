@@ -1,8 +1,8 @@
-// 极简 gRPC unary 客户端与 proto3 手写编解码，只为 QueryStats 一条调用存在。
-// 为什么不用 google.golang.org/grpc：完整客户端会把核心二进制顶到 10MB 预算外
-// （E-4 实测 +8.3MB），而这里只调 xray 的一个方法。走 h2c 明文（xray api
-// 只暴露在 127.0.0.1），HTTP/2 由 golang.org/x/net/http2 承担，消息体按
-// stats.proto 的字段号手写 varint 编解码。
+// A minimal gRPC unary client with hand-written proto3 codec, existing for one call only: QueryStats.
+// Why not google.golang.org/grpc: the full client would push the core binary past the 10MB budget
+// (E-4 measured +8.3MB), while this only calls one xray method. It goes over h2c plaintext (the xray api
+// is exposed on 127.0.0.1 only), HTTP/2 is carried by golang.org/x/net/http2, and message bodies are
+// hand-coded as varints per the field numbers of stats.proto.
 package xraystats
 
 import (
@@ -21,16 +21,16 @@ import (
 	"golang.org/x/net/http2"
 )
 
-// grpcUnary 对 addr 发起一次 gRPC unary 调用，返回首条响应消息的净载荷
-// （已剥 5 字节 gRPC 分帧头）。错误含 gRPC status 非 0 与传输失败两类。
+// grpcUnary makes one gRPC unary call to addr and returns the clean payload of the first response message
+// (the 5-byte gRPC framing header already stripped). Errors cover both a non-zero gRPC status and transport failures.
 func grpcUnary(ctx context.Context, addr, method string, req []byte) ([]byte, error) {
 	t := &http2.Transport{
-		AllowHTTP: true, // h2c 明文先验连接
+		AllowHTTP: true, // verify the connection over h2c plaintext first
 		DialTLS: func(network, a string, _ *tls.Config) (net.Conn, error) {
 			return net.Dial(network, a)
 		},
 	}
-	// gRPC 分帧：1 字节压缩标志（恒 0）+ 4 字节大端长度 + 消息体
+	// gRPC framing: 1 byte compression flag (always 0) + 4 bytes big-endian length + the message body
 	frame := make([]byte, 5+len(req))
 	binary.BigEndian.PutUint32(frame[1:5], uint32(len(req)))
 	copy(frame[5:], req)
@@ -55,7 +55,7 @@ func grpcUnary(ctx context.Context, addr, method string, req []byte) ([]byte, er
 	if err != nil {
 		return nil, err
 	}
-	// gRPC 应答的 grpc-status 恒在 trailer；读完 body 后才可见
+	// the grpc-status of a gRPC reply always lives in the trailer, visible only after the body has been read
 	if st := resp.Trailer.Get("Grpc-Status"); st != "" && st != "0" {
 		return nil, fmt.Errorf("grpc status %s: %s", st, grpcUnescape(resp.Trailer.Get("Grpc-Message")))
 	}
@@ -69,7 +69,7 @@ func grpcUnary(ctx context.Context, addr, method string, req []byte) ([]byte, er
 	return payload[5 : 5+n], nil
 }
 
-// grpcUnescape 解 gRPC percent-encoding 的 Grpc-Message（%AB 十六进制）。
+// grpcUnescape decodes the gRPC percent-encoding of Grpc-Message (%AB hexadecimal).
 func grpcUnescape(s string) string {
 	if !strings.Contains(s, "%") {
 		return s
@@ -88,22 +88,22 @@ func grpcUnescape(s string) string {
 	return string(out)
 }
 
-// ---- proto3 手写编解码（字段号见 stats.proto）----
+// ---- hand-written proto3 codec (field numbers per stats.proto) ----
 
-// pbAppendVarint 追加一个 varint 字段（wire type 0）。
+// pbAppendVarint appends a varint field (wire type 0).
 func pbAppendVarint(b []byte, field uint32, v uint64) []byte {
 	b = binary.AppendUvarint(b, uint64(field)<<3|0)
 	return binary.AppendUvarint(b, v)
 }
 
-// pbAppendBytes 追加一个 length-delimited 字段（wire type 2）。
+// pbAppendBytes appends a length-delimited field (wire type 2).
 func pbAppendBytes(b []byte, field uint32, v []byte) []byte {
 	b = binary.AppendUvarint(b, uint64(field)<<3|2)
 	b = binary.AppendUvarint(b, uint64(len(v)))
 	return append(b, v...)
 }
 
-// pbConsumeTag 读字段头，返回 field 号、wire type 与剩余体。
+// pbConsumeTag reads a field header and returns the field number, wire type and the remaining body.
 func pbConsumeTag(b []byte) (field uint32, wire uint64, rest []byte, err error) {
 	tag, n := binary.Uvarint(b)
 	if n <= 0 {
@@ -112,7 +112,7 @@ func pbConsumeTag(b []byte) (field uint32, wire uint64, rest []byte, err error) 
 	return uint32(tag >> 3), tag & 7, b[n:], nil
 }
 
-// pbConsumeVarint 读一个 varint 值。
+// pbConsumeVarint reads one varint value.
 func pbConsumeVarint(b []byte) (uint64, []byte, error) {
 	v, n := binary.Uvarint(b)
 	if n <= 0 {
@@ -121,7 +121,7 @@ func pbConsumeVarint(b []byte) (uint64, []byte, error) {
 	return v, b[n:], nil
 }
 
-// pbSkip 跳过一个非关注字段体。
+// pbSkip skips the body of a field we do not care about.
 func pbSkip(b []byte, wire uint64) ([]byte, error) {
 	switch wire {
 	case 0:
@@ -151,7 +151,7 @@ func pbSkip(b []byte, wire uint64) ([]byte, error) {
 	}
 }
 
-// decodeStat 解 Stat{1:name, 2:value}。
+// decodeStat parses Stat{1:name, 2:value}.
 func decodeStat(b []byte) (Stat, error) {
 	var s Stat
 	for len(b) > 0 {
@@ -186,7 +186,7 @@ func decodeStat(b []byte) (Stat, error) {
 	return s, nil
 }
 
-// decodeQueryStatsResp 解 QueryStatsResponse{1: repeated Stat}。
+// decodeQueryStatsResp parses QueryStatsResponse{1: repeated Stat}.
 func decodeQueryStatsResp(b []byte) ([]Stat, error) {
 	var out []Stat
 	for len(b) > 0 {
@@ -217,7 +217,7 @@ func decodeQueryStatsResp(b []byte) ([]Stat, error) {
 	return out, nil
 }
 
-// encodeQueryStatsReq 编 QueryStatsRequest{1:pattern, 2:reset}。
+// encodeQueryStatsReq encodes QueryStatsRequest{1:pattern, 2:reset}.
 func encodeQueryStatsReq(pattern string, reset bool) []byte {
 	var b []byte
 	b = pbAppendBytes(b, 1, []byte(pattern))
