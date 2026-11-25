@@ -47,6 +47,13 @@ func (h *Handler) createNode(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
+	if pid, provided := h.resolveProviderID(c, &in); provided {
+		if err := h.db.Model(n).Update("provider_id", pid).Error; err != nil {
+			fail(c, http.StatusInternalServerError, err)
+			return
+		}
+		n.ProviderID = pid
+	}
 	c.JSON(http.StatusCreated, n)
 }
 
@@ -154,6 +161,9 @@ func (h *Handler) updateNode(c *gin.Context) {
 	if metaProvided {
 		// once the panel has edited metadata, registration reports no longer override it.
 		updates["meta_init"] = true
+	}
+	if pid, provided := h.resolveProviderID(c, &in); provided {
+		updates["provider_id"] = pid
 	}
 	if err := h.db.Model(&storage.Node{}).Where("id=?", n.ID).Updates(updates).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
@@ -336,10 +346,31 @@ func metaUpdates(in *model.NodeInput) map[string]any {
 	if in.ISP != "" {
 		out["isp"] = in.ISP
 	}
+	if in.ASN != "" {
+		out["asn"] = strings.TrimSpace(in.ASN)
+	}
 	if in.Transport != "" {
 		out["transport"] = in.Transport
 	}
 	return out
+}
+
+// resolveProviderID validates a provider link request (F-0207): nil keeps the
+// current value, 0 clears the link, >0 must reference an existing provider.
+// Returns (value, provided).
+func (h *Handler) resolveProviderID(c *gin.Context, in *model.NodeInput) (*uint, bool) {
+	if in.ProviderID == nil {
+		return nil, false
+	}
+	if *in.ProviderID == 0 {
+		return nil, true
+	}
+	var p storage.Provider
+	if err := h.db.First(&p, *in.ProviderID).Error; err != nil {
+		fail(c, http.StatusBadRequest, errors.New("provider not found"))
+		return nil, true
+	}
+	return in.ProviderID, true
 }
 
 // applyMetaInput stores metadata from the request at node creation; any
@@ -359,6 +390,7 @@ func applyMetaInput(n *storage.Node, in *model.NodeInput) {
 	set(&n.City, in.City)
 	set(&n.Datacenter, in.Datacenter)
 	set(&n.ISP, in.ISP)
+	set(&n.ASN, in.ASN)
 	set(&n.Transport, in.Transport)
 	if provided {
 		n.MetaInit = true

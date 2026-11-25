@@ -176,6 +176,8 @@ type Node struct {
 	City                     string     `gorm:"size:64" json:"city"`
 	Datacenter               string     `gorm:"size:128" json:"datacenter"`
 	ISP                      string     `gorm:"size:32;default:未知" json:"isp"`          // ISP, the fault-aggregation dimension
+	ASN                      string     `gorm:"size:32" json:"asn"`                     // autonomous system number of the upstream network (F-0207)
+	ProviderID               *uint      `gorm:"index" json:"provider_id"`               // owning cloud Provider row, panel-set (F-0207)
 	Labels                   string     `gorm:"type:text" json:"labels"`                // JSON array
 	Transport                string     `gorm:"size:16;default:tls" json:"transport"`   // tls/quic/ws-tls/ssh
 	BillingType              string     `gorm:"size:16;default:包月" json:"billing_type"` // traffic/monthly/fixed bandwidth
