@@ -56,7 +56,17 @@ func TestActionCancelledAtLevelDeadline(t *testing.T) {
 		t.Fatal("action never cancelled at the level deadline")
 	}
 
-	rec := loadRecovery(t, db, n.ID)
+	// The action signals before runAction writes back, so poll for the landed row
+	// instead of racing the engine's final update.
+	deadline := time.Now().Add(2 * time.Second)
+	var rec storage.Recovery
+	for time.Now().Before(deadline) {
+		rec = loadRecovery(t, db, n.ID)
+		if rec.ActionState == ActionFailed {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	if rec.ActionState != ActionFailed || !strings.Contains(rec.LastErr, "deadline") {
 		t.Fatalf("after cancel = %+v", rec)
 	}
