@@ -732,50 +732,50 @@ External Client
 -   [x] `F-0244` 第一阶段 Path 只要求支持 Entry → Landing。
     - 备注（Task ID: F-0244 | Status: Done | Evidence: LandingAssignment{EntryNodeID,LandingNodeID,Region,Direction,Strategy}(models.go:181-199)+alloc sweep 真实分配(alloc.go:442-557) | Verification: TestLandingAssignment/TestLandingAssignmentAndProbeReport | Commit: 8335a58）
 -   [x] `F-0245` 定义 Path 与 Entry Node 的关联。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
-    - 完成（F-0245 | Path.EntryNodeID 关联真实 Node 行，创建/更新均校验存在（validatePathInput）。 | Verification: TestPathGroupMembers/TestPathCRUD | Commit: 2455a6c）
--   [ ] `F-0269` 支持 Group 可用性统计。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0269 | 未满足原因：Group 可用性统计尚未实现（依赖 F-0268 健康聚合）。）
--   [x] `F-0267` 支持手动排除 Path。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
-    - 完成（F-0267 | PathGroupMember.Excluded 标记手动排除；PATCH 可切换，GET 详情返回该标记。 | Verification: TestPathGroupMembers | Commit: 2455a6c）
--   [x] `F-0265` 支持候选 Path 顺序。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
-    - 完成（F-0265 | PathGroupMember.Position 排序；PATCH 调整 position，GET 详情按 position ASC 返回。 | Verification: TestPathGroupMembers | Commit: 2455a6c）
--   [x] `F-0263` 支持 Path 加入和移出 Group。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
-    - 完成（F-0263 | POST/DELETE /api/path-groups/:id/members/:pathId 加入/移出成员，重复加入 409。 | Verification: TestPathGroupMembers | Commit: 2455a6c）
--   [x] `F-0254` 定义 Path 删除时的依赖检查。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
-    - 完成（F-0254 | deletePath 先查 PathGroupMember 引用，有引用返回 409；TestPathDeleteDependencyCheck 覆盖。 | Verification: TestPathDeleteDependencyCheck | Commit: 2455a6c）
--   [x] `F-0252` 定义 Path 的配置版本。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
-    - 完成（F-0252 | Path.Version 整数，create=1、update 递增；TestPathCRUD 验证更新后版本为 2。 | Verification: TestPathCRUD | Commit: 2455a6c）
--   [x] `F-0250` 定义 Path 的启停状态。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
-    - 完成（F-0250 | Path.Enabled 布尔字段，默认 true；create/update 显式写回，list 支持 enabled 筛选。 | Verification: TestPathCRUD | Commit: 2455a6c）
+    - 完成（F-0245 | Path.EntryNodeID 关联真实 Node 行，创建/更新均校验存在（validatePathInput）。 | Verification: TestPathCRUD | Commit: 2455a6c）
+-   [x] `F-0246` 定义 Path 与 Landing Node 的关联。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
+    - 完成（F-0246 | Path.LandingNodeID 关联真实 Node 行，创建/更新均校验存在（validatePathInput）。 | Verification: TestPathCRUD | Commit: 2455a6c）
+-   [x] `F-0247` 定义 Path 与 Tunnel/Relay 的关联。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
+    - 完成（F-0247 | Path.RelayNodeID 可选指针，nil=直连隧道；非 nil 校验节点存在（validatePathInput）。 | Verification: TestPathCRUD | Commit: 2455a6c）
 -   [x] `F-0248` 允许一个 Entry 关联多个 Path。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
     - 完成（F-0248 | Path 表无 (entry_node_id) 唯一约束；TestPathCRUD 验证同 entry 建两条 Path。 | Verification: TestPathCRUD | Commit: 2455a6c）
--   [x] `F-0246` 定义 Path 与 Landing Node 的关联。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
-    - 完成（F-0246 | Path.LandingNodeID 关联真实 Node 行，创建/更新均校验存在（validatePathInput）。 | Verification: TestPathCRUD | TestPathDeleteDependencyCheck | Commit: 2455a6c）
--   [x] `F-0247` 定义 Path 与 Tunnel/Relay 的关联。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
-    - 完成（F-0247 | Path.RelayNodeID 可选指针，nil=直连隧道；非 nil 校验节点存在（validatePathInput）。 | Verification: TestPathGroupMembers/TestPathCRUD | Commit: 2455a6c）
 -   [x] `F-0249` 允许一个 Landing 关联多个 Path。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
-    - 完成（F-0249 | Path 表无 (landing_node_id) 唯一约束；TestPathCRUD 验证同 landing 建两条 Path。 | Verification: TestPathGroupMembers/TestPathCRUD | Commit: 2455a6c）
+    - 完成（F-0249 | Path 表无 (landing_node_id) 唯一约束；TestPathCRUD 验证同 landing 建两条 Path。 | Verification: TestPathCRUD | Commit: 2455a6c）
+-   [x] `F-0250` 定义 Path 的启停状态。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
+    - 完成（F-0250 | Path.Enabled 布尔字段，默认 true；create/update 显式写回，list 支持 enabled 筛选。 | Verification: TestPathCRUD | Commit: 2455a6c）
 -   [ ] `F-0251` 定义 Path 的健康状态。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0251 | 未满足原因：Path 无独立健康字段，节点级健康/探测报告已有但 Path 级健康状态未落地；待 group 健康聚合一并实现。）
+-   [x] `F-0252` 定义 Path 的配置版本。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
+    - 完成（F-0252 | Path.Version 整数，create=1、update 递增；TestPathCRUD 验证更新后版本为 2。 | Verification: TestPathCRUD | Commit: 2455a6c）
 -   [x] `F-0253` 定义 Path 的变更历史。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
-    - 完成（F-0253 | Path 变更历史由 auditMiddleware 记录每次 create/update/delete 的请求体快照（AuditLog 表）。 | Verification: TestPathGroupMembers/TestPathCRUD | Commit: 2455a6c）
+    - 完成（F-0253 | Path 变更历史由 auditMiddleware 记录每次 create/update/delete 的请求体快照（AuditLog 表）。 | Verification: TestPathCRUD | Commit: 2455a6c）
+-   [x] `F-0254` 定义 Path 删除时的依赖检查。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
+    - 完成（F-0254 | deletePath 先查 PathGroupMember 引用，有引用返回 409；TestPathDeleteDependencyCheck 覆盖。 | Verification: TestPathDeleteDependencyCheck | Commit: 2455a6c）
 -   [x] `F-0255` 提供 Path 查询和详情 API。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
-    - 完成（F-0255 | GET /api/paths 支持 entry/landing/region/direction/enabled 筛选，GET /api/paths/:id 详情。 | Verification: TestPathGroupMembers/TestPathCRUD | Commit: 2455a6c）
+    - 完成（F-0255 | GET /api/paths 支持 entry/landing/region/direction/enabled 筛选，GET /api/paths/:id 详情。 | Verification: TestPathCRUD | Commit: 2455a6c）
 
 ## 2.4 Path Group
 
 -   [x] `F-0261` 定义 Path Group 数据结构或确认现有等价模型。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 完成（F-0261 | PathGroup{name,direction,region,purpose,default_path_id,enabled}+PathGroupMember{group_id,path_id,position,excluded} 模型与 AutoMigrate。 | Verification: TestPathGroupMembers/TestPathCRUD | Commit: 2455a6c）
+    - 完成（F-0261 | PathGroup{name,direction,region,purpose,default_path_id,enabled}+PathGroupMember{group_id,path_id,position,excluded} 模型与 AutoMigrate。 | Verification: TestPathGroupMembers | Commit: 2455a6c）
 -   [x] `F-0262` 支持创建和编辑 Path Group。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
-    - 完成（F-0262 | /api/path-groups 创建/编辑/删除+筛选（name 唯一冲突 409）。 | Verification: TestPathGroupMembers/TestPathCRUD | Commit: 2455a6c）
+    - 完成（F-0262 | /api/path-groups 创建/编辑/删除+筛选（name 唯一冲突 409）。 | Verification: TestPathGroupMembers | Commit: 2455a6c）
+-   [x] `F-0263` 支持 Path 加入和移出 Group。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
+    - 完成（F-0263 | POST/DELETE /api/path-groups/:id/members/:pathId 加入/移出成员，重复加入 409。 | Verification: TestPathGroupMembers | Commit: 2455a6c）
 -   [x] `F-0264` 支持 Group 默认 Path。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
-    - 完成（F-0264 | PUT 设置 default_path_id 必须已是组成员；移除默认成员时自动清空默认。 | Verification: TestPathGroupMembers/TestPathCRUD | Commit: 2455a6c）
+    - 完成（F-0264 | PUT 设置 default_path_id 必须已是组成员；移除默认成员时自动清空默认。 | Verification: TestPathGroupMembers | Commit: 2455a6c）
+-   [x] `F-0265` 支持候选 Path 顺序。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
+    - 完成（F-0265 | PathGroupMember.Position 排序；PATCH 调整 position，GET 详情按 position ASC 返回。 | Verification: TestPathGroupMembers | Commit: 2455a6c）
 -   [x] `F-0266` 支持按方向、区域和用途组织 Group。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
-    - 完成（F-0266 | Group 支持 direction/region/purpose 组织与筛选；成员 direction 必须与组一致。 | Verification: TestPathGroupMembers/TestPathCRUD | Commit: 2455a6c）
+    - 完成（F-0266 | Group 支持 direction/region/purpose 组织与筛选；成员 direction 必须与组一致。 | Verification: TestPathGroupMembers | Commit: 2455a6c）
+-   [x] `F-0267` 支持手动排除 Path。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
+    - 完成（F-0267 | PathGroupMember.Excluded 标记手动排除；PATCH 可切换，GET 详情返回该标记。 | Verification: TestPathGroupMembers | Commit: 2455a6c）
 -   [ ] `F-0268` 支持 Group 健康状态聚合。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
     - 待补（F-0268 | 未满足原因：Group 健康状态聚合尚未实现，需节点级健康数据源接入；依赖 Path 级健康（F-0251）。）
+-   [ ] `F-0269` 支持 Group 可用性统计。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
+    - 待补（F-0269 | 未满足原因：Group 可用性统计尚未实现（依赖 F-0268 健康聚合）。）
 -   [ ] `F-0270` 支持 Group 与订阅策略关联。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0270 | 未满足原因：Group 与订阅策略关联尚未实现，依赖 F-0282 Policy 模型。 | 依赖：F-0282）
+    - 待补（F-0270 | 未满足原因：Group 与订阅策略关联尚未实现，依赖 F-0282 Policy 模型。）
 
 ## 2.5 Policy
 
