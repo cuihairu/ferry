@@ -1,5 +1,5 @@
-// Package link 维护与面板的出站 WebSocket 长连接：拨号、指数退避重连、收发分发。
-// agent 只出站连接，不在本机开任何入站端口。
+// Package link maintains the outbound WebSocket long connection to the panel: dialing, exponential-backoff reconnect and message dispatch.
+// The agent only makes outbound connections and opens no inbound ports on the host.
 package link
 
 import (
@@ -17,34 +17,34 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// Handlers 是 link 回调给上层（app）的消息入口。
+// Handlers is the message entry point the link calls back into the upper layer (app).
 type Handlers interface {
-	// OnConnected 在连接建立后调用，用于发送握手；期间读循环已在运行，
-	// 握手应答（hello_ack）经 OnMessage 送达；返回错误触发退避重连。
+	// OnConnected is called after the connection is established and sends the handshake; the read loop is already
+	// running by then, so the handshake reply (hello_ack) arrives via OnMessage; a returned error triggers a backoff reconnect.
 	OnConnected(ctx context.Context, send func(agentproto.Envelope) error) error
-	// OnMessage 处理面板下发的消息。
+	// OnMessage handles messages delivered by the panel.
 	OnMessage(ctx context.Context, env agentproto.Envelope, send func(agentproto.Envelope) error)
-	// OnDisconnected 在每次连接断开后调用一次。
+	// OnDisconnected is called once after every disconnect.
 	OnDisconnected()
 }
 
-// Options 是 link 的拨号参数。
+// Options holds the link dial parameters.
 type Options struct {
-	URL        string        // wss:// 或 ws:// 面板地址
-	CAFile     string        // 自签 CA，空则用系统根证书
-	CertFile   string        // mTLS 客户端证书
-	KeyFile    string        // mTLS 客户端私钥
-	MinBackoff time.Duration // 重连起始退避，默认 1s
-	MaxBackoff time.Duration // 重连上限退避，默认 30s
+	URL        string        // wss:// or ws:// panel address
+	CAFile     string        // self-signed CA; empty uses the system root certificates
+	CertFile   string        // mTLS client certificate
+	KeyFile    string        // mTLS client private key
+	MinBackoff time.Duration // initial reconnect backoff, default 1s
+	MaxBackoff time.Duration // maximum reconnect backoff, default 30s
 	Log        *log.Logger
 }
 
-// Client 是可重连的出站连接。
+// Client is a reconnectable outbound connection.
 type Client struct {
 	opt Options
 }
 
-// New 创建 client。
+// New creates a client.
 func New(opt Options) *Client {
 	if opt.MinBackoff <= 0 {
 		opt.MinBackoff = time.Second
@@ -58,7 +58,7 @@ func New(opt Options) *Client {
 	return &Client{opt: opt}
 }
 
-// Run 阻塞运行直到 ctx 取消：连接 → 交给 handlers → 断开 → 退避重连。
+// Run blocks until the ctx is cancelled: connect -> hand over to handlers -> disconnect -> backoff and reconnect.
 func (c *Client) Run(ctx context.Context, h Handlers) error {
 	backoff := c.opt.MinBackoff
 	for {
@@ -103,18 +103,18 @@ func (c *Client) connectOnce(ctx context.Context, h Handlers) error {
 	connCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// ctx 结束时关连接，解除阻塞中的读。
+	// close the connection when the ctx ends, unblocking the in-flight read.
 	go func() {
 		<-connCtx.Done()
 		conn.Close()
 	}()
 
-	// 读循环先于 OnConnected 启动：握手应答（hello_ack）要在 OnConnected
-	// 阻塞等待期间被读进来并经 OnMessage 送达，后启动会让握手必超时。
+	// the read loop starts before OnConnected: the handshake reply (hello_ack) must be read off the socket
+	// while OnConnected is blocking on it and delivered via OnMessage; a later start would time out every handshake.
 	readErr := make(chan error, 1)
 	go func() { readErr <- c.readLoop(connCtx, h, send, conn) }()
 	if err := h.OnConnected(connCtx, send); err != nil {
-		cancel() // 关连接解除读阻塞，读循环随 connCtx 退出
+		cancel() // closing the connection unblocks the read and the read loop exits with connCtx
 		<-readErr
 		return err
 	}
@@ -165,7 +165,7 @@ func (c *Client) readLoop(ctx context.Context, h Handlers, send func(agentproto.
 	}
 }
 
-// sender 串行化写操作，websocket 连接不允许多 goroutine 并发写。
+// sender serializes writes; a websocket connection does not allow concurrent writes from multiple goroutines.
 func newSender(conn *websocket.Conn) func(agentproto.Envelope) error {
 	var mu sync.Mutex
 	return func(env agentproto.Envelope) error {

@@ -14,12 +14,12 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// TestRunDialErrorReconnectsUntilCancel 面板不可达：记连接失败与退避日志，
-// 按退避循环重试直到 ctx 取消。
+// TestRunDialErrorReconnectsUntilCancel covers an unreachable panel: the dial failure and backoff are logged,
+// and the backoff loop retries until the ctx is cancelled.
 func TestRunDialErrorReconnectsUntilCancel(t *testing.T) {
 	var buf bytes.Buffer
 	c := New(Options{
-		URL:        "ws://127.0.0.1:1/agent/ws", // 拒绝连接
+		URL:        "ws://127.0.0.1:1/agent/ws", // refuse the connection
 		MinBackoff: 5 * time.Millisecond,
 		MaxBackoff: 10 * time.Millisecond,
 		Log:        log.New(&buf, "", 0),
@@ -37,8 +37,8 @@ func TestRunDialErrorReconnectsUntilCancel(t *testing.T) {
 	}
 }
 
-// cancelOnConnectedHandlers 在 OnConnected 里取消 ctx 并报错：模拟握手
-// 期间连接被撤（connectOnce 返回时 ctx 已取消，Run 应原样上抛不再退避）。
+// cancelOnConnectedHandlers cancels the ctx and returns an error inside OnConnected: it simulates the
+// connection being torn down mid-handshake (connectOnce returns with the ctx already cancelled, so Run should propagate it as is instead of backing off).
 type cancelOnConnectedHandlers struct{ cancel context.CancelFunc }
 
 func (h *cancelOnConnectedHandlers) OnConnected(context.Context, func(agentproto.Envelope) error) error {
@@ -51,11 +51,11 @@ func (h *cancelOnConnectedHandlers) OnMessage(context.Context, agentproto.Envelo
 
 func (h *cancelOnConnectedHandlers) OnDisconnected() {}
 
-// TestRunCancelDuringConnectOnce ctx 在连接生命周期内取消：connectOnce
-// 返回后 Run 原样返回 ctx.Err()，而不是继续重连循环。
+// TestRunCancelDuringConnectOnce covers the ctx being cancelled within the connection lifetime: after connectOnce
+// returns, Run returns ctx.Err() as is instead of continuing the reconnect loop.
 func TestRunCancelDuringConnectOnce(t *testing.T) {
 	url := wsServer(t, func(conn *websocket.Conn, _ int) {
-		for { // 陪跑到客户端主动断开
+		for { // run alongside until the client disconnects on its own
 			if _, _, err := conn.ReadMessage(); err != nil {
 				return
 			}
@@ -71,7 +71,7 @@ func TestRunCancelDuringConnectOnce(t *testing.T) {
 	}
 }
 
-// TestTLSKeyPairLoadError mTLS 证书对文件打不开：装配失败先于拨号。
+// TestTLSKeyPairLoadError covers an unreadable mTLS certificate pair file: assembly fails before dialing.
 func TestTLSKeyPairLoadError(t *testing.T) {
 	c := New(Options{CertFile: "/nonexistent/cert.pem", KeyFile: "/nonexistent/key.pem"})
 	if _, err := c.tlsConfig(); err == nil {
@@ -79,9 +79,9 @@ func TestTLSKeyPairLoadError(t *testing.T) {
 	}
 }
 
-// TestSenderMarshalError 载荷不是合法 JSON：发送口报错且不触碰连接。
+// TestSenderMarshalError covers a payload that is not valid JSON: the sender errors out and never touches the connection.
 func TestSenderMarshalError(t *testing.T) {
-	send := newSender(nil) // marshal 先失败，连接不会被用到
+	send := newSender(nil) // marshal fails first, so the connection is never used
 	err := send(agentproto.Envelope{V: 1, ID: "x", Type: "probe.report",
 		Payload: json.RawMessage("{oops")})
 	if err == nil {

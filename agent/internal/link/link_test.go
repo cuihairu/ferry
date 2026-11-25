@@ -23,9 +23,9 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// 回归（2026-10-10 dogfood 发现）：读循环必须先于 OnConnected 启动——
-// hello_ack 在 OnConnected 阻塞等待期间到达，后启动读循环会让 ack 落在
-// 无人读的 socket 缓冲里，agent 对真实面板永远握手超时。
+// Regression (found in 2026-10-10 dogfooding): the read loop must start before OnConnected --
+// hello_ack arrives while OnConnected is blocking on it, so a late read loop would leave the ack
+// sitting in a socket buffer nobody reads, and the agent would time out every handshake against the real panel.
 func TestConnectOnceDeliversHelloAckDuringHandshake(t *testing.T) {
 	up := websocket.Upgrader{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -64,7 +64,7 @@ func TestConnectOnceDeliversHelloAckDuringHandshake(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- c.connectOnce(ctx, h) }()
-	// 握手应答必须在 OnConnected 等待窗口内经读循环送达。
+	// the handshake reply must be delivered by the read loop inside the OnConnected wait window.
 	select {
 	case env := <-acks:
 		if env.Type != agentproto.MsgHelloAck {
@@ -74,7 +74,7 @@ func TestConnectOnceDeliversHelloAckDuringHandshake(t *testing.T) {
 		cancel()
 		t.Fatal("hello_ack not delivered during handshake")
 	}
-	// 断开后 connectOnce 应回收。
+	// connectOnce must be reclaimed after the disconnect.
 	cancel()
 	select {
 	case <-done:
@@ -83,8 +83,8 @@ func TestConnectOnceDeliversHelloAckDuringHandshake(t *testing.T) {
 	}
 }
 
-// fakeHandlers 的 OnConnected 模拟 app 的握手语义：发 hello 后阻塞等
-// hello_ack（该 ack 只能经 OnMessage 由读循环送达）。
+// fakeHandlers' OnConnected mimics the app handshake semantics: after sending hello it blocks waiting
+// for hello_ack (that ack can only be delivered via OnMessage by the read loop).
 type fakeHandlers struct{ acks chan agentproto.Envelope }
 
 func (f fakeHandlers) OnConnected(ctx context.Context, send func(agentproto.Envelope) error) error {
@@ -114,7 +114,7 @@ func (f fakeHandlers) OnMessage(_ context.Context, env agentproto.Envelope, _ fu
 
 func (f fakeHandlers) OnDisconnected() {}
 
-// runHandlers 供 Run 用：握手立即返回，由服务端断连驱动重连循环。
+// runHandlers is what Run uses: the handshake returns immediately and server-side disconnects drive the reconnect loop.
 type runHandlers struct{ connects, disconnects int64 }
 
 func (r *runHandlers) OnConnected(context.Context, func(agentproto.Envelope) error) error { return nil }
@@ -122,7 +122,7 @@ func (r *runHandlers) OnMessage(context.Context, agentproto.Envelope, func(agent
 }
 func (r *runHandlers) OnDisconnected() { atomic.AddInt64(&r.disconnects, 1) }
 
-// echoHandler 收集读循环送来的合法消息，用于验证丢弃分支不误伤后续消息。
+// echoHandler collects the valid messages the read loop delivers, checking that the drop branch does not hurt later messages.
 type echoHandler struct {
 	mu  sync.Mutex
 	got []string
@@ -141,7 +141,7 @@ func (e *echoHandler) types() []string {
 	return append([]string(nil), e.got...)
 }
 
-// wsServer 起一个按 build 处理连接的 ws 端点（URL 回 http→ws）。
+// wsServer starts a ws endpoint that handles connections per build (the URL is rewritten http -> ws).
 func wsServer(t *testing.T, build func(conn *websocket.Conn, n int)) string {
 	t.Helper()
 	up := websocket.Upgrader{}
@@ -158,10 +158,10 @@ func wsServer(t *testing.T, build func(conn *websocket.Conn, n int)) string {
 	return "ws" + srv.URL[len("http"):]
 }
 
-// TestRunReconnectsUntilCancel 断连后按退避重连；ctx 取消后 Run 返回 ctx.Err()。
+// TestRunReconnectsUntilCancel covers reconnecting with backoff after a disconnect; once the ctx is cancelled Run returns ctx.Err().
 func TestRunReconnectsUntilCancel(t *testing.T) {
 	url := wsServer(t, func(conn *websocket.Conn, _ int) {
-		// 立刻断连：握手已成功（OnConnected 返回 nil），读循环随即报错。
+		// disconnect immediately: the handshake has already succeeded (OnConnected returns nil) and the read loop then errors.
 		_ = conn.Close()
 	})
 	h := &runHandlers{}
@@ -192,7 +192,7 @@ func TestRunReconnectsUntilCancel(t *testing.T) {
 	}
 }
 
-// TestRunCancelledCtxSkipsDial 已取消的 ctx 不拨号，直接返回。
+// TestRunCancelledCtxSkipsDial covers an already-cancelled ctx: no dial, immediate return.
 func TestRunCancelledCtxSkipsDial(t *testing.T) {
 	dialed := int64(0)
 	url := wsServer(t, func(conn *websocket.Conn, _ int) {
@@ -210,7 +210,7 @@ func TestRunCancelledCtxSkipsDial(t *testing.T) {
 	}
 }
 
-// TestRunTLSSetupFailure 拨号前 tlsConfig 失败即退避重试，不进握手。
+// TestRunTLSSetupFailure covers tlsConfig failing before the dial: backoff and retry, no handshake.
 func TestRunTLSSetupFailure(t *testing.T) {
 	c := New(Options{URL: "ws://127.0.0.1:1/", CAFile: "/nonexistent/ca.pem",
 		MinBackoff: 5 * time.Millisecond, MaxBackoff: 5 * time.Millisecond})
@@ -221,7 +221,7 @@ func TestRunTLSSetupFailure(t *testing.T) {
 	}
 }
 
-// TestReadLoopDropsBadMessages 坏 JSON 与错版本消息被丢弃，连接不断、后续消息照常送达。
+// TestReadLoopDropsBadMessages covers bad-JSON and wrong-version messages being dropped while the connection stays up and later messages still arrive.
 func TestReadLoopDropsBadMessages(t *testing.T) {
 	url := wsServer(t, func(conn *websocket.Conn, _ int) {
 		_ = conn.WriteMessage(websocket.TextMessage, []byte("{not json"))
@@ -255,8 +255,8 @@ func TestReadLoopDropsBadMessages(t *testing.T) {
 	}
 }
 
-// TestTLSConfig 证书口径：缺省用系统根；CA 可注；坏 CA/缺文件报错；
-// mTLS 需 cert+key 同时给出。
+// TestTLSConfig covers certificate semantics: system roots by default; a CA can be injected; bad CA/missing files error out;
+// mTLS needs cert and key given together.
 func TestTLSConfig(t *testing.T) {
 	c := New(Options{URL: "wss://panel/"})
 	cfg, err := c.tlsConfig()
@@ -299,14 +299,14 @@ func TestTLSConfig(t *testing.T) {
 	if len(cfg.Certificates) != 1 {
 		t.Fatalf("certificates = %d; want 1", len(cfg.Certificates))
 	}
-	// 缺私钥：不成对即不装载客户端证书，不报错。
+	// missing private key: without a pair no client certificate is loaded and no error is raised.
 	cfg, err = New(Options{CertFile: certPEM}).tlsConfig()
 	if err != nil || len(cfg.Certificates) != 0 {
 		t.Fatalf("cert without key = %d certs, %v; want 0, nil", len(cfg.Certificates), err)
 	}
 }
 
-// selfSignedPair 生成自签证书与私钥 PEM 文件路径。
+// selfSignedPair generates self-signed certificate and private key PEM file paths.
 func selfSignedPair(t *testing.T, dir string) (certFile, keyFile string) {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
