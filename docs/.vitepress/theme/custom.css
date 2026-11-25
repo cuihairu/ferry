@@ -48,8 +48,8 @@
   color: var(--vp-c-brand-1);
 }
 
-/* 中文正文首行缩进（两字符），仅正文段落——引用块/提示容器/列表/表格
- * 内的段落与图注不缩进。 */
+/* First-line indent (two characters) for Chinese body text, body paragraphs only —
+ * paragraphs inside blockquotes / tip containers / lists / tables and figure captions are not indented. */
 .vp-doc p {
   text-indent: 2em;
 }

@@ -1,18 +1,20 @@
 /**
- * ferry docs 浏览器语言自动跳转（P2 拍板 2026-11-22：仅自动跳转）。
+ * Browser-language auto-redirect for ferry docs (P2 decision 2026-11-22: auto-redirect only).
  *
- * 范围：只在既有中英孪生 5 对内生效，不迁 root=英文、不补深页英文版。
- * 对无孪生页面（/design/*、/deploy/*、/guide/* 等）一律不动，绝不 404。
+ * Scope: only takes effect within the five existing zh/en twin pairs; root is not migrated to English
+ * and deep-page English versions are not added.
+ * Pages without a twin (/design/*, /deploy/*, /guide/*, etc.) are never touched, so no 404s.
  *
- * 语义：
- *  - 无显式偏好时：目标语言 = 浏览器首选语言（navigator.language）。
- *    当前页语言 ≠ 目标语言且存在孪生 → 跳转到孪生。
- *  - 有显式偏好（点过真实语言切换链接，localStorage `ferry-doc-lang`）：
- *    自动跳转整体关闭——用户手动选过语言，就不再替他选（防「切回被弹回」）。
+ * Semantics:
+ *  - Without an explicit preference: target language = the browser's preferred language (navigator.language).
+ *    If the current page's language differs from the target and a twin exists -> redirect to the twin.
+ *  - With an explicit preference (a real language-switch link was clicked, localStorage `ferry-doc-lang`):
+ *    auto-redirect is disabled altogether — the user chose a language manually, so we stop choosing for
+ *    them (avoids "switching back gets bounced forward").
  */
 export type Lang = 'zh' | 'en'
 
-/** 中文路由键 → 英文孪生路由键（base 相对、不含 .html；`/` 为首页） */
+/** Chinese route key -> English twin route key (base-relative, without .html; `/` is the home page) */
 export const LANG_TWINS: Record<string, string> = {
   '/': '/index.en',
   '/herald-对接实录': '/herald-integration-log.en',
@@ -21,10 +23,10 @@ export const LANG_TWINS: Record<string, string> = {
   '/design/术语表': '/design/术语表.en',
 }
 
-/** 用户显式语言偏好的 localStorage 键（只有点过真实语言切换链接才写） */
+/** localStorage key for the user's explicit language preference (written only after clicking a real language-switch link) */
 export const LANG_PREF_KEY = 'ferry-doc-lang'
 
-/** 浏览器首选语言 → 'zh' | 'en' | null（非中英不猜） */
+/** Browser preferred language -> 'zh' | 'en' | null (no guessing for anything other than zh/en) */
 export function browserLanguage(): Lang | null {
   const raw =
     (typeof navigator !== 'undefined' &&
@@ -49,31 +51,31 @@ export function setPref(lang: Lang): void {
   try {
     localStorage.setItem(LANG_PREF_KEY, lang)
   } catch {
-    /* 隐私模式等取不到存储时静默 */
+    /* stay silent when storage is unreachable, e.g. private browsing mode */
   }
 }
 
 /**
- * 归一化路由键：解码百分号转义（浏览器 location.pathname 把中文百分号编码，
- * 而孪生键是字面中文，不解码则中文页永远匹配不上）、去 base 前缀、
- * 去尾斜杠、去 .html、去尾 index（`/index.html`→`/`，与 VitePress normalizeHref 同款）；
- * 空/`/` 统一为 `/`。
+ * Normalize a route key: decode percent escapes (the browser's location.pathname percent-encodes Chinese,
+ * while twin keys are literal Chinese, so without decoding a Chinese page can never match), strip the base
+ * prefix, strip a trailing slash, strip .html, strip a trailing index (`/index.html` -> `/`, the same
+ * treatment as VitePress' normalizeHref); empty/`/` normalize to `/`.
  */
 export function normRoute(raw: string, base: string): string {
   let p = raw.split('#')[0].split('?')[0]
   try {
     p = decodeURIComponent(p)
   } catch {
-    /* 含非法转义序列时按原样处理 */
+    /* keep the value as-is when it contains an invalid escape sequence */
   }
-  if (base && base !== '/' && p.startsWith(base)) p = p.slice(base.length - 1) // 保前导 '/'
+  if (base && base !== '/' && p.startsWith(base)) p = p.slice(base.length - 1) // keep the leading '/'
   p = p.replace(/\/+$/, '')
   p = p.replace(/\.html$/, '')
   p = p.replace(/(^|\/)index$/, '')
   return p || '/'
 }
 
-/** 若 route 落在孪生对上，返回其当前语言与对端路由键；否则 null */
+/** If route belongs to a twin pair, return its current language and the twin's route key; otherwise null */
 export function resolveTwin(route: string): { current: Lang; target: string } | null {
   if (Object.prototype.hasOwnProperty.call(LANG_TWINS, route)) {
     return { current: 'zh', target: LANG_TWINS[route] }
@@ -85,11 +87,11 @@ export function resolveTwin(route: string): { current: Lang; target: string } | 
 }
 
 /**
- * 自动跳转目标路由键；null = 不跳。
- * 规则：无显式偏好 + 当前页落在孪生对 + 当前语言 ≠ 浏览器语言 → 跳对端。
+ * Target route key for the auto-redirect; null = no redirect.
+ * Rule: no explicit preference + the current page is in a twin pair + current language != browser language -> jump to the other side.
  */
 export function autoJumpTarget(route: string, base: string): string | null {
-  if (readPref()) return null // 用户手动选过语言 → 不再替他选
+  if (readPref()) return null // the user already picked a language manually, so stop choosing for them
   const want = browserLanguage()
   if (!want) return null
   const twin = resolveTwin(normRoute(route, base))
@@ -98,12 +100,13 @@ export function autoJumpTarget(route: string, base: string): string | null {
 }
 
 /**
- * 点击拦截：仅当点击目标是「当前页的孪生」（真实语言切换链接）时写显式偏好。
- * 侧栏点同语言文档（如 zh 页点 zh 对比页）不算切换，不写偏好。
+ * Click interception: an explicit preference is written only when the click target is the
+ * "twin of the current page" (a real language-switch link). Clicking a same-language doc from the sidebar
+ * (e.g. a zh comparison page while on a zh page) is not a switch and writes no preference.
  *
- * currentRoute 由调用方传入（VitePress router.route.path）。不能读 location.pathname：
- * VitePress 的 window-capture 点击处理器先于我跑，同步 history.pushState 后
- * location.pathname 已是目标页，读它就永远匹配不上「当前页孪生」。
+ * currentRoute is passed in by the caller (VitePress' router.route.path). Do not read location.pathname:
+ * VitePress' window-capture click handler runs before this one, and after its synchronous history.pushState
+ * location.pathname already points at the destination, so reading it can never match "the current page's twin".
  */
 export function onDocClick(e: MouseEvent, base: string, currentRoute: string): void {
   const el = e.target as Element | null
