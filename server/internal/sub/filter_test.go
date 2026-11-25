@@ -1,7 +1,7 @@
-// per-sub 过滤与配置定制的纯函数单测（ferry-sub-filters）：
-// ApplyFilter 三维度各自命中/不命中/空数组不过滤、labels 坏文本容错；
-// SortEntries/BuildRemark/ApplyConfig 各配置项生效；ParseFilter/ParseConfig
-// 严格模式（未知字段 400 的判定在此层）。
+// per-sub filter and config customization pure-function unit tests (ferry-sub-filters):
+// ApplyFilter: each dimension hit/miss/empty-array-no-filter, labels bad-text tolerance;
+// SortEntries/BuildRemark/ApplyConfig config items take effect; ParseFilter/ParseConfig
+// strict mode (the unknown-field 400 verdict lives at this layer).
 package sub
 
 import (
@@ -12,7 +12,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// nodeOf 构造测试节点。
+// nodeOf builds a test node.
 func nodeOf(name, region, labels, protocol string) storage.Node {
 	return storage.Node{Name: name, Region: region, Labels: labels, Protocol: protocol}
 }
@@ -71,13 +71,13 @@ func TestApplyFilter(t *testing.T) {
 	t.Run("labels bad text tolerated", func(t *testing.T) {
 		bad := []Entry{
 			ent("x1", "香港", `{not-json`, "vless", 10),
-			ent("x2", "香港", `{"a":1}`, "vmess", 10), // 非数组
+			ent("x2", "香港", `{"a":1}`, "vmess", 10), // not an array
 		}
-		// 坏文本视为无标签：label 过滤不命中（不 panic、不 500）。
+		// Bad text is treated as no labels: label filter misses (no panic, no 500).
 		if n := ApplyFilter(bad, Filter{Labels: []string{"anything"}}); len(n) != 0 {
 			t.Fatalf("bad labels leaked: %v", names(n))
 		}
-		// 不过滤维度时坏文本节点照常出。
+		// With no filtering dimensions, bad-text nodes still come through.
 		if n := ApplyFilter(bad, Filter{}); len(n) != 2 {
 			t.Fatalf("bad labels no-filter count = %d", len(n))
 		}
@@ -91,11 +91,11 @@ func TestSortEntries(t *testing.T) {
 		ent("c", "香港", "", "vless", 0),
 		ent("d", "香港", "", "vless", 30),
 	}
-	now := time.Unix(0, 0) // 固定时间，rotate 位确定
+	now := time.Unix(0, 0) // fixed time, rotation slot deterministic
 	t.Run("region default", func(t *testing.T) {
 		got := SortEntries(entries, "", now)
-		// 区域按字符串字节序分组（美国 < 香港），组内 rtt 升序、未知殿后；
-		// now=0 时轮转偏移 0，不轮转。
+		// Regions grouped by string byte order (US < HK), ascending rtt within group, unknown last;
+		// at now=0 the rotation offset is 0, no rotation.
 		want := []string{"b", "a", "d", "c"}
 		if !reflect.DeepEqual(names(got), want) {
 			t.Fatalf("region default = %v, want %v", names(got), want)
@@ -103,7 +103,7 @@ func TestSortEntries(t *testing.T) {
 	})
 	t.Run("rtt ascending unknown last", func(t *testing.T) {
 		got := SortEntries(entries, "rtt", now)
-		want := []string{"a", "d", "b", "c"} // 20,30,50,0(未知殿后)
+		want := []string{"a", "d", "b", "c"} // 20,30,50,0(unknown last)
 		if !reflect.DeepEqual(names(got), want) {
 			t.Fatalf("rtt sort = %v, want %v", names(got), want)
 		}

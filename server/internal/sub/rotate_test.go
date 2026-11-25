@@ -37,22 +37,22 @@ func assertNames(t *testing.T, got []Entry, want ...string) {
 	}
 }
 
-// TestOrderByProbeRTT 覆盖探测结论排序：已知 RTT 升序在前、
-// 无探测数据（0）殿后且保持原序。
+// TestOrderByProbeRTT covers probe-verdict ordering: known RTT ascending first,
+// entries without probe data (0) last and keeping original order.
 func TestOrderByProbeRTT(t *testing.T) {
 	now := time.Unix(rotateWindowSec*10, 0)
 	entries := []Entry{
-		ventry("a", "香港", 0),   // 无数据
-		ventry("b", "香港", 150), // 已知
-		ventry("c", "香港", 50),  // 已知更低
-		ventry("d", "香港", 0),   // 无数据
+		ventry("a", "香港", 0),   // no data
+		ventry("b", "香港", 150), // known
+		ventry("c", "香港", 50),  // known, lower
+		ventry("d", "香港", 0),   // no data
 	}
 	got := orderByProbe(entries, now)
 	assertNames(t, got, "c", "b", "a", "d")
 }
 
-// TestOrderByProbeRotation 覆盖同 RTT 档轮转：窗口内顺序固定，
-// 跨窗口轮转一位（注入 now 验证无状态派生）。
+// TestOrderByProbeRotation covers rotation within the same RTT tier: order fixed inside the window,
+// shifting one step across windows (injecting now to verify stateless derivation).
 func TestOrderByProbeRotation(t *testing.T) {
 	entries := []Entry{
 		ventry("x", "香港", 100),
@@ -62,11 +62,11 @@ func TestOrderByProbeRotation(t *testing.T) {
 	assertNames(t, orderByProbe(entries, time.Unix(0, 0)), "x", "y", "z")
 	assertNames(t, orderByProbe(entries, time.Unix(rotateWindowSec, 0)), "y", "z", "x")
 	assertNames(t, orderByProbe(entries, time.Unix(2*rotateWindowSec, 0)), "z", "x", "y")
-	// 回到同一窗口：顺序复原（确定性，无持久化状态）。
+	// Back in the same window: order restored (deterministic, no persisted state).
 	assertNames(t, orderByProbe(entries, time.Unix(0, 0)), "x", "y", "z")
 }
 
-// TestOrderByProbeUnknownStable 覆盖全无数据时不轮转：保持原序。
+// TestOrderByProbeUnknownStable covers no rotation when there is no data at all: original order kept.
 func TestOrderByProbeUnknownStable(t *testing.T) {
 	entries := []Entry{
 		ventry("p", "香港", 0),
@@ -78,8 +78,8 @@ func TestOrderByProbeUnknownStable(t *testing.T) {
 	}
 }
 
-// TestOrderByProbeRegionGroup 覆盖区域归组：跨区域不混排，
-// 组内各自按结论排序。
+// TestOrderByProbeRegionGroup covers region grouping: no interleaving across regions,
+// each group sorted by its own verdicts.
 func TestOrderByProbeRegionGroup(t *testing.T) {
 	now := time.Unix(0, 0)
 	entries := []Entry{
@@ -89,11 +89,11 @@ func TestOrderByProbeRegionGroup(t *testing.T) {
 		ventry("u2", "美国", 0),
 	}
 	got := orderByProbe(entries, now)
-	// 区域按字符串归组（美国 < 香港）；组内已知在前按 RTT 升序。
+	// Regions grouped by string (US < HK); within a group, known first by ascending RTT.
 	assertNames(t, got, "u1", "u2", "h2", "h1")
 }
 
-// TestOrderByProbeEdge 覆盖空列表与单条目。
+// TestOrderByProbeEdge covers the empty list and a single entry.
 func TestOrderByProbeEdge(t *testing.T) {
 	if got := orderByProbe(nil, time.Unix(0, 0)); len(got) != 0 {
 		t.Fatalf("empty = %v", got)
@@ -102,8 +102,8 @@ func TestOrderByProbeEdge(t *testing.T) {
 	assertNames(t, orderByProbe(single, time.Unix(rotateWindowSec, 0)), "only")
 }
 
-// TestPackV2RayProbeOrder 覆盖 v2ray 订阅集成：同区域内低 RTT
-// 入口排在前面（客户端常取首位）。
+// TestPackV2RayProbeOrder covers v2ray subscription integration: within the same region, lower-RTT
+// entries come first (clients usually take the first entry).
 func TestPackV2RayProbeOrder(t *testing.T) {
 	entries := []Entry{
 		ventry("slow", "香港", 300),

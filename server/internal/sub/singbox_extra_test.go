@@ -6,8 +6,8 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestSingBoxHysteria2ObfsPassword hysteria2 混淆口令完整展开：obfs 对象
-// 带 type 与 password，主密码在顶层。
+// TestSingBoxHysteria2ObfsPassword covers full expansion of the hysteria2 obfs password: the obfs object
+// carries type and password, while the main password stays at the top level.
 func TestSingBoxHysteria2ObfsPassword(t *testing.T) {
 	ob, err := OutboundOf(&storage.Node{Name: "hy", Address: "a", Port: 443, Protocol: "hysteria2",
 		Config: `{"password":"main-pw","obfs":"salamander","obfs_password":"obpw"}`})

@@ -6,8 +6,8 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// UserActive 判断订阅用户是否可出节点（P0-8）：启用、未到期、未超配额。
-// quota==0 表示不限。到期/超限用户返回空订阅（带用量头），由客户端展示状态。
+// UserActive decides whether a subscription user may still receive nodes (P0-8): enabled, not expired, within quota.
+// quota==0 means unlimited. Expired/over-quota users get an empty subscription (with usage headers) and the client shows the status.
 func UserActive(u *storage.User, usedBytes int64, now time.Time) bool {
 	if !u.Enabled {
 		return false

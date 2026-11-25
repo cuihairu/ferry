@@ -7,7 +7,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestClashProxyOfValidationErrors 各协议缺必填字段/配置非 JSON 的拒绝面。
+// TestClashProxyOfValidationErrors covers the rejection surface: each protocol missing required fields / config not JSON.
 func TestClashProxyOfValidationErrors(t *testing.T) {
 	cases := []struct {
 		name     string

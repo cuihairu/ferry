@@ -1,6 +1,6 @@
-// per-sub 过滤维度与配置定制（ferry-sub-filters，2026-11-21 用户拍板）：
-// 自建订阅在内存中应用三维度白名单过滤，再按 per-sub 配置重排/截断/改备注。
-// 主订阅 /sub/:token 的输出与排序不受影响（PackV2Ray 等原样复用）。
+// per-sub filter dimensions and config customization (ferry-sub-filters, user-ratified 2026-11-21):
+// Self-built subscriptions apply three-dimension whitelist filtering in memory, then reorder/truncate/re-remark per per-sub config.
+// The output and ordering of the main subscription /sub/:token are unaffected (PackV2Ray etc. reused as-is).
 package sub
 
 import (
@@ -12,26 +12,26 @@ import (
 	"time"
 )
 
-// Filter 是 per-sub 过滤维度（三维度，全部可选；空数组=该维度不过滤）：
-// regions/protocols 是「节点字段 ∈ 数组」白名单，labels 是「节点 labels 与
-// 数组有交集」——labels 落库形态是 JSON 数组文本，解析失败视为无标签。
+// Filter is the per-sub filter dimensions (three dimensions, all optional; empty array = no filtering for that dimension):
+// regions/protocols are whitelists of "node field in array"; labels are "node labels with
+// non-empty intersection"; labels are stored as JSON array text; parse failure is treated as no labels.
 type Filter struct {
 	Regions   []string `json:"regions,omitempty"`
 	Labels    []string `json:"labels,omitempty"`
 	Protocols []string `json:"protocols,omitempty"`
 }
 
-// Config 是 per-sub 下发配置定制（全部可选，缺省沿用现有行为）。
-// IncludeRTT 用指针区分「显式 false」与「缺席」（缺席=沿用现状=带延迟）。
+// Config is per-sub delivery config customization (all optional; defaults keep existing behavior).
+// IncludeRTT uses a pointer to distinguish "explicitly false" from "absent" (absent = keep current = include RTT).
 type Config struct {
-	RemarkTemplate string `json:"remark_template,omitempty"` // 占位符 {region} {name} {rtt}
+	RemarkTemplate string `json:"remark_template,omitempty"` // placeholders {region} {name} {rtt}
 	Sort           string `json:"sort,omitempty"`            // region|rtt|name
-	MaxNodes       int    `json:"max_nodes,omitempty"`       // 下发节点数上限，0=不截断
-	IncludeRTT     *bool  `json:"include_rtt,omitempty"`     // false=备注不带 RTT 段
+	MaxNodes       int    `json:"max_nodes,omitempty"`       // max number of nodes to deliver; 0=do not truncate
+	IncludeRTT     *bool  `json:"include_rtt,omitempty"`     // false=remark omits the RTT segment
 }
 
-// decodeStrictJSON 严格解码 JSON 文本：未知字段报错（严格模式，防拼写错误
-// 静默失效成「看似配置了实则不过滤」）。
+// decodeStrictJSON strictly decodes JSON text: unknown fields error (strict mode, to catch typos
+// from silently degrading to "looks configured but actually not filtering").
 func decodeStrictJSON(s string, v any) error {
 	dec := json.NewDecoder(strings.NewReader(s))
 	dec.DisallowUnknownFields()
@@ -41,7 +41,7 @@ func decodeStrictJSON(s string, v any) error {
 	return nil
 }
 
-// ParseFilter 严格解析 filter JSON 文本；空文本返回零值 Filter（不过滤）。
+// ParseFilter strictly parses the filter JSON text; empty text returns a zero-value Filter (no filtering).
 func ParseFilter(s string) (Filter, error) {
 	var f Filter
 	trimmed := strings.TrimSpace(s)
@@ -54,7 +54,7 @@ func ParseFilter(s string) (Filter, error) {
 	return f, nil
 }
 
-// ParseConfig 严格解析 config JSON 文本；空文本返回零值 Config（沿用现状）。
+// ParseConfig strictly parses the config JSON text; empty text returns a zero-value Config (keep current behavior).
 func ParseConfig(s string) (Config, error) {
 	var c Config
 	trimmed := strings.TrimSpace(s)
@@ -67,8 +67,8 @@ func ParseConfig(s string) (Config, error) {
 	return c, nil
 }
 
-// ApplyFilter 在内存中按 Filter 过滤入口：region/protocol 是节点字段白名单，
-// labels 是交集判定。三维度全空=原样返回。
+// ApplyFilter filters entries in memory by Filter: region/protocol are node-field whitelists,
+// labels are intersection checks. All three empty = return as-is.
 func ApplyFilter(entries []Entry, f Filter) []Entry {
 	if len(f.Regions) == 0 && len(f.Labels) == 0 && len(f.Protocols) == 0 {
 		return entries
@@ -83,7 +83,7 @@ func ApplyFilter(entries []Entry, f Filter) []Entry {
 			continue
 		}
 		if len(f.Labels) > 0 {
-			// 节点 labels 是 JSON 数组文本；解析失败视为无标签（不 500）。
+			// node labels are JSON array text; parse failure is treated as no labels (no 500).
 			if !intersects(f.Labels, nodeLabels(e.Node.Labels)) {
 				continue
 			}
@@ -93,9 +93,9 @@ func ApplyFilter(entries []Entry, f Filter) []Entry {
 	return out
 }
 
-// SortEntries 按 sort 模式重排入口副本：region=按区域分组序（同主订阅
-// orderByProbe：区域归组、组内 RTT 升序、同档轮转），rtt=全局延迟升序
-// （无数据殿后），name=名称序；缺省/空串沿用现状（region）。
+// SortEntries reorders an entry copy by the sort mode: region=region-group order (same as main subscription
+// orderByProbe: region grouping, ascending RTT within group, rotation in same tier), rtt=global ascending latency
+// (no data last), name=name order; default/empty string keeps current behavior (region).
 func SortEntries(entries []Entry, mode string, now time.Time) []Entry {
 	out := make([]Entry, len(entries))
 	copy(out, entries)
@@ -103,7 +103,7 @@ func SortEntries(entries []Entry, mode string, now time.Time) []Entry {
 	case "rtt":
 		sort.SliceStable(out, func(i, j int) bool {
 			a, b := out[i].RttMs, out[j].RttMs
-			// 有结论（>0）在前、无结论（0）殿后；同档按 RTT 升序。
+			// Verdict known (>0) first, unknown (0) last; same tier by ascending RTT.
 			if (a > 0) != (b > 0) {
 				return a > 0
 			}
@@ -113,14 +113,14 @@ func SortEntries(entries []Entry, mode string, now time.Time) []Entry {
 		sort.SliceStable(out, func(i, j int) bool {
 			return out[i].Node.Name < out[j].Node.Name
 		})
-	default: // "" 与 "region" 都走区域分组序（现状口径）
+	default: // "" and "region" both use region-group order (current semantics)
 		return orderByProbe(out, now)
 	}
 	return out
 }
 
-// ApplyConfig 对已过滤的入口应用 per-sub 配置：先按 sort 重排，max_nodes>0
-// 时截断，最后逐条按 remark_template/include_rtt 生成备注写入 Entry.Remark。
+// ApplyConfig applies per-sub config to filtered entries: reorder by sort first, and when max_nodes>0
+// truncate; finally generate the remark per entry from remark_template/include_rtt into Entry.Remark.
 func ApplyConfig(entries []Entry, cfg Config, now time.Time) []Entry {
 	out := SortEntries(entries, cfg.Sort, now)
 	if cfg.MaxNodes > 0 && len(out) > cfg.MaxNodes {
@@ -132,9 +132,9 @@ func ApplyConfig(entries []Entry, cfg Config, now time.Time) []Entry {
 	return out
 }
 
-// BuildRemark 按 config 生成单条备注：remark_template 非空时按占位符替换
-// （{region}/{name}/{rtt}，非法模板字符原样输出不 panic），空则回退默认
-// 「区域 · 名称 (延迟ms)」；include_rtt=false 或无测速数据时省略 RTT。
+// BuildRemark generates a single remark by config: when remark_template is non-empty, substitute placeholders
+// ({region}/{name}/{rtt}; invalid template characters are emitted as-is, no panic); when empty, fall back to the default
+// "region · name (latencyms)"; omit RTT when include_rtt=false or when there is no probe data.
 func BuildRemark(e *Entry, cfg Config) string {
 	tpl := cfg.RemarkTemplate
 	includeRTT := cfg.IncludeRTT == nil || *cfg.IncludeRTT
@@ -151,8 +151,8 @@ func BuildRemark(e *Entry, cfg Config) string {
 	return strings.NewReplacer("{region}", entryRegion(e), "{name}", e.Node.Name, "{rtt}", rtt).Replace(tpl)
 }
 
-// nodeLabels 解析节点 labels 的 JSON 数组文本；空文本、非数组与解析失败
-// 一律视为无标签（下发侧容错，不 500）。
+// nodeLabels parses the JSON array text of node labels; empty text, non-array, and parse failure
+// are all treated as no labels (tolerant on the delivery side, no 500).
 func nodeLabels(raw string) []string {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" || trimmed == "null" {
@@ -174,7 +174,7 @@ func containsString(list []string, s string) bool {
 	return false
 }
 
-// intersects 判定两个字符串集合是否有交集。
+// intersects reports whether two string sets have a non-empty intersection.
 func intersects(a, b []string) bool {
 	set := make(map[string]bool, len(a))
 	for _, x := range a {

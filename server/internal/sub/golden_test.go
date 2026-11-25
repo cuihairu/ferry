@@ -10,9 +10,9 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// 黄金对照（协议插件化重构的兼容守门）：以重构前实现捕获五协议 × 三格式
-// 的全部输出，固化为 testdata/golden.json；重构后逐字节比对，diff 非零即退。
-// 重捕：GOLDEN_WRITE=1 go test -run TestGoldenSubscriptions ./internal/sub/
+// Golden reference (compatibility gate for the protocol plugin refactor): capture all outputs
+// of five protocols x three formats with the pre-refactor implementation and pin them in testdata/golden.json;
+// after the refactor compare byte-for-byte and fail when the diff is non-zero.
 func TestGoldenSubscriptions(t *testing.T) {
 	nodes := []storage.Node{
 		{Name: "香港 01", Address: "hk.example.com", Port: 443, Protocol: "vless",
