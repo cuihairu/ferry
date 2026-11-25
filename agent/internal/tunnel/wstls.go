@@ -15,14 +15,14 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// ws-tls 传输插件（E-18）：出站 TLS + WebSocket 升级，数据走二进制帧。
-// 升级握手与浏览器同形（Origin/UA），网关视角是一次普通 WS-Secure 建连，
-// 可前置云 CDN。落地侧是任意标准 RFC6455 WebSocket 监听（二进制载荷，
-// 路径任意）；服务端 ping 由库在读路径默认 pong。
+// The ws-tls transport plugin (E-18): outbound TLS plus a WebSocket upgrade, with data in binary frames.
+// The upgrade handshake looks like a browser's (Origin/UA), so a gateway sees an ordinary WS-Secure connection setup,
+// which a cloud CDN can front. The landing side is any standard RFC6455 WebSocket listener (binary payloads,
+// any path); server pings are answered with a pong by the library on the read path.
 const pluginWSTLS = "ws-tls"
 
 func init() {
-	// 插件注册失败属于编程错误，直接 panic（init 期注册无并发）。
+	// a plugin failing to register is a programming error, so panic directly (init-time registration has no concurrency).
 	if err := Register(pluginWSTLS, func(o Options) (Tunnel, error) {
 		return &wsTls{opts: o}, nil
 	}); err != nil {
@@ -30,7 +30,7 @@ func init() {
 	}
 }
 
-// wsTls 是 WS over TLS 拨号实现：无状态，Close 空实现。
+// wsTls is the WS over TLS dialer: stateless, with an empty Close.
 type wsTls struct{ opts Options }
 
 func (t *wsTls) Name() string { return pluginWSTLS }
@@ -47,7 +47,7 @@ func (t *wsTls) Dial(ctx context.Context, addr string) (net.Conn, error) {
 	tlsCfg := &tls.Config{
 		ServerName: serverName,
 		MinVersion: tls.VersionTLS12,
-		// WS 升级走 HTTP/1.1，与主流 WS 客户端无异。
+		// the WS upgrade goes over HTTP/1.1, indistinguishable from mainstream WS clients.
 		NextProtos: []string{"http/1.1"},
 	}
 	if t.opts.CAFile != "" {
@@ -82,14 +82,14 @@ func (t *wsTls) ServeHeartbeat(ctx context.Context, conn net.Conn, interval time
 
 func (t *wsTls) Close() error { return nil }
 
-// wsConn 把 WebSocket 消息语义适配成流语义的 net.Conn（relay 的 io.Copy
-// 与应用心跳都按字节流工作）：写侧每条 Write 一个二进制消息；读侧跨
-// 消息续读不限长。库口径一个连接同时只允许一个读方与一个写方，分别加锁。
+// wsConn adapts WebSocket message semantics into the stream semantics of a net.Conn (relay's io.Copy
+// and application heartbeats both work on byte streams): the write side sends one binary message per Write; the read side keeps
+// reading across messages with no length cap. The library allows one reader and one writer per connection, each locked separately.
 type wsConn struct {
 	ws  *websocket.Conn
 	wmu sync.Mutex
 	rmu sync.Mutex
-	rd  io.Reader // 当前消息的剩余流，nil 表示需要 NextReader
+	rd  io.Reader // the remainder of the current message's stream; nil means NextReader is needed
 }
 
 func (c *wsConn) Read(p []byte) (int, error) {
@@ -102,13 +102,13 @@ func (c *wsConn) Read(p []byte) (int, error) {
 				return 0, err
 			}
 			if t != websocket.BinaryMessage {
-				continue // 控制帧由库处理，其余非二进制消息不交给上层
+				continue // the library handles control frames; other non-binary messages are not handed to the upper layer
 			}
 			c.rd = r
 		}
 		n, err := c.rd.Read(p)
 		if err == io.EOF {
-			c.rd = nil // 本条消息读尽，续下一条
+			c.rd = nil // this message is exhausted, continue with the next
 			continue
 		}
 		return n, err

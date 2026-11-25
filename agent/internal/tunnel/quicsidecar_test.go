@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// startFakeSidecar 起一段本地桥替身：读 CONNECT 行按脚本应答，OK 后做 echo。
+// startFakeSidecar starts a local bridge stand-in: it reads CONNECT lines and answers per script, echoing once it says OK.
 func startFakeSidecar(t *testing.T, reply func(req string) string) string {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -33,7 +33,7 @@ func startFakeSidecar(t *testing.T, reply func(req string) string) string {
 					return
 				}
 				if strings.HasPrefix(resp, "OK") {
-					_, _ = io.Copy(c, c) // echo 作传输替身
+					_, _ = io.Copy(c, c) // echo as the transport stand-in
 				}
 			}(conn)
 		}
@@ -42,8 +42,8 @@ func startFakeSidecar(t *testing.T, reply func(req string) string) string {
 	return ln.Addr().String()
 }
 
-// TestQUICSidecarDial 覆盖 quic 插件：OK 放行（后续字节直通）、ERR 带原因、
-// 异常应答拒绝、sidecar 不在快速失败。
+// TestQUICSidecarDial covers the quic plugin: OK lets it through (later bytes pass straight through), ERR carries a reason,
+// a malformed reply is rejected, and a missing sidecar fails fast.
 func TestQUICSidecarDial(t *testing.T) {
 	okAddr := startFakeSidecar(t, func(req string) string {
 		if !strings.HasPrefix(req, "CONNECT landing.example.com:443 sni=camo.example.com") {

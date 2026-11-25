@@ -24,7 +24,7 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// testCert 现场签一张自签证书（测试专用，不落文件）。
+// testCert signs a self-signed certificate on the spot (test only, never written to a file).
 func testCert(t *testing.T) tls.Certificate {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -57,7 +57,7 @@ func testCert(t *testing.T) tls.Certificate {
 }
 
 func TestRegistry(t *testing.T) {
-	// 插件名带运行序号：注册表是包级全局，-count>1 重跑时同名注册会撞重复。
+	// plugin names carry a run ordinal: the registry is package-global, so re-running with -count>1 would collide on the same name.
 	name := fmt.Sprintf("dup-%d", time.Now().UnixNano())
 	if err := Register(name, func(Options) (Tunnel, error) { return nil, nil }); err != nil {
 		t.Fatalf("register: %v", err)
@@ -109,10 +109,10 @@ func TestTLSCamoHandshake(t *testing.T) {
 		}
 		defer c.Close()
 		buf := make([]byte, 1)
-		_, _ = c.Read(buf) // 完成握手
+		_, _ = c.Read(buf) // the handshake completed
 	}()
 
-	// 自签 CA 落临时文件走 CAFile（私有部署同款路径）。
+	// the self-signed CA is written to a temp file and used as CAFile (the same path as a private deployment).
 	caPath := filepath.Join(t.TempDir(), "ca.pem")
 	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate[0]})
 	if err := os.WriteFile(caPath, caPEM, 0600); err != nil {
@@ -149,8 +149,8 @@ func TestTLSCamoHandshake(t *testing.T) {
 }
 
 func TestPingPongAlive(t *testing.T) {
-	// net.Pipe 是 rendezvous（无缓冲），双端同时写会互相卡死；
-	// 心跳跑在 TCP 上，用回环 TCP 对测。
+	// net.Pipe is a rendezvous (unbuffered); both ends writing at once would deadlock each other.
+	// the heartbeat runs on TCP, so test it over loopback TCP.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -199,7 +199,7 @@ func TestPingPongDeadPeer(t *testing.T) {
 	defer cancel()
 	errc := make(chan error, 1)
 	go func() { errc <- PingPong(ctx, a, 20*time.Millisecond) }()
-	_ = b.Close() // 对端直接消失
+	_ = b.Close() // the peer simply vanishes
 	select {
 	case err := <-errc:
 		if err == nil {
@@ -210,7 +210,7 @@ func TestPingPongDeadPeer(t *testing.T) {
 	}
 }
 
-// TestPluginIdentityAndNoopClose 三家拨号插件的 Name 与无状态 Close 口径。
+// TestPluginIdentityAndNoopClose covers the Name and stateless Close rules of the three dial plugins.
 func TestPluginIdentityAndNoopClose(t *testing.T) {
 	cases := []struct {
 		tn   Tunnel
@@ -230,23 +230,23 @@ func TestPluginIdentityAndNoopClose(t *testing.T) {
 	}
 }
 
-// TestSSHTunnelResetForeignConn reset 只清自己那条连接：外来指针不动现状。
+// TestSSHTunnelResetForeignConn covers reset clearing only its own connection: a foreign pointer leaves the state alone.
 func TestSSHTunnelResetForeignConn(t *testing.T) {
 	tn := &sshTunnel{}
-	// sshConn 为 nil，dead 非 nil：不匹配，不应触发 Close（否则 nil 解引用）。
+	// sshConn is nil and dead is not: no match, so Close must not fire (otherwise a nil dereference).
 	tn.reset(new(ssh.Client))
 	if tn.sshConn != nil {
 		t.Fatalf("sshConn = %v; want nil", tn.sshConn)
 	}
-	// Close 空连接为 nil。
+	// closing an empty connection is nil.
 	if err := tn.Close(); err != nil {
 		t.Fatalf("Close on fresh tunnel = %v", err)
 	}
 }
 
-// hbPeer 起一条 TCP 心跳对端，返回本侧连接与停对端的方式。走 TCP 而非
-// net.Pipe：管道无缓冲且两侧 ticker 同相位时，在途 ping 写会撞写超时，
-// 那属于连接已断口径，会污染 ctx 取消路径的断言。
+// hbPeer starts a TCP heartbeat peer and returns the local connection and a way to stop the peer. TCP instead of
+// net.Pipe: the pipe is unbuffered and with both tickers in phase an in-flight ping write would hit a write timeout,
+// which belongs to the connection-dead rule and would pollute the ctx cancellation path's assertions.
 func hbPeer(t *testing.T, interval time.Duration) (net.Conn, func()) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -285,7 +285,7 @@ func hbPeer(t *testing.T, interval time.Duration) (net.Conn, func()) {
 	}
 }
 
-// TestServeHeartbeatRoundTrip 心跳：两端同跑 PingPong 互答，ctx 取消返回 nil。
+// TestServeHeartbeatRoundTrip covers the heartbeat: both ends run PingPong and answer each other, with ctx cancellation returning nil.
 func TestServeHeartbeatRoundTrip(t *testing.T) {
 	tn := &quicSidecar{opts: Options{}}
 	a, stopPeer := hbPeer(t, 20*time.Millisecond)
@@ -295,7 +295,7 @@ func TestServeHeartbeatRoundTrip(t *testing.T) {
 	ownDone := make(chan error, 1)
 	go func() { ownDone <- tn.ServeHeartbeat(ctx, a, 20*time.Millisecond) }()
 
-	time.Sleep(150 * time.Millisecond) // 若干轮 ping/pong
+	time.Sleep(150 * time.Millisecond) // a few rounds of ping/pong
 	cancel()
 	select {
 	case err := <-ownDone:
@@ -308,8 +308,8 @@ func TestServeHeartbeatRoundTrip(t *testing.T) {
 	stopPeer()
 }
 
-// silentPeer 起一条只收不回的 TCP 对端：持续收帧（我方写不阻塞）并按 tick
-// 发 ping（我方读侧不超时），但永不复 ping 为 pong——即「连着但不回」。
+// silentPeer starts a TCP peer that only receives and never replies: it keeps consuming frames (so our writes never block)
+// and pings per tick (so our read side never times out) but never answers a ping with a pong -- "connected but not answering".
 func silentPeer(t *testing.T, tick time.Duration) net.Conn {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -327,7 +327,7 @@ func silentPeer(t *testing.T, tick time.Duration) net.Conn {
 			return
 		}
 		defer c.Close()
-		go func() { // 收侧只丢不答
+		go func() { // the receiving side drops without answering
 			buf := make([]byte, frameLen)
 			for {
 				if _, err := io.ReadFull(c, buf); err != nil {
@@ -363,11 +363,11 @@ func silentPeer(t *testing.T, tick time.Duration) net.Conn {
 	return conn
 }
 
-// TestServeHeartbeatLost 失活判定：连接活着、对端也持续发 ping（读侧不超时），
-// 但从不回 pong——连续 3 个周期无响应即判连接已死（ErrHeartbeatLost）。
+// TestServeHeartbeatLost covers the dead-link verdict: the connection is alive and the peer keeps pinging (no read timeout),
+// but it never answers a pong -- three consecutive periods without a response declare the connection dead (ErrHeartbeatLost).
 //
-// 对端若完全沉默，读超时（3*interval）与第 3 次 miss 落在同一时刻，断言会在
-// 两条错误路径间抖动；让对端只发 ping 不发 pong，可把读超时路径摘干净。
+// a fully silent peer would land the read timeout (3*interval) and the third miss at the same moment, making the assertion
+// jitter between the two error paths; having the peer only ping and never pong keeps the read-timeout path cleanly out.
 func TestServeHeartbeatLost(t *testing.T) {
 	a := silentPeer(t, 10*time.Millisecond)
 
@@ -383,8 +383,8 @@ func TestServeHeartbeatLost(t *testing.T) {
 	}
 }
 
-// TestPluginServeHeartbeatAndClose 四个插件的心跳都是 PingPong 委托、Close 都是
-// 无资源释放，但都要实跑确认不返错（契约面：Tunnel 接口全方法）。
+// TestPluginServeHeartbeatAndClose covers all four plugins: the heartbeat is a PingPong delegation and Close releases nothing,
+// but each must run for real and return no error (the contract surface: every method of the Tunnel interface).
 func TestPluginServeHeartbeatAndClose(t *testing.T) {
 	plugins := []struct {
 		name string
@@ -422,7 +422,7 @@ func TestPluginServeHeartbeatAndClose(t *testing.T) {
 	}
 }
 
-// TestWSConnSurface wsConn 的 net.Conn 适配面：地址与读写超时都要透传到底层。
+// TestWSConnSurface covers wsConn's net.Conn adapter surface: addresses and read/write deadlines must pass through to the underlying layer.
 func TestWSConnSurface(t *testing.T) {
 	addr, caFile := startWSServer(t)
 	tn, err := Open("ws-tls", Options{CAFile: caFile, Timeout: 5 * time.Second})
@@ -449,7 +449,7 @@ func TestWSConnSurface(t *testing.T) {
 	if err := c.SetDeadline(time.Now().Add(time.Second)); err != nil {
 		t.Fatalf("SetDeadline: %v", err)
 	}
-	// 清掉超时，否则 Close 可能被 deadline 卡住。
+	// clear the deadline, otherwise Close could get stuck on it.
 	if err := c.SetDeadline(time.Time{}); err != nil {
 		t.Fatalf("clear deadline: %v", err)
 	}

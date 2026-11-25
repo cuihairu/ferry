@@ -10,13 +10,13 @@ import (
 	"time"
 )
 
-// tls 伪装插件（E-6 默认插件）：出站即 TLS，ClientHello 与浏览器对齐
-// （TLS1.2+、ALPN h2/http1.1、SNI 取伪装域名），在网关视角里就是一次
-// 普通 HTTPS 建连。服务端只需能终结 TLS（面板/落地 relay 监听器）。
+// The tls camouflage plugin (the E-6 default plugin): outbound traffic is TLS with a ClientHello aligned to browsers
+// (TLS1.2+, ALPN h2/http1.1, the SNI taken from the camouflage domain), which in a gateway's view is just an
+// ordinary HTTPS connection setup. The server only needs to be able to terminate TLS (the panel / landing relay listener).
 const pluginTLSCamo = "tls-camo"
 
 func init() {
-	// 默认插件注册失败属于编程错误，直接 panic（init 期注册无并发）。
+	// the default plugin failing to register is a programming error, so panic directly (init-time registration has no concurrency).
 	if err := Register(pluginTLSCamo, func(o Options) (Tunnel, error) {
 		return &tlsCamo{opts: o}, nil
 	}); err != nil {
@@ -24,10 +24,10 @@ func init() {
 	}
 }
 
-// DefaultPlugin 是面板/relay 缺省传输插件名。
+// DefaultPlugin is the panel/relay default transport plugin name.
 const DefaultPlugin = pluginTLSCamo
 
-// tlsCamo 是 TLS 伪装拨号实现：无状态，Close 空实现。
+// tlsCamo is the TLS camouflage dialer: stateless, with an empty Close.
 type tlsCamo struct {
 	opts Options
 }
@@ -46,7 +46,7 @@ func (t *tlsCamo) Dial(ctx context.Context, addr string) (net.Conn, error) {
 	tlsCfg := &tls.Config{
 		ServerName: serverName,
 		MinVersion: tls.VersionTLS12,
-		// 浏览器对齐：优先 h2，与主流 HTTPS 建连无异。
+		// browser aligned: prefer h2, indistinguishable from a mainstream HTTPS connection setup.
 		NextProtos: []string{"h2", "http/1.1"},
 	}
 	if t.opts.CAFile != "" {

@@ -13,16 +13,16 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
-// ssh 传输插件（E-28，传输插件矩阵「备选」行）：标准 SSH2 出站到落地机
-// sshd，publickey 认证，direct-tcpip channel 拨落地本机的 ferry relay
-// 监听——流量形态就是一次普通 SSH 会话内的端口转发（同 ssh -L 的远端侧），
-// sshd 原生终结。特征独特易被识别，只作备选不作默认（设计 §传输插件矩阵）。
-// 凭证口径：密钥文件路径引用（agent 本机文件，不进库）；known_hosts 文件
-// 引用做 host key 校验，空=跳过校验（仅引导期，生产必须配置）。
+// The ssh transport plugin (E-28, the "alternative" row of the transport plugin matrix): a standard SSH2 outbound session to the landing
+// host's sshd with publickey authentication, where a direct-tcpip channel dials the local ferry relay listener on the landing host --
+// the traffic shape is just port forwarding inside an ordinary SSH session (the remote side of ssh -L),
+// natively terminated by sshd. Its fingerprint is distinctive and easy to spot, so it is an alternative, never the default (design §transport plugin matrix).
+// Credential rules: the key is referenced by file path (a local agent file, never in the database); the known_hosts
+// file reference performs host key verification, and empty = skip it (bootstrap only; production must configure it).
 const pluginSSH = "ssh"
 
 func init() {
-	// 插件注册失败属于编程错误，直接 panic（init 期注册无并发）。
+	// a plugin failing to register is a programming error, so panic directly (init-time registration has no concurrency).
 	if err := Register(pluginSSH, func(o Options) (Tunnel, error) {
 		return &sshTunnel{opts: o}, nil
 	}); err != nil {
@@ -30,13 +30,13 @@ func init() {
 	}
 }
 
-// sshTunnel 持单条 SSH 复用连接（一个 client 多 channel，与 ssh -L 常驻
-// 同形）：Dial 失败先判定连接死掉重连一次再试；Close 关复用连接。
+// sshTunnel holds one multiplexed SSH connection (one client, several channels, the same shape as a resident ssh -L):
+// a Dial failure first declares the connection dead, reconnects once and retries; Close closes the reused connection.
 type sshTunnel struct {
 	opts    Options
 	mu      sync.Mutex
 	sshConn *ssh.Client
-	warned  bool // known_hosts 空的引导期告警只打一次
+	warned  bool // the bootstrap warning for an empty known_hosts fires only once
 }
 
 func (t *sshTunnel) Name() string { return pluginSSH }
@@ -64,8 +64,8 @@ func (t *sshTunnel) reset(dead *ssh.Client) {
 	}
 }
 
-// dial 建一条 SSH 连接：TCP 拨号吃 ctx 超时（与插件 TimeoutOrDefault 对齐），
-// 随后 SSH 握手与认证（publickey 单一形态，无密码登录面）。
+// dial builds one SSH connection: the TCP dial honors the ctx timeout (aligned with the plugin's TimeoutOrDefault),
+// followed by the SSH handshake and authentication (publickey as the only form; no password login surface).
 func (t *sshTunnel) dial(ctx context.Context) (*ssh.Client, error) {
 	addr := t.opts.ServerName
 	if addr == "" {
@@ -90,7 +90,7 @@ func (t *sshTunnel) dial(ctx context.Context) (*ssh.Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("tunnel: parse private key: %w", err)
 	}
-	hostKey := ssh.InsecureIgnoreHostKey() //nolint:gosec // 引导期口径：known_hosts 未配置时跳过，见 ssh_known_hosts 注记
+	hostKey := ssh.InsecureIgnoreHostKey() //nolint:gosec // bootstrap rule: skipped when known_hosts is unset, see the ssh_known_hosts note
 	if t.opts.KnownHostsFile != "" {
 		hk, err := knownHostsCallback(t.opts.KnownHostsFile)
 		if err != nil {
@@ -128,15 +128,15 @@ func (t *sshTunnel) Dial(ctx context.Context, addr string) (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Client.Dial 直接返回 net.Conn（direct-tcpip channel 的流语义适配）。
-	// 限制如实注记：x/crypto 的 channel 连接不支持 SetDeadline 系列
-	// （返回 "deadline not supported"，PingPong 侧 `_ =` 忽略），心跳
-	// 超时靠 3 周期无 pong 的应用层判定兜底，不靠 deadline 加速。
-	// channel 开启无独立超时，死连接上立即回错，由重连腿兜底。
+	// Client.Dial returns a net.Conn directly (the stream semantics of a direct-tcpip channel).
+	// Honest limitation note: x/crypto channel connections do not support the SetDeadline family
+	// (they return "deadline not supported", which PingPong ignores with `_ =`), so heartbeat timeouts rely on the
+	// application-layer 3-periods-without-pong verdict as the backstop, not on deadlines to speed it up.
+	// opening a channel has no separate timeout; a dead connection errors immediately and the reconnect leg is the backstop.
 	conn, err := c.Dial("tcp", t.opts.ForwardAddr)
 	if err != nil {
-		// 复用连接可能已死（sshd 重启/网络抖动）：判定死掉重连一次再试，
-		// 避免单次抖动把 relay 前端连接全带崩。
+		// the reused connection may already be dead (an sshd restart / network jitter): declare it dead, reconnect once and retry,
+		// so a single jitter cannot take down every relay frontend connection.
 		t.reset(c)
 		c2, err2 := t.getOrCreate(ctx)
 		if err2 != nil {
@@ -154,7 +154,7 @@ func (t *sshTunnel) ServeHeartbeat(ctx context.Context, conn net.Conn, interval 
 	return PingPong(ctx, conn, interval)
 }
 
-// Close 释放复用连接（tunnelCache 持实例缓存，热重载换落地时统一关）。
+// Close releases the reused connection (tunnelCache holds the instance cache; everything closes when a hot reload swaps the landing).
 func (t *sshTunnel) Close() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -166,8 +166,8 @@ func (t *sshTunnel) Close() error {
 	return err
 }
 
-// knownHostsCallback 用 known_hosts 文件校验 host key（OpenSSH 同格式，
-// hashed/明文条目均可）：knownhosts 库薄封装，与 x/crypto 同源。
+// knownHostsCallback verifies the host key against a known_hosts file (the OpenSSH format,
+// hashed or plain entries both fine): a thin wrapper around the knownhosts library, from the same source as x/crypto.
 func knownHostsCallback(path string) (ssh.HostKeyCallback, error) {
 	return knownhosts.New(path)
 }

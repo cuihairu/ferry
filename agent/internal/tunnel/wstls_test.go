@@ -17,8 +17,8 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// startWSServer 起一个 wss 回显服务（httptest 自签证书落盘当 CAFile），
-// 返回拨号地址与 CA 文件路径。
+// startWSServer starts a wss echo service (the httptest self-signed certificate is written to disk as CAFile),
+// and returns the dial address and the CA file path.
 func startWSServer(t *testing.T) (addr, caFile string) {
 	t.Helper()
 	up := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
@@ -47,8 +47,8 @@ func startWSServer(t *testing.T) (addr, caFile string) {
 	return strings.TrimPrefix(srv.URL, "https://"), caFile
 }
 
-// TestWSTLSPlugin 覆盖 ws-tls 插件（E-18）：注册可达、握手建连、
-// 小帧与跨多条消息的流式回显、长度不限读取。
+// TestWSTLSPlugin covers the ws-tls plugin (E-18): the registration is reachable, the handshake sets up the connection,
+// small frames echo, streaming echoes across several messages, and reads with no length cap.
 func TestWSTLSPlugin(t *testing.T) {
 	addr, caFile := startWSServer(t)
 
@@ -66,7 +66,7 @@ func TestWSTLSPlugin(t *testing.T) {
 	}
 	defer conn.Close()
 
-	// 小帧回显
+	// small frame echo
 	if _, err := conn.Write([]byte("ping-ws")); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestWSTLSPlugin(t *testing.T) {
 		t.Fatalf("echo = %q", buf)
 	}
 
-	// 大载荷单条写入、1KB 小缓冲跨消息读出（流语义）
+	// a large payload written in one message and read out across messages with a small 1KB buffer (stream semantics)
 	big := make([]byte, 100<<10)
 	if _, err := rand.Read(big); err != nil {
 		t.Fatal(err)
@@ -95,7 +95,7 @@ func TestWSTLSPlugin(t *testing.T) {
 	}
 }
 
-// TestWSTLSCancel 覆盖取消与不可达：预取消 ctx 拨号即刻失败。
+// TestWSTLSCancel covers cancellation and unreachability: dialing with a pre-cancelled ctx fails immediately.
 func TestWSTLSCancel(t *testing.T) {
 	addr, caFile := startWSServer(t)
 	tn, err := Open("ws-tls", Options{CAFile: caFile, Timeout: 5 * time.Second})
@@ -107,7 +107,7 @@ func TestWSTLSCancel(t *testing.T) {
 	if _, err := tn.Dial(ctx, addr); err == nil {
 		t.Fatal("cancelled dial should fail")
 	}
-	// 不可达端口：快速失败而非挂死
+	// an unreachable port: fail fast rather than hang
 	if _, err := tn.Dial(context.Background(), "127.0.0.1:1"); err == nil {
 		t.Fatal("refused dial should fail")
 	}

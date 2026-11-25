@@ -10,20 +10,20 @@ import (
 	"time"
 )
 
-// ErrHeartbeatLost 表示心跳超时：连接已断或对端无响应，调用方应重连。
+// ErrHeartbeatLost means the heartbeat timed out: the connection is gone or the peer is unresponsive, so the caller should reconnect.
 var ErrHeartbeatLost = errors.New("tunnel heartbeat lost")
 
 const (
 	framePing = 0x01
 	framePong = 0x02
-	frameLen  = 9 // 1 字节类型 + 8 字节随机数
+	frameLen  = 9 // 1 byte type + 8 byte nonce
 )
 
-// PingPong 在连接上跑 ping/pong 心跳：每 interval 发 ping，对端 ping 必须回
-// pong；连续 3 个周期无任何 pong 即判连接已死。ctx 取消返回 nil。
+// PingPong runs a ping/pong heartbeat over the connection: a ping goes out every interval and the peer must answer
+// every ping with a pong; three consecutive periods without any pong declare the connection dead. A cancelled ctx returns nil.
 //
-// 帧格式固定 9 字节，双方可同时跑本函数（收 ping 自动回 pong），因此 relay
-// 两端用同一函数即可，无主从之分。
+// The frame format is a fixed 9 bytes, and both sides can run this function at once (a received ping answers pong automatically),
+// so both relay ends can use the same function with no master/slave distinction.
 func PingPong(ctx context.Context, conn net.Conn, interval time.Duration) error {
 	if interval <= 0 {
 		interval = 30 * time.Second
@@ -86,7 +86,7 @@ func PingPong(ctx context.Context, conn net.Conn, interval time.Duration) error 
 			if err := write(framePing, nonce); err != nil {
 				return err
 			}
-			// 本周期内无 pong 即记一次 miss（pongs 带缓冲，读端持续消费）。
+			// no pong within the period counts one miss (pongs is buffered and the reader keeps draining it).
 			select {
 			case <-pongs:
 				missed = 0

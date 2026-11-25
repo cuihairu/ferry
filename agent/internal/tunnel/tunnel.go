@@ -1,7 +1,7 @@
-// Package tunnel 是传输插件抽象（E-6）：隧道建立与传输实现解耦。
+// Package tunnel is the transport plugin abstraction (E-6): it decouples tunnel establishment from transport implementations.
 //
-// P0 口径：单流 + 应用层 ping/pong 心跳；多路复用（单连接多流）为 P1 扩展位，
-// 接口暂不预留 OpenStream——需要时由插件自行在 Dial 返回的连接上做封装。
+// P0 rule: a single stream plus application-layer ping/pong heartbeats; multiplexing (several streams on one connection) is a P1 extension slot,
+// and the interface reserves no OpenStream for now -- when needed, a plugin can encapsulate it itself over the connection Dial returns.
 package tunnel
 
 import (
@@ -12,20 +12,20 @@ import (
 	"time"
 )
 
-// Tunnel 是传输插件接口：建立出站隧道连接，连接上跑应用心跳。
+// Tunnel is the transport plugin interface: establish an outbound tunnel connection and run application heartbeats on it.
 type Tunnel interface {
-	// Name 是插件名（注册表键）。
+	// Name is the plugin name (the registry key).
 	Name() string
-	// Dial 建立一条出站连接（插件负责流量伪装）；ctx 取消则放弃。
+	// Dial establishes one outbound connection (the plugin owns traffic camouflage); a cancelled ctx gives up.
 	Dial(ctx context.Context, addr string) (net.Conn, error)
-	// ServeHeartbeat 在已建立的连接上跑 ping/pong 心跳直到 ctx 取消或
-	// 连接断开；返回 nil 表示 ctx 正常结束，非 nil 由调用方决定重连。
+	// ServeHeartbeat runs a ping/pong heartbeat on an established connection until the ctx is cancelled or
+	// the connection drops; a nil return means the ctx ended normally, and a non-nil one leaves reconnection to the caller.
 	ServeHeartbeat(ctx context.Context, conn net.Conn, interval time.Duration) error
-	// Close 释放插件持有的全局资源（监听器等，纯拨号插件可空实现）。
+	// Close releases the plugin's global resources (listeners etc.; a pure dialer may implement it as a no-op).
 	Close() error
 }
 
-// Factory 按选项构造插件实例。
+// Factory builds a plugin instance from options.
 type Factory func(Options) (Tunnel, error)
 
 var (
@@ -33,7 +33,7 @@ var (
 	registry = map[string]Factory{}
 )
 
-// Register 注册传输插件（重复注册返回错误，尽早暴露插件名冲突）。
+// Register registers a transport plugin (registering twice returns an error, surfacing name conflicts early).
 func Register(name string, f Factory) error {
 	mu.Lock()
 	defer mu.Unlock()
@@ -44,7 +44,7 @@ func Register(name string, f Factory) error {
 	return nil
 }
 
-// Open 按名构造插件；未知名返回错误（调用方回落默认插件或报错，而非静默裸连）。
+// Open builds a plugin by name; an unknown name errors (the caller falls back to the default plugin or reports, never silently connecting bare).
 func Open(name string, opts Options) (Tunnel, error) {
 	mu.Lock()
 	f, ok := registry[name]
@@ -55,7 +55,7 @@ func Open(name string, opts Options) (Tunnel, error) {
 	return f(opts)
 }
 
-// Names 返回已注册插件名（排序不保证，展示用）。
+// Names returns the registered plugin names (no ordering guarantee; for display).
 func Names() []string {
 	mu.Lock()
 	defer mu.Unlock()
@@ -66,34 +66,34 @@ func Names() []string {
 	return out
 }
 
-// Options 是插件通用选项：伪装目标与超时。
+// Options are the common plugin options: the camouflage target and timeouts.
 type Options struct {
-	// ServerName 是 TLS SNI/伪装域名（空则直连地址本身，不伪装）。
-	// ssh 插件语义：sshd 地址（host:port）。
+	// ServerName is the TLS SNI/camouflage domain (empty means connecting straight to the address itself, no camouflage).
+	// ssh plugin semantics: an sshd address (host:port).
 	ServerName string
-	// Timeout 是单次 Dial 超时，0 取 DefaultDialTimeout。
+	// Timeout is the per-Dial timeout; 0 takes DefaultDialTimeout.
 	Timeout time.Duration
-	// CAFile 是私有 CA 证书路径（空则用系统根证书；mTLS 部署与自建 CA 走这里）。
+	// CAFile is the private CA certificate path (empty uses the system root certificates; mTLS deployments and self-built CAs go here).
 	CAFile string
 
-	// 以下字段仅 ssh 插件（E-28）使用，其他插件忽略。
+	// the fields below are used only by the ssh plugin (E-28); other plugins ignore them.
 
-	// AuthUser 是 SSH 登录用户（publickey 单一认证形态，无密码登录面）。
+	// AuthUser is the SSH login user (publickey is the only authentication form; there is no password login surface).
 	AuthUser string
-	// KeyFile 是私钥文件路径（agent 本机路径引用，密钥内容不进配置不进库）。
+	// KeyFile is the private key file path (a local agent path reference; the key content goes neither into config nor into the database).
 	KeyFile string
-	// KnownHostsFile 是 OpenSSH 格式 known_hosts 路径（host key 校验）；
-	// 空=跳过校验，仅引导期可用，生产必须配置。
+	// KnownHostsFile is an OpenSSH-format known_hosts path (host key verification);
+	// empty = skip verification, allowed only during bootstrap; production must configure it.
 	KnownHostsFile string
-	// ForwardAddr 是 direct-tcpip 目标：落地本机 ferry relay 监听地址
-	// （如 127.0.0.1:10800），sshd 收 channel 后拨本机。
+	// ForwardAddr is the direct-tcpip target: the local ferry relay listen address on the landing host
+	// (e.g. 127.0.0.1:10800); sshd dials it locally after receiving the channel.
 	ForwardAddr string
 }
 
-// DefaultDialTimeout 是 Dial 缺省超时。
+// DefaultDialTimeout is the default Dial timeout.
 const DefaultDialTimeout = 10 * time.Second
 
-// TimeoutOrDefault 归一化超时。
+// TimeoutOrDefault normalizes the timeout.
 func (o Options) TimeoutOrDefault() time.Duration {
 	if o.Timeout > 0 {
 		return o.Timeout

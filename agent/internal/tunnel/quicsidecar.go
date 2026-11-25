@@ -10,23 +10,23 @@ import (
 	"time"
 )
 
-// quic sidecar 插件（E-18b，拍板：独立 plugin 二进制）：本插件不携带任何
-// QUIC 实现——只把连接经本地 CONNECT 桥交给 ferry-quic sidecar（quic-go 只
-// 落那个二进制，agent 主程序尺寸门禁 E-4 不动）。部署：ferry-quic client
-// 与 agent 同机运行（systemd/被管进程位），默认桥地址 127.0.0.1:7300，
-// 可用环境变量 FERRY_QUIC_SIDECAR 覆盖。
+// The quic sidecar plugin (E-18b, decision: a separate plugin binary) carries no QUIC implementation at all --
+// it only hands connections to the ferry-quic sidecar through a local CONNECT bridge (quic-go lives only
+// in that binary, leaving the agent's size gate E-4 untouched). Deployment: a ferry-quic client runs
+// on the same host as the agent (systemd / a managed process slot), with the default bridge address 127.0.0.1:7300,
+// overridable via the FERRY_QUIC_SIDECAR environment variable.
 //
-// 诚实口径：经此插件的传输是 raw QUIC（ALPN ferry-quic），不是 hysteria2，
-// 不冒称任何现有协议。
+// Honest scope: transport through this plugin is raw QUIC (ALPN ferry-quic), not hysteria2,
+// and it does not pose as any existing protocol.
 const pluginQUIC = "quic"
 
-// SidecarEnv 是 sidecar 桥地址的环境变量名。
+// SidecarEnv is the environment variable name of the sidecar bridge address.
 const SidecarEnv = "FERRY_QUIC_SIDECAR"
 
-// DefaultSidecarAddr 是 sidecar 桥的缺省监听地址（与 ferry-quic client 缺省对齐）。
+// DefaultSidecarAddr is the sidecar bridge's default listen address (aligned with the ferry-quic client default).
 const DefaultSidecarAddr = "127.0.0.1:7300"
 
-// SidecarAddr 归一 sidecar 桥地址。
+// SidecarAddr normalizes the sidecar bridge address.
 func SidecarAddr() string {
 	if v := strings.TrimSpace(os.Getenv(SidecarEnv)); v != "" {
 		return v
@@ -35,7 +35,7 @@ func SidecarAddr() string {
 }
 
 func init() {
-	// 插件注册失败属于编程错误，直接 panic（init 期注册无并发）。
+	// a plugin failing to register is a programming error, so panic directly (init-time registration has no concurrency).
 	if err := Register(pluginQUIC, func(o Options) (Tunnel, error) {
 		return &quicSidecar{opts: o}, nil
 	}); err != nil {
@@ -43,7 +43,7 @@ func init() {
 	}
 }
 
-// quicSidecar 是 CONNECT 桥拨号实现：无状态，Close 空实现。
+// quicSidecar is the CONNECT bridge dialer: stateless, with an empty Close.
 type quicSidecar struct{ opts Options }
 
 func (t *quicSidecar) Name() string { return pluginQUIC }
@@ -62,7 +62,7 @@ func (t *quicSidecar) Dial(ctx context.Context, addr string) (net.Conn, error) {
 		}
 		sni = host
 	}
-	// 请求行与应答都带超时，sidecar 不在/版本不符时快速失败不悬挂。
+	// the request line and the reply both carry timeouts, so a missing sidecar or a version mismatch fails fast instead of hanging.
 	_ = conn.SetDeadline(time.Now().Add(t.opts.TimeoutOrDefault()))
 	if _, err := fmt.Fprintf(conn, "CONNECT %s sni=%s\n", addr, sni); err != nil {
 		_ = conn.Close()
@@ -91,6 +91,6 @@ func (t *quicSidecar) ServeHeartbeat(ctx context.Context, conn net.Conn, interva
 }
 
 func (t *quicSidecar) Close() error {
-	// 无全局资源；sidecar 生命周期独立于 agent（systemd/被管进程位）。
+	// no global resources; the sidecar's lifecycle is independent of the agent (systemd / a managed process slot).
 	return nil
 }

@@ -23,9 +23,9 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// ---- ssh 插件：校验序与错误面 ----
+// ---- ssh plugin: validation order and error surface ----
 
-// sshOpts 组一份合法 Options，再按需逐项破坏。
+// sshOpts assembles a valid Options, then breaks it item by item as needed.
 func sshOpts(t *testing.T, mutate func(*Options)) Options {
 	t.Helper()
 	dir := t.TempDir()
@@ -42,8 +42,8 @@ func sshOpts(t *testing.T, mutate func(*Options)) Options {
 	return opts
 }
 
-// TestSSHDialValidationErrors dial 前置校验与凭证加载错误面：缺 auth_user、
-// 密钥文件缺失/坏内容、known_hosts 文件打不开、TCP 拨号失败。
+// TestSSHDialValidationErrors covers the pre-dial validation and credential loading error surface: a missing auth_user,
+// a missing or corrupt key file, an unreadable known_hosts file, and a failed TCP dial.
 func TestSSHDialValidationErrors(t *testing.T) {
 	ctx := context.Background()
 
@@ -66,7 +66,7 @@ func TestSSHDialValidationErrors(t *testing.T) {
 		})
 	}
 
-	// 坏密钥内容：文件在但解析不了
+	// corrupt key content: the file exists but cannot be parsed
 	badKey := filepath.Join(t.TempDir(), "bad-key")
 	if err := os.WriteFile(badKey, []byte("not a pem at all"), 0o600); err != nil {
 		t.Fatal(err)
@@ -77,8 +77,8 @@ func TestSSHDialValidationErrors(t *testing.T) {
 	}
 }
 
-// TestSSHWarnsOnceWithoutKnownHosts known_hosts 未配（引导期口径）：拨号
-// 前打一次告警（warned 置位），后续不再置位。
+// TestSSHWarnsOnceWithoutKnownHosts covers known_hosts being unset (the bootstrap rule): one warning
+// fires before dialing (warned is set) and is not set again afterwards.
 func TestSSHWarnsOnceWithoutKnownHosts(t *testing.T) {
 	tn := &sshTunnel{opts: sshOpts(t, func(o *Options) { o.ServerName = "127.0.0.1:1" })}
 	ctx := context.Background()
@@ -93,8 +93,8 @@ func TestSSHWarnsOnceWithoutKnownHosts(t *testing.T) {
 	}
 }
 
-// rejectingSSHD 只握手、拒绝一切 direct-tcpip 开流请求的 sshd 替身：专门
-// 演练 ssh 插件的「开流失败 → 判死重连」恢复腿。
+// rejectingSSHD is an sshd stand-in that only handshakes and rejects every direct-tcpip open-stream request:
+// it exercises the ssh plugin's "open-stream failure -> declare dead and reconnect" recovery leg.
 type rejectingSSHD struct {
 	ln net.Listener
 	wg sync.WaitGroup
@@ -159,9 +159,9 @@ func startRejectingSSHD(t *testing.T) *rejectingSSHD {
 	return s
 }
 
-// TestSSHDialRetryOnChannelReject 开流被拒：判死缓存连接并重连再试一次；
-// 重连后仍被拒 → 报 open channel。sshd 停收新连接后：复用连接仍能开流
-// 失败 → 重连腿自身失败 → 保留首个错误。
+// TestSSHDialRetryOnChannelReject covers an open stream being rejected: the cached connection is declared dead and it reconnects to retry once;
+// if still rejected after reconnecting it reports open channel. Once the sshd stops accepting new connections: the reused connection still fails
+// to open a stream -> the reconnect leg itself fails -> the first error is kept.
 func TestSSHDialRetryOnChannelReject(t *testing.T) {
 	s := startRejectingSSHD(t)
 	tn := newSSHTunnel(t, s.ln.Addr().String(), "unused-by-ssh", "").(*sshTunnel)
@@ -173,7 +173,7 @@ func TestSSHDialRetryOnChannelReject(t *testing.T) {
 		t.Fatalf("err = %v; want open channel error after retry", err)
 	}
 
-	// 缓存里应有一条重连后的连接（重试腿建过新连接）
+	// the cache should hold one post-reconnect connection (the retry leg built a new one)
 	tn.mu.Lock()
 	cached := tn.sshConn
 	tn.mu.Unlock()
@@ -181,8 +181,8 @@ func TestSSHDialRetryOnChannelReject(t *testing.T) {
 		t.Fatal("retry leg must leave a cached connection")
 	}
 
-	// 停收新连接（已有连接仍活着、仍拒绝开流）：重连腿失败，保留首个错误
-	// （原样上抛，不带 open channel 包装）
+	// no longer accepting new connections (existing ones stay alive and still reject opens): the reconnect leg fails and the first error is kept
+	// (propagated as is, without the open-channel wrapper)
 	if err := s.ln.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -198,9 +198,9 @@ func TestSSHDialRetryOnChannelReject(t *testing.T) {
 	}
 }
 
-// ---- quic sidecar 插件：地址缺省与 SNI 回落、无应答 ----
+// ---- quic sidecar plugin: address defaulting, SNI fallback and no reply ----
 
-// TestQUICSidecarAddrDefault 环境变量空白视同未配置：回落缺省桥地址。
+// TestQUICSidecarAddrDefault covers a blank environment variable counting as unset: fall back to the default bridge address.
 func TestQUICSidecarAddrDefault(t *testing.T) {
 	t.Setenv(SidecarEnv, "   ")
 	if got := SidecarAddr(); got != DefaultSidecarAddr {
@@ -208,8 +208,8 @@ func TestQUICSidecarAddrDefault(t *testing.T) {
 	}
 }
 
-// TestQUICSidecarSNIFallbackFromAddr ServerName 未配：SNI 取目标 host；
-// 目标无端口时整体即 host。
+// TestQUICSidecarSNIFallbackFromAddr covers ServerName unset: the SNI is the target host;
+// with no port in the target, the whole of it is the host.
 func TestQUICSidecarSNIFallbackFromAddr(t *testing.T) {
 	var gotReq string
 	sidecar := startFakeSidecar(t, func(req string) string {
@@ -221,7 +221,7 @@ func TestQUICSidecarSNIFallbackFromAddr(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	conn, err := tn.Dial(context.Background(), "example.com") // 无端口目标
+	conn, err := tn.Dial(context.Background(), "example.com") // a portless target
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -231,8 +231,8 @@ func TestQUICSidecarSNIFallbackFromAddr(t *testing.T) {
 	}
 }
 
-// TestQUICSidecarNoReply sidecar 收到请求后不回话即断：报 read connect
-// reply 而不是悬挂。
+// TestQUICSidecarNoReply covers the sidecar dropping without replying after the request: it reports a read-connect
+// error instead of hanging.
 func TestQUICSidecarNoReply(t *testing.T) {
 	silent := startFakeSidecar(t, func(string) string { return "" })
 	t.Setenv(SidecarEnv, silent)
@@ -243,10 +243,10 @@ func TestQUICSidecarNoReply(t *testing.T) {
 	}
 }
 
-// ---- tls-camo / ws-tls 插件：ServerName 回落与 CA 文件错误 ----
+// ---- tls-camo / ws-tls plugins: ServerName fallback and CA file errors ----
 
-// TestTLSCamoServerNameFallback ServerName 未配时取目标 host（无端口目标
-// 取整体）；失败面断言拨号错误而非空指针。
+// TestTLSCamoServerNameFallback covers ServerName unset taking the target host (a portless target
+// takes the whole thing); the failure surface asserts a dial error rather than a nil pointer.
 func TestTLSCamoServerNameFallback(t *testing.T) {
 	tn := &tlsCamo{}
 	if _, err := tn.Dial(context.Background(), "127.0.0.1"); err == nil {
@@ -254,7 +254,7 @@ func TestTLSCamoServerNameFallback(t *testing.T) {
 	}
 }
 
-// TestTLSCamoCAFileErrors CA 文件缺失与无证书内容两种错误。
+// TestTLSCamoCAFileErrors covers both error kinds: a missing CA file and a certificate-less file.
 func TestTLSCamoCAFileErrors(t *testing.T) {
 	tn := &tlsCamo{opts: Options{CAFile: filepath.Join(t.TempDir(), "no-ca.pem")}}
 	_, err := tn.Dial(context.Background(), "127.0.0.1:443")
@@ -272,8 +272,8 @@ func TestTLSCamoCAFileErrors(t *testing.T) {
 	}
 }
 
-// TestWSTLSServerNameFallback ServerName 未配：取目标 host（无端口取整体），
-// 拨号失败原样上抛。
+// TestWSTLSServerNameFallback covers ServerName unset: the target host is taken (a portless target takes the whole),
+// and a dial failure propagates as is.
 func TestWSTLSServerNameFallback(t *testing.T) {
 	tn := &wsTls{}
 	if _, err := tn.Dial(context.Background(), "127.0.0.1"); err == nil {
@@ -281,7 +281,7 @@ func TestWSTLSServerNameFallback(t *testing.T) {
 	}
 }
 
-// TestWSTLSCAFileErrors CA 文件缺失与无证书内容两种错误。
+// TestWSTLSCAFileErrors covers both error kinds: a missing CA file and a certificate-less file.
 func TestWSTLSCAFileErrors(t *testing.T) {
 	tn := &wsTls{opts: Options{CAFile: filepath.Join(t.TempDir(), "no-ca.pem")}}
 	_, err := tn.Dial(context.Background(), "127.0.0.1:443")
@@ -299,8 +299,8 @@ func TestWSTLSCAFileErrors(t *testing.T) {
 	}
 }
 
-// startTextThenCloseWS 起一个发 TextMessage 后即发关闭帧的 ws 服务替身：
-// 演练 wsConn 读侧跳过非二进制消息。
+// startTextThenCloseWS starts a ws service stand-in that sends a TextMessage and then a close frame:
+// it exercises wsConn's read side skipping non-binary messages.
 func startTextThenCloseWS(t *testing.T) string {
 	t.Helper()
 	up := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
@@ -321,11 +321,11 @@ func startTextThenCloseWS(t *testing.T) string {
 	return strings.TrimPrefix(srv.URL, "https://")
 }
 
-// dialRawWSConn 白盒拿 *wsConn（不做回环，只测读/写适配层的边界分支）。
+// dialRawWSConn obtains a *wsConn white-box (no loopback; only the read/write adapter's edge branches are tested).
 func dialRawWSConn(t *testing.T, addr string) *wsConn {
 	t.Helper()
 	d := &websocket.Dialer{
-		TLSClientConfig:  &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // 测试自签证书
+		TLSClientConfig:  &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // test self-signed certificate
 		HandshakeTimeout: 3 * time.Second,
 	}
 	ws, _, err := d.Dial("wss://"+addr+"/ferry", nil)
@@ -335,8 +335,8 @@ func dialRawWSConn(t *testing.T, addr string) *wsConn {
 	return &wsConn{ws: ws}
 }
 
-// TestWSConnReadSkipsNonBinary 非二进制消息不交给上层：跳过后遇关闭帧
-// 上抛读错误（而不是把 Text 内容当业务字节）。
+// TestWSConnReadSkipsNonBinary covers non-binary messages not reaching the upper layer: after skipping, the close frame
+// surfaces as a read error (instead of Text content being taken as business bytes).
 func TestWSConnReadSkipsNonBinary(t *testing.T) {
 	c := dialRawWSConn(t, startTextThenCloseWS(t))
 	defer c.Close()
@@ -348,8 +348,8 @@ func TestWSConnReadSkipsNonBinary(t *testing.T) {
 	}
 }
 
-// TestWSConnWriteAfterClose 连接已关：读与写的适配层都要报错而不是
-// 假成功。
+// TestWSConnWriteAfterClose covers a closed connection: both the read and write adapters must error instead of
+// faking success.
 func TestWSConnWriteAfterClose(t *testing.T) {
 	addr, _ := startWSServer(t)
 	c := dialRawWSConn(t, addr)
@@ -362,9 +362,9 @@ func TestWSConnWriteAfterClose(t *testing.T) {
 	}
 }
 
-// ---- 心跳 PingPong：缺省周期与错误/恢复分支 ----
+// ---- heartbeat PingPong: default period and error/recovery branches ----
 
-// scriptConn 按剧本供读（字节流）的假连接；werr 非空时写固定失败。
+// scriptConn is a fake connection that serves reads from a script (as a byte stream); with werr set, writes always fail.
 type scriptConn struct {
 	r    io.Reader
 	werr error
@@ -384,7 +384,7 @@ func (c *scriptConn) SetDeadline(time.Time) error      { return nil }
 func (c *scriptConn) SetReadDeadline(time.Time) error  { return nil }
 func (c *scriptConn) SetWriteDeadline(time.Time) error { return nil }
 
-// frame 拼一条 9 字节心跳帧。
+// frame assembles one 9-byte heartbeat frame.
 func frame(kind byte, nonce uint64) []byte {
 	b := make([]byte, frameLen)
 	b[0] = kind
@@ -392,7 +392,7 @@ func frame(kind byte, nonce uint64) []byte {
 	return b
 }
 
-// blockedTail 字节读完后续一段永不就绪的读（替代 EOF，避免读协程提前报错）。
+// blockedTail appends a never-ready read after the bytes are consumed (standing in for EOF so the read goroutine does not error early).
 func blockedTail(t *testing.T) io.Reader {
 	t.Helper()
 	a, b := net.Pipe()
@@ -400,19 +400,19 @@ func blockedTail(t *testing.T) io.Reader {
 	return a
 }
 
-// TestPingPongDefaultInterval interval<=0 用缺省 30s，ctx 取消干净返回。
+// TestPingPongDefaultInterval covers interval<=0 using the default 30s, returning cleanly on ctx cancellation.
 func TestPingPongDefaultInterval(t *testing.T) {
 	a, b := net.Pipe()
 	defer b.Close()
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // 立刻取消：返回 nil 即到位
+	cancel() // cancel immediately: returning nil is the pass condition
 	if err := PingPong(ctx, a, 0); err != nil {
 		t.Fatalf("PingPong = %v; want nil on cancel", err)
 	}
 	_ = a.Close()
 }
 
-// TestPingPongPongWriteFails 收到 ping 回 pong 时写失败：错误上抛。
+// TestPingPongPongWriteFails covers a write failing while answering a ping with a pong: the error propagates.
 func TestPingPongPongWriteFails(t *testing.T) {
 	c := &scriptConn{
 		r:    io.MultiReader(bytes.NewReader(frame(framePing, 7)), blockedTail(t)),
@@ -424,7 +424,7 @@ func TestPingPongPongWriteFails(t *testing.T) {
 	}
 }
 
-// TestPingPongPingWriteFails 周期到点发 ping 写失败：错误上抛。
+// TestPingPongPingWriteFails covers a write failing when the period fires a ping: the error propagates.
 func TestPingPongPingWriteFails(t *testing.T) {
 	c := &scriptConn{r: blockedTail(t), werr: errors.New("gone")}
 	err := PingPong(context.Background(), c, 15*time.Millisecond)
@@ -433,7 +433,7 @@ func TestPingPongPingWriteFails(t *testing.T) {
 	}
 }
 
-// TestPingPongUnknownFrame 未知帧类型：报错而不是误当业务帧吞掉。
+// TestPingPongUnknownFrame covers an unknown frame type: an error, not a silent swallow as a business frame.
 func TestPingPongUnknownFrame(t *testing.T) {
 	c := &scriptConn{r: io.MultiReader(bytes.NewReader(frame(0x7F, 1)), blockedTail(t))}
 	err := PingPong(context.Background(), c, 20*time.Millisecond)
@@ -442,11 +442,11 @@ func TestPingPongUnknownFrame(t *testing.T) {
 	}
 }
 
-// TestPingPongPongFloodBufferFull pong 洪泛冲爆缓冲（16）：多余的经
-// default 丢弃、读协程不阻塞；随后再无 pong → 三周期判死收场。
+// TestPingPongPongFloodBufferFull covers a pong flood overrunning the buffer (16): the surplus is dropped
+// via default without blocking the reader; with no further pongs -> three periods declare it dead.
 func TestPingPongPongFloodBufferFull(t *testing.T) {
 	var frames []byte
-	for i := 0; i < 40; i++ { // 远超 pongs 缓冲 16
+	for i := 0; i < 40; i++ { // far beyond the pongs buffer of 16
 		frames = append(frames, frame(framePong, uint64(i))...)
 	}
 	c := &scriptConn{r: io.MultiReader(bytes.NewReader(frames), blockedTail(t))}
@@ -462,8 +462,8 @@ func TestPingPongPongFloodBufferFull(t *testing.T) {
 	}
 }
 
-// TestPingPongOuterPongReset 周期之间收到 pong：外层 select 消费并复位
-// miss 计数（对端主动回声场景）。
+// TestPingPongOuterPongReset covers a pong arriving between periods: the outer select consumes it and resets
+// the miss counter (the peer echoing on its own).
 func TestPingPongOuterPongReset(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -475,9 +475,9 @@ func TestPingPongOuterPongReset(t *testing.T) {
 		if err != nil {
 			return
 		}
-		_, _ = c.Write(frame(framePong, 1)) // 主动 pong：早于首个 tick
+		_, _ = c.Write(frame(framePong, 1)) // a proactive pong: earlier than the first tick
 		buf := make([]byte, 64)
-		for { // 吃掉后续 ping 保持对端写侧畅通
+		for { // eat the following pings to keep the peer's write side flowing
 			if _, err := c.Read(buf); err != nil {
 				return
 			}
@@ -492,7 +492,7 @@ func TestPingPongOuterPongReset(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- PingPong(ctx, a, 100*time.Millisecond) }()
-	time.Sleep(50 * time.Millisecond) // pong 落在两个 tick 之间
+	time.Sleep(50 * time.Millisecond) // the pong lands between two ticks
 	cancel()
 	select {
 	case err := <-done:
