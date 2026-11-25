@@ -58,6 +58,7 @@ function doLogout() {
         <el-menu-item index="/notifications">通知</el-menu-item>
         <el-menu-item index="/landings">调配</el-menu-item>
         <el-menu-item index="/audit">审计</el-menu-item>
+        <el-menu-item index="/cloud">云资源</el-menu-item>
         <el-menu-item index="/settings">设置</el-menu-item>
       </el-menu>
     </el-aside>

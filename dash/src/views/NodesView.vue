@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { get, post, put, del, resolveAlert, upgradeNode, getNodeProcs, rotateNodeToken, revokeNodeToken, type Node, type DimensionStatus, type NodeShare, type BatchProcResult, type BatchConfigResult, type Alert, type NodeLoad, type NodeProcRow } from '../api'
 import QRCode from 'qrcode'
@@ -7,6 +8,8 @@ import RuleLibDialog from '../components/RuleLibDialog.vue'
 
 // E-24: the node view — node list (entry/landing filter + direction/line columns) and the region/ISP
 // perspective (status lights + node counts, structurally identical). Protocol/config editing lives in dialogs.
+
+const router = useRouter()
 
 const PROTOCOLS = [
   { value: 'vless', label: 'VLESS' },
@@ -721,6 +724,7 @@ async function remove(n: Node) {
             link type="info"
             @click="markStandby(row)"
           >预备</el-button>
+          <el-button link type="info" @click="router.push({ path: '/cloud', query: { node_id: String(row.id) } })">关联云资源</el-button>
           <el-button link type="danger" @click="remove(row)">删除</el-button>
         </template>
       </el-table-column>

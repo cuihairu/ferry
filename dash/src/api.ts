@@ -584,29 +584,183 @@ export interface NodeConfigRow {
 
 // ---- Provisioning configuration (OS-1) ----
 
-/** CloudProvider is the cloud provider credential view: secrets are never echoed back, only has_access_key. */
+
+// ---- Cloud resource management (F-0411~F-0432) ----
+
+/** CloudProvider is a provider account: credentials stay sealed server-side (has_access_key only). */
 export interface CloudProvider {
   id: number
   name: string
   type: string
   enabled: boolean
   has_access_key: boolean
+  note?: string
+  region?: string
+  key_version?: number
+  prev_set_at?: string | null
+}
+
+export interface CloudResource {
+  id: number
+  provider_id: number
+  external_id: string
+  region: string
+  name: string
+  state: string
+  public_ip: string
+  bw_mbps: number
+  spec: string
+  tags: string
+  node_id?: number | null
+  unbound_at?: string | null
+  last_seen_at: string
+  missing: boolean
+  missing_since?: string | null
+  last_sync_at?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CloudSyncLog {
+  id: number
+  provider_id: number
+  region: string
+  trigger: string
+  ok: boolean
+  added: number
+  updated: number
+  missing: number
+  error?: string
+  started_at: string
+  finished_at: string
+}
+
+export interface CloudOperation {
+  id: number
+  resource_id: number
+  batch_id?: string
+  provider_id: number
+  op: string
+  params?: string
+  state: string
+  idempotency_key: string
+  actor: string
+  actor_kind: string
+  error?: string
+  provider_code?: string
+  result?: string
+  confirmed: boolean
+  allow_cancel: boolean
+  created_at: string
+  updated_at: string
+  finished_at?: string | null
+}
+
+export interface CloudOperationLog {
+  id: number
+  operation_id: number
+  state: string
+  message: string
+  created_at: string
+}
+
+export interface CloudProviderTest {
+  ok: boolean
+  mode: string
+  message?: string
+  error?: string
+  error_type?: string
+  api_version?: string
+  capabilities?: unknown
 }
 
 export function getProviders(): Promise<CloudProvider[]> {
   return get<CloudProvider[]>('/api/providers')
 }
 
-export function createProvider(body: { name: string; type: string; access_key: string }): Promise<CloudProvider> {
+export function createProvider(body: { name: string; type: string; access_key: string; note?: string; region?: string }): Promise<CloudProvider> {
   return post<CloudProvider>('/api/providers', body)
 }
 
-export function updateProvider(id: number, body: { name?: string; type?: string; access_key?: string; enabled?: boolean }): Promise<CloudProvider> {
+export function updateProvider(id: number, body: Partial<{ name: string; type: string; access_key: string; enabled: boolean; note: string; region: string }>): Promise<CloudProvider> {
   return put<CloudProvider>(`/api/providers/${id}`, body)
 }
 
 export function deleteProvider(id: number): Promise<{ ok: boolean }> {
   return del<{ ok: boolean }>(`/api/providers/${id}`)
+}
+
+export function testProvider(id: number): Promise<CloudProviderTest> {
+  return post<CloudProviderTest>(`/api/providers/${id}/test`)
+}
+
+export function syncProvider(id: number): Promise<{ added: number; updated: number; missing: number; ok: boolean }> {
+  return post(`/api/providers/${id}/sync`)
+}
+
+export function getCloudResources(params?: { provider_id?: number; region?: string; state?: string; node_id?: number }): Promise<CloudResource[]> {
+  const q = new URLSearchParams()
+  if (params?.provider_id) q.set('provider_id', String(params.provider_id))
+  if (params?.region) q.set('region', params.region)
+  if (params?.state) q.set('state', params.state)
+  if (params?.node_id) q.set('node_id', String(params.node_id))
+  return get<CloudResource[]>(`/api/cloud-resources${q.size ? `?${q}` : ''}`)
+}
+
+export function getCloudResource(id: number): Promise<CloudResource> {
+  return get<CloudResource>(`/api/cloud-resources/${id}`)
+}
+
+export function bindCloudResource(id: number, nodeId: number): Promise<{ ok: boolean }> {
+  return post(`/api/cloud-resources/${id}/bind`, { node_id: nodeId })
+}
+
+export function unbindCloudResource(id: number): Promise<{ ok: boolean }> {
+  return post(`/api/cloud-resources/${id}/unbind`)
+}
+
+export function linkCloudResource(id: number): Promise<{ resource_id: number; effect: unknown; changed: boolean }> {
+  return post(`/api/cloud-resources/${id}/link`)
+}
+
+export function getCloudSyncLogs(providerId?: number): Promise<CloudSyncLog[]> {
+  return get<CloudSyncLog[]>(`/api/cloud-sync-logs${providerId ? `?provider_id=${providerId}` : ''}`)
+}
+
+export function getCloudOperations(params?: { batch_id?: string; resource_id?: number; state?: string }): Promise<CloudOperation[]> {
+  const q = new URLSearchParams()
+  if (params?.batch_id) q.set('batch_id', params.batch_id)
+  if (params?.resource_id) q.set('resource_id', String(params.resource_id))
+  if (params?.state) q.set('state', params.state)
+  return get<CloudOperation[]>(`/api/cloud-operations${q.size ? `?${q}` : ''}`)
+}
+
+export function getCloudOperation(id: number): Promise<{ operation: CloudOperation; logs: CloudOperationLog[] }> {
+  return get(`/api/cloud-operations/${id}`)
+}
+
+export function createCloudOperation(body: { provider_id: number; op: string; specs: { resource_id: number; params?: Record<string, unknown> }[]; confirmed?: boolean }): Promise<{ id: number; count: number; batch_id: string; operations: CloudOperation[] }> {
+  return post('/api/cloud-operations', body)
+}
+
+export function cancelCloudOperation(id: number): Promise<{ ok: boolean }> {
+  return post(`/api/cloud-operations/${id}/cancel`)
+}
+
+export function getCloudShutdownCheck(nodeId: number): Promise<{ node_id: number; risk: boolean; recent_conns: number; message: string }> {
+  return get(`/api/nodes/${nodeId}/cloud-shutdown-check`)
+}
+
+export function drainCloudNode(nodeId: number, reason: string): Promise<{ ok: boolean }> {
+  return post(`/api/nodes/${nodeId}/cloud-drain`, { reason })
+}
+
+export function checkCloudNodeBoot(nodeId: number): Promise<{ agent_online: boolean; heartbeat_fresh: boolean; config_valid: boolean; crash_alert: boolean; healthy: boolean }> {
+  return post(`/api/nodes/${nodeId}/cloud-boot-check`)
+}
+
+export function getCloudPathHealth(nodeId: number): Promise<{ node_id: number; paths: Record<string, string> }> {
+  return get(`/api/nodes/${nodeId}/cloud-path-health`)
 }
 
 /** ProvisionTemplate is a machine-type template: OS-2 renders the HCL provisioning, OS-4 fills in metadata when it joins the pool. */

@@ -26,6 +26,8 @@ export const router = createRouter({
     { path: '/landings', component: () => import('./views/LandingsView.vue') },
     { path: '/settings', component: () => import('./views/SettingsView.vue') },
     { path: '/audit', component: () => import('./views/AuditView.vue') },
+    // Cloud resource management (F-0411~F-0432): accounts, resources and operations.
+    { path: '/cloud', component: () => import('./views/CloudView.vue') },
   ],
 })
 
