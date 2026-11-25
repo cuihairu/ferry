@@ -1,7 +1,7 @@
-// Package certwatch 从受管进程的核心配置中收集证书到期信息（A-3），
-// 并给出临期判定口径（A-7）。核心配置形态各异（xray/sing-box/hysteria2），
-// 这里按「键名含 cert → 取值」启发式挖掘：值为 PEM 文本直接解析，否则视作文件路径读取；
-// 读不到或非证书一律静默跳过，不影响心跳。
+// Package certwatch collects certificate expiry info from managed processes' core configs (A-3)
+// and defines the expiry-decision rule (A-7). Core config shapes vary (xray/sing-box/hysteria2), so it
+// mines by the "key name containing cert -> take the value" heuristic: a PEM text value is parsed directly,
+// otherwise it is read as a file path; unreadable or non-certificate values are skipped silently and never affect the heartbeat.
 package certwatch
 
 import (
@@ -15,10 +15,10 @@ import (
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
 
-// ExpiryWindow 证书到期预警窗口：窗口内（含已过期）触发 cert_expiry 告警。
+// ExpiryWindow is the certificate expiry warning window: cert_expiry alarms fire inside it (expired certificates included).
 const ExpiryWindow = 30 * 24 * time.Hour
 
-// FromFile 解析一个核心配置文件，返回其中可读证书的到期状态。
+// FromFile parses one core config file and returns the expiry state of the certificates readable from it.
 func FromFile(path string) []agentproto.CertStatus {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -33,7 +33,7 @@ func FromFile(path string) []agentproto.CertStatus {
 	return out
 }
 
-// collect 深度遍历配置树，抽取 cert 相关键指向的证书。
+// collect walks the config tree deeply and extracts the certificates pointed at by cert-like keys.
 func collect(v any, out *[]agentproto.CertStatus, seen map[string]bool) {
 	switch t := v.(type) {
 	case map[string]any:
@@ -80,7 +80,7 @@ func parsePEM(raw []byte) (agentproto.CertStatus, bool) {
 	return agentproto.CertStatus{Domain: cert.Subject.CommonName, NotAfter: cert.NotAfter}, true
 }
 
-// Expiring 过滤出 window 内到期（含已过期）的证书。
+// Expiring filters the certificates expiring within window (expired ones included).
 func Expiring(certs []agentproto.CertStatus, now time.Time, window time.Duration) []agentproto.CertStatus {
 	var out []agentproto.CertStatus
 	for _, c := range certs {

@@ -17,7 +17,7 @@ import (
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
 
-// genCert 生成自签证书并写 PEM 文件，返回路径与到期时间。
+// genCert generates a self-signed certificate, writes a PEM file and returns the path and the expiry time.
 func genCert(t *testing.T, dir, commonName string, notAfter time.Time) (string, time.Time) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -54,7 +54,7 @@ func TestFromFileFilePaths(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("certs = %d, want 1", len(got))
 	}
-	// x509 会把时间截断到秒，按秒比对。
+	// x509 truncates times to the second, so compare by second.
 	if got[0].Domain != "hk.example.com" || got[0].NotAfter.Unix() != notAfter.Unix() {
 		t.Fatalf("status = %+v want NotAfter %v", got[0], notAfter)
 	}
@@ -67,7 +67,7 @@ func TestFromFileInlinePEM(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// PEM 含换行，须走 json.Marshal 生成合法 JSON 字符串。
+	// PEM contains newlines, so it must go through json.Marshal to become valid JSON.
 	cfgRaw, err := json.Marshal(map[string]any{"cert": string(raw)})
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +85,7 @@ func TestFromFileInlinePEM(t *testing.T) {
 func TestFromFileSkipsNonCerts(t *testing.T) {
 	dir := t.TempDir()
 	cfg := filepath.Join(dir, "config.json")
-	// 无 cert 键 / 指向缺失文件 / 非 JSON 文件：均静默返回空
+	// no cert key / a missing file / a non-JSON file: all of them return empty silently
 	if err := os.WriteFile(cfg, []byte(`{"address":"a","tls":{"certificateFile":"/no/such/file.pem"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestFromFileSkipsNonCerts(t *testing.T) {
 
 func TestExpiring(t *testing.T) {
 	now := time.Now()
-	// 三张状态：已过期 / 10 天后 / 40 天后。
+	// three states: expired / expiring in 10 days / expiring in 40 days.
 	certs := []agentproto.CertStatus{
 		{Domain: "expired", NotAfter: now.Add(-24 * time.Hour)},
 		{Domain: "soon", NotAfter: now.Add(10 * 24 * time.Hour)},
