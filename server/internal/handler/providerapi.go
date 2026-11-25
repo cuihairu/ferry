@@ -18,6 +18,10 @@ import (
 // encrypted with AES-256-GCM (R24 wording): entry is rejected while the master
 // key is unconfigured; the API layer only returns has_access_key and never echoes
 // the plaintext.
+//
+// Least-privilege guidance for the cloud accounts behind these credentials
+// (which vendor IAM actions Ferry actually needs, per vendor) lives in
+// docs/design/cloud-account-least-privilege.md (F-0335).
 
 // providerView is a provider's outward view: secret fields are presented in masked form.
 type providerView struct {

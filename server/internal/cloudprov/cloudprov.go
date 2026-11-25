@@ -63,6 +63,9 @@ type Capabilities struct {
 	// Power gates PowerOn/PowerOff/Reboot (F-0307~F-0309).
 	Power bool `json:"power"`
 	// ForceStop gates the high-risk force stop (F-0310); implies Power.
+	// High-risk operations require an elevated panel permission; vendor IAM
+	// baselines per capability are documented in
+	// docs/design/cloud-account-least-privilege.md (F-0335).
 	ForceStop bool `json:"force_stop"`
 	// Rebuild gates Rebuild (F-0311): only declared-rebuild-capable vendors
 	// expose reinstall/recreate in the panel.
