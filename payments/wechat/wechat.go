@@ -1,6 +1,7 @@
-// Package wechat 是微信支付渠道占位（PAY-10）：注册占位 Provider 使
-// 渠道枚举完整、下单得到「未启用」文案；商户资质到位后在此替换为
-// 真实现（V3 JSAPI/Native 下单 + 平台证书回调验签）。
+// Package wechat is the Wechat Pay channel placeholder (PAY-10): it registers a placeholder Provider so
+// the channel listing stays complete and ordering yields a "not enabled" message; once merchant
+// credentials are in place, replace it here with the real implementation (V3 JSAPI/Native ordering
+// plus platform-certificate callback verification).
 package wechat
 
 import "github.com/cuihairu/ferry/packages/payment"

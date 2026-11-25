@@ -8,7 +8,7 @@ import (
 	"github.com/cuihairu/ferry/packages/payment"
 )
 
-// TestRegistered 覆盖 init 自注册：Get 命中 wechat 占位，下单报「未启用」。
+// TestRegistered covers init self-registration: Get hits the wechat placeholder and ordering reports "not enabled".
 func TestRegistered(t *testing.T) {
 	p, err := payment.Get("wechat")
 	if err != nil || p.Name() != "wechat" {
