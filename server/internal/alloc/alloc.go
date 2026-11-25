@@ -14,6 +14,9 @@ import (
 
 	"github.com/cuihairu/ferry/packages/agentproto"
 	"github.com/cuihairu/ferry/server/internal/notify"
+	// Aliased: the local alloc-policy identifier (PolicySetting values and
+	// policy params) shadows the package name everywhere below.
+	policyconstraints "github.com/cuihairu/ferry/server/internal/policy"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"gorm.io/gorm"
 )
@@ -440,6 +443,15 @@ func Sweep(db *gorm.DB) ([]SwitchEvent, error) {
 
 // SweepAt is Sweep with an injectable clock, for pinning time in tests.
 func SweepAt(db *gorm.DB, now time.Time) ([]SwitchEvent, error) {
+	// Failover freeze (F-0294): a policy chain setting failover=manual stops
+	// auto landing switches this round (current assignments are kept).
+	eff, _, err := policyconstraints.Resolve(db, 0, 0)
+	if err != nil {
+		return nil, err
+	}
+	if policyconstraints.FreezeFailover(eff) {
+		return nil, nil
+	}
 	policy, err := LoadPolicy(db)
 	if err != nil {
 		return nil, err

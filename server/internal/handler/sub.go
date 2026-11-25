@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/policy"
 	"github.com/cuihairu/ferry/server/internal/pool"
 	"github.com/cuihairu/ferry/server/internal/quota"
 	"github.com/cuihairu/ferry/server/internal/storage"
@@ -109,9 +110,34 @@ func (h *Handler) subscription(c *gin.Context) {
 			return
 		}
 		rtt := h.entryRttMs()
+		// Scoped policy constraints (F-0282~F-0293): system/plan/user policies
+		// filter the entry candidates before any output shaping (no policies
+		// on the chain = zero change).
+		eff, _, err := policy.Resolve(h.db, u.ID, 0)
+		if err != nil {
+			fail(c, http.StatusInternalServerError, err)
+			return
+		}
+		nodes, _ = policy.ApplyConstraints(nodes, eff)
 		entries = make([]sub.Entry, 0, len(nodes))
 		for _, n := range nodes {
 			entries = append(entries, sub.Entry{Node: n, RttMs: rtt[n.ID]})
+		}
+		// Output shaping (F-0286): compact caps the delivered list to the
+		// probe-sorted best ten.
+		if eff.Output == "compact" {
+			compact := policy.CapOutput(nodes, rtt, eff)
+			keep := map[uint]bool{}
+			for _, n := range compact {
+				keep[n.ID] = true
+			}
+			filtered := entries[:0]
+			for _, e := range entries {
+				if keep[e.Node.ID] {
+					filtered = append(filtered, e)
+				}
+			}
+			entries = filtered
 		}
 		// Quota-linked downgrade (SAVE-6): active linkage rows filter by their snapshot
 		// tier line -- only low-cost-tier entries are served, so new connections naturally
