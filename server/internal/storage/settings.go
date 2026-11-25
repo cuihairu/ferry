@@ -6,7 +6,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// GetSetting 读取一个设置键；不存在返回 ok=false。
+// GetSetting reads one setting key; ok=false when absent.
 func GetSetting(db *gorm.DB, key string) (string, bool, error) {
 	var s Setting
 	err := db.First(&s, "key = ?", key).Error
@@ -19,7 +19,7 @@ func GetSetting(db *gorm.DB, key string) (string, bool, error) {
 	return s.Value, true, nil
 }
 
-// SetSetting 写入或更新一个设置键（按主键 upsert）。
+// SetSetting writes or updates a setting key (upsert by primary key).
 func SetSetting(db *gorm.DB, key, value string) error {
 	return db.Save(&Setting{Key: key, Value: value}).Error
 }

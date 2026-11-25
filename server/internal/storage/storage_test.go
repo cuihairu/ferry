@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// openTest 打开数据库库。优先读 FERRY_TEST_PG_DSN，未设置则回退 SQLite。
+// openTest opens the database under test. It prefers FERRY_TEST_PG_DSN and falls back to SQLite when unset.
 func openTest(t *testing.T) *gorm.DB {
 	t.Helper()
 	dsn := os.Getenv("FERRY_TEST_PG_DSN")
@@ -19,7 +19,7 @@ func openTest(t *testing.T) *gorm.DB {
 		if err != nil {
 			t.Fatalf("open postgres: %v", err)
 		}
-		// PG 测试库跨次复用，先清空数据（先子后父避开外键），SQLite 每次临时目录无需清理。
+		// The PG test DB is reused across runs, so clear its data first (children before parents to avoid foreign keys); SQLite uses a temp directory each time and needs no cleanup.
 		purgeTables(t, db)
 		return db
 	}
@@ -30,7 +30,7 @@ func openTest(t *testing.T) *gorm.DB {
 	return db
 }
 
-// purgeTables 按依赖序清空全部业务表。
+// purgeTables clears all business tables in dependency order.
 func purgeTables(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	for _, tb := range []string{
@@ -48,7 +48,7 @@ func TestSQLiteCRUD(t *testing.T) {
 	runCRUD(t, openTest(t))
 }
 
-// runCRUD 是三方言共用的 CRUD + 聚合验收（PG 方言测试复用）。
+// runCRUD is the CRUD + aggregation acceptance shared by the three dialects (reused by the PG dialect tests).
 func runCRUD(t *testing.T, db *gorm.DB) {
 	t.Helper()
 
@@ -75,7 +75,7 @@ func runCRUD(t *testing.T, db *gorm.DB) {
 		t.Fatalf("update lost, quota=%d", got.QuotaBytes)
 	}
 
-	// nodes（令牌唯一）
+	// nodes (unique token)
 	n := Node{Name: "hk-1", Address: "hk.example.com", Port: 443, Protocol: "vless", Config: "{}", Enabled: true, Token: "node-tok-1", Status: "unknown"}
 	if err := db.Create(&n).Error; err != nil {
 		t.Fatalf("create node: %v", err)
@@ -91,7 +91,7 @@ func runCRUD(t *testing.T, db *gorm.DB) {
 		t.Fatalf("list nodes: %v len=%d", err, len(nodes))
 	}
 
-	// traffic_logs 聚合（统计口径的最小验收）
+	// traffic_logs aggregation (minimal acceptance of the accounting policy)
 	now := time.Now()
 	nodeID := n.ID
 	uid := u.ID
@@ -109,7 +109,7 @@ func runCRUD(t *testing.T, db *gorm.DB) {
 		t.Fatalf("aggregate = %d, want 45", total)
 	}
 
-	// 卡密表存在且可写（支付一段的前置）
+	// The card-code tables exist and are writable (a prerequisite for the first payment segment)
 	batch := CardBatch{Name: "b1", GrantType: "add_quota", GrantValue: 1 << 30, Total: 2, CreatedBy: "admin"}
 	if err := db.Create(&batch).Error; err != nil {
 		t.Fatalf("create batch: %v", err)
@@ -119,13 +119,13 @@ func runCRUD(t *testing.T, db *gorm.DB) {
 		t.Fatalf("create code: %v", err)
 	}
 
-	// 三账之一的订单表可写
+	// One of the three ledgers, the orders table, is writable
 	ord := PaymentOrder{OrderNo: "F20251005ABC", UserID: u.ID, Provider: "card", AmountCents: 1000, Product: "10GB", Status: "pending"}
 	if err := db.Create(&ord).Error; err != nil {
 		t.Fatalf("create order: %v", err)
 	}
 
-	// 删除用户不级联清计费历史（P2 修复）：traffic 行保留，user_id 置空。
+	// Deleting a user does not cascade-clear billing history (P2 fix): the traffic rows are kept with user_id nulled.
 	if err := db.Delete(&User{}, u.ID).Error; err != nil {
 		t.Fatalf("delete user: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestLandingAssignmentAndProbeReport(t *testing.T) {
 		t.Fatalf("create landing node: %v", err)
 	}
 
-	// 落地分配记录：生效中记录可查
+	// Landing assignment rows: an effective one is queryable
 	la := LandingAssignment{
 		EntryNodeID: &entry.ID, LandingNodeID: landing.ID,
 		Direction: "out", Strategy: "manual", Weight: 10,
@@ -170,7 +170,7 @@ func TestLandingAssignmentAndProbeReport(t *testing.T) {
 		t.Fatalf("active assignments: %+v", active)
 	}
 
-	// 探测结论存证：按探测者与目标类型可查
+	// Probe conclusions are stored: queryable by prober and target kind
 	target := landing.ID
 	pr := ProbeReport{
 		NodeID: entry.ID, TargetKind: "tunnel", TargetNodeID: &target,
@@ -201,7 +201,7 @@ func TestCardBatchCascade(t *testing.T) {
 	if err := db.Create(&codes).Error; err != nil {
 		t.Fatalf("create codes: %v", err)
 	}
-	// 删批次连带删卡密（DB 级 FK CASCADE）
+	// Deleting a batch cascades to its card codes (DB-level FK CASCADE)
 	if err := db.Delete(&batch).Error; err != nil {
 		t.Fatalf("delete batch: %v", err)
 	}
@@ -214,8 +214,8 @@ func TestCardBatchCascade(t *testing.T) {
 	}
 }
 
-// TestSettings 覆盖 GetSetting/SetSetting：写入后读回、缺失键 ok=false、
-// 覆盖更新同键。
+// TestSettings covers GetSetting/SetSetting: write then read back, ok=false for a missing key, and
+// overwriting the same key.
 func TestSettings(t *testing.T) {
 	db := openTest(t)
 
@@ -238,8 +238,8 @@ func TestSettings(t *testing.T) {
 	}
 }
 
-// TestOpenDriverGuards Open 的方言分派：空驱动回退 sqlite、postgres/mysql
-// 空连接串拒绝、未知驱动拒绝。
+// TestOpenDriverGuards covers Open's dialect dispatch: an empty driver falls back to sqlite, postgres/mysql
+// with an empty connection string are refused, and an unknown driver is refused.
 func TestOpenDriverGuards(t *testing.T) {
 	db, err := Open("", ":memory:")
 	if err != nil || db == nil {
@@ -257,8 +257,8 @@ func TestOpenDriverGuards(t *testing.T) {
 	}
 }
 
-// TestSQLiteDSN 连接串补齐：缺省文件名、file: 前缀与 ?/# 段截断、嵌套
-// 目录自建、目录为文件时报错、内存库原样透传。
+// TestSQLiteDSN covers connection-string completion: the default file name, file: prefixes and ?/# segment truncation, nested
+// directories being created, an error when the directory is a file, and an in-memory DB passing through as is.
 func TestSQLiteDSN(t *testing.T) {
 	if got, err := sqliteDSN(""); err != nil || !strings.Contains(got, "ferry.db?") {
 		t.Fatalf("default dsn = %q err=%v", got, err)
@@ -279,7 +279,7 @@ func TestSQLiteDSN(t *testing.T) {
 	if st, err := os.Stat(filepath.Join(base, "a")); err != nil || !st.IsDir() {
 		t.Fatal("nested dir not created")
 	}
-	// 目录路径被文件占位：建库目录失败。
+	// The directory path is occupied by a file: creating the DB directory fails.
 	blocker := filepath.Join(t.TempDir(), "file.db")
 	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)

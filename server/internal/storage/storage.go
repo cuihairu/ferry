@@ -1,5 +1,5 @@
-// Package storage 是存储层：GORM 方言选择、连接与 AutoMigrate。
-// 三方言定稿：sqlite（默认，小内存 VPS 零依赖）/ postgres / mysql。
+// Package storage is the storage layer: GORM dialect selection, connection, and AutoMigrate.
+// Three dialects settled: sqlite (default, zero dependency on a small-memory VPS) / postgres / mysql.
 package storage
 
 import (
@@ -15,15 +15,15 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-// 数据库方言取值。
+// Database dialect values.
 const (
 	DriverSQLite   = "sqlite"
 	DriverPostgres = "postgres"
 	DriverMySQL    = "mysql"
 )
 
-// Open 按方言打开数据库并执行全部 AutoMigrate。
-// sqlite 的 dsn 为文件路径（默认 ferry.db），postgres/mysql 为连接串。
+// Open opens the database by dialect and runs all AutoMigrate.
+// For sqlite the dsn is a file path (default ferry.db); postgres/mysql take a connection string.
 func Open(driver, dsn string) (*gorm.DB, error) {
 	cfg := &gorm.Config{Logger: logger.Default.LogMode(logger.Warn), TranslateError: true}
 	var dialector gorm.Dialector
@@ -52,7 +52,7 @@ func Open(driver, dsn string) (*gorm.DB, error) {
 		return nil, fmt.Errorf("open %s: %w", driver, err)
 	}
 	if driver == "" || driver == DriverSQLite {
-		// SQLite 单文件，多连接加剧锁竞争，限单连接由 WAL 兜底读并发。
+		// SQLite is a single file, where multiple connections worsen lock contention; a single connection is capped, with WAL backing read concurrency.
 		if sqlDB, err := db.DB(); err == nil {
 			sqlDB.SetMaxOpenConns(1)
 		}
@@ -63,7 +63,7 @@ func Open(driver, dsn string) (*gorm.DB, error) {
 	return db, nil
 }
 
-// AutoMigrate 建齐全部表与索引，幂等可重复执行。
+// AutoMigrate creates all tables and indexes, idempotently re-runnable.
 func AutoMigrate(db *gorm.DB) error {
 	return db.AutoMigrate(
 		&User{},
@@ -117,7 +117,7 @@ func AutoMigrate(db *gorm.DB) error {
 	)
 }
 
-// sqliteDSN 补齐 SQLite 连接参数（WAL/busy_timeout/外键）并保证目录存在。
+// sqliteDSN completes the SQLite connection parameters (WAL/busy_timeout/foreign keys) and makes sure the directory exists.
 func sqliteDSN(dsn string) (string, error) {
 	if dsn == "" {
 		dsn = "ferry.db"

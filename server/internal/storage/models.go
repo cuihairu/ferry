@@ -2,59 +2,59 @@ package storage
 
 import "time"
 
-// User 是一个订阅用户；SubToken 为订阅链接令牌。
+// User is a subscription user; SubToken is the subscription link token.
 type User struct {
 	ID         uint       `gorm:"primaryKey" json:"id"`
 	Username   string     `gorm:"size:64;uniqueIndex" json:"username"`
 	SubToken   string     `gorm:"size:64;uniqueIndex" json:"sub_token"`
 	QuotaBytes int64      `gorm:"default:0" json:"quota_bytes"`
-	ResetCycle string     `gorm:"size:8;default:none" json:"reset_cycle"` // 流量重置周期（P1-4）：none/day/week/month
+	ResetCycle string     `gorm:"size:8;default:none" json:"reset_cycle"` // traffic reset cycle (P1-4): none/day/week/month
 	ExpiresAt  *time.Time `json:"expires_at"`
 	Enabled    bool       `gorm:"default:true" json:"enabled"`
 	IsAdmin    bool       `gorm:"default:false" json:"is_admin"`
-	// 多级管理员（P2-2）：空=普通用户；super=超级管理员（bootstrap 建号，
-	// 可管管理员）；operator=子管理员（受 max_users 建用户配额约束）。两级
-	// 口径对齐 Marzban is_sudo；旧管理员空角色按 super 兼容（登录时归一）。
+	// Multi-level admins (P2-2): empty=regular user; super=super admin (created by bootstrap,
+	// can manage admins); operator=operator admin (constrained by max_users user-creation quota). The two-tier
+	// policy aligns with Marzban is_sudo; legacy admins with an empty role are treated as super (normalized at login).
 	AdminRole string `gorm:"size:16;default:''" json:"admin_role"`
-	// MaxUsers 是子管理员的建用户配额（0=不限）：仅约束 createUser 动作，
-	// 按 created_by 归账计数，超配额 403。
+	// MaxUsers is the operator admin's user-creation quota (0=unlimited): it constrains only the createUser action,
+	// counting by created_by attribution, and over quota returns 403.
 	MaxUsers  int    `gorm:"default:0" json:"max_users"`
 	CreatedBy string `gorm:"size:64;default:''" json:"created_by"`
-	// 用户级带宽限额（P2-3）：0=不限。ferry 侧权威口径（元数据），实际执行
-	// 在节点侧内核（配置生成器读取本值写内核 per-client 限速）——ferry 不
-	// 渲染节点内核配置（opaque payload 下发），故只提供权威元数据与可见面。
+	// User-level bandwidth cap (P2-3): 0=unlimited. ferry is the authoritative source (metadata); actual enforcement
+	// is in the node-side kernel (the config generator reads this value to write the kernel's per-client rate limit) - ferry does
+	// not render node kernel config (opaque payload delivery), so it only provides authoritative metadata and a visible surface.
 	BwUpMbps   int `gorm:"default:0" json:"bw_up_mbps"`
 	BwDownMbps int `gorm:"default:0" json:"bw_down_mbps"`
-	// 设备数/IP 数上限（P2-4，0=不限）：device_limit 按订阅端上报的
-	// hwid 计设备（依赖客户端带 X-Client-Hwid，未报则该面不生效）；
-	// ip_limit 按订阅端独立 IP 计（不依赖客户端，总是生效）。
+	// Device count / IP count caps (P2-4, 0=unlimited): device_limit counts devices by the
+	// hwid the subscription end reports (it depends on the client sending X-Client-Hwid; that face is inert when unreported);
+	// ip_limit counts by the subscription end's independent IPs (no client dependency, always effective).
 	DeviceLimit int    `gorm:"default:0" json:"device_limit"`
 	IPLimit     int    `gorm:"default:0" json:"ip_limit"`
 	Password    string `gorm:"size:128" json:"-"`
 	ApiToken    string `gorm:"size:64" json:"api_token"`
-	// 两步验证（安全设计 §1，P1）：TOTP 密钥经 secret_store 加密落库
-	//（v1:nonce:ct 密文，主密钥不入库）；绑定后登录需 6 位 TOTP 或一次性
-	// 恢复码，未绑定者登录行为不变。
+	// Two-factor authentication (security design §1, P1): the TOTP secret is encrypted via secret_store into the DB
+	// (v1:nonce:ct ciphertext, the master key never enters the DB）; after binding, login requires a 6-digit TOTP or a one-time
+	// recovery code, and unbound login behavior is unchanged.
 	TOTPSecret  string `gorm:"size:256" json:"-"`
 	TOTPEnabled bool   `gorm:"default:false" json:"-"`
-	// 通知偏好（NT-2）：站内信通道内按类型开关；通道维度待第二通道（邮件/TG）落地再扩。
-	NotifyExpiry       bool       `gorm:"default:true" json:"notify_expiry"`      // 到期提醒
-	NotifyTraffic      bool       `gorm:"default:true" json:"notify_traffic"`     // 流量预警
-	TrafficWarnPercent int        `gorm:"default:80" json:"traffic_warn_percent"` // 流量预警阈值（1-100）
+	// Notification preferences (NT-2): per-type toggles within the in-app channel; expand the channel dimension when the second channel (email/TG) lands.
+	NotifyExpiry       bool       `gorm:"default:true" json:"notify_expiry"`      // expiry reminder
+	NotifyTraffic      bool       `gorm:"default:true" json:"notify_traffic"`     // traffic warning
+	TrafficWarnPercent int        `gorm:"default:80" json:"traffic_warn_percent"` // traffic warning threshold (1-100)
 	LastNodeID         *uint      `gorm:"index" json:"last_node_id,omitempty"`
 	LastSeenAt         *time.Time `json:"last_seen_at,omitempty"`
-	// PasswordChangedAt 是最近一次管理员改密时间：早于它的管理员 JWT 一律
-	// 作废（审核修复 2026-11-12，改密后旧 token 不再存活到自然过期）。
-	// 存量行为迁移：旧行 NULL/零值 = 不判定，已有会话到期自然收口。
+	// PasswordChangedAt is the time of the most recent admin password change: admin JWTs issued earlier are all void
+	// (an audit fix on 2026-11-12; after a change the old token no longer survives to natural expiry).
+	// Legacy behavior migration: old rows NULL / zero value are not judged, and existing sessions wind down at their own expiry.
 	PasswordChangedAt *time.Time `json:"password_changed_at,omitempty"`
 	CreatedAt         time.Time  `json:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at"`
 }
 
-// UserAlias 是用户改名留存（P2 修复）：xray 流量按 email 归属（email==
-// users.username 约定），改名后节点侧配置未重推期间旧 email 仍在上报——
-// 旧名作别名留存，saveUserTraffic 按别名仍映射到原用户，不因改名漏计。
-// 多代改名都留（每代一行）；同名换主（改回原名）时旧别名仍指向本用户。
+// UserAlias retains a user's old name (P2 fix): xray traffic is attributed by email (email ==
+// users.username convention); during the period after the rename when the node-side config has not been re-pushed, the old email still reports -
+// the old name is retained as an alias, and saveUserTraffic still maps it to the original user, so renamed traffic is not missed.
+// Generations of renames are all retained (one row per generation); when a name is taken back (renamed to the old name again), the old alias still points at this user.
 type UserAlias struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	UserID    uint      `gorm:"index;not null" json:"user_id"`
@@ -62,9 +62,9 @@ type UserAlias struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// SubDevice 是订阅端观察到的设备/IP 一条记录（P2-4）。Kind=hwid 的行按
-// 客户端上报的 X-Client-Hwid 记设备（未上报则不落行）；kind=ip 的行按
-// 订阅来源 IP 记（总是可落）。(user_id, kind, key) 唯一，防并发首访双插。
+// SubDevice is one record of a device / IP observed by the subscription end (P2-4). Kind=hwid rows record devices by the
+// client-reported X-Client-Hwid (no row is written when unreported); kind=ip rows record by the subscription source IP
+// (always writable). (user_id, kind, key) is unique to guard against double-insert on concurrent first visits.
 type SubDevice struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	UserID    uint      `gorm:"uniqueIndex:idx_subdev_key" json:"user_id"`
@@ -75,14 +75,14 @@ type SubDevice struct {
 	LastSeen  time.Time `json:"last_seen"`
 }
 
-// Node 是一台代理节点。Token 供 agent 出站连接认证。
+// Node is one proxy node. Token is used for agent outbound connection authentication.
 type Node struct {
 	ID       uint   `gorm:"primaryKey" json:"id"`
 	Name     string `gorm:"size:64" json:"name"`
 	Address  string `gorm:"size:255" json:"address"`
 	Port     int    `gorm:"not null" json:"port"`
 	Protocol string `gorm:"size:16" json:"protocol"` // vless/vmess/trojan/shadowsocks/hysteria2
-	Config   string `gorm:"type:text" json:"config"` // 协议配置模板 JSON
+	Config   string `gorm:"type:text" json:"config"` // protocol config template JSON
 	Enabled  bool   `gorm:"default:true" json:"enabled"`
 	Token    string `gorm:"size:64;uniqueIndex" json:"token"`
 	// Token rotation grace: an agent replaces local config and reconnects.
@@ -90,47 +90,47 @@ type Node struct {
 	TokenRotatedAt *time.Time `json:"token_rotated_at,omitempty"`
 	LastSeen       *time.Time `json:"last_seen,omitempty"`
 	Status         string     `gorm:"size:16;default:unknown" json:"status"` // online/offline/unknown
-	// 注册元数据（入口与负载均衡设计 §C.3/C.6）：agent 注册上报初值，
-	// 面板可改且以面板为准（meta_init 置位后注册不再覆盖）。
+	// Registration metadata (entries and load balancing design §C.3/C.6): the initial values the agent reports at registration,
+	// the panel may change them and is authoritative (after meta_init is set, registration no longer overwrites).
 	Role                     string     `gorm:"size:16;default:landing" json:"role"` // entry/landing/both
 	Direction                string     `gorm:"size:8;default:out" json:"direction"` // out/in/both
-	LineType                 string     `gorm:"size:16;default:普通" json:"line_type"` // cn2_gia/cu_vip/cmi/iplc/163/普通
-	Region                   string     `gorm:"size:64;default:未知" json:"region"`    // 区域，故障聚合维度
+	LineType                 string     `gorm:"size:16;default:普通" json:"line_type"` // cn2_gia/cu_vip/cmi/iplc/163/normal
+	Region                   string     `gorm:"size:64;default:未知" json:"region"`    // region, the fault-aggregation dimension
 	City                     string     `gorm:"size:64" json:"city"`
 	Datacenter               string     `gorm:"size:128" json:"datacenter"`
-	ISP                      string     `gorm:"size:32;default:未知" json:"isp"`          // 运营商，故障聚合维度
-	Labels                   string     `gorm:"type:text" json:"labels"`                // JSON 数组
+	ISP                      string     `gorm:"size:32;default:未知" json:"isp"`          // ISP, the fault-aggregation dimension
+	Labels                   string     `gorm:"type:text" json:"labels"`                // JSON array
 	Transport                string     `gorm:"size:16;default:tls" json:"transport"`   // tls/quic/ws-tls/ssh
-	BillingType              string     `gorm:"size:16;default:包月" json:"billing_type"` // 按流量/包月/固定带宽
-	TrafficPriceCents        int64      `gorm:"default:0" json:"traffic_price_cents"`   // 流量单价（分/GB）
-	MonthlyCostCents         int64      `gorm:"default:0" json:"monthly_cost_cents"`    // 月固定成本（分/月）
+	BillingType              string     `gorm:"size:16;default:包月" json:"billing_type"` // traffic/monthly/fixed bandwidth
+	TrafficPriceCents        int64      `gorm:"default:0" json:"traffic_price_cents"`   // per-traffic unit price (cents/GB)
+	MonthlyCostCents         int64      `gorm:"default:0" json:"monthly_cost_cents"`    // fixed monthly cost (cents/month)
 	Currency                 string     `gorm:"size:8;default:CNY" json:"currency"`
 	CostNote                 string     `gorm:"size:255" json:"cost_note"`
-	BwUpMbps                 int        `gorm:"default:0" json:"bw_up_mbps"`                  // 套餐上行 Mbps
-	BwDownMbps               int        `gorm:"default:0" json:"bw_down_mbps"`                // 套餐下行 Mbps
-	MonthlyTrafficQuotaBytes int64      `gorm:"default:0" json:"monthly_traffic_quota_bytes"` // 月流量配额（字节，0=不限）
+	BwUpMbps                 int        `gorm:"default:0" json:"bw_up_mbps"`                  // plan upload Mbps
+	BwDownMbps               int        `gorm:"default:0" json:"bw_down_mbps"`                // plan download Mbps
+	MonthlyTrafficQuotaBytes int64      `gorm:"default:0" json:"monthly_traffic_quota_bytes"` // monthly traffic quota (bytes, 0=unlimited)
 	RateLimited              bool       `gorm:"default:true" json:"rate_limited"`
 	Burst                    bool       `gorm:"default:false" json:"burst"`
-	SpeedMeasuredMbps        int        `gorm:"default:0" json:"speed_measured_mbps"` // 测速校准实测容量
+	SpeedMeasuredMbps        int        `gorm:"default:0" json:"speed_measured_mbps"` // speed-calibrated measured capacity
 	SpeedCalibratedAt        *time.Time `json:"speed_calibrated_at"`
-	MetaInit                 bool       `gorm:"default:false" json:"-"`                  // 元数据是否已初始化（面板已接管）
-	AgentVersion             string     `gorm:"size:64;default:''" json:"agent_version"` // agent 自报版本（A-23）
-	// 入口池摘挂状态（E-16）：suspended=连续 sick 摘除，订阅入口池即时剔除；
-	// 不动 enabled（agent 连接与探测保持，复位判定才有依据）。
+	MetaInit                 bool       `gorm:"default:false" json:"-"`                  // whether the metadata is initialized (the panel has taken over)
+	AgentVersion             string     `gorm:"size:64;default:''" json:"agent_version"` // agent self-reported version (A-23)
+	// Entry-pool suspend state (E-16): suspended = removed on consecutive sick, and the subscription entry pool drops it
+	// immediately; enabled is left alone (the agent connection and probing keep running, and reset judgment needs that basis).
 	PoolState     string     `gorm:"size:16;default:active;index" json:"pool_state"`
 	PoolChangedAt *time.Time `json:"pool_changed_at"`
-	// 供给入池流水线（OS-4）：provisioning 节点的进度/失败原因注记，
-	// 转 online 时清空；上下线不写此列。
+	// Supply-into-pool pipeline (OS-4): a note of provisioning nodes' progress / failure reasons, cleared
+	// when they turn online; online/offline transitions do not write this column.
 	ProvisionNote string    `gorm:"size:255" json:"provision_note"`
 	PoolReason    string    `gorm:"size:64" json:"pool_reason"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
-// TrafficLog 是一条流量记账记录（按用户按节点按周期汇总）。
-// 记账明细不删不改（口径 quota.go）：删除用户不级联清历史——User 外键用
-// SET NULL（与 Node 同口径），user_id 可空，用户删除后行保留、归属置空。
-// 此前误用 CASCADE，删除用户连带清掉计费历史（审核修复 2026-11-12）。
+// TrafficLog is one traffic accounting record (aggregated per user per node per cycle).
+// Accounting detail is never deleted or modified (policy in quota.go): deleting a user does not cascade-clear history - the User foreign key uses
+// SET NULL (same policy as Node), user_id is nullable, and after user deletion the row is kept with attribution nulled.
+// It previously misused CASCADE, where deleting a user also cleared billing history (an audit fix on 2026-11-12).
 type TrafficLog struct {
 	ID         uint      `gorm:"primaryKey" json:"id"`
 	UserID     *uint     `gorm:"index:idx_traffic_logs_user,priority:1" json:"user_id"`
@@ -142,31 +142,31 @@ type TrafficLog struct {
 	Node       *Node     `gorm:"foreignKey:NodeID;references:ID;constraint:OnDelete:SET NULL" json:"-"`
 }
 
-// Setting 是面板设置键值（轻量 KV，Value 存 JSON 文本）。
+// Setting is a panel setting key-value pair (a lightweight KV, Value holds JSON text).
 type Setting struct {
 	Key       string    `gorm:"primaryKey;size:64" json:"key"`
 	Value     string    `gorm:"type:text" json:"value"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// CardBatch 是一批卡密的权益定义。
+// CardBatch is the entitlement definition of a batch of card codes.
 type CardBatch struct {
 	ID         uint       `gorm:"primaryKey" json:"id"`
 	Name       string     `gorm:"size:128" json:"name"`
 	GrantType  string     `gorm:"size:16" json:"grant_type"`    // add_quota / extend_days
-	GrantValue int64      `gorm:"not null" json:"grant_value"`  // 字节数或天数
-	PriceCents int64      `gorm:"default:0" json:"price_cents"` // 在线售价（分），0=仅兑换不出售
+	GrantValue int64      `gorm:"not null" json:"grant_value"`  // bytes or days
+	PriceCents int64      `gorm:"default:0" json:"price_cents"` // online sale price (cents), 0 = redeem only, not for sale
 	Total      int        `gorm:"not null" json:"total"`
-	ExpiredAt  *time.Time `json:"expired_at"` // 卡密有效期，空为永久
-	// 代理归属（DS-1）：0=面板自营；>0=代理名下批次，兑换时带入订单与账目。
+	ExpiredAt  *time.Time `json:"expired_at"` // card-code validity period, empty means permanent
+	// Distributor attribution (DS-1): 0=the panel self-operates; >0=a batch under the distributor, brought into the order and accounts at redemption.
 	DistributorID uint      `gorm:"default:0;index" json:"distributor_id"`
 	CreatedBy     string    `gorm:"size:64" json:"created_by"`
 	CreatedAt     time.Time `json:"created_at"`
-	// 删批次连带删卡密（《支付设计》§3.1），导出发放前误建批次可整体回收。
+	// Deleting a batch cascades to its card codes（《payment design》§3.1), so a batch created by mistake before export can be reclaimed whole.
 	Codes []CardCode `gorm:"foreignKey:BatchID;references:ID;constraint:OnDelete:CASCADE" json:"-"`
 }
 
-// CardCode 是一张卡密；Code 明文存储以便导出发放。
+// CardCode is one card code; Code is stored in plaintext so it can be exported and delivered.
 type CardCode struct {
 	ID        uint       `gorm:"primaryKey" json:"id"`
 	BatchID   uint       `gorm:"index;not null" json:"batch_id"`
@@ -178,27 +178,27 @@ type CardCode struct {
 	CreatedAt time.Time  `json:"created_at"`
 }
 
-// LandingAssignment 是一条落地分配记录（入口→落地的映射与策略留痕）。
-// 入口池/落地池即 nodes.role 分组，不另建池表。
+// LandingAssignment is one landing assignment record (the entry->landing mapping and its policy trail).
+// The entry pool / landing pool is just a nodes.role grouping; no separate pool table is created.
 type LandingAssignment struct {
 	ID            uint       `gorm:"primaryKey" json:"id"`
-	EntryNodeID   *uint      `gorm:"index" json:"entry_node_id"` // 入口节点（空=区域级分配）
-	Region        string     `gorm:"size:64" json:"region"`      // 区域级分配的区域名（入口级分配留空）
+	EntryNodeID   *uint      `gorm:"index" json:"entry_node_id"` // entry node (empty = region-level assignment)
+	Region        string     `gorm:"size:64" json:"region"`      // the region name for a region-level assignment (left empty for an entry-level assignment)
 	LandingNodeID uint       `gorm:"index;not null" json:"landing_node_id"`
-	Direction     string     `gorm:"size:8;not null" json:"direction"` // out/in，方向分流留痕
+	Direction     string     `gorm:"size:8;not null" json:"direction"` // out/in, direction-split trail
 	Strategy      string     `gorm:"size:16;not null" json:"strategy"` // manual/least_conn/cost_first/perf_first/balanced
 	Weight        int        `gorm:"default:0" json:"weight"`
 	Reason        string     `gorm:"size:64" json:"reason"` // region_fault/failover/manual...
 	AssignedAt    time.Time  `gorm:"not null" json:"assigned_at"`
-	ReleasedAt    *time.Time `json:"released_at"` // 空=生效中
+	ReleasedAt    *time.Time `json:"released_at"` // empty = in effect
 	ReleaseReason string     `gorm:"size:64" json:"release_reason"`
 }
 
-// ProbeReport 是一条边缘探测结论存证：探测在节点本地完成，
-// 面板只收结论做聚合判定与历史回溯。
+// ProbeReport stores one edge probe conclusion: probing runs locally on the node,
+// and the panel only receives the conclusion for aggregate judgment and historical backtracking.
 type ProbeReport struct {
 	ID           uint      `gorm:"primaryKey" json:"id"`
-	NodeID       uint      `gorm:"index;not null" json:"node_id"`                                         // 探测者（入口 agent）
+	NodeID       uint      `gorm:"index;not null" json:"node_id"`                                         // the prober (entry agent)
 	TargetKind   string    `gorm:"size:16;not null;index:idx_probe_window,priority:1" json:"target_kind"` // tunnel/exit/peer
 	TargetNodeID *uint     `gorm:"index:idx_probe_window,priority:2" json:"target_node_id"`
 	TargetHost   string    `gorm:"size:255" json:"target_host"`
@@ -208,30 +208,30 @@ type ProbeReport struct {
 	Reachable    bool      `gorm:"default:false" json:"reachable"`
 	Blocked      bool      `gorm:"default:false" json:"blocked"`
 	Verdict      string    `gorm:"size:16;not null" json:"verdict"`           // healthy/sick
-	Region       string    `gorm:"size:64;not null;default:未知" json:"region"` // 目标区域快照
-	ISP          string    `gorm:"size:32;not null;default:未知" json:"isp"`    // 目标运营商快照
+	Region       string    `gorm:"size:64;not null;default:未知" json:"region"` // target region snapshot
+	ISP          string    `gorm:"size:32;not null;default:未知" json:"isp"`    // target ISP snapshot
 	ProbedAt     time.Time `gorm:"not null;index:idx_probe_window,priority:3" json:"probed_at"`
 	CreatedAt    time.Time `json:"created_at"`
 }
 
-// DimensionStatus 是区域/运营商维度的状态灯数据：聚合判定的落库结果。
+// DimensionStatus is the status-light data for a region / ISP dimension: the persisted outcome of aggregate judgment.
 type DimensionStatus struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	Scope     string    `gorm:"size:16;not null;uniqueIndex:idx_dimension_status" json:"scope"` // region/isp
-	Key       string    `gorm:"size:64;not null;uniqueIndex:idx_dimension_status" json:"key"`   // 区域名或运营商名
+	Key       string    `gorm:"size:64;not null;uniqueIndex:idx_dimension_status" json:"key"`   // region name or ISP name
 	State     string    `gorm:"size:16;not null;default:healthy" json:"state"`                  // healthy/degraded/failed
 	Reason    string    `gorm:"size:255" json:"reason"`
-	Since     time.Time `gorm:"not null" json:"since"` // 进入当前状态的时间
+	Since     time.Time `gorm:"not null" json:"since"` // when the current state was entered
 	UpdatedAt time.Time `gorm:"not null" json:"updated_at"`
 }
 
-// NodeConfig 是一次配置下发的记录与结果（A-18）：pending → applied/failed。
+// NodeConfig is one config delivery record and outcome (A-18): pending -> applied/failed.
 type NodeConfig struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	NodeID    uint      `gorm:"index;not null" json:"node_id"`
 	Proc      string    `gorm:"size:64;not null" json:"proc"`
 	Kind      string    `gorm:"size:32" json:"kind"`
-	Version   string    `gorm:"size:64;not null" json:"version"` // 内容哈希，与 sha256 同值
+	Version   string    `gorm:"size:64;not null" json:"version"` // content hash, same value as sha256
 	Sha256    string    `gorm:"size:64;not null" json:"sha256"`
 	Payload   string    `gorm:"type:text" json:"payload"`
 	Status    string    `gorm:"size:16;not null;default:pending" json:"status"` // pending/applied/failed
@@ -242,8 +242,8 @@ type NodeConfig struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// Alert 是一条异常告警（A-22）：agent 上报的进程崩溃/证书临期/高负载/配置错误，
-// 同节点同类别同进程只保留一条活跃告警（重复上报刷新消息），进程恢复自动消解。
+// Alert is one abnormal alert (A-22): an agent-reported process crash / certificate expiry / high load / config error,
+// keeping only one active alert per node per category per process (a repeat report refreshes the message), auto-resolved when the process recovers.
 type Alert struct {
 	ID         uint       `gorm:"primaryKey" json:"id"`
 	NodeID     uint       `gorm:"index;not null" json:"node_id"`
@@ -257,23 +257,23 @@ type Alert struct {
 	ResolvedAt *time.Time `json:"resolved_at,omitempty"`
 }
 
-// NodeTrafficLog 是节点级进程流量记账（A-20）：agent 按进程周期上报的增量。
-// 用户级记账走 traffic_logs（P0-9），需要逐用户统计映射（P1-3）。
+// NodeTrafficLog is node-level process traffic accounting (A-20): the agent reports per-process increments each cycle.
+// User-level accounting goes through traffic_logs (P0-9), needing a per-user mapping (P1-3).
 type NodeTrafficLog struct {
 	ID           uint      `gorm:"primaryKey" json:"id"`
 	NodeID       uint      `gorm:"index:idx_node_traffic,priority:1;not null" json:"node_id"`
 	Proc         string    `gorm:"size:64;not null" json:"proc"`
 	RxBytes      int64     `gorm:"default:0" json:"rx_bytes"`
 	TxBytes      int64     `gorm:"default:0" json:"tx_bytes"`
-	DirectBytes  int64     `gorm:"default:0" json:"direct_bytes"`  // 直连分流出站字节（SAVE-1/7）
-	BlockedBytes int64     `gorm:"default:0" json:"blocked_bytes"` // 被拦截出站字节（SAVE-4 广告/追踪拦截）
+	DirectBytes  int64     `gorm:"default:0" json:"direct_bytes"`  // direct-route split outbound bytes (SAVE-1/7)
+	BlockedBytes int64     `gorm:"default:0" json:"blocked_bytes"` // blocked outbound bytes (SAVE-4 ad/tracker blocking)
 	Conns        int       `gorm:"default:0" json:"conns"`
 	RecordedAt   time.Time `gorm:"not null;index:idx_node_traffic,priority:2" json:"recorded_at"`
 	CreatedAt    time.Time `json:"created_at"`
 }
 
-// NodeProcStatus 是被管进程的最近状态快照（SAVE-3）：心跳携带的 ProcStatus
-// 逐节点逐进程 upsert，指标（nginx cache/Squid 命中统计等）JSON 落 metrics。
+// NodeProcStatus is the latest status snapshot of a managed process (SAVE-3): the ProcStatus carried by each heartbeat is upserted
+// per node per process, and metrics (nginx cache / Squid hit statistics etc.) are stored in metrics as JSON.
 type NodeProcStatus struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	NodeID    uint      `gorm:"uniqueIndex:idx_node_proc;not null" json:"node_id"`
@@ -281,33 +281,33 @@ type NodeProcStatus struct {
 	State     string    `gorm:"size:16;not null" json:"state"` // running/stopped/crashed
 	PID       int       `gorm:"column:pid;default:0" json:"pid,omitempty"`
 	Restarts  int       `gorm:"default:0" json:"restarts"`
-	Metrics   string    `gorm:"type:text" json:"metrics,omitempty"` // JSON 数字对象（key-value）
+	Metrics   string    `gorm:"type:text" json:"metrics,omitempty"` // JSON numeric object (key-value)
 	UpdatedAt time.Time `gorm:"not null" json:"updated_at"`
 }
 
-// UserContact 是用户联系信息绑定与触达偏好（触达批 TOUCH-1）：TG/邮箱至少
-// 一个必填（panel 引导补全），stale 为投递失败待换绑标记（TOUCH-5 回执联动）。
-// RoutineEmails 只管域名例行邮件的退订；账单类涉及权益默认必收，无开关。
+// UserContact is the user's contact-info binding and outreach preferences (outreach batch TOUCH-1): TG / email is
+// at least one required (guided to complete by the panel), and stale marks delivery-failed awaiting rebind (TOUCH-5 receipt linkage).
+// RoutineEmails only governs unsubscribing routine domain emails; billing types default to always-received with no toggle.
 type UserContact struct {
 	UserID        uint      `gorm:"primaryKey" json:"user_id"`
 	TgChatID      string    `gorm:"size:64" json:"tg_chat_id,omitempty"`
 	Email         string    `gorm:"size:255" json:"email,omitempty"`
-	RoutineEmails bool      `json:"routine_emails"` // 缺省 true 由 handler 置（gorm default 标签会吞 Create 零值）
+	RoutineEmails bool      `json:"routine_emails"` // defaults to true, set by the handler (a gorm default tag swallows a Create zero value)
 	BoundAt       time.Time `json:"bound_at"`
-	Stale         bool      `gorm:"default:false" json:"stale"`   // 失效待换绑
-	FailStreak    int       `gorm:"default:0" json:"fail_streak"` // 连续投递失败计数（成功清零）
+	Stale         bool      `gorm:"default:false" json:"stale"`   // invalidated, awaiting rebind
+	FailStreak    int       `gorm:"default:0" json:"fail_streak"` // consecutive delivery-failure count (reset on success)
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
-// TouchJob 是一条触达任务与结果（触达批 TOUCH-4）：例行触达先落任务再经
-// Herald 投递（outbox 语义），event_id 关联 outbox 行；投出即 sent（ferry→
-// Herald 腿 2xx），通道分发失败由 TOUCH-5 回执改写并联动 stale。
+// TouchJob is one outreach task and its result (outreach batch TOUCH-4): routine outreach first lands a task then goes out via
+// Herald (outbox semantics), with event_id linking the outbox row; once delivered it is sent (the ferry->
+// Herald leg 2xx), and a channel dispatch failure is rewritten by the TOUCH-5 receipt and linked to stale.
 type TouchJob struct {
 	ID        int64      `gorm:"primaryKey" json:"id"`
 	UserID    int64      `gorm:"index;not null" json:"user_id"`
-	Channel   string     `gorm:"size:16;not null" json:"channel"`                                               // email（ferry 不自建通道，经 Herald 分发）
+	Channel   string     `gorm:"size:16;not null" json:"channel"`                                               // email (ferry runs no channel of its own, dispatch via Herald)
 	Kind      string     `gorm:"size:16;not null;index:idx_touch_due,priority:2" json:"kind"`                   // bill/domains
-	Payload   string     `gorm:"type:text;not null" json:"payload"`                                             // 渲染内容 JSON {title,body}
+	Payload   string     `gorm:"type:text;not null" json:"payload"`                                             // rendered content JSON {title,body}
 	Status    string     `gorm:"size:16;not null;default:pending;index:idx_touch_due,priority:1" json:"status"` // pending/sent/failed
 	EventID   int64      `gorm:"default:0" json:"event_id"`
 	SentAt    *time.Time `json:"sent_at,omitempty"`
@@ -315,21 +315,21 @@ type TouchJob struct {
 	CreatedAt time.Time  `gorm:"not null" json:"created_at"`
 }
 
-// EntryDomain 是面板入口域名与备用地址（触达批 TOUCH-3）：域名例行邮件与
-// 断联容灾的共同数据源（订阅备用信息、推新入口都取这份清单）。
+// EntryDomain is the panel's entry domains and backup addresses (outreach batch TOUCH-3): the common data source for
+// routine domain emails and disconnection-disaster tolerance (subscription backup info and new-entry pushes all read this list).
 type EntryDomain struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	Domain    string    `gorm:"size:255;not null" json:"domain"`
 	Role      string    `gorm:"size:16;not null" json:"role"`    // primary/backup
-	Region    string    `gorm:"size:64" json:"region,omitempty"` // 适用区域，空=全区域
+	Region    string    `gorm:"size:64" json:"region,omitempty"` // applicable region, empty = all regions
 	Enabled   bool      `json:"enabled"`
 	UpdatedAt time.Time `gorm:"not null" json:"updated_at"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// SaveStat 是流量节省按日汇总（SAVE-7）：从 node_traffic_logs 聚合，
-// 直连/拦截字节来自 agent 出站计数，缓存命中预留（缓存层字节指标接
-// SAVE-3 metrics 后汇入），折算费用按节点流量单价在 API 侧计算。
+// SaveStat is the daily traffic-savings summary (SAVE-7): aggregated from node_traffic_logs,
+// direct / blocked bytes come from the agent's outbound counting, and cache hits are reserved (after the cache-layer byte metrics land under
+// SAVE-3 metrics they feed in), with converted cost computed API-side from each node's traffic unit price.
 type SaveStat struct {
 	ID            uint      `gorm:"primaryKey" json:"id"`
 	NodeID        uint      `gorm:"uniqueIndex:idx_save_stats;not null" json:"node_id"`
@@ -341,7 +341,7 @@ type SaveStat struct {
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
-// PaymentOrder 是订单（三账之一：谁该收多少）。
+// PaymentOrder is one order (the first of three ledgers: who should pay how much).
 type PaymentOrder struct {
 	ID          uint   `gorm:"primaryKey" json:"id"`
 	OrderNo     string `gorm:"size:32;uniqueIndex" json:"order_no"`
@@ -350,45 +350,45 @@ type PaymentOrder struct {
 	AmountCents int64  `gorm:"default:0" json:"amount_cents"`
 	Product     string `gorm:"size:128" json:"product"`
 	Status      string `gorm:"size:16;default:pending;index" json:"status"` // pending/paid/failed/expired/refunded
-	// 代理归属（DS-1）：兑换/下单时从卡批次或商品带来，0=自营。
+	// Distributor attribution (DS-1): brought in from the card batch or product at redemption/order time, 0=self-operated.
 	DistributorID uint `gorm:"default:0;index" json:"distributor_id"`
-	// 到账自动发放口径（在线支付用，卡密走批次自带）：add_quota/extend_days，空=不自动发放。
+	// Auto-grant policy on credit (used by online payments; card codes use the batch's own): add_quota/extend_days, empty = no auto grant.
 	GrantType  string     `gorm:"size:16" json:"grant_type,omitempty"`
 	GrantValue int64      `gorm:"default:0" json:"grant_value,omitempty"`
 	CreatedAt  time.Time  `json:"created_at"`
 	PaidAt     *time.Time `json:"paid_at"`
-	// 退款留痕（OD-2）：面板只做状态流转与记录，钱款退回经渠道后台操作。
+	// Refund trail (OD-2): the panel only does state transitions and records, and money goes back via the channel's backend.
 	RefundAt   *time.Time `json:"refund_at,omitempty"`
-	RefundNote string     `gorm:"size:255" json:"refund_note,omitempty"` // 渠道退款单号/原因
-	// 优惠账目（PROMO-1，运营设计 §5）：原价/优惠码/快照——订单记原价+实付
-	//（AmountCents）+优惠明细，三账对账有据；无优惠时三列为零值/空。
-	ListAmountCents int64  `gorm:"default:0" json:"list_amount_cents"` // 原价（分），无优惠=AmountCents
+	RefundNote string     `gorm:"size:255" json:"refund_note,omitempty"` // channel refund number / reason
+	// Promotional accounts (PROMO-1, operations design §5): list price / promo code / snapshot - the order records the list price + amount paid
+	//(AmountCents) + the promo detail, so the three ledgers reconcile; with no promotion the three columns are zero values / empty.
+	ListAmountCents int64  `gorm:"default:0" json:"list_amount_cents"` // list price (cents), no promotion = AmountCents
 	PromoCode       string `gorm:"size:64;index;default:''" json:"promo_code,omitempty"`
-	PromoSnapshot   string `gorm:"size:512" json:"promo_snapshot,omitempty"` // 原价/折扣/码/实付 JSON
-	// 不设 User 关联：财务记录不随用户删除（无外键）。
+	PromoSnapshot   string `gorm:"size:512" json:"promo_snapshot,omitempty"` // list price / discount / code / paid JSON
+	// No User association: financial records do not follow user deletion (no foreign key).
 }
 
-// Coupon 是优惠码（PROMO-1，运营设计 §5 DDL 蓝本）：cut 减额（分）/
-// pct 折扣（基点，10000=不打折）；scope=all 或 batch:<id> 指定批次；
-// total=0 不限总量，per_user 每用户限次；核销条件更新防超发。
+// Coupon is a promo code (PROMO-1, operations design §5 DDL blueprint): cut is a
+// deduction amount (cents) and pct a discount (basis points, 10000 = no discount); scope=all or batch:<id> selects a batch;
+// total=0 means unlimited, per_user caps each user; the redemption-condition update guards against overspend.
 type Coupon struct {
 	ID        uint       `gorm:"primaryKey" json:"id"`
 	Code      string     `gorm:"size:64;uniqueIndex" json:"code"`
 	Kind      string     `gorm:"size:8" json:"kind"` // cut / pct
-	Value     int64      `json:"value"`              // 分（cut）或基点（pct，1-9999）
+	Value     int64      `json:"value"`              // cents (cut) or basis points (pct, 1-9999)
 	Scope     string     `gorm:"size:32" json:"scope"`
-	MinAmount int64      `gorm:"default:0" json:"min_amount"` // 门槛（分），按原价计
+	MinAmount int64      `gorm:"default:0" json:"min_amount"` // threshold (cents), counted against the list price
 	StartsAt  *time.Time `json:"starts_at"`
 	EndsAt    *time.Time `json:"ends_at"`
-	Total     int64      `gorm:"default:0" json:"total"`    // 0=不限
-	PerUser   int64      `gorm:"default:1" json:"per_user"` // 每用户限次
+	Total     int64      `gorm:"default:0" json:"total"`    // 0 = unlimited
+	PerUser   int64      `gorm:"default:1" json:"per_user"` // per-user cap
 	Used      int64      `gorm:"default:0" json:"used"`
 	CreatedAt time.Time  `json:"created_at"`
 }
 
-// Campaign 是限时活动（PROMO-2，运营设计 §5 DDL 蓝本）：first_order 首单 /
-// renew 续费 / timed 限时三型；rules 为折扣规则 JSON（与优惠码同一 cut/pct
-// 口径）；窗口内自动适用，与优惠码同取优口径（一单一优惠源）。
+// Campaign is a limited-time campaign (PROMO-2, operations design §5 DDL blueprint): first_order for a first order /
+// renew for a renewal / timed for a limited three types; rules is the discount-rule JSON (the same cut/pct
+// policy as a promo code); applied automatically inside the window, on the same best-of policy as a promo code (one discount source per order).
 type Campaign struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	Name      string    `gorm:"size:64" json:"name"`
@@ -408,10 +408,10 @@ type NodeTokenRevocation struct {
 	RevokedAt time.Time `json:"revoked_at"`
 }
 
-// EnrollmentToken 是一次性短时节点注册凭据（FERRY-001）：/api/nodes 管理面
-// 走 apiAuth，安装脚本首装不能也不应持管理员凭据——管理员先签发本凭据，
-// 节点机凭它在公开面 /api/enroll 换取节点令牌。用过即废（used_at 置位），
-// 可随时吊销；token 明文只在签发响应出现一次，列表不回带。
+// EnrollmentToken is a one-time short-lived node registration credential (FERRY-001): the /api/nodes management surface
+// goes through apiAuth, and a fresh-install install script must not and should not hold admin credentials - an admin first signs this credential,
+// and the node machine then exchanges it for a node token on the public surface /api/enroll. Single-use (used_at is set),
+// revocable any time; the token plaintext appears only once in the signing response and is not returned in the list.
 type EnrollmentToken struct {
 	ID        uint       `gorm:"primaryKey" json:"id"`
 	Token     string     `gorm:"size:64;uniqueIndex" json:"-"`
@@ -424,7 +424,7 @@ type EnrollmentToken struct {
 	CreatedAt time.Time  `json:"created_at"`
 }
 
-// PaymentTransaction 是支付流水（三账之二：外部实际发生的收付）。
+// PaymentTransaction is a payment ledger entry (the second of three ledgers: the payments that actually happened externally).
 type PaymentTransaction struct {
 	ID          uint      `gorm:"primaryKey" json:"id"`
 	OrderNo     string    `gorm:"size:32;index" json:"order_no"`
@@ -437,80 +437,80 @@ type PaymentTransaction struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-// Grant 是发放记录（三账之三：用户实际拿到的权益）。
+// Grant is a grant record (the third of three ledgers: the entitlements the user actually received).
 type Grant struct {
 	ID         uint      `gorm:"primaryKey" json:"id"`
 	OrderNo    string    `gorm:"size:32;index" json:"order_no"`
 	UserID     uint      `gorm:"index;not null" json:"user_id"`
 	GrantType  string    `gorm:"size:16" json:"grant_type"`   // add_quota / extend_days
-	GrantValue int64     `gorm:"not null" json:"grant_value"` // 字节数或天数
-	Snapshot   string    `gorm:"type:text" json:"snapshot"`   // 变更前后快照 JSON
+	GrantValue int64     `gorm:"not null" json:"grant_value"` // bytes or days
+	Snapshot   string    `gorm:"type:text" json:"snapshot"`   // pre- and post-change snapshot JSON
 	CreatedAt  time.Time `json:"created_at"`
-	// 不设 User 关联：发放记录不随用户删除（无外键）。
+	// No User association: grant records do not follow user deletion (no foreign key).
 }
 
-// Distributor 是代理账号（DS 分销，独立登录体系，非 users：无配额/订阅语义）。
-// 停用即禁登录，账目保留。佣金比例=面板让利部分归代理。
+// Distributor is an agent account (DS distribution, an independent login system, not users: no quota / subscription semantics).
+// Disabled means login is barred, while the ledgers are kept. The commission ratio is the part the panel concedes to the agent.
 type Distributor struct {
 	ID              uint      `gorm:"primaryKey" json:"id"`
 	Username        string    `gorm:"size:64;uniqueIndex;not null" json:"username"`
 	PasswordHash    string    `gorm:"size:128;not null" json:"-"`
-	DiscountPercent int       `gorm:"default:0" json:"discount_percent"` // 佣金比例 0-100
+	DiscountPercent int       `gorm:"default:0" json:"discount_percent"` // commission ratio 0-100
 	Note            string    `gorm:"size:255" json:"note"`
 	Enabled         bool      `gorm:"default:true" json:"enabled"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }
 
-// DistributorLedger 是代理账目流水：sale（售卡留痕不进余额）/commission（入余额）/
-// payout（结算扣减）/adjust（人工调）。未结算余额 = Σcommission + Σadjust − Σpayout。
+// DistributorLedger is an agent-ledger flow: sale (a card-sale trail that does not enter the balance) / commission (enters the balance) /
+// payout (settlement deduction) / adjust (manual adjustment). Unsettled balance = Σcommission + Σadjust − Σpayout.
 type DistributorLedger struct {
 	ID            uint      `gorm:"primaryKey" json:"id"`
 	DistributorID uint      `gorm:"index;not null" json:"distributor_id"`
-	OrderNo       string    `gorm:"size:32;index" json:"order_no"` // sale/commission 与三账订单串联
+	OrderNo       string    `gorm:"size:32;index" json:"order_no"` // sale/commission tied to the three-ledger order
 	Kind          string    `gorm:"size:16;not null" json:"kind"`  // sale/commission/payout/adjust
-	AmountCents   int64     `gorm:"not null" json:"amount_cents"`  // 接口层以正负区分入账/扣减
+	AmountCents   int64     `gorm:"not null" json:"amount_cents"`  // the interface layer distinguishes credit / debit by sign
 	Note          string    `gorm:"size:255" json:"note"`
 	CreatedAt     time.Time `json:"created_at"`
 }
 
-// Provider 是云提供商凭证（OS-1）：接入 OpenTofu 供给引擎的 provider
-// 认证机密。AccessKey 为 AES-256-GCM 密文（secret 统一入口加密），
-// 接口层永不回显明文，仅 server 执行供给时解密使用。
+// Provider is a cloud provider credential (OS-1): the provider authentication secret for plugging into the OpenTofu
+// supply engine. AccessKey is an AES-256-GCM ciphertext (encrypted via the unified secret entry point), the interface layer never
+// echoes the plaintext back, and it is decrypted only when the server runs supply.
 type Provider struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	Name      string    `gorm:"size:64;not null" json:"name"`
-	Type      string    `gorm:"size:32;not null" json:"type"`        // OpenTofu provider 名（vultr/hetzner/…）
-	AccessKey string    `gorm:"size:512;not null" json:"access_key"` // 密文，接口层以 has_access_key 呈现
+	Type      string    `gorm:"size:32;not null" json:"type"`        // OpenTofu provider name (vultr/hetzner/…)
+	AccessKey string    `gorm:"size:512;not null" json:"access_key"` // ciphertext, presented at the interface layer as has_access_key
 	Enabled   bool      `gorm:"default:true" json:"enabled"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// ProvisionTemplate 是机型模板（OS-1）：dash 录入，OS-2 渲染 HCL 供给，
-// OS-4 入池时按模板补全节点元数据（方向/线路/区域/成本口径与节点对齐）。
+// ProvisionTemplate is a machine template (OS-1): dash enters it, OS-2 renders HCL supply,
+// and when OS-4 fills in node metadata by the template it aligns with the node (direction / line / region / cost policy).
 type ProvisionTemplate struct {
 	ID                uint      `gorm:"primaryKey" json:"id"`
 	Name              string    `gorm:"size:64;not null" json:"name"`
 	ProviderID        uint      `gorm:"index;not null" json:"provider_id"`
-	Plan              string    `gorm:"size:64" json:"plan"`                 // 机型 slug
-	Region            string    `gorm:"size:64" json:"region"`               // 区域
-	Image             string    `gorm:"size:64" json:"image"`                // 系统镜像（provider 各自口径）
-	BwMbps            int       `json:"bw_mbps"`                             // 带宽（Mbps）
-	BillingType       string    `gorm:"size:16" json:"billing_type"`         // 包月 / 按流量
-	MonthlyCostCents  int64     `json:"monthly_cost_cents"`                  // 月固定成本（分）
-	TrafficPriceCents int64     `json:"traffic_price_cents"`                 // 流量单价（分/GB）
+	Plan              string    `gorm:"size:64" json:"plan"`                 // machine slug
+	Region            string    `gorm:"size:64" json:"region"`               // region
+	Image             string    `gorm:"size:64" json:"image"`                // system image (each provider's own policy)
+	BwMbps            int       `json:"bw_mbps"`                             // bandwidth (Mbps)
+	BillingType       string    `gorm:"size:16" json:"billing_type"`         // monthly / per-traffic
+	MonthlyCostCents  int64     `json:"monthly_cost_cents"`                  // fixed monthly cost (cents)
+	TrafficPriceCents int64     `json:"traffic_price_cents"`                 // per-traffic unit price (cents/GB)
 	Direction         string    `gorm:"size:8;default:out" json:"direction"` // out/in/both
 	LineType          string    `gorm:"size:32" json:"line_type"`            // 163/cn2_gia/cu_vip/cmi/iplc
 	Role              string    `gorm:"size:16;default:entry" json:"role"`   // entry/landing/both/relay
 	Transport         string    `gorm:"size:16" json:"transport"`            // tls/ws-tls/quic/ssh
-	Config            string    `gorm:"type:text" json:"config"`             // 协议配置模板 JSON（OS-4：开服复制到节点行，供自动下发）
+	Config            string    `gorm:"type:text" json:"config"`             // protocol config template JSON (OS-4: a copy lands on the node row on server-up, for auto delivery)
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
 }
 
-// ProvisionJob 是一次供给执行留痕（OS-2）：plan/apply 受控执行的结果与
-// 日志尾部。单实例不并发 apply；日志不含机密（密钥走 TF_VAR 环境变量）。
+// ProvisionJob is one supply execution trail (OS-2): the result and log tail of the
+// controlled run of plan/apply. A single instance does not apply concurrently; the log holds no secrets (keys go through TF_VAR env vars).
 type ProvisionJob struct {
 	ID           uint       `gorm:"primaryKey" json:"id"`
 	TemplateID   uint       `gorm:"index;not null" json:"template_id"`
@@ -522,17 +522,17 @@ type ProvisionJob struct {
 	FinishedAt   *time.Time `json:"finished_at"`
 }
 
-// Recovery 是封禁恢复流水线状态行（BR-1）：每节点至多一条进行中，
-// L1→L2→L3 分级推进，每级超时未恢复进下一级，探测恢复（摘挂复位）
-// 即完成。动作级留痕与失败升级人工由后续 recovery_actions 承接（BR-5）。
+// Recovery is the state row of the ban-recovery pipeline (BR-1): at most one in progress per node,
+// advancing L1→L2→L3 in tiers, each tier timing out into the next, and probe recovery (attach/detach reset) completes it.
+// Action-level trail and failure escalation to a human are carried by the later recovery_actions (BR-5).
 type Recovery struct {
 	ID             uint       `gorm:"primaryKey" json:"id"`
 	NodeID         uint       `gorm:"uniqueIndex;not null" json:"node_id"`
 	NodeName       string     `gorm:"size:64" json:"node_name"`
-	Level          int        `json:"level"` // 当前推进级别 1-3
+	Level          int        `json:"level"` // current advancement level 1-3
 	State          string     `gorm:"size:16" json:"state"`
-	Action         string     `gorm:"size:32" json:"action"`       // 当前级别动作名（空=未开跑）
-	ActionState    string     `gorm:"size:16" json:"action_state"` // running/ok/failed/skipped/空
+	Action         string     `gorm:"size:32" json:"action"`       // the current level's action name (empty = not started)
+	ActionState    string     `gorm:"size:16" json:"action_state"` // running/ok/failed/skipped/empty
 	LastErr        string     `gorm:"size:512" json:"last_error,omitempty"`
 	LevelStartedAt time.Time  `json:"level_started_at"`
 	StartedAt      time.Time  `json:"started_at"`
@@ -540,107 +540,107 @@ type Recovery struct {
 	FinishedAt     *time.Time `json:"finished_at,omitempty"`
 }
 
-// RecoveryAction 是恢复流水线每级动作的留痕（BR-5）：一次推进一条，
-// 回放用——从判封到终态每级谁在跑、成没成、为何失败全可查。
+// RecoveryAction is each tier's action trail of the recovery pipeline (BR-5): one row per advancement,
+// used for replay - from the ban to the terminal state, who was running each tier, whether it succeeded, and why it failed is all queryable.
 type RecoveryAction struct {
 	ID         uint       `gorm:"primaryKey" json:"id"`
 	RecoveryID uint       `gorm:"index;not null" json:"recovery_id"`
 	NodeID     uint       `json:"node_id"`
 	NodeName   string     `gorm:"size:64" json:"node_name"`
 	Level      int        `json:"level"`
-	Action     string     `gorm:"size:32" json:"action"`            // 动作名（未注册级为空）
+	Action     string     `gorm:"size:32" json:"action"`            // action name (empty for an unregistered tier)
 	State      string     `gorm:"size:16" json:"state"`             // running/ok/failed/skipped/timeout
-	Detail     string     `gorm:"size:512" json:"detail,omitempty"` // 失败/跳过原因
+	Detail     string     `gorm:"size:512" json:"detail,omitempty"` // failure / skip reason
 	StartedAt  time.Time  `json:"started_at"`
 	UpdatedAt  time.Time  `json:"updated_at"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 }
 
-// DNSProvider 是 DNS 商凭证（BR-2 插件位；BR-4 ACME DNS-01 复用同一通道）。
-// 凭证机密走 R24 加密面口径，接口层只回 has_api_key 不回显明文。
+// DNSProvider is a DNS vendor credential (the BR-2 plugin slot; BR-4 ACME DNS-01 reuses the same channel).
+// The credential secret follows the R24 encrypted-surface policy, and the interface layer returns has_api_key without echoing the plaintext.
 type DNSProvider struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	Name      string    `gorm:"size:64;not null" json:"name"`
-	Type      string    `gorm:"size:32;not null" json:"type"` // 插件位类型：cloudflare/…
-	APIKey    string    `gorm:"size:512;not null" json:"-"`   // 密文
+	Type      string    `gorm:"size:32;not null" json:"type"` // plugin-slot type: cloudflare/…
+	APIKey    string    `gorm:"size:512;not null" json:"-"`   // ciphertext
 	Enabled   bool      `gorm:"default:true" json:"enabled"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// DNSFront 是域名前置记录（BR-2）：常态指向 PrimaryIP，判封 L1 切到
-// 备用 IP 轮换，探测恢复回切——域名不换、IP 随换。BackupIPs 是 JSON
-// 字符串数组，SwitchIndex 为轮换游标。
+// DNSFront is a domain-fronting record (BR-2): normally points at PrimaryIP, switches to a
+// backup IP rotation on a ban judgment at L1, and switches back when probes recover - the domain does not change, the IP does. BackupIPs is a JSON
+// string array, and SwitchIndex is the rotation cursor.
 type DNSFront struct {
 	ID          uint      `gorm:"primaryKey" json:"id"`
-	Name        string    `gorm:"size:64" json:"name"`                   // 说明（如 主入口域名）
+	Name        string    `gorm:"size:64" json:"name"`                   // description (e.g. main entry domain)
 	Domain      string    `gorm:"size:191;not null;index" json:"domain"` // FQDN
 	ProviderID  uint      `gorm:"index;not null" json:"provider_id"`
-	PrimaryIP   string    `gorm:"size:45;not null" json:"primary_ip"`              // 常态指向（回切目标）
-	BackupIPs   string    `gorm:"size:1024;not null;default:[]" json:"backup_ips"` // JSON 数组
-	Switched    bool      `gorm:"default:false" json:"switched"`                   // 已切离常态（恢复时回切）
+	PrimaryIP   string    `gorm:"size:45;not null" json:"primary_ip"`              // normal pointing (the switch-back target)
+	BackupIPs   string    `gorm:"size:1024;not null;default:[]" json:"backup_ips"` // JSON array
+	Switched    bool      `gorm:"default:false" json:"switched"`                   // switched off normal (switched back on recovery)
 	CurrentIP   string    `gorm:"size:45" json:"current_ip"`
-	SwitchIndex int       `gorm:"default:0" json:"switch_index"` // 备用 IP 轮换游标
+	SwitchIndex int       `gorm:"default:0" json:"switch_index"` // backup IP rotation cursor
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
-// GeoDNSRecord 是智能 DNS 分地域的已同步记录面（E-27 §C.8.4）：对账
-// 的 diff 基准——Sync 期望集与现存行比对，新增/变更 Upsert、消失 Delete
-// （区域全挂撤记录）。不回写 entry_domains 人工清单（分地域是增益不是依赖）。
+// GeoDNSRecord is the synchronized record face of smart-DNS per-region routing (E-27 §C.8.4): the diff
+// baseline for reconciliation - Sync compares the expected set against existing rows, upserting on add/change and deleting on
+// disappearance (full-outage record withdrawal). It is never written back to the entry_domains manual list (per-region routing is an addition, not a dependency).
 type GeoDNSRecord struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
-	FrontID   uint      `gorm:"index;not null" json:"front_id"`      // 归属 DNSFront
-	Slug      string    `gorm:"size:64;not null" json:"slug"`        // 区域归一词
-	Name      string    `gorm:"size:253;not null;index" json:"name"` // 完整子域 {slug}.{前置域名}
-	Value     string    `gorm:"size:255;not null" json:"value"`      // 代表入口地址
+	FrontID   uint      `gorm:"index;not null" json:"front_id"`      // the owning DNSFront
+	Slug      string    `gorm:"size:64;not null" json:"slug"`        // normalized region vocabulary
+	Name      string    `gorm:"size:253;not null;index" json:"name"` // full subdomain {slug}.{front domain}
+	Value     string    `gorm:"size:255;not null" json:"value"`      // representative entry address
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// CertTask 是一张证书的编排任务（BR-4）：面板管编排与到期，签发执行
-// 复用外部工具（acme.sh）——DNS-01 复用 BR-2 的 DNS 商凭证通道，
-// 产物留在工具工作目录，节点分发由后续批次接。
+// CertTask is an orchestration task for one certificate (BR-4): the panel manages orchestration and expiry, and issuance reuses the
+// external tool (acme.sh) - DNS-01 reuses BR-2's DNS vendor credential channel, the artifact
+// stays in the tool working directory, and node distribution is taken up by a later batch.
 type CertTask struct {
 	ID            uint       `gorm:"primaryKey" json:"id"`
-	Name          string     `gorm:"size:64" json:"name"`                           // 说明
-	Domain        string     `gorm:"size:191;not null;index" json:"domain"`         // 主域名（FQDN）
-	Sans          string     `gorm:"size:512" json:"sans"`                          // 附加域名（逗号分隔，可空）
+	Name          string     `gorm:"size:64" json:"name"`                           // description
+	Domain        string     `gorm:"size:191;not null;index" json:"domain"`         // main domain (FQDN)
+	Sans          string     `gorm:"size:512" json:"sans"`                          // extra domains (comma-separated, may be empty)
 	Method        string     `gorm:"size:16;not null;default:dns-01" json:"method"` // dns-01/http-01
-	DNSProviderID uint       `json:"provider_id"`                                   // dns-01 用的 DNS 商凭证（BR-2 通道）
+	DNSProviderID uint       `json:"provider_id"`                                   // DNS vendor credential used by dns-01 (BR-2 channel)
 	CA            string     `gorm:"size:32;default:letsencrypt" json:"ca"`
 	State         string     `gorm:"size:16;default:pending" json:"state"` // pending/issuing/ok/failed
-	NotAfter      *time.Time `json:"not_after"`                            // 证书到期（签发成功后回填）
+	NotAfter      *time.Time `json:"not_after"`                            // certificate expiry (backfilled after issuance)
 	LastError     string     `gorm:"size:512" json:"last_error,omitempty"`
 	LastAttempt   *time.Time `json:"last_attempt"`
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
 }
 
-// Notification 是一条站内信（NT-1）：面向用户的四类通知（公告/到期/流量
-// 预警/系统），逐用户落行（小用户量扇出成本可忽略），已读态挂在行上。
+// Notification is one in-app message (NT-1): four user-facing notification types (announcement / expiry / traffic
+// warning / system), one row per user (the fan-out cost is negligible at low user counts), with the read state hanging off the row.
 type Notification struct {
 	ID        int64      `gorm:"primaryKey" json:"id"`
-	UserID    int64      `gorm:"index;not null" json:"user_id"`      // 收件人（公告锚点行=0）
+	UserID    int64      `gorm:"index;not null" json:"user_id"`      // recipient (the announcement anchor row = 0)
 	Type      string     `gorm:"size:16;index;not null" json:"type"` // announcement/expiry/traffic/system
 	Title     string     `gorm:"size:128;not null" json:"title"`
 	Body      string     `gorm:"size:512" json:"body,omitempty"`
 	ReadAt    *time.Time `json:"read_at,omitempty"`
 	CreatedAt time.Time  `json:"created_at"`
-	// 公告窗口与触达（P2-5）：普通通知行全部零值。锚点行=站级一份
-	//（user_id=0，RSS 数据源）；用户行经 AnchorID 关联锚点供统计回流。
-	StartsAt *time.Time `json:"starts_at,omitempty"`              // 定时发布（锚点行；未到点不扇出、RSS 不出）
-	EndsAt   *time.Time `json:"ends_at,omitempty"`                // 定时撤下（到点后 RSS 与 panel 列表不再可见，行保留）
-	FanoutAt *time.Time `json:"fanout_at,omitempty"`              // 用户扇出完成时间（scheduled 行待扇出时为空）
-	AnchorID int64      `gorm:"index" json:"anchor_id,omitempty"` // 所属公告锚点行 id（用户行>0）
-	ResendAt *time.Time `json:"resend_at,omitempty"`              // 最近一次外通道重发（锚点行，限频基准）
-	// 受众（运营设计 §1.1「全员/分组」）：锚点行记发布时选的受众串，
-	// 扇出与外通道重发按它筛启用用户（all=全部启用；expiring:N=N 天内
-	// 到期；名单以扇出时刻为准——定时公告到点才解析）；普通行零值。
+	// Announcement window and outreach (P2-5): all ordinary notification rows are zero values. The anchor row = one site-level
+	// entry (user_id=0, the RSS data source); user rows link to the anchor via AnchorID for statistics backflow.
+	StartsAt *time.Time `json:"starts_at,omitempty"`              // scheduled publish (anchor row; no fan-out before the time, no RSS either)
+	EndsAt   *time.Time `json:"ends_at,omitempty"`                // scheduled takedown (after the time the RSS and the panel list no longer show it, but the row is kept)
+	FanoutAt *time.Time `json:"fanout_at,omitempty"`              // user fan-out completion time (empty while a scheduled row awaits fan-out)
+	AnchorID int64      `gorm:"index" json:"anchor_id,omitempty"` // the id of the owning announcement anchor row (user rows > 0)
+	ResendAt *time.Time `json:"resend_at,omitempty"`              // last external-channel resend (anchor row, the rate-limiting basis)
+	// Audience (operations design §1.1 "all / groups"): the anchor row records the audience string chosen at publish, and
+	// both fan-out and external-channel resend filter enabled users by it (all=every enabled user; expiring:N=N days
+	// until expiry; the list is as of the fan-out time - scheduled announcements are resolved only when due); ordinary rows are zero values.
 	Audience string `gorm:"size:32;default:'all'" json:"audience,omitempty"`
 }
 
-// 通知类型（NT-1/NT-2）：announcement 公告扇出；expiry/traffic 到期与流量
-// 阈值的定时扫描触发；system 事件触发（发放到账等）。
+// Notification types (NT-1/NT-2): announcement fans out; expiry/traffic are triggered by the
+// scheduled scan of expiry and the traffic threshold; system is event-triggered (e.g. a grant landing).
 const (
 	NotifAnnouncement = "announcement"
 	NotifExpiry       = "expiry"
@@ -648,28 +648,28 @@ const (
 	NotifSystem       = "system"
 )
 
-// QuotaAction 是一条配额联动留痕（SAVE-6）：用户流量/费用超阈值后订阅自动
-// 降档（只出低成本档入口），released_at 空=降档生效中；阈值字段为触发时刻
-// 快照，降档订阅按快照档线过滤，设置后续调整不影响已生效行。
+// QuotaAction is one quota-linkage trail (SAVE-6): after a user's traffic / cost exceeds the threshold the subscription
+// auto-downgrades (only low-cost tier entries are emitted), released_at empty = the downgrade is in effect; the threshold fields are a snapshot
+// of the trigger moment, and a downgraded subscription filters by the snapshot tier lines, so a later settings change does not affect rows already in effect.
 type QuotaAction struct {
 	ID            uint       `gorm:"primaryKey" json:"id"`
 	UserID        uint       `gorm:"index;not null" json:"user_id"`
 	Trigger       string     `gorm:"size:16;not null" json:"trigger"`  // traffic/cost
-	UsedBytes     int64      `gorm:"default:0" json:"used_bytes"`      // 触发时窗口用量快照
-	QuotaBytes    int64      `gorm:"default:0" json:"quota_bytes"`     // 触发时个人配额快照（流量档）
-	CostCents     int64      `gorm:"default:0" json:"cost_cents"`      // 触发时折算费用快照（分，费用档）
-	MaxPriceCents int64      `gorm:"default:0" json:"max_price_cents"` // 降档成本档线快照（分/GB）
+	UsedBytes     int64      `gorm:"default:0" json:"used_bytes"`      // usage-snapshot at trigger time
+	QuotaBytes    int64      `gorm:"default:0" json:"quota_bytes"`     // personal quota snapshot at trigger time (traffic tier)
+	CostCents     int64      `gorm:"default:0" json:"cost_cents"`      // converted-cost snapshot at trigger time (cents, cost tier)
+	MaxPriceCents int64      `gorm:"default:0" json:"max_price_cents"` // downgrade cost-tier line snapshot (cents/GB)
 	Reason        string     `gorm:"size:255" json:"reason"`
 	CreatedAt     time.Time  `gorm:"not null" json:"created_at"`
 	ReleasedAt    *time.Time `json:"released_at"`
 	ReleaseReason string     `gorm:"size:64" json:"release_reason"`
 }
 
-// Event 是一条事件 outbox 行（HERALD-1，《告警通道设计》§4/§5）：事件生产侧
-// 落库即返回，投递由 herald.Loop 异步重试，通道故障不静默丢。
+// Event is one event outbox row (HERALD-1, "alert channel design" §4/§5): the event-producing side returns immediately on
+// persisting, and delivery is retried asynchronously by herald.Loop, with channel failures never dropped silently.
 type Event struct {
 	ID            int64      `gorm:"primaryKey" json:"id"`
-	Kind          string     `gorm:"size:32;index;not null" json:"kind"` // region_fault/node_blocked/cert_expiring/...（§2 清单）
+	Kind          string     `gorm:"size:32;index;not null" json:"kind"` // region_fault/node_blocked/cert_expiring/... (§2 list)
 	Severity      string     `gorm:"size:16;not null" json:"severity"`   // critical/warning/info
 	Title         string     `gorm:"size:255;not null" json:"title"`
 	Body          string     `gorm:"size:1024" json:"body,omitempty"`
@@ -678,26 +678,26 @@ type Event struct {
 	Meta          string     `gorm:"type:text" json:"meta,omitempty"`                      // JSON
 	Status        string     `gorm:"size:16;index;not null;default:pending" json:"status"` // pending/sent/failed
 	Attempts      int        `gorm:"default:0" json:"attempts"`
-	NextAttemptAt *time.Time `json:"next_attempt_at,omitempty"` // 空=立即可投
+	NextAttemptAt *time.Time `json:"next_attempt_at,omitempty"` // empty = deliverable immediately
 	OccurredAt    time.Time  `gorm:"not null" json:"occurred_at"`
 	CreatedAt     time.Time  `gorm:"not null" json:"created_at"`
 }
 
-// EventDelivery 是一条投递留痕：ferry→Herald 的每次投递尝试结果，以及
-// Herald 异步回投的通道分发回执（HERALD-2 起回填 channel 维度）。
+// EventDelivery is one delivery trail: the result of every ferry->Herald delivery attempt, and the async channel-dispatch
+// receipts from Herald (channel dimension backfilled from HERALD-2 on).
 type EventDelivery struct {
 	ID      int64     `gorm:"primaryKey" json:"id"`
 	EventID int64     `gorm:"index;not null" json:"event_id"`
-	Channel string    `gorm:"size:16;not null" json:"channel"` // herald（ferry→Herald 投递腿）/tg/email/wechat/webhook
+	Channel string    `gorm:"size:16;not null" json:"channel"` // herald (the ferry->Herald delivery leg) /tg/email/wechat/webhook
 	Status  string    `gorm:"size:16;not null" json:"status"`  // sent/failed
 	Detail  string    `gorm:"size:512" json:"detail,omitempty"`
 	At      time.Time `gorm:"not null" json:"at"`
 }
 
-// Backup 是一条备份留痕（面板可用性 §6，P1）：kind=manual 为手动下载
-// 端点落档、scheduled 为周期备份 Loop 落档；path 指向备份目录内的档文件
-// （配置了主密钥时为加密档 .enc）。uploaded 是外发位成功标记——周期备份
-// S3 外发（FERRY_BACKUP_S3_*，默认关闭）上传成功才置 1，manual 落档恒 0。
+// Backup is one backup trail (panel availability §6, P1): kind=manual is a manual-download
+// endpoint archive and scheduled is a periodic-backup Loop archive; path points at the archive file inside the backup directory (an encrypted archive .enc when
+// a master key is configured). uploaded is the outbound-slot success mark - only a successful periodic S3
+// offload (FERRY_BACKUP_S3_*, off by default) sets it to 1, while a manual archive is always 0.
 type Backup struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	Kind      string    `gorm:"size:16;index;not null" json:"kind"` // manual / scheduled
@@ -707,9 +707,9 @@ type Backup struct {
 	CreatedAt time.Time `gorm:"not null" json:"created_at"`
 }
 
-// RecoveryCode 是两步验证的一次性恢复码（安全设计 §1，P1）：只存 sha256
-// 哈希不存明文（明文仅绑定完成时一次性下发展示），用一个销一个——used_at
-// 非空即已消费，比对与销毁同事务防重放。
+// RecoveryCode is a one-time recovery code for two-factor authentication (security design §1, P1): it stores only the
+// sha256 hash, not the plaintext (the plaintext is shown once at bind time), and it is one code one use - a non-empty
+// used_at means consumed, and comparison and destruction go in one transaction against replay.
 type RecoveryCode struct {
 	ID        uint       `gorm:"primaryKey" json:"id"`
 	UserID    uint       `gorm:"index;not null" json:"user_id"`
@@ -718,50 +718,50 @@ type RecoveryCode struct {
 	CreatedAt time.Time  `json:"created_at"`
 }
 
-// LoginLog 是管理员登录审计（安全设计 §1，P1，对齐设计 DDL）：时间/IP/
-// UA/结果，dash 分页可查；连续失败与新网段登录经 Herald login_alert 告警。
+// LoginLog is the admin login audit (security design §1, P1, aligned with the design DDL): time/IP /
+// UA / result, queryable in paged form in dash; consecutive failures and new-subnet logins alert via Herald login_alert.
 type LoginLog struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	Username  string    `gorm:"size:64;index" json:"username"`
 	IP        string    `gorm:"size:64" json:"ip"`
 	UA        string    `gorm:"size:255" json:"ua"`
 	OK        bool      `json:"ok"`
-	CreatedAt time.Time `gorm:"index" json:"created_at"` // 设计 DDL idx_login_logs_time
+	CreatedAt time.Time `gorm:"index" json:"created_at"` // design DDL idx_login_logs_time
 }
 
-// AuditLog 是管理员写操作审计（AU-1，P2-6 观察项转正）：谁在何时对哪个
-// 对象做了什么（方法+路径/请求体快照脱敏/响应成败/IP），dash 分页可查；
-// 保留与轮转见 AU-3（FERRY_AUDIT_RETENTION_DAYS）。
+// AuditLog is the admin write-operation audit (AU-1, promoted to production by P2-6): who did what to which object when
+// (method + path / request-body snapshot sanitized / response success or failure / IP), queryable in paged form in dash;
+// retention and rotation are in AU-3 (FERRY_AUDIT_RETENTION_DAYS).
 type AuditLog struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
-	Actor     string    `gorm:"size:128;index" json:"actor"`  // 操作者名（管理员用户名/API Token subject）
+	Actor     string    `gorm:"size:128;index" json:"actor"`  // operator name (admin username / API Token subject)
 	ActorKind string    `gorm:"size:16" json:"actor_kind"`    // admin | api
 	Action    string    `gorm:"size:255;index" json:"action"` // "PUT /api/users/:id"
-	Target    string    `gorm:"size:64" json:"target"`        // 对象 id（路径 :id 参数）
-	Body      string    `gorm:"size:2048" json:"body"`        // 请求体快照（敏感字段脱敏，截断 2KB）
-	Success   bool      `json:"success"`                      // 响应 <400
+	Target    string    `gorm:"size:64" json:"target"`        // object id (the path :id parameter)
+	Body      string    `gorm:"size:2048" json:"body"`        // request-body snapshot (sensitive fields sanitized, truncated to 2KB)
+	Success   bool      `json:"success"`                      // response <400
 	IP        string    `gorm:"size:64" json:"ip"`
 	CreatedAt time.Time `gorm:"index" json:"created_at"`
 }
 
-// PriceWatch 是价格关注条件（E-32，套餐与成本设计 §4.2 DDL 蓝本）：盯
-// 「商家+区域+配置档」一个牌价键，降价或现价到位（target_price>0）经
-// Herald price_alert 提示；条件与参考价同词表（costref 价格表键）。
+// PriceWatch is a price-watch condition (E-32, the plans-and-cost design §4.2 DDL blueprint): it watches one
+// price-key of "vendor + region + config tier", and a price drop or a reached target price (target_price>0) alerts via
+// Herald price_alert; conditions share the reference-price vocabulary (costref price-table keys).
 type PriceWatch struct {
 	ID          uint   `gorm:"primaryKey" json:"id"`
 	Provider    string `gorm:"size:128;not null;uniqueIndex:idx_price_watch" json:"provider"`
 	Region      string `gorm:"size:128;not null;default:'';uniqueIndex:idx_price_watch" json:"region"`
 	Spec        string `gorm:"size:128;not null;uniqueIndex:idx_price_watch" json:"spec"`
-	TargetPrice int64  `gorm:"default:0" json:"target_price"` // 目标价位（分/月），0=只盯降价
-	// Enabled 不带 default 标签：default:true 会让 Create 略过零值字段、
-	// 落库吃进列默认值，建关注时传 enabled:false 会被静默改回 true。
+	TargetPrice int64  `gorm:"default:0" json:"target_price"` // target price (cents/month), 0 = watch price drops only
+	// Enabled carries no default tag: default:true would make Create skip zero-value fields,
+	// take a column default value, and passing enabled:false at watch creation would be silently flipped back to true.
 	Enabled   bool      `json:"enabled"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// PriceSnapshot 是一次关注键的牌价快照（扫描周期从参考价表抓取，比对
-// 降价与到位沿用；设计 DDL REFERENCES 级联改为应用层：删关注同删快照）。
+// PriceSnapshot is one price-key snapshot of a watch (fetched each scan period from the reference-price table); comparison
+// of price drops and reaches reuses it; the design DDL REFERENCES cascade is changed to the application layer: deleting the watch deletes the snapshot too.
 type PriceSnapshot struct {
 	ID           uint      `gorm:"primaryKey" json:"id"`
 	WatchID      uint      `gorm:"index;not null" json:"watch_id"`
