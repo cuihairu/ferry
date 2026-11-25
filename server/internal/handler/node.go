@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/ferry/server/internal/model"
+	"github.com/cuihairu/ferry/server/internal/recovery"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -185,6 +186,43 @@ func (h *Handler) deleteNode(c *gin.Context) {
 			return
 		}
 		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	// Dependency checks (F-0214): a node wired into the active forwarding
+	// fabric is not deletable — remove the Path/LandingAssignment links first.
+	// History rows (traffic, probes, alerts, config versions) are kept as the
+	// retention rule: they stay queryable by node id after the node row is gone.
+	id := c.Param("id")
+	var paths int64
+	if err := h.db.Model(&storage.Path{}).Where(
+		"entry_node_id = ? OR landing_node_id = ? OR relay_node_id = ?", id, id, id).
+		Count(&paths).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	if paths > 0 {
+		fail(c, http.StatusConflict, errors.New("node is used by paths; remove them first"))
+		return
+	}
+	var assignments int64
+	if err := h.db.Model(&storage.LandingAssignment{}).Where(
+		"(entry_node_id = ? OR landing_node_id = ?) AND released_at IS NULL", id, id).
+		Count(&assignments).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	if assignments > 0 {
+		fail(c, http.StatusConflict, errors.New("node has active landing assignments; release them first"))
+		return
+	}
+	var running int64
+	if err := h.db.Model(&storage.Recovery{}).Where("node_id = ? AND state = ?", id, recovery.StateRunning).
+		Count(&running).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	if running > 0 {
+		fail(c, http.StatusConflict, errors.New("node has a running recovery; finish or fail it first"))
 		return
 	}
 	res := h.db.Where("id=?", c.Param("id")).Delete(&storage.Node{})

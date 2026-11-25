@@ -51,11 +51,11 @@ type NodeInput struct {
 	Region     string `json:"region,omitempty"`    // region, failure aggregation dimension
 	City       string `json:"city,omitempty"`
 	Datacenter string `json:"datacenter,omitempty"`
-	ISP        string `json:"isp,omitempty"`       // ISP, failure aggregation dimension
-	ASN        string `json:"asn,omitempty"`       // autonomous system number (F-0207)
+	ISP        string `json:"isp,omitempty"` // ISP, failure aggregation dimension
+	ASN        string `json:"asn,omitempty"` // autonomous system number (F-0207)
 	// ProviderID links the node to its owning cloud Provider (F-0207): nil keeps
 	// the current value, 0 clears the link, >0 must reference an existing row.
-	ProviderID *uint `json:"provider_id,omitempty"`
+	ProviderID *uint  `json:"provider_id,omitempty"`
 	Transport  string `json:"transport,omitempty"` // tls/quic/ws-tls/ssh
 }
 
