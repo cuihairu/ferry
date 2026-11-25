@@ -16,14 +16,17 @@ import (
 	"gorm.io/gorm"
 )
 
-// 二十六批补口：agentws 错误分支——握手关卡（非 WS 升级/首条非 hello/坏
-// hello/坏帧/坏协议版本）、令牌校验库故障、节点行更新失败（版本与元数据
-// 回写只记日志）、五类上报载荷解码失败后循环继续、三类落库失败只记日志且
-// 照常应答、未知消息类型留痕，以及落存函数空入参与地址解析回落的直测。
-// 留白：六处发送侧 ack 失败分支（hello/heartbeat/alarm/probe/traffic/
-// calibrate 的 hc.Send）需对端在服务端写出前断链，属竞态时序，不硬凑。
+// Batch 26 coverage fill: agentws error branches -- the handshake gate (non-WS upgrade /
+// first message not hello / bad hello / bad frame / bad protocol version), a token-check DB
+// failure, node row update failures (version and metadata write-backs only log), payload
+// decode failures on the five report types letting the loop continue, three persistence
+// failures that only log while still answering, unknown message types being noted, plus
+// direct tests of the persistence helpers' empty inputs and the address-resolution fallback.
+// Left alone: the six send-side ack failure branches (hc.Send on hello/heartbeat/alarm/probe/
+// traffic/calibrate) need the peer to drop the link before the server writes, which is a race
+// on timing and is not forcibly provoked.
 
-// wsNode 造节点并返回接入令牌与行 id。
+// wsNode creates a node and returns its access token and row id.
 func wsNode(t *testing.T, r *gin.Engine, name string) (string, int) {
 	t.Helper()
 	rec := doJSON(t, r, http.MethodPost, "/api/nodes", map[string]any{
@@ -37,7 +40,7 @@ func wsNode(t *testing.T, r *gin.Engine, name string) (string, int) {
 	return node["token"].(string), int(node["id"].(float64))
 }
 
-// wsDial 起 httptest 服务并拨 agent WebSocket。
+// wsDial starts an httptest server and dials the agent WebSocket.
 func wsDial(t *testing.T, r *gin.Engine) (*websocket.Conn, *httptest.Server) {
 	t.Helper()
 	srv := httptest.NewServer(r)
@@ -49,7 +52,7 @@ func wsDial(t *testing.T, r *gin.Engine) (*websocket.Conn, *httptest.Server) {
 	return c, srv
 }
 
-// wsHandshake 完成认证握手，返回连接与 hello_ack 信封。
+// wsHandshake completes the auth handshake and returns the connection and the hello_ack envelope.
 func wsHandshake(t *testing.T, r *gin.Engine, token string) (*websocket.Conn, *httptest.Server, agentproto.Envelope) {
 	t.Helper()
 	c, srv := wsDial(t, r)
@@ -69,7 +72,7 @@ func wsHandshake(t *testing.T, r *gin.Engine, token string) (*websocket.Conn, *h
 	return c, srv, env
 }
 
-// wsReadClose 读到服务端关闭帧并断言关闭码。
+// wsReadClose reads until the server's close frame and asserts the close code.
 func wsReadClose(t *testing.T, c *websocket.Conn, want int) {
 	t.Helper()
 	_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
@@ -78,7 +81,7 @@ func wsReadClose(t *testing.T, c *websocket.Conn, want int) {
 	}
 }
 
-// isNodeModel 判断语句是否落在节点表上（Find 链 Model 是切片指针）。
+// isNodeModel reports whether the statement lands on the node table (in a Find chain Model is a slice pointer).
 func isNodeModel(v any) bool {
 	switch v.(type) {
 	case *storage.Node, []storage.Node, *[]storage.Node:
@@ -87,7 +90,7 @@ func isNodeModel(v any) bool {
 	return false
 }
 
-// failNodeUpdates 让节点行更新失败（版本/元数据/状态回写只记日志的口径）。
+// failNodeUpdates makes node row updates fail (the "version/metadata/status write-back only logs" policy).
 func failNodeUpdates(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	db.Callback().Update().Before("gorm:update").Register("test:node_update", func(tx *gorm.DB) {
@@ -97,8 +100,9 @@ func failNodeUpdates(t *testing.T, db *gorm.DB) {
 	})
 }
 
-// isProbeReportDest / isNodeTrafficDest / isNodeProcStatusDest 判断语句是否
-// 落在对应表上：批量 Create 的 Model 可能未置位，Model 与 Dest 双查。
+// isProbeReportDest / isNodeTrafficDest / isNodeProcStatusDest report whether the statement
+// lands on the corresponding table: a batch Create may leave Model unset, so both Model and Dest
+// are checked.
 func isProbeReportDest(v any) bool {
 	switch v.(type) {
 	case *storage.ProbeReport, []storage.ProbeReport, *[]storage.ProbeReport:
@@ -123,7 +127,7 @@ func isNodeProcStatusDest(v any) bool {
 	return false
 }
 
-// failCreatesOn 让命中匹配的行创建失败。
+// failCreatesOn makes row creation fail for statements matching the predicate.
 func failCreatesOn(t *testing.T, db *gorm.DB, match func(any) bool, name string) {
 	t.Helper()
 	db.Callback().Create().Before("gorm:create").Register(name, func(tx *gorm.DB) {
@@ -133,7 +137,7 @@ func failCreatesOn(t *testing.T, db *gorm.DB, match func(any) bool, name string)
 	})
 }
 
-// TestAgentWSUpgradeReject 非 WebSocket 请求升级失败即 400 返回。
+// TestAgentWSUpgradeReject: a non-WebSocket request whose upgrade fails returns 400.
 func TestAgentWSUpgradeReject(t *testing.T) {
 	r := newTestRouter(t)
 	srv := httptest.NewServer(r)
@@ -148,15 +152,15 @@ func TestAgentWSUpgradeReject(t *testing.T) {
 	}
 }
 
-// TestAgentWSHelloGate 握手关卡：首条非 hello、hello 缺令牌、坏帧与坏协议
-// 版本一律协议错误关闭。
+// TestAgentWSHelloGate covers the handshake gate: a first message that is not hello, a hello
+// missing its token, a bad frame, and a bad protocol version all close with a protocol error.
 func TestAgentWSHelloGate(t *testing.T) {
 	r := newTestRouter(t)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/agent/ws"
 
-	// 首条消息不是 hello。
+	// The first message is not hello.
 	c, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
@@ -168,7 +172,7 @@ func TestAgentWSHelloGate(t *testing.T) {
 	wsReadClose(t, c, websocket.CloseProtocolError)
 	c.Close()
 
-	// hello 载荷缺令牌。
+	// hello payload missing the token.
 	c, _, err = websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
@@ -180,7 +184,7 @@ func TestAgentWSHelloGate(t *testing.T) {
 	wsReadClose(t, c, websocket.CloseProtocolError)
 	c.Close()
 
-	// 坏帧（非 JSON 文本）。
+	// Bad frame (non-JSON text).
 	c, _, err = websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
@@ -191,7 +195,7 @@ func TestAgentWSHelloGate(t *testing.T) {
 	wsReadClose(t, c, websocket.CloseProtocolError)
 	c.Close()
 
-	// 协议版本不符（readEnvelope 的 Valid 拒收）。
+	// Protocol version mismatch (rejected by readEnvelope's Valid).
 	c, _, err = websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
@@ -203,7 +207,7 @@ func TestAgentWSHelloGate(t *testing.T) {
 	c.Close()
 }
 
-// TestAgentWSAuthDBError 令牌校验的库故障：非未找到类错误同样按鉴权失败关闭。
+// TestAgentWSAuthDBError covers a DB failure in token validation: errors other than not-found also close as auth failure.
 func TestAgentWSAuthDBError(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	wsNode(t, r, "auth-db")
@@ -220,8 +224,9 @@ func TestAgentWSAuthDBError(t *testing.T) {
 	wsReadClose(t, c, websocket.ClosePolicyViolation)
 }
 
-// TestAgentWSNodeWriteFailures 节点行更新失败：元数据回填与版本落库只记
-// 日志，握手与 hello_ack 照常（面板权威回落为空值）。
+// TestAgentWSNodeWriteFailures covers node row update failures: metadata backfill and version
+// persistence only log, while the handshake and hello_ack proceed normally (the panel's
+// authoritative values fall back to empty).
 func TestAgentWSNodeWriteFailures(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	token, _ := wsNode(t, r, "wfail-1")
@@ -239,8 +244,8 @@ func TestAgentWSNodeWriteFailures(t *testing.T) {
 	}
 }
 
-// TestAgentWSDecodeContinue 六类消息载荷解码失败：逐条跳过继续读循环，
-// 后续合法心跳照常应答。
+// TestAgentWSDecodeContinue covers payload decode failures on the six message types: each is
+// skipped and the read loop continues, and a later valid heartbeat is still answered.
 func TestAgentWSDecodeContinue(t *testing.T) {
 	r := newTestRouter(t)
 	token, _ := wsNode(t, r, "dec-1")
@@ -257,7 +262,7 @@ func TestAgentWSDecodeContinue(t *testing.T) {
 			t.Fatalf("write %s: %v", typ, err)
 		}
 	}
-	// 循环仍在：合法心跳应答可达。
+	// The loop is still alive: a valid heartbeat answer is reachable.
 	hb, _ := agentproto.NewEnvelope("hb-ok", agentproto.MsgHeartbeat,
 		agentproto.Heartbeat{UptimeSec: 1, At: time.Now()})
 	if err := c.WriteJSON(hb); err != nil {
@@ -268,8 +273,9 @@ func TestAgentWSDecodeContinue(t *testing.T) {
 	}
 }
 
-// TestAgentWSSaveFailureLogs 三类落库失败：进程快照建档、探测结论批量落库、
-// 节点流量与逐用户流量查询失败都只记日志，各 ack 照发。
+// TestAgentWSSaveFailureLogs covers three persistence failures: process snapshot creation, probe
+// verdict batch persistence, and node traffic / per-user traffic query failures all only log,
+// and each ack is still sent.
 func TestAgentWSSaveFailureLogs(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	token, _ := wsNode(t, r, "savef-1")
@@ -283,7 +289,7 @@ func TestAgentWSSaveFailureLogs(t *testing.T) {
 	defer srv.Close()
 	defer c.Close()
 
-	// 心跳带进程快照：建档失败 → 记日志，ack 照发。
+	// Heartbeat carrying a process snapshot: creation fails -> log, ack still sent.
 	hb, _ := agentproto.NewEnvelope("hb-1", agentproto.MsgHeartbeat, agentproto.Heartbeat{
 		UptimeSec: 1, At: time.Now(),
 		Procs: []agentproto.ProcStatus{{Name: "xray", State: "running"}},
@@ -295,7 +301,7 @@ func TestAgentWSSaveFailureLogs(t *testing.T) {
 		t.Fatalf("expected heartbeat_ack, got %s", env.Type)
 	}
 
-	// 探测结论：批量落库失败 → 记日志，ack 条数照回。
+	// Probe verdicts: batch persistence fails -> log, ack count still returned.
 	batch, _ := agentproto.NewEnvelope("pr-1", agentproto.MsgProbeReport, agentproto.ProbeReportBatch{
 		Items: []agentproto.ProbeReport{{
 			TargetKind: agentproto.ProbeTargetTunnel, TargetNode: 1,
@@ -310,7 +316,7 @@ func TestAgentWSSaveFailureLogs(t *testing.T) {
 		t.Fatalf("expected probe_ack, got %s", env.Type)
 	}
 
-	// 流量上报：节点流量落库失败 + 用户表缺失查询失败 → 两处记日志，ack 照发。
+	// Traffic report: node traffic persistence fails + users-table-missing query fails -> two logs, ack still sent.
 	rep, _ := agentproto.NewEnvelope("tr-1", agentproto.MsgTraffic, agentproto.TrafficReport{
 		Items: []agentproto.ProcTraffic{{
 			Proc: "xray", Rx: 1, Tx: 1, At: time.Now(),
@@ -325,7 +331,7 @@ func TestAgentWSSaveFailureLogs(t *testing.T) {
 	}
 }
 
-// TestAgentWSUnhandledType 未知消息类型：无等待请求即留痕，循环继续。
+// TestAgentWSUnhandledType covers an unknown message type: with no request waiting it is only noted, and the loop continues.
 func TestAgentWSUnhandledType(t *testing.T) {
 	r := newTestRouter(t)
 	token, _ := wsNode(t, r, "unhd-1")
@@ -347,14 +353,15 @@ func TestAgentWSUnhandledType(t *testing.T) {
 	}
 }
 
-// TestSaveReportUnits 落存函数直测：空入参短路、目标节点快照补全、全部
-// 未注册邮箱短路、用户表缺失冒错、地址解析三类回落。
+// TestSaveReportUnits is a direct test of the persistence helpers: empty inputs short-circuit,
+// target node snapshot completion, all-unregistered emails short-circuit, a missing users table
+// surfacing an error, and the three address-resolution fallbacks.
 func TestSaveReportUnits(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	h := &Handler{db: db}
 	_, id := wsNode(t, r, "unit-1")
 
-	// 空入参短路。
+	// Empty inputs short-circuit.
 	if err := h.saveProbeReports(int64(id), nil); err != nil {
 		t.Fatalf("empty probe reports: %v", err)
 	}
@@ -362,7 +369,7 @@ func TestSaveReportUnits(t *testing.T) {
 		t.Fatalf("empty node traffic: %v", err)
 	}
 
-	// 目标节点按 ID 命中：补全区域/运营商快照。
+	// Target node hits by ID: the region/ISP snapshot is completed.
 	if err := db.Model(&storage.Node{}).Where("id=?", id).
 		Updates(map[string]any{"region": "华东", "isp": "电信"}).Error; err != nil {
 		t.Fatalf("set region: %v", err)
@@ -382,7 +389,7 @@ func TestSaveReportUnits(t *testing.T) {
 		t.Fatalf("snapshot mismatch: %+v", row)
 	}
 
-	// 逐用户流量：全部未注册邮箱 → 无行可落，短路成功。
+	// Per-user traffic: all emails unregistered -> no rows to write, short-circuit success.
 	if err := h.saveUserTraffic(int64(id), []agentproto.ProcTraffic{{
 		Proc: "xray", At: time.Now(),
 		Users: []agentproto.UserTraffic{{Email: "ghost@example.com", Rx: 1, Tx: 1}},
@@ -390,7 +397,7 @@ func TestSaveReportUnits(t *testing.T) {
 		t.Fatalf("all unknown emails: %v", err)
 	}
 
-	// 用户表缺失：查询失败冒错。
+	// Users table missing: the query failure surfaces as an error.
 	if err := db.Migrator().DropTable(&storage.User{}); err != nil {
 		t.Fatalf("drop users: %v", err)
 	}
@@ -401,7 +408,7 @@ func TestSaveReportUnits(t *testing.T) {
 		t.Fatal("want user query error")
 	}
 
-	// 地址解析回落：无端口、非数字端口、查无节点。
+	// Address resolution fallbacks: no port, non-numeric port, node not found.
 	if h.findNodeByAddress("no-port-here") != nil {
 		t.Fatal("want nil for missing port")
 	}
@@ -413,21 +420,23 @@ func TestSaveReportUnits(t *testing.T) {
 	}
 }
 
-// TestSyncNodeMetaFills 元数据补全：面板接管下按上报补空白字段；补写失败
-// 回落行值不外泄上报值；节点行加载失败回落空权威值。
+// TestSyncNodeMetaFills covers metadata completion: under panel ownership, blank fields are
+// filled from the report; a failed fill falls back to the row value without leaking the reported
+// value; and a failed node row load falls back to empty authoritative values.
 func TestSyncNodeMetaFills(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	h := &Handler{db: db}
 	_, id := wsNode(t, r, "meta-1")
-	// 节点行带 default:未知 等 GORM 缺省（建行即回填），先清出空白可补字段
-	// （map 更新显式写空）并接管元数据。
+	// The node row carries GORM defaults such as default:unknown (backfilled at row creation), so
+	// first clear the fillable fields to blank (an explicit empty write via a map update) and hand
+	// over metadata ownership.
 	if err := db.Model(&storage.Node{}).Where("id=?", id).Updates(map[string]any{
 		"city": "", "datacenter": "", "isp": "", "meta_init": true,
 	}).Error; err != nil {
 		t.Fatalf("blank meta: %v", err)
 	}
 
-	// ISP 空白补全成功：回值与行值都带上补全结果。
+	// The blank ISP fill succeeds: both the return value and the row value carry the filled result.
 	meta := h.syncNodeMeta(int64(id), agentproto.NodeMeta{ISP: "电信"})
 	if meta.ISP != "电信" {
 		t.Fatalf("fill isp: %+v", meta)
@@ -440,14 +449,14 @@ func TestSyncNodeMetaFills(t *testing.T) {
 		t.Fatalf("row isp: %q", n.ISP)
 	}
 
-	// 补写失败：回落行值（城市仍空），上报值不外泄。
+	// A failed fill: fall back to the row value (city still empty), without leaking the reported value.
 	failNodeUpdates(t, db)
 	meta = h.syncNodeMeta(int64(id), agentproto.NodeMeta{City: "上海"})
 	if meta.City != "" {
 		t.Fatalf("fallback should keep row value, got %+v", meta)
 	}
 
-	// 节点行加载失败：回落空权威值。
+	// The node row fails to load: fall back to empty authoritative values.
 	closeSQL(t, db)
 	if meta := h.syncNodeMeta(int64(id), agentproto.NodeMeta{City: "南京"}); meta.City != "" || meta.ISP != "" {
 		t.Fatalf("closed db should fall back empty: %+v", meta)

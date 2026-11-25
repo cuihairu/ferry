@@ -12,8 +12,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// botFixture 建 bot 令牌开启的路由并给 bot-user 绑一个 tg chat_id（TOUCH-1
-// 口径），返回路由、库与用户 id。
+// botFixture builds a router with the bot token enabled and binds a tg chat_id
+// to bot-user (TOUCH-1 scope), returning the router, the DB, and the user id.
 func botFixture(t *testing.T, chatID string) (*gin.Engine, *gorm.DB, uint) {
 	t.Helper()
 	r, db := newBotRouter(t)
@@ -30,8 +30,9 @@ func botFixture(t *testing.T, chatID string) (*gin.Engine, *gorm.DB, uint) {
 	return r, db, uid
 }
 
-// botGet 调 /api/bot/summary：Bearer 头与 X-Ferry-Bot-Token 头分开传，便于
-// 分别测兜底路径与缺失。chatID 为空即不带上 query。
+// botGet calls /api/bot/summary: the Bearer header and the X-Ferry-Bot-Token
+// header are passed separately so the fallback path and the missing case can be
+// tested independently. An empty chatID means no query string is set.
 func botGet(t *testing.T, r *gin.Engine, chatID, bearer, header string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest("GET", "/api/bot/summary", nil)
@@ -49,8 +50,8 @@ func botGet(t *testing.T, r *gin.Engine, chatID, bearer, header string) *httptes
 	return rec
 }
 
-// TestBotSummaryHeaderFallback 覆盖无 Bearer 头时 X-Ferry-Bot-Token 兜底：
-// 令牌命中即可命中用户（200），与 Bearer 等价。
+// TestBotSummaryHeaderFallback covers the X-Ferry-Bot-Token fallback when no
+// Bearer header is present: a token hit resolves the user (200), equivalent to Bearer.
 func TestBotSummaryHeaderFallback(t *testing.T) {
 	r, _, _ := botFixture(t, "888002")
 	if rec := botGet(t, r, "888002", "", "bot-secret"); rec.Code != http.StatusOK {
@@ -58,7 +59,7 @@ func TestBotSummaryHeaderFallback(t *testing.T) {
 	}
 }
 
-// TestBotSummaryMissingChatID 覆盖服务级令牌命中但缺 chat_id → 400。
+// TestBotSummaryMissingChatID covers a service-level token hit with a missing chat_id -> 400.
 func TestBotSummaryMissingChatID(t *testing.T) {
 	r, _, _ := botFixture(t, "888003")
 	if rec := botGet(t, r, "", "bot-secret", ""); rec.Code != http.StatusBadRequest {
@@ -66,8 +67,8 @@ func TestBotSummaryMissingChatID(t *testing.T) {
 	}
 }
 
-// TestBotSummaryUsageScanFail 覆盖用量汇总 Scan 失败 → 500（Row 链注错，
-// usageQuery 走 Model 定位流量表）。
+// TestBotSummaryUsageScanFail covers a failed usage summary Scan -> 500 (error
+// injected on the Row chain; usageQuery targets the traffic table via Model).
 func TestBotSummaryUsageScanFail(t *testing.T) {
 	r, db, _ := botFixture(t, "888004")
 	db.Callback().Row().Before("gorm:row").Register("t:bot_row", func(tx *gorm.DB) {
@@ -80,7 +81,7 @@ func TestBotSummaryUsageScanFail(t *testing.T) {
 	}
 }
 
-// TestBotSummaryOrdersFail 覆盖最近订单查询失败 → 500（用量汇总已正常返回）。
+// TestBotSummaryOrdersFail covers a failed recent-orders query -> 500 (the usage summary already returned fine).
 func TestBotSummaryOrdersFail(t *testing.T) {
 	r, db, _ := botFixture(t, "888005")
 	regQueryFail("t:bot_orders", db, (*[]storage.PaymentOrder)(nil))

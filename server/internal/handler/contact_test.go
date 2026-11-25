@@ -10,13 +10,14 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestPanelContact 覆盖联系绑定（TOUCH-1）：至少一项必填、回读、换绑清
-// 失效标记、例行邮件退订开关；无凭据 404。
+// TestPanelContact covers contact binding (TOUCH-1): at least one field
+// required, read-back, rebind clearing the stale marker, the routine email
+// opt-out switch; 404 with no credential.
 func TestPanelContact(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	token := panelToken(t, r, "contact-user")
 
-	// 未绑定：回读全空行（零值结构，前端以此判未就绪）
+	// Unbound: read-back is an all-empty row (zero-value struct; the frontend uses it to decide "not ready")
 	rec := doPanel(t, r, token, "GET", "/api/panel/contact", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get contact: %d %s", rec.Code, rec.Body)
@@ -34,16 +35,16 @@ func TestPanelContact(t *testing.T) {
 		t.Fatalf("expected empty contact, got %+v", out)
 	}
 
-	// 都空 400
+	// Both empty → 400
 	if rec := doPanel(t, r, token, "PUT", "/api/panel/contact", map[string]any{}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("empty put: %d %s", rec.Code, rec.Body)
 	}
-	// 邮箱格式 400
+	// Bad email format → 400
 	if rec := doPanel(t, r, token, "PUT", "/api/panel/contact", map[string]any{"email": "nope"}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad email: %d", rec.Code)
 	}
 
-	// 只绑 TG：首绑 routine_emails 缺省 true
+	// Bind TG only: routine_emails defaults to true on first bind
 	rec = doPanel(t, r, token, "PUT", "/api/panel/contact", map[string]any{"tg_chat_id": " 10086 "})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("bind tg: %d %s", rec.Code, rec.Body)
@@ -60,7 +61,7 @@ func TestPanelContact(t *testing.T) {
 		t.Fatalf("unexpected contact: %+v", row)
 	}
 
-	// 换绑 email：stale 与失败计数清零，BoundAt 刷新
+	// Rebind email: stale and the failure counter are cleared, BoundAt refreshed
 	db.Model(&row).Updates(map[string]any{"stale": true, "fail_streak": 2})
 	oldBound := row.BoundAt
 	if rec := doPanel(t, r, token, "PUT", "/api/panel/contact", map[string]any{"email": "a@b.c"}); rec.Code != http.StatusOK {
@@ -73,7 +74,7 @@ func TestPanelContact(t *testing.T) {
 		t.Fatalf("rebind not reset: %+v", row)
 	}
 
-	// 例行邮件退订开关：只改偏好不算换绑（BoundAt 不动）
+	// Routine email opt-out switch: a preference-only change is not a rebind (BoundAt untouched)
 	bound := row.BoundAt
 	if rec := doPanel(t, r, token, "PUT", "/api/panel/contact", map[string]any{"email": "a@b.c", "routine_emails": false}); rec.Code != http.StatusOK {
 		t.Fatalf("unsubscribe: %d %s", rec.Code, rec.Body)
@@ -85,22 +86,24 @@ func TestPanelContact(t *testing.T) {
 		t.Fatalf("pref change leaked as rebind: %+v", row)
 	}
 
-	// 回读与偏好一致
+	// Read-back matches the preferences
 	rec = doPanel(t, r, token, "GET", "/api/panel/contact", nil)
 	_ = json.Unmarshal(rec.Body.Bytes(), &out)
 	if out.Email != "a@b.c" || out.RoutineEmails {
 		t.Fatalf("readback mismatch: %+v", out)
 	}
 
-	// 无凭据 404
+	// No credential → 404
 	if rec := doPanel(t, r, "", "GET", "/api/panel/contact", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("no token: %d", rec.Code)
 	}
 }
 
-// TestContactStaleLoop 覆盖投递失败换绑闭环（TOUCH-5）：触达事件回执 failed
-// 标任务失败+联系信息 stale+站内提醒（同日一条），三连失败升级 contact 事件
-// 并清零计数；sent 回执清零恢复；非触达事件回执不联动。
+// TestContactStaleLoop covers the delivery-failure rebind loop (TOUCH-5): a
+// failed touch-event receipt marks the job failed + the contact stale + an
+// in-app notice (one per day); three consecutive failures escalate to a contact
+// event and clear the counter; a sent receipt clears and recovers it; receipts
+// for non-touch events do not propagate.
 func TestContactStaleLoop(t *testing.T) {
 	r, db := newSecretRouter(t)
 	panelToken(t, r, "stale-user")
@@ -113,7 +116,7 @@ func TestContactStaleLoop(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
-	// 一单已投出的触达任务（模拟 TOUCH-4 投出态）
+	// One already-dispatched touch job (mimicking the TOUCH-4 dispatched state)
 	job := storage.TouchJob{
 		UserID: int64(uid), Channel: "email", Kind: "bill",
 		Payload: `{"title":"t","body":"b"}`, Status: "sent", EventID: 5001, CreatedAt: time.Now(),
@@ -121,7 +124,7 @@ func TestContactStaleLoop(t *testing.T) {
 	if err := db.Create(&job).Error; err != nil {
 		t.Fatal(err)
 	}
-	// 回执端点先校验事件行存在，补 outbox 行
+	// The receipt endpoint first checks the event row exists; add the outbox row
 	if err := db.Create(&storage.Event{ID: 5001, Kind: "bill", Target: herald.TargetUser(int64(uid)),
 		Status: "sent", CreatedAt: time.Now()}).Error; err != nil {
 		t.Fatal(err)
@@ -156,14 +159,14 @@ func TestContactStaleLoop(t *testing.T) {
 	if notices != 1 {
 		t.Fatalf("stale notice = %d, want 1", notices)
 	}
-	// 同日重复失败不再刷站内信
+	// A repeat failure the same day does not spam another in-app notice
 	fail(5001)
 	db.Model(&storage.Notification{}).Where("user_id = ? AND title = ?", uid, "联系方式已失效").Count(&notices)
 	if notices != 1 {
 		t.Fatalf("stale notice re-sent same day: %d", notices)
 	}
 
-	// 第三次失败达阈值：升级 contact 事件 + 计数清零
+	// The third failure hits the threshold: escalate a contact event + clear the counter
 	fail(5001)
 	var ct2 storage.UserContact
 	if err := db.First(&ct2, uid).Error; err != nil {
@@ -178,7 +181,7 @@ func TestContactStaleLoop(t *testing.T) {
 		t.Fatalf("escalation events = %d, want 1", escalation)
 	}
 
-	// sent 回执恢复：stale 清零
+	// A sent receipt recovers: stale is cleared
 	rec := doSignedJSON(t, r, "/api/internal/event-results", map[string]any{
 		"event_id": 5001, "channel": "email", "status": "sent", "detail": "",
 	})
@@ -198,7 +201,7 @@ func TestContactStaleLoop(t *testing.T) {
 		t.Fatalf("job not recovered: %+v", job3)
 	}
 
-	// 非触达事件（无 touch_jobs 行）回执只留痕不联动
+	// A non-touch event (no touch_jobs row) receipt only leaves a trace; no propagation
 	if err := db.Create(&storage.Event{ID: 9999, Kind: "region_fault", Target: "admin",
 		Status: "sent", CreatedAt: time.Now()}).Error; err != nil {
 		t.Fatal(err)

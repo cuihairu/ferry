@@ -8,23 +8,23 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// TestAdminLoginGuards 覆盖管理员登录错误面：限速锁定 429、坏载荷 400、
-// 未知用户与无管理员权限 401。
+// TestAdminLoginGuards covers the admin login error surface: rate-limit lockout 429,
+// bad payload 400, unknown user and non-admin 401.
 func TestAdminLoginGuards(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 
-	// 坏载荷 → 400。
+	// Bad payload -> 400.
 	if rec := doAdmin(t, r, "POST", "/admin/login", []byte("{bad")); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad json: %d", rec.Code)
 	}
 
-	// 未知用户 → 401（防枚举统一文案）。
+	// Unknown user -> 401 (uniform wording to prevent enumeration).
 	rec := doPanel(t, r, "", "POST", "/admin/login", map[string]any{"username": "ghost", "password": "x"})
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("unknown user: %d %s", rec.Code, rec.Body)
 	}
 
-	// 停用/无管理员权限的有效账号 → 401。
+	// A valid account that is disabled or lacks the admin flag -> 401.
 	r2, db2 := newTestRouterWithDB(t)
 	hash, err := bcrypt.GenerateFromPassword([]byte("pw-plain"), bcrypt.MinCost)
 	if err != nil {
@@ -39,7 +39,7 @@ func TestAdminLoginGuards(t *testing.T) {
 		t.Fatalf("non-admin: %d %s", rec.Code, rec.Body)
 	}
 
-	// 窗口内 5 次失败后锁定 → 429。
+	// Locked after 5 failures inside the window -> 429.
 	r3, _ := newTestRouterWithDB(t)
 	for i := 0; i < 5; i++ {
 		rec = doPanel(t, r3, "", "POST", "/admin/login", map[string]any{"username": "ghost", "password": "x"})
@@ -53,7 +53,7 @@ func TestAdminLoginGuards(t *testing.T) {
 	}
 }
 
-// TestAdminLoginDBErrors 覆盖用户定位取数失败按统一 401 口径（不冒库错）。
+// TestAdminLoginDBErrors covers the unified 401 response (no leaked DB error) when user lookup fails.
 func TestAdminLoginDBErrors(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	seedAdmin(t, db, "root-err", "pw-root")
@@ -64,11 +64,13 @@ func TestAdminLoginDBErrors(t *testing.T) {
 	}
 }
 
-// TestLoginRedeemLimiterIsolation 覆盖 P2 跨面隔离：凭据登录与兑换各用独立
-// 限流器——登录爆破（5 次失败锁 loginLimiter）不连带锁兑换，兑换爆破亦不
-// 连带锁登录。此前两者共用 redeemLimiter，刷任一面对另一面造成跨面 DoS。
+// TestLoginRedeemLimiterIsolation covers P2 cross-surface isolation: credential login
+// and redemption use independent limiters -- a login brute force (loginLimiter locked
+// after 5 failures) does not lock redemption, and a redemption brute force does not
+// lock login. Previously both shared redeemLimiter, so hammering either surface
+// caused a cross-surface DoS on the other.
 func TestLoginRedeemLimiterIsolation(t *testing.T) {
-	// 面 1：登录爆破后兑换不受影响。
+	// Surface 1: redemption is unaffected after a login brute force.
 	r, _ := newTestRouterWithDB(t)
 	for i := 0; i < 5; i++ {
 		rec := doPanel(t, r, "", "POST", "/admin/login", map[string]any{"username": "ghost", "password": "x"})
@@ -83,7 +85,7 @@ func TestLoginRedeemLimiterIsolation(t *testing.T) {
 		t.Fatalf("redeem cross-locked by login brute: %d", rec.Code)
 	}
 
-	// 面 2：兑换爆破后登录不受影响。
+	// Surface 2: login is unaffected after a redemption brute force.
 	r2, _ := newTestRouterWithDB(t)
 	for i := 0; i < 5; i++ {
 		rec := doJSON(t, r2, "POST", "/api/redeem", map[string]any{"code": "NOPE-0000", "user_id": 1})

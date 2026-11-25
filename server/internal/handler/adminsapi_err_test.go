@@ -10,17 +10,21 @@ import (
 	"gorm.io/gorm"
 )
 
-// 三十一批补口：管理员管理面（P2-2）错误口径——operator 配额助手查无账
-// 号与计数失败、列表取数失败、建号坏绑定/空名与超长名/查名库故障/超长密
-// 码 bcrypt 拒收/落库失败、更新坏 id/查无/库故障定位/坏绑定/短密码/超长
-// 密码/负配额/空负载/回写失败、删除坏 id/查无/库故障定位/非管理员行/
-// 落库失败。
-// 留白：RandomToken 的 crypto/rand 错误与 isDup 唯一约束竞态（ensureUsernameFree
-// 先行，正常流程不可达）不硬凑。
-// 修 bug：查无管理员原本经 replyFind 把 gorm.ErrRecordNotFound 当 500 冒出
-// （errNotFound 是另一哨兵），改显式判 gorm 记录不存在回 404。
+// Batch 31 coverage fill: error policy for the admin management surface (P2-2) --
+// operator quota helper with a missing account and a failed count, list fetch
+// failure, creation with bad binding / empty or overlong name / name-check DB
+// failure / overlong password rejected by bcrypt / insert failure, update with a
+// bad id / not found / locate DB failure / bad binding / short password / overlong
+// password / negative quota / empty payload / write-back failure, and delete with a
+// bad id / not found / locate DB failure / non-admin row / insert failure.
+// Left alone: the crypto/rand error in RandomToken and the isDup unique-constraint
+// race (ensureUsernameFree runs first, so normal flow cannot reach it) are not
+// forcibly provoked.
+// Bug fixed: a missing admin used to surface gorm.ErrRecordNotFound as a 500 via
+// replyFind (errNotFound is a different sentinel); it is now explicitly detected as
+// a missing gorm record and answered with 404.
 
-// seedAdminRow 直落一行子管理员，返回其 ID。
+// seedAdminRow inserts one sub-admin row directly and returns its ID.
 func seedAdminRow(t *testing.T, db *gorm.DB, name string) uint {
 	t.Helper()
 	row := storage.User{Username: name, SubToken: name + "-sub", Enabled: true,
@@ -31,7 +35,7 @@ func seedAdminRow(t *testing.T, db *gorm.DB, name string) uint {
 	return row.ID
 }
 
-// TestCheckOperatorQuotaErrors 配额助手：查无 operator 与计数失败。
+// TestCheckOperatorQuotaErrors covers the quota helper: missing operator and failed count.
 func TestCheckOperatorQuotaErrors(t *testing.T) {
 	_, db := newTestRouterWithDB(t)
 	h := &Handler{db: db}
@@ -40,7 +44,7 @@ func TestCheckOperatorQuotaErrors(t *testing.T) {
 		t.Fatalf("missing operator: %v", err)
 	}
 
-	// 计数失败：定位 operator（第 1 查）放行，配额计数（第 2 查）注错。
+	// Count failure: locating the operator (1st query) passes, the quota count (2nd query) is faulted.
 	seedAdminRow(t, db, "quota-op")
 	seen := 0
 	db.Callback().Query().Before("gorm:query").Register("test:user_query_at", func(tx *gorm.DB) {
@@ -56,7 +60,7 @@ func TestCheckOperatorQuotaErrors(t *testing.T) {
 	}
 }
 
-// TestListAdminsError 列表取数失败 500。
+// TestListAdminsError: list fetch failure is 500.
 func TestListAdminsError(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	seedAdminRow(t, db, "list-op")
@@ -66,8 +70,8 @@ func TestListAdminsError(t *testing.T) {
 	}
 }
 
-// TestCreateAdminErrors 建号：坏绑定、空名/超长名、查名库故障、超长密码
-// bcrypt 拒收与落库失败。
+// TestCreateAdminErrors covers creation: bad binding, empty/overlong name, name-check
+// DB failure, an overlong password rejected by bcrypt, and insert failure.
 func TestCreateAdminErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doJSON(t, r, http.MethodPost, "/api/admins", "not json"); rec.Code != http.StatusBadRequest {
@@ -87,7 +91,7 @@ func TestCreateAdminErrors(t *testing.T) {
 		}
 	}
 
-	// 查名库故障（ensureUsernameFree 的 Count 落在用户表）。
+	// Name-check DB failure (ensureUsernameFree's Count lands on the users table).
 	r, db := newTestRouterWithDB(t)
 	failQueryOn(t, db, "test:user_count_q", isUserModel)
 	if rec := doJSON(t, r, http.MethodPost, "/api/admins",
@@ -95,14 +99,14 @@ func TestCreateAdminErrors(t *testing.T) {
 		t.Fatalf("name check: %d %s", rec.Code, rec.Body)
 	}
 
-	// 超长密码 bcrypt 拒收（>72 字节 bcrypt 报错）。
+	// Overlong password rejected by bcrypt (bcrypt errors above 72 bytes).
 	r, db = newTestRouterWithDB(t)
 	if rec := doJSON(t, r, http.MethodPost, "/api/admins",
 		map[string]any{"username": "long-pw", "password": strings.Repeat("p", 80)}); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("long password: %d %s", rec.Code, rec.Body)
 	}
 
-	// 落库失败。
+	// Insert failure.
 	r, db = newTestRouterWithDB(t)
 	failCreateOn(t, db, "test:user_create", isUserModel)
 	if rec := doJSON(t, r, http.MethodPost, "/api/admins",
@@ -111,8 +115,9 @@ func TestCreateAdminErrors(t *testing.T) {
 	}
 }
 
-// TestUpdateAdminErrors 更新：坏 id、查无 404、库故障定位 500、坏绑定、
-// 短密码/超长密码、负配额、空负载与回写失败。
+// TestUpdateAdminErrors covers update: bad id, not found 404, locate DB failure 500,
+// bad binding, short/overlong password, negative quota, empty payload, and
+// write-back failure.
 func TestUpdateAdminErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doJSON(t, r, http.MethodPut, "/api/admins/abc",
@@ -120,7 +125,7 @@ func TestUpdateAdminErrors(t *testing.T) {
 		t.Fatalf("bad id: %d %s", rec.Code, rec.Body)
 	}
 
-	// 查无：非未找到类之外的库故障同样落 500 口径（下方 closeSQL）。
+	// Not found: DB failures other than not-found also follow the 500 policy (closeSQL below).
 	r, _ = newTestRouterWithDB(t)
 	if rec := doJSON(t, r, http.MethodPut, "/api/admins/9999",
 		map[string]any{"enabled": false}); rec.Code != http.StatusNotFound {
@@ -156,7 +161,7 @@ func TestUpdateAdminErrors(t *testing.T) {
 		t.Fatalf("empty patch: %d %s", rec.Code, rec.Body)
 	}
 
-	// 回写失败。
+	// Write-back failure.
 	r, db = newTestRouterWithDB(t)
 	seedAdminRow(t, db, "wb-op")
 	failUpdateOn(t, db, "test:user_update", isUserModel)
@@ -166,8 +171,8 @@ func TestUpdateAdminErrors(t *testing.T) {
 	}
 }
 
-// TestDeleteAdminErrors 删除（降级）：坏 id、查无 404、库故障定位 500、
-// 非管理员行 404 与降级落库失败。
+// TestDeleteAdminErrors covers delete (demotion): bad id, not found 404, locate DB
+// failure 500, non-admin row 404, and demotion insert failure.
 func TestDeleteAdminErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doJSON(t, r, http.MethodDelete, "/api/admins/abc", nil); rec.Code != http.StatusBadRequest {
@@ -186,7 +191,7 @@ func TestDeleteAdminErrors(t *testing.T) {
 		t.Fatalf("locate: %d %s", rec.Code, rec.Body)
 	}
 
-	// 非管理员行：404（不暴露该 id 存在与否）。
+	// Non-admin row: 404 (does not reveal whether that id exists).
 	r, db = newTestRouterWithDB(t)
 	plain := storage.User{Username: "plain-user", SubToken: "plain-sub", Enabled: true}
 	if err := db.Create(&plain).Error; err != nil {
@@ -197,7 +202,7 @@ func TestDeleteAdminErrors(t *testing.T) {
 		t.Fatalf("not admin: %d %s", rec.Code, rec.Body)
 	}
 
-	// 降级落库失败。
+	// Demotion insert failure.
 	r, db = newTestRouterWithDB(t)
 	seedAdminRow(t, db, "demote-op")
 	failUpdateOn(t, db, "test:user_demote", isUserModel)

@@ -11,14 +11,18 @@ import (
 	"gorm.io/gorm"
 )
 
-// 三十三批补口：限时活动（PROMO-2）错误口径——规则 JSON 字符串形态解包
-// 失败、列表取数失败、建号坏绑定/落库失败、更新坏 id/库故障定位/坏绑定/
-// 校验失败/保存失败、删除坏 id/落删失败、活动位身份缺失与取数失败与坏规
-// 则行跳过、资格判定的停用/出窗短路与计数失败、取优循环的资格报错/坏规
-// 则跳过/范围不中跳过/门槛不达跳过。
-// 留白：无（取优循环各 continue 与短路均已定向覆盖）。
+// Batch 33 gap-filling: error paths for time-limited campaigns (PROMO-2) —
+// rules JSON string-shape unwrapping failure, list fetch failure, create with
+// bad binding/persist failure, update with bad id/DB fault while locating/
+// bad binding/validation failure/save failure, delete with bad id/persist
+// failure, campaign slot with missing identity and fetch failure and skipping
+// bad rules rows, eligibility short-circuits for disabled/out-of-window and
+// count failure, and the best-pick loop's eligibility error/bad rules skip/
+// scope miss skip/threshold not met skip.
+// Gaps left: none (every continue and short-circuit in the best-pick loop is
+// already covered on purpose).
 
-// seedCampaignRow 直落一行活动。
+// seedCampaignRow inserts one campaign row directly.
 func seedCampaignRow(t *testing.T, db *gorm.DB, name, kind, rules string, enabled bool) uint {
 	t.Helper()
 	row := storage.Campaign{Name: name, Kind: kind, Rules: rules,
@@ -29,8 +33,8 @@ func seedCampaignRow(t *testing.T, db *gorm.DB, name, kind, rules string, enable
 	return row.ID
 }
 
-// TestParseCampaignRulesUnwrapFail 规则为 JSON 字符串形态但解包失败：带引
-// 号开头却不是合法字符串字面量。
+// TestParseCampaignRulesUnwrapFail: rules are in JSON string shape but
+// unwrapping fails — starts with a quote yet is not a legal string literal.
 func TestParseCampaignRulesUnwrapFail(t *testing.T) {
 	_, db := newTestRouterWithDB(t)
 	h := &Handler{db: db}
@@ -40,7 +44,7 @@ func TestParseCampaignRulesUnwrapFail(t *testing.T) {
 	}
 }
 
-// TestListCampaignsError 列表取数失败 500。
+// TestListCampaignsError: list fetch failure returns 500.
 func TestListCampaignsError(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	seedCampaignRow(t, db, "l-c", "timed", `{"kind":"cut","value":100}`, true)
@@ -50,7 +54,7 @@ func TestListCampaignsError(t *testing.T) {
 	}
 }
 
-// TestCreateCampaignErrors 建号：坏绑定与落库失败。
+// TestCreateCampaignErrors: create — bad binding and persist failure.
 func TestCreateCampaignErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doJSON(t, r, http.MethodPost, "/api/campaigns", "not json"); rec.Code != http.StatusBadRequest {
@@ -66,8 +70,9 @@ func TestCreateCampaignErrors(t *testing.T) {
 	}
 }
 
-// TestUpdateCampaignErrors 更新：坏 id、库故障定位、坏绑定、校验失败与保
-// 存失败（查无 404 已有用例）。
+// TestUpdateCampaignErrors: update — bad id, DB fault while locating, bad
+// binding, validation failure, and save failure (the not-found 404 already has
+// a case).
 func TestUpdateCampaignErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doJSON(t, r, http.MethodPut, "/api/campaigns/abc",
@@ -104,7 +109,7 @@ func TestUpdateCampaignErrors(t *testing.T) {
 	}
 }
 
-// TestDeleteCampaignErrors 删除：坏 id 与落删失败（查无 404 已有用例）。
+// TestDeleteCampaignErrors: delete — bad id and persist failure (the not-found 404 already has a case).
 func TestDeleteCampaignErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doJSON(t, r, http.MethodDelete, "/api/campaigns/abc", nil); rec.Code != http.StatusBadRequest {
@@ -123,8 +128,8 @@ func TestDeleteCampaignErrors(t *testing.T) {
 	}
 }
 
-// TestPanelCampaignsErrors 活动位：身份缺失 404、取数失败 500 与坏规则行
-// 跳过（不下发给用户）。
+// TestPanelCampaignsErrors: campaign slot — missing identity 404, fetch
+// failure 500, and bad rules rows skipped (never sent down to users).
 func TestPanelCampaignsErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doPanel(t, r, "", http.MethodGet, "/api/panel/campaigns", nil); rec.Code != http.StatusNotFound {
@@ -133,7 +138,7 @@ func TestPanelCampaignsErrors(t *testing.T) {
 
 	r, db := newTestRouterWithDB(t)
 	seedPanelUser(t, db, "camp-u")
-	// 定向活动表注错（令牌查用户在 User 表，不受影响）：取数失败落 500。
+	// Target the campaigns table for the injected error (the token lookup hits the User table and is unaffected): fetch failure lands as 500.
 	failQueryOn(t, db, "test:campaign_q", isCampaignModel)
 	if rec := doPanel(t, r, "camp-u-sub", http.MethodGet, "/api/panel/campaigns", nil); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("find: %d %s", rec.Code, rec.Body)
@@ -152,7 +157,7 @@ func TestPanelCampaignsErrors(t *testing.T) {
 	}
 }
 
-// TestCampaignEligibleEdge 资格判定：停用/出窗短路与计数失败。
+// TestCampaignEligibleEdge: eligibility — disabled/out-of-window short-circuits and count failure.
 func TestCampaignEligibleEdge(t *testing.T) {
 	_, db := newTestRouterWithDB(t)
 	h := &Handler{db: db}
@@ -163,14 +168,14 @@ func TestCampaignEligibleEdge(t *testing.T) {
 	}
 	now := time.Now()
 
-	// 停用：直接 false 无错（不查订单）。
+	// disabled: straight false with no error (no order lookup).
 	dis := storage.Campaign{Name: "dis", Kind: "first_order", Rules: `{"kind":"cut","value":100}`,
 		StartsAt: now.Add(-time.Hour), EndsAt: now.Add(time.Hour), Enabled: false}
 	if ok, err := h.campaignEligible(db, &dis, &u, now); err != nil || ok {
 		t.Fatalf("disabled: ok=%v err=%v", ok, err)
 	}
 
-	// 计数失败：启用的首单活动，订单计数注错。
+	// count failure: an enabled first_order campaign with an error injected into the order count.
 	act := storage.Campaign{Name: "act", Kind: "first_order", Rules: `{"kind":"cut","value":100}`,
 		StartsAt: now.Add(-time.Hour), EndsAt: now.Add(time.Hour), Enabled: true}
 	db.Callback().Query().Before("gorm:query").Register("test:payorder_count_q", func(tx *gorm.DB) {
@@ -183,8 +188,9 @@ func TestCampaignEligibleEdge(t *testing.T) {
 	}
 }
 
-// TestBestCampaignSkips 取优循环：资格报错冒出、坏规则跳过、范围不中跳
-// 过与门槛不达跳过。
+// TestBestCampaignSkips: the best-pick loop — an eligibility error bubbles
+// up, bad rules are skipped, a scope miss is skipped, and an unmet threshold
+// is skipped.
 func TestBestCampaignSkips(t *testing.T) {
 	_, db := newTestRouterWithDB(t)
 	h := &Handler{db: db}
@@ -200,7 +206,7 @@ func TestBestCampaignSkips(t *testing.T) {
 	}
 	now := time.Now()
 
-	// 资格报错：活动在窗内，订单计数注错 → bestCampaign 冒错。
+	// eligibility error: the campaign is inside the window with an error injected into the order count -> bestCampaign surfaces the error.
 	seedCampaignRow(t, db, "err-c", "first_order", `{"kind":"cut","value":100}`, true)
 	db.Callback().Query().Before("gorm:query").Register("test:best_payorder_q", func(tx *gorm.DB) {
 		if isPayOrderModel(tx.Statement.Model) {
@@ -211,7 +217,7 @@ func TestBestCampaignSkips(t *testing.T) {
 		t.Fatal("eligibility error: want err")
 	}
 
-	// 各跳过分支：坏规则、范围不中（scope 指向另一张存在的批次）、门槛不达。
+	// the skip branches: bad rules, scope miss (scope points at another existing batch), unmet threshold.
 	_, db = newTestRouterWithDB(t)
 	h = &Handler{db: db}
 	uid = seedPanelUser(t, db, "best-u2")

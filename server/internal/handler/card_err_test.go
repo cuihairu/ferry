@@ -12,20 +12,23 @@ import (
 	"gorm.io/gorm"
 )
 
-// 三十六批补口：卡密批次（PAY-3）错误口径——建号坏绑定/负价/过期时间已过/
-// 事务内批次落库失败/卡密落库重复冲突 409 与库故障 500、列表取数失败/剩余
-// 聚合失败、卡密列表失败、导出查无批次与取数失败、禁用定位失败/更新失败/
-// 回读失败、删除查无与落删失败、findCardBatch 坏 id 与库故障。
-// 留白：cardcode.Generate 的 crypto/rand 错误（n<=0 已被前置校验拦下，正
-// 常流程不可达）。
+// Batch 36 gap-filling: error paths for card code batches (PAY-3) — create
+// with bad binding/negative price/past expiry/batch persist failure inside the
+// transaction/card code persist duplicate conflict 409 and DB fault 500, list
+// fetch failure and remaining-aggregate failure, code listing failure, export
+// batch-not-found and fetch failure, disable locate failure/update failure/
+// re-read failure, delete not-found and persist failure, and findCardBatch
+// with a bad id and a DB fault.
+// Gaps left: the crypto/rand error inside cardcode.Generate (n<=0 is already
+// blocked by the pre-check, so it is unreachable in the normal flow).
 
-// validCardBatchBody 是满足全部校验的建批载荷。
+// validCardBatchBody is a create-batch payload satisfying every validation.
 func validCardBatchBody(name string) map[string]any {
 	return map[string]any{"name": name, "grant_type": "add_quota",
 		"grant_value": 1 << 30, "price_cents": 1000, "total": 2, "created_by": "admin"}
 }
 
-// seedCardCodeRow 直落一张未用卡密。
+// seedCardCodeRow inserts one unused card code directly.
 func seedCardCodeRow(t *testing.T, db *gorm.DB, batchID uint, code string) {
 	t.Helper()
 	if err := db.Create(&storage.CardCode{BatchID: batchID, Code: code, Status: "unused"}).Error; err != nil {
@@ -33,8 +36,9 @@ func seedCardCodeRow(t *testing.T, db *gorm.DB, batchID uint, code string) {
 	}
 }
 
-// TestCreateCardBatchErrors 建批：坏绑定、负价、过期时间已过、事务内批次落
-// 库失败、卡密落库重复冲突 409 与库故障 500。
+// TestCreateCardBatchErrors: create batch — bad binding, negative price, past
+// expiry, batch persist failure inside the transaction, and card code persist
+// duplicate conflict 409 with DB fault 500.
 func TestCreateCardBatchErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doJSON(t, r, http.MethodPost, "/api/card-batches", "not json"); rec.Code != http.StatusBadRequest {
@@ -51,14 +55,14 @@ func TestCreateCardBatchErrors(t *testing.T) {
 		t.Fatalf("past expiry: %d %s", rec.Code, rec.Body)
 	}
 
-	// 事务内批次落库失败（首个 create 语句注错）。
+	// batch persist failure inside the transaction (error injected on the first create statement).
 	r, db := newTestRouterWithDB(t)
 	failCreateOn(t, db, "test:cardbatch_create", isCardBatchModel)
 	if rec := doJSON(t, r, http.MethodPost, "/api/card-batches", validCardBatchBody("tx-b")); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("batch create: %d %s", rec.Code, rec.Body)
 	}
 
-	// 卡密落库重复冲突：isDup 认 duplicate 文案 → 409。
+	// card code persist duplicate conflict: isDup recognizes the duplicate wording -> 409.
 	r, db = newTestRouterWithDB(t)
 	db.Callback().Create().Before("gorm:create").Register("test:cardcode_dup", func(tx *gorm.DB) {
 		if isCardCodeModel(tx.Statement.Dest) || isCardCodeModel(tx.Statement.Model) {
@@ -69,7 +73,7 @@ func TestCreateCardBatchErrors(t *testing.T) {
 		t.Fatalf("dup codes: %d %s", rec.Code, rec.Body)
 	}
 
-	// 卡密落库普通故障 → 500。
+	// ordinary card code persist fault -> 500.
 	r, db = newTestRouterWithDB(t)
 	failCreateOn(t, db, "test:cardcode_create", isCardCodeModel)
 	if rec := doJSON(t, r, http.MethodPost, "/api/card-batches", validCardBatchBody("gen-b")); rec.Code != http.StatusInternalServerError {
@@ -77,7 +81,7 @@ func TestCreateCardBatchErrors(t *testing.T) {
 	}
 }
 
-// TestListCardBatchesErrors 批次列表：取数失败与剩余聚合失败。
+// TestListCardBatchesErrors: batch list — fetch failure and remaining-aggregate failure.
 func TestListCardBatchesErrors(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	failQueryOn(t, db, "test:cardbatch_q", isCardBatchModel)
@@ -85,7 +89,7 @@ func TestListCardBatchesErrors(t *testing.T) {
 		t.Fatalf("find: %d %s", rec.Code, rec.Body)
 	}
 
-	// 剩余聚合（GROUP BY Scan 走 gorm:row）注错。
+	// Inject an error into the remaining aggregate (GROUP BY Scan goes through gorm:row).
 	r, db = newTestRouterWithDB(t)
 	seedSellableBatch(t, db, "agg-b", 1000)
 	failRowOn(t, db, "test:cardcode_row", isCardCodeModel)
@@ -94,7 +98,7 @@ func TestListCardBatchesErrors(t *testing.T) {
 	}
 }
 
-// TestListCardCodesErrors 卡密列表取数失败 500。
+// TestListCardCodesErrors: card code listing fetch failure returns 500.
 func TestListCardCodesErrors(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	batchID := seedSellableBatch(t, db, "c-list", 1000)
@@ -104,7 +108,7 @@ func TestListCardCodesErrors(t *testing.T) {
 	}
 }
 
-// TestExportCardBatchErrors 导出：坏 id 短路、取数失败 500。
+// TestExportCardBatchErrors: export — bad id short-circuit, fetch failure 500.
 func TestExportCardBatchErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doJSON(t, r, http.MethodGet, "/api/card-batches/abc/export.csv", nil); rec.Code != http.StatusNotFound {
@@ -122,8 +126,8 @@ func TestExportCardBatchErrors(t *testing.T) {
 	}
 }
 
-// TestDisableCardCodeErrors 禁用：定位失败、更新失败与回读失败（回读是
-// 第二道查询，用计数定向）。
+// TestDisableCardCodeErrors: disable — locate failure, update failure, and
+// re-read failure (the re-read is the second query, targeted by counting).
 func TestDisableCardCodeErrors(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	seedSellableBatch(t, db, "dis-b", 1000)
@@ -140,7 +144,7 @@ func TestDisableCardCodeErrors(t *testing.T) {
 		t.Fatalf("update: %d %s", rec.Code, rec.Body)
 	}
 
-	// 回读失败：定位（第 1 查）放行，回读（第 2 查）注错。
+	// Re-read failure: let the locate query (1st) pass and inject the error into the re-read (2nd query).
 	r, db = newTestRouterWithDB(t)
 	batchID = seedSellableBatch(t, db, "read-b", 1000)
 	seedCardCodeRow(t, db, batchID, "EEE-FFF-GGG-HHH")
@@ -158,7 +162,7 @@ func TestDisableCardCodeErrors(t *testing.T) {
 	}
 }
 
-// TestDeleteCardBatchErrors 删除：查无短路与落删失败。
+// TestDeleteCardBatchErrors: delete — not-found short-circuit and persist failure.
 func TestDeleteCardBatchErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doJSON(t, r, http.MethodDelete, "/api/card-batches/9999", nil); rec.Code != http.StatusNotFound {
@@ -177,8 +181,8 @@ func TestDeleteCardBatchErrors(t *testing.T) {
 	}
 }
 
-// TestFindCardBatchDBFail findCardBatch 库故障定位：First 落 500（非记
-// 录不存在不走 404）。
+// TestFindCardBatchDBFail: findCardBatch locate failure under a DB fault —
+// First lands as 500 (not "record not found", so it does not take the 404 path).
 func TestFindCardBatchDBFail(t *testing.T) {
 	_, db := newTestRouterWithDB(t)
 	h := &Handler{db: db}

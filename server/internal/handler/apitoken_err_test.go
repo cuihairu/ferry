@@ -5,11 +5,13 @@ import (
 	"testing"
 )
 
-// TestApiTokenRateLimit 覆盖签发限流：每 IP 窗口内 100 次放行后第 101 次 429。
-// 限流器是包级共享态，先复位并测试后复位，避免受他例顺序影响。
+// TestApiTokenRateLimit covers issue rate limiting: 100 attempts per IP within
+// the window pass, and the 101st is 429. The limiter is package-level shared
+// state, so it is reset beforehand and again in a cleanup, to stay immune to
+// other tests' ordering.
 func TestApiTokenRateLimit(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
-	const ip = "192.0.2.1" // httptest 的 RemoteAddr 网段，与 doJSON 请求同源
+	const ip = "192.0.2.1" // httptest's RemoteAddr network, same source as the doJSON requests
 	ApiTokenLimiter.Reset(ip)
 	t.Cleanup(func() { ApiTokenLimiter.Reset(ip) })
 

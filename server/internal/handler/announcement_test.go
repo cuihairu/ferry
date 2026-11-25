@@ -14,7 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// feedText 取 /feed.xml 文本（公开端点，断言窗口过滤用）。
+// feedText fetches the /feed.xml text (a public endpoint, used to assert window filtering).
 func feedText(t *testing.T, r *gin.Engine) string {
 	t.Helper()
 	rec := doJSON(t, r, "GET", "/feed.xml", nil)
@@ -24,13 +24,15 @@ func feedText(t *testing.T, r *gin.Engine) string {
 	return rec.Body.String()
 }
 
-// TestAnnouncementWindow 覆盖 P2-5 ①：定时发布（starts_at 未来只落锚点行，
-// 到点由 RunDue 扇出）、撤下（ends_at 后 panel 列表与未读不再可见，RSS 不出）。
+// TestAnnouncementWindow covers P2-5 (1): scheduled publishing (a future
+// starts_at only stores the anchor row, fanned out by RunDue when due) and
+// takedown (after ends_at the panel list and unread count hide it, and it
+// leaves the RSS).
 func TestAnnouncementWindow(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	token := panelToken(t, r, "win-u")
 
-	// 定时发布：starts_at 未来 → 用户不收（created=0），RSS 不出。
+	// Scheduled publishing: a future starts_at -> no user rows (created=0), not in the RSS.
 	start := time.Now().Add(time.Hour).Truncate(time.Second)
 	end := start.Add(2 * time.Hour)
 	rec := doJSON(t, r, "POST", "/api/notifications/announcement", map[string]any{
@@ -60,14 +62,14 @@ func TestAnnouncementWindow(t *testing.T) {
 		t.Fatalf("user rows before due = %d, want 0", userRows)
 	}
 
-	// starts_at > ends_at 校验 400。
+	// starts_at > ends_at validation is 400.
 	if rec := doJSON(t, r, "POST", "/api/notifications/announcement", map[string]any{
 		"title": "坏窗口", "starts_at": end.Format(time.RFC3339), "ends_at": start.Format(time.RFC3339),
 	}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad window: %d", rec.Code)
 	}
 
-	// 到点扇出（notifyscan Sweep 内的 announce.RunDue）。
+	// Fan-out when due (announce.RunDue inside the notifyscan Sweep).
 	n, err := announce.RunDue(db, start.Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
@@ -82,7 +84,7 @@ func TestAnnouncementWindow(t *testing.T) {
 	if len(rows) != 1 || rows[0].AnchorID == 0 || rows[0].EndsAt == nil {
 		t.Fatalf("user rows after due = %+v", rows)
 	}
-	// 锚点行 fanout_at 回写、重复 RunDue 不再扇。
+	// The anchor row's fanout_at is written back; a repeat RunDue fans out nothing.
 	var anchor storage.Notification
 	if err := db.Where("user_id = ? AND type = ?", 0, storage.NotifAnnouncement).First(&anchor).Error; err != nil {
 		t.Fatal(err)
@@ -93,7 +95,7 @@ func TestAnnouncementWindow(t *testing.T) {
 	if n, _ := announce.RunDue(db, start.Add(2*time.Minute)); n != 0 {
 		t.Fatalf("second RunDue fanned = %d, want 0", n)
 	}
-	// 窗口内：panel 可见、未读 1、RSS 出。
+	// Inside the window: visible in the panel, one unread, present in the RSS.
 	rec = doPanel(t, r, token, "GET", "/api/panel/notifications", nil)
 	_ = json.Unmarshal(rec.Body.Bytes(), &rows)
 	if len(rows) != 1 {
@@ -103,7 +105,8 @@ func TestAnnouncementWindow(t *testing.T) {
 		t.Fatal("in-window announcement missing from feed")
 	}
 
-	// 撤下：ends_at 过去 → panel 列表与未读不再可见，RSS 不出；行保留。
+	// Takedown: ends_at in the past -> hidden from the panel list and unread count,
+	// gone from the RSS; the rows are kept.
 	if err := db.Model(&storage.Notification{}).Where("id IN (?)",
 		db.Model(&storage.Notification{}).Select("id").Where("type = ? AND title = ?", storage.NotifAnnouncement, "定时公告"),
 	).Update("ends_at", time.Now().Add(-time.Minute)).Error; err != nil {
@@ -129,13 +132,14 @@ func TestAnnouncementWindow(t *testing.T) {
 	if err := db.Model(&storage.Notification{}).Where("type = ?", storage.NotifAnnouncement).Count(&all).Error; err != nil {
 		t.Fatal(err)
 	}
-	if all != 2 { // 锚点行+用户行都在，只是不可见
+	if all != 2 { // anchor row + user row are both present, just not visible
 		t.Fatalf("rows after takedown = %d, want 2", all)
 	}
 }
 
-// TestAnnouncementStatsResend 覆盖 P2-5 ②③：发 n/读 m 统计回流、外通道
-// 重发位与 6h 限频、窗口关闭不重发。
+// TestAnnouncementStatsResend covers P2-5 (2)(3): sent-n/read-m stats
+// feedback, the external-channel resend position and 6h rate limit, and no
+// resend once the window is closed.
 func TestAnnouncementStatsResend(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	tokA := panelToken(t, r, "stat-a")
@@ -145,7 +149,7 @@ func TestAnnouncementStatsResend(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("announcement: %d %s", rec.Code, rec.Body)
 	}
-	// 统计：发 2 读 0。
+	// Stats: 2 sent, 0 read.
 	type stat struct {
 		ID   int64  `json:"id"`
 		Sent int64  `json:"sent"`
@@ -165,7 +169,7 @@ func TestAnnouncementStatsResend(t *testing.T) {
 	if len(stats) != 1 || stats[0].Sent != 2 || stats[0].Read != 0 {
 		t.Fatalf("stats = %+v, want 1 row sent=2 read=0", stats)
 	}
-	// 一人已读 → 读 1。
+	// One user has read -> read is 1.
 	rec = doPanel(t, r, tokA, "GET", "/api/panel/notifications", nil)
 	var rows []storage.Notification
 	_ = json.Unmarshal(rec.Body.Bytes(), &rows)
@@ -178,7 +182,7 @@ func TestAnnouncementStatsResend(t *testing.T) {
 		t.Fatalf("read = %d, want 1", stats[0].Read)
 	}
 
-	// 重发：一轮 notice 事件外发（启用用户各一条，站内信不重落）。
+	// Resend: a round of notice events is emitted (one per enabled user; in-app messages are not re-stored).
 	var before int64
 	db.Model(&storage.Event{}).Where("kind = ?", "notice").Count(&before)
 	anchorID := stats[0].ID
@@ -204,18 +208,18 @@ func TestAnnouncementStatsResend(t *testing.T) {
 		t.Fatalf("user rows after resend = %d, want 2 (in-app rows not duplicated)", userRows)
 	}
 
-	// 限频：6h 内再发 429。
+	// Rate limit: a resend within 6h is 429.
 	rec = doJSON(t, r, "POST", "/api/notifications/announcements/"+strconv.FormatInt(anchorID, 10)+"/resend", nil)
 	if rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("resend again: %d, want 429", rec.Code)
 	}
-	// 统计行 resend_at 回写。
+	// The stats row's resend_at is written back.
 	stats = getStats()
 	if stats[0].Sent != 2 || stats[0].Read != 1 {
 		t.Fatalf("stats after resend = %+v", stats[0])
 	}
 
-	// 窗口关闭不重发（撤下语义优先）。
+	// A closed window does not resend (takedown semantics take precedence).
 	if err := db.Model(&storage.Notification{}).Where("id = ?", anchorID).
 		Update("ends_at", time.Now().Add(-time.Minute)).Error; err != nil {
 		t.Fatal(err)
@@ -224,16 +228,17 @@ func TestAnnouncementStatsResend(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("resend closed: %d, want 400", rec.Code)
 	}
-	// 不存在的公告 404。
+	// A nonexistent announcement is 404.
 	rec = doJSON(t, r, "POST", "/api/notifications/announcements/999999/resend", nil)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("resend missing: %d, want 404", rec.Code)
 	}
 }
 
-// TestAnnouncementAudience 覆盖运营设计 §1.1「全员/分组」：expiring:N 只扇出
-// N 天内到期的启用用户（过期/无到期/停用不收），定时公告到点才解析名单，
-// 重发按同名单重算，坏受众 400。
+// TestAnnouncementAudience covers ops design §1.1 "all/groups": expiring:N only
+// fans out to enabled users expiring within N days (expired/no expiry/disabled
+// are excluded), a scheduled announcement resolves its audience only when due,
+// a resend recomputes from the same audience, and a bad audience is 400.
 func TestAnnouncementAudience(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	for _, u := range []string{"aud-near", "aud-far", "aud-none", "aud-expired", "aud-off"} {
@@ -274,29 +279,30 @@ func TestAnnouncementAudience(t *testing.T) {
 		return out.Created
 	}
 
-	// 缺省与 all=全部启用用户（4 个，停用不收）。
+	// The default and "all" audiences cover every enabled user (4, disabled ones excluded).
 	if n := created(post("全员公告", "")); n != 4 {
 		t.Fatalf("default audience created = %d, want 4", n)
 	}
 	if n := created(post("全员工告B", "all")); n != 4 {
 		t.Fatalf("all audience created = %d, want 4", n)
 	}
-	// expiring:7 只收 3 天内到期；expiring:30 收 3 天与 30 天（过期/无到期不收）。
+	// expiring:7 only reaches users expiring within 3 days; expiring:30 reaches the 3-day and 30-day ones (expired/no expiry excluded).
 	if n := created(post("到期七日", "expiring:7")); n != 1 {
 		t.Fatalf("expiring:7 created = %d, want 1", n)
 	}
 	if n := created(post("到期三十", "expiring:30")); n != 2 {
 		t.Fatalf("expiring:30 created = %d, want 2", n)
 	}
-	// 坏受众 400。
+	// A bad audience is 400.
 	for _, bad := range []string{"expiring:0", "expiring:91", "bogus"} {
 		if rec := post("坏受众", bad); rec.Code != http.StatusBadRequest {
 			t.Fatalf("audience %q: %d, want 400", bad, rec.Code)
 		}
 	}
 
-	// 定时公告：发布时不收，到点按 expiring:7 名单扇出——定时后才加入的用户
-	// 也算在内（名单以扇出时刻为准）。
+	// Scheduled announcement: nothing is created at publish time; when due it fans
+	// out along the expiring:7 audience -- users who join after scheduling are
+	// included too (the audience is resolved at fan-out time).
 	start := now.Add(time.Hour).Truncate(time.Second)
 	rec := doJSON(t, r, "POST", "/api/notifications/announcement", map[string]any{
 		"title": "定时受众", "audience": "expiring:7",
@@ -311,11 +317,11 @@ func TestAnnouncementAudience(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 2 { // near + late（far 超窗、none 无到期、expired 已过期、off 停用）
+	if n != 2 { // near + late (far out of window, none has no expiry, expired is past, off is disabled)
 		t.Fatalf("RunDue audience fanned = %d, want 2", n)
 	}
 
-	// 重发按同名单重算（近用户此刻已挪出窗口 → 只剩 late 一人）。
+	// A resend recomputes the same audience (the near user has now aged out of the window -> only late remains).
 	setExp("aud-near", at(now.Add(-40*24*time.Hour)))
 	type stat struct {
 		ID       int64   `json:"id"`
@@ -351,14 +357,15 @@ func TestAnnouncementAudience(t *testing.T) {
 	}
 }
 
-// TestAnnouncementDeleteCascade 覆盖锚点级联撤回：删锚点行连带删扇出用户行
-// （公告从各用户列表与未读数消失）；普通行仍单行删除。
+// TestAnnouncementDeleteCascade covers anchor cascading takedown: deleting the
+// anchor row also deletes the fanned-out user rows (the announcement vanishes
+// from each user's list and unread count); a plain row is still deleted alone.
 func TestAnnouncementDeleteCascade(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	panelToken(t, r, "cas-a")
 	panelToken(t, r, "cas-b")
 
-	// 全员公告 → 锚点 1 行 + 用户行 2 行。
+	// An all-users announcement -> 1 anchor row + 2 user rows.
 	rec := doJSON(t, r, "POST", "/api/notifications/announcement", map[string]any{"title": "待撤回"})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("announcement: %d %s", rec.Code, rec.Body)
@@ -375,7 +382,8 @@ func TestAnnouncementDeleteCascade(t *testing.T) {
 		t.Fatalf("fanout rows = %d, want 2", fanout)
 	}
 
-	// 删锚点 → 锚点与用户行一并消失（级联撤回），再删 404。
+	// Deleting the anchor -> the anchor and user rows all vanish (cascading
+	// takedown); deleting again is 404.
 	if rec := doJSON(t, r, "DELETE", "/api/notifications/"+strconv.FormatInt(anchor.ID, 10), nil); rec.Code != http.StatusOK {
 		t.Fatalf("delete anchor: %d %s", rec.Code, rec.Body)
 	}
@@ -390,7 +398,8 @@ func TestAnnouncementDeleteCascade(t *testing.T) {
 		t.Fatalf("delete again: %d, want 404", rec.Code)
 	}
 
-	// 普通行仍单行删除：再造一轮，删其中一个用户行不影响其余。
+	// A plain row is still deleted on its own: create another round, and deleting
+	// one user row leaves the rest untouched.
 	rec = doJSON(t, r, "POST", "/api/notifications/announcement", map[string]any{"title": "第二轮"})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("announcement 2: %d %s", rec.Code, rec.Body)

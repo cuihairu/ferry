@@ -15,11 +15,11 @@ import (
 	"gorm.io/gorm"
 )
 
-// 优惠码（PROMO-1，运营设计 §5）：管理面 CRUD + panel 下单原子核销。
-// 取优判定（DS §3.3）：一单一优惠源不叠加——下单至多应用一张码，兑换链路
-// 无支付（面价在批次）无叠加点；佣金口径不变（在线单不落佣金，兑换按面价）。
+// Coupons (PROMO-1, ops design §5): admin CRUD + atomic redemption on panel orders.
+// Discount selection (DS §3.3): one discount source per order, no stacking — an order applies at most one code, and the
+// redemption path has no payment (list price lives in the batch) so there is no stacking point; commission rules unchanged (online orders book no commission, redemptions use list price).
 
-// couponInput 是建号/编辑载荷（部分更新走指针字段）。
+// couponInput is the create/edit payload (pointers signal partial updates).
 type couponInput struct {
 	Code      string     `json:"code"`
 	Kind      string     `json:"kind"`
@@ -32,7 +32,7 @@ type couponInput struct {
 	PerUser   int64      `json:"per_user"`
 }
 
-// listCoupons 优惠码列表（GET /api/coupons）：id DESC，dash 全量管理。
+// listCoupons lists coupons (GET /api/coupons): id DESC, dash manages the full set.
 func (h *Handler) listCoupons(c *gin.Context) {
 	var rows []storage.Coupon
 	if err := h.db.Order("id DESC").Find(&rows).Error; err != nil {
@@ -42,8 +42,8 @@ func (h *Handler) listCoupons(c *gin.Context) {
 	c.JSON(http.StatusOK, rows)
 }
 
-// validateCouponInput 校验载荷并回错误：kind 枚举、pct 基点 1-9999、
-// cut>0、门槛>=0、total/per_user>=0、scope 形态与批次存在性。
+// validateCouponInput validates the payload and returns an error: kind enum, pct basis points 1-9999,
+// cut>0, threshold>=0, total/per_user>=0, scope shape and batch existence.
 func (h *Handler) validateCouponInput(in *couponInput) error {
 	scope, err := h.validateDiscountRules(in.Kind, in.Value, in.Scope, in.MinAmount)
 	if err != nil {
@@ -59,9 +59,9 @@ func (h *Handler) validateCouponInput(in *couponInput) error {
 	return nil
 }
 
-// validateDiscountRules 校验折扣规则四元组（优惠码与活动 rules 共用口径）：
-// kind 枚举、pct 基点 1-9999、cut>0、门槛>=0、scope 形态与批次存在性。
-// 返回归一化后的 scope（空→all）。
+// validateDiscountRules validates the discount rule quadruple (shared contract between coupons and campaign rules):
+// kind enum, pct basis points 1-9999, cut>0, threshold>=0, scope shape and batch existence.
+// Returns the normalized scope (empty → all).
 func (h *Handler) validateDiscountRules(kind string, value int64, scope string, minAmount int64) (string, error) {
 	if kind != "cut" && kind != "pct" {
 		return "", errors.New("kind must be cut or pct")
@@ -95,7 +95,7 @@ func (h *Handler) validateDiscountRules(kind string, value int64, scope string, 
 	return scope, nil
 }
 
-// parseBatchScope 解析 batch:<id> 形态。
+// parseBatchScope parses the batch:<id> form.
 func parseBatchScope(scope string) (uint, error) {
 	if !strings.HasPrefix(scope, "batch:") {
 		return 0, errors.New("bad scope")
@@ -107,8 +107,8 @@ func parseBatchScope(scope string) (uint, error) {
 	return uint(id), nil
 }
 
-// createCoupon 新建优惠码（POST /api/coupons）：code 缺省自动生成（16 位
-// 大写数字，FERRY-XXXX 形态与卡密可读性同口径），重复码 409。
+// createCoupon creates a coupon (POST /api/coupons): code is auto-generated when omitted (16 chars of
+// uppercase digits, FERRY-XXXX form matching card-key readability), duplicate code → 409.
 func (h *Handler) createCoupon(c *gin.Context) {
 	var in couponInput
 	if err := c.ShouldBindJSON(&in); err != nil {
@@ -124,7 +124,7 @@ func (h *Handler) createCoupon(c *gin.Context) {
 		code = "FERRY-" + randomCode8()
 	}
 	if in.PerUser == 0 {
-		in.PerUser = 1 // 设计缺省：每用户 1 次
+		in.PerUser = 1 // design default: 1 use per user
 	}
 	row := storage.Coupon{
 		Code: code, Kind: in.Kind, Value: in.Value, Scope: in.Scope,
@@ -132,7 +132,7 @@ func (h *Handler) createCoupon(c *gin.Context) {
 		Total: in.Total, PerUser: in.PerUser, CreatedAt: time.Now(),
 	}
 	if err := h.db.Create(&row).Error; err != nil {
-		// TranslateError 开启时 ErrDuplicatedKey 可判；字符串兜底盖方言差异。
+		// With TranslateError enabled, ErrDuplicatedKey is detectable; the string fallback covers dialect differences.
 		if errors.Is(err, gorm.ErrDuplicatedKey) ||
 			strings.Contains(strings.ToLower(err.Error()), "unique") ||
 			strings.Contains(strings.ToLower(err.Error()), "duplicated") {
@@ -145,8 +145,8 @@ func (h *Handler) createCoupon(c *gin.Context) {
 	c.JSON(http.StatusCreated, row)
 }
 
-// updateCoupon 编辑优惠码（PUT /api/coupons/:id）：整包更新（除 used 只读）；
-// ends_at 置当下即停用。密码类敏感面无——优惠码本身可回显。
+// updateCoupon edits a coupon (PUT /api/coupons/:id): full update (except used, read-only);
+// setting ends_at to now disables it. No password-class sensitive surface — the coupon itself is echoed back.
 func (h *Handler) updateCoupon(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -177,7 +177,7 @@ func (h *Handler) updateCoupon(c *gin.Context) {
 	row.Kind, row.Value, row.Scope, row.MinAmount = in.Kind, in.Value, in.Scope, in.MinAmount
 	row.StartsAt, row.EndsAt, row.Total, row.PerUser = in.StartsAt, in.EndsAt, in.Total, in.PerUser
 	if code := strings.TrimSpace(strings.ToUpper(in.Code)); code != "" {
-		// 改码查重：指向他行即冲突。
+		// Duplicate check on code change: pointing at another row is a conflict.
 		var dup int64
 		h.db.Model(&storage.Coupon{}).Where("code = ? AND id != ?", code, row.ID).Count(&dup)
 		if dup > 0 {
@@ -193,8 +193,8 @@ func (h *Handler) updateCoupon(c *gin.Context) {
 	c.JSON(http.StatusOK, row)
 }
 
-// deleteCoupon 删除优惠码（DELETE /api/coupons/:id）：已核销订单的快照
-// 留档不受影响（promo_snapshot 自含明细）。
+// deleteCoupon deletes a coupon (DELETE /api/coupons/:id): snapshots of already redeemed
+// orders keep their records unaffected (promo_snapshot is self-contained).
 func (h *Handler) deleteCoupon(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -213,7 +213,7 @@ func (h *Handler) deleteCoupon(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// randomCode8 取 8 位大写数字随机段（优惠码缺省生成用）。
+// randomCode8 takes an 8-char uppercase alphanumeric random segment (used for coupon default generation).
 func randomCode8() string {
 	const digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	buf := make([]byte, 8)
@@ -227,7 +227,7 @@ func randomCode8() string {
 	return string(b)
 }
 
-// couponDiscount 计算折扣后实付（PROMO-1）：cut 减额下限 0；pct 基点向下取整。
+// couponDiscount computes the payable amount after discount (PROMO-1): cut floors at 0; pct basis points round down.
 func couponDiscount(kind string, value, price int64) int64 {
 	if kind == "pct" {
 		return price - price*value/10000
@@ -239,9 +239,9 @@ func couponDiscount(kind string, value, price int64) int64 {
 	return d
 }
 
-// couponCheck 加载并校验优惠码（只读，不核销）：存在性/窗口/限次/适用
-// 范围/门槛/每用户限次逐项过；失败返回业务文案错误（panel 可读）。
-// 下单两段式里预检与本事务核销共用本函数，保证口径一致。
+// couponCheck loads and validates a coupon (read-only, no redemption): existence / window / usage cap /
+// applicable scope / threshold / per-user cap checked item by item; failures return business-copy errors (readable by panel).
+// The order flow's two-phase precheck and the in-transaction redemption share this function to keep the contract consistent.
 func couponCheck(tx *gorm.DB, code string, u *storage.User, batch *storage.CardBatch, price int64, now time.Time) (storage.Coupon, error) {
 	var cp storage.Coupon
 	if err := tx.Where("code = ?", strings.ToUpper(strings.TrimSpace(code))).First(&cp).Error; err != nil {
@@ -268,11 +268,11 @@ func couponCheck(tx *gorm.DB, code string, u *storage.User, batch *storage.CardB
 	if cp.MinAmount > 0 && price < cp.MinAmount {
 		return cp, errors.New("未达优惠码使用门槛")
 	}
-	// 每用户限次只计真正核销过优惠码的订单（P2：pending 占限次修复——
-	// 下单即置 pending，若把 pending 也计入，用户一次未支付的下单就永久
-	// 占掉自己的每用户限次（本仓无订单过期清扫，pending 常驻）；改为只计
-	// 已结算/已退款这类实际消费过优惠码的状态）。failed/expired 与
-	// pending 一样不计。
+	// The per-user cap only counts orders that actually redeemed the coupon (P2: fix for pending occupying the cap —
+	// an order is set to pending at creation, and if pending counted too, a single unpaid order would permanently
+	// consume the user's per-user cap (this repo has no order expiry sweeper; pending rows live forever); changed to
+	// count only settled/refunded states that actually consumed the coupon). failed/expired,
+	// like pending, are not counted.
 	var mine int64
 	if err := tx.Model(&storage.PaymentOrder{}).
 		Where("user_id = ? AND promo_code = ? AND status IN ?", u.ID, cp.Code, []string{"paid", "refunded"}).
@@ -285,15 +285,16 @@ func couponCheck(tx *gorm.DB, code string, u *storage.User, batch *storage.CardB
 	return cp, nil
 }
 
-// applyCouponTx 在下单事务内原子核销优惠码（PROMO-1）：couponCheck 只读
-// 校验通过后，条件 UPDATE used+1 防并发超发（total=0 不限）。返回实付与
-// 码行；核销失败由调用方整事务回滚（订单行同事务，码与订单同生同灭）。
+// applyCouponTx atomically redeems a coupon inside the order transaction (PROMO-1): after couponCheck's
+// read-only validation passes, a conditional UPDATE used+1 guards against concurrent over-redemption (total=0 means unlimited).
+// Returns the payable amount and the code row; on redemption failure the caller rolls back the whole transaction
+// (the order row shares the transaction — code and order live and die together).
 func applyCouponTx(tx *gorm.DB, code string, u *storage.User, batch *storage.CardBatch, price int64, now time.Time) (int64, storage.Coupon, error) {
 	cp, err := couponCheck(tx, code, u, batch, price, now)
 	if err != nil {
 		return 0, cp, err
 	}
-	// 条件更新核销：total 限次并发兜底（used 由本行最新值判定）。
+	// Conditional-update redemption: concurrency backstop for the total cap (used judged from this row's freshest value).
 	res := tx.Model(&storage.Coupon{}).
 		Where("id = ? AND (total = 0 OR used < total)", cp.ID).
 		Update("used", gorm.Expr("used + 1"))
@@ -306,8 +307,8 @@ func applyCouponTx(tx *gorm.DB, code string, u *storage.User, batch *storage.Car
 	return couponDiscount(cp.Kind, cp.Value, price), cp, nil
 }
 
-// couponSnapshot 优惠快照（订单落 promo_snapshot）：原价/折扣/码/实付，
-// 码行删除后明细仍可对账。
+// couponSnapshot is the discount snapshot (orders persist promo_snapshot): list price/discount/code/amount paid,
+// so details remain auditable after the code row is deleted.
 func couponSnapshot(code string, kind string, value, list, paid int64) string {
 	b, _ := json.Marshal(map[string]any{
 		"code": code, "kind": kind, "value": value,

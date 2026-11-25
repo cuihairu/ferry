@@ -15,9 +15,12 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// 二十一批补口：API Token 签发端与当前用户端（P1-2）口径。
-// 注：两端的空身份分支按真实契约测——apiAuth 放行后 adminUserID/apiUser
-// 为空串才拒（nil 未置键走 API 令牌路径，属放行面）。
+// Batch-21 gap fill: conventions of the API Token issue endpoint and the
+// current-user endpoint (P1-2).
+// Note: the blank-identity branches of both are tested against the real
+// contract -- after apiAuth lets a request through, only an empty
+// adminUserID/apiUser string is rejected (a nil key, i.e. key unset, goes
+// down the API Token path, which is the pass-through case).
 
 func newApiTokenEnv(t *testing.T) (*Handler, *gin.Engine) {
 	t.Helper()
@@ -38,8 +41,9 @@ func newApiTokenEnv(t *testing.T) (*Handler, *gin.Engine) {
 	return h, gin.New()
 }
 
-// blankIDAdminJWT 签一枚 ID 为空的管理员 JWT：apiAuth 放行（签名有效），
-// 端点按无管理员身份拒。
+// blankIDAdminJWT signs an admin JWT with an empty ID: apiAuth lets it
+// through (the signature is valid), and the endpoint rejects it for lacking
+// an admin identity.
 func blankIDAdminJWT(t *testing.T) string {
 	t.Helper()
 	claims := adminClaims{
@@ -66,8 +70,9 @@ func postWithToken(t *testing.T, r *gin.Engine, method, path, token string) *htt
 	return rec
 }
 
-// TestAdminGetApiTokenRejectsBlankAdminID 管理员 JWT 但 ID 为空：中间件
-// 放行、端点按无管理员拒（403 分支）。
+// TestAdminGetApiTokenRejectsBlankAdminID covers an admin JWT whose ID is
+// blank: the middleware lets it through, and the endpoint rejects it for
+// lacking an admin (the 403 branch).
 func TestAdminGetApiTokenRejectsBlankAdminID(t *testing.T) {
 	h, r := newApiTokenEnv(t)
 	r.POST("/t/apitoken", h.apiAuth(), h.AdminGetApiToken)
@@ -77,9 +82,10 @@ func TestAdminGetApiTokenRejectsBlankAdminID(t *testing.T) {
 	}
 }
 
-// TestAdminGetApiTokenIssuesAndAuths 签发-验签-鉴权闭环：管理员 JWT 取得
-// API Token，cfg 未配秘钥走缺省秘钥验签（fallback 口径），令牌过数据面
-// 中间件后 GetCurrentUser 报出 apiUser。
+// TestAdminGetApiTokenIssuesAndAuths covers the issue-verify-authorize loop:
+// an admin JWT obtains an API Token, an unset cfg secret verifies against the
+// fallback secret (the fallback convention), and once the token passes the
+// data-plane middleware GetCurrentUser reports apiUser.
 func TestAdminGetApiTokenIssuesAndAuths(t *testing.T) {
 	h, r := newApiTokenEnv(t)
 	r.POST("/t/apitoken", h.apiAuth(), h.AdminGetApiToken)
@@ -105,14 +111,14 @@ func TestAdminGetApiTokenIssuesAndAuths(t *testing.T) {
 	if rec2.Code != http.StatusOK || !strings.Contains(rec2.Body.String(), "admin") {
 		t.Fatalf("api-token me: %d %s", rec2.Code, rec2.Body)
 	}
-	// 管理员 JWT 同样过数据面取到当前用户。
+	// An admin JWT likewise passes the data plane and retrieves the current user.
 	rec3 := doJSON(t, r, "GET", "/t/me", nil)
 	if rec3.Code != http.StatusOK {
 		t.Fatalf("admin me: %d %s", rec3.Code, rec3.Body)
 	}
 }
 
-// TestGetCurrentUserBlankSubject apiUser 为空串即 401，不冒称已登录。
+// TestGetCurrentUserBlankSubject: an empty apiUser string is 401 rather than claiming to be logged in.
 func TestGetCurrentUserBlankSubject(t *testing.T) {
 	h, r := newApiTokenEnv(t)
 	r.GET("/t/me", h.apiAuth(), h.GetCurrentUser)

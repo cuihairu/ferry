@@ -7,8 +7,8 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestAllocDBErrors 覆盖分配面取数失败：策略读取失败与生效中 auto 行
-// 列表取数失败均 500。
+// TestAllocDBErrors covers assignment-plane fetch failures: a failed policy
+// read and a failed list of effective auto rows both return 500.
 func TestAllocDBErrors(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	regQueryFail("t:alloc_setting", db, (*storage.Setting)(nil))
@@ -23,7 +23,8 @@ func TestAllocDBErrors(t *testing.T) {
 	}
 }
 
-// TestAllocPolicyBadPayload 覆盖 PUT 策略的坏载荷 400（落库前拦截）。
+// TestAllocPolicyBadPayload covers a 400 for a bad PUT policy payload
+// (rejected before it hits the DB).
 func TestAllocPolicyBadPayload(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doRaw(t, r, http.MethodPut, "/api/alloc/policy", "{bad"); rec.Code != http.StatusBadRequest {

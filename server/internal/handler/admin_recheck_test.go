@@ -9,9 +9,10 @@ import (
 	"gorm.io/gorm"
 )
 
-// seedAdminForJWT 落一条与 adminJWT（用户 ID 1）对齐的启用管理员行——
-// /admin 组回库复核（审核修复 2026-11-12）要求令牌背后有真实管理员，
-// 停用/降级/改密后旧令牌即刻失效。
+// seedAdminForJWT inserts an enabled admin row matching adminJWT (user ID 1) --
+// the /admin group re-checks the DB (audit fix 2026-11-12), so the token must have
+// a real admin behind it, and disabling/demoting/password-changing it invalidates
+// old tokens immediately.
 func seedAdminForJWT(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	if err := db.Create(&storage.User{
@@ -21,24 +22,25 @@ func seedAdminForJWT(t *testing.T, db *gorm.DB) {
 	}
 }
 
-// TestAdminAuthRequiresLiveAdminRow 回库复核三态：令牌背后无管理员行 401
-// （此前签名有效即放行）；行在且启用 200；行被停用后同一令牌即刻 401
-// ——不再存活到自然过期（审核修复 2026-11-12）。
+// TestAdminAuthRequiresLiveAdminRow covers the three re-check states: no admin row
+// behind the token is 401 (previously a valid signature was enough); a row that
+// exists and is enabled is 200; once the row is disabled the same token is 401 at
+// once -- it no longer survives until natural expiry (audit fix 2026-11-12).
 func TestAdminAuthRequiresLiveAdminRow(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 
-	// 无行：签名合法也拒。
+	// No row: rejected even though the signature is valid.
 	if rec := doAdmin(t, r, "GET", "/admin/status", nil); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("no row: %d %s; want 401", rec.Code, rec.Body)
 	}
 
-	// 行在且启用：放行。
+	// Row present and enabled: allowed through.
 	seedAdminForJWT(t, db)
 	if rec := doAdmin(t, r, "GET", "/admin/status", nil); rec.Code != http.StatusOK {
 		t.Fatalf("live admin: %d %s; want 200", rec.Code, rec.Body)
 	}
 
-	// 停用：旧令牌立即失效。
+	// Disabled: the old token dies instantly.
 	if err := db.Model(&storage.User{}).Where("username = ?", "root").Update("enabled", false).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +48,7 @@ func TestAdminAuthRequiresLiveAdminRow(t *testing.T) {
 		t.Fatalf("disabled admin: %d %s; want 401", rec.Code, rec.Body)
 	}
 
-	// 摘管理员身份：同样立即失效。
+	// Admin flag revoked: also invalid immediately.
 	if err := db.Model(&storage.User{}).Where("username = ?", "root").
 		Updates(map[string]any{"enabled": true, "is_admin": false}).Error; err != nil {
 		t.Fatal(err)
@@ -56,8 +58,9 @@ func TestAdminAuthRequiresLiveAdminRow(t *testing.T) {
 	}
 }
 
-// TestAdminAuthKilledByPasswordChange 改密作废：走 updateAdmin 真实改密
-// 路径后，改密前签发的 /admin 令牌一律 401（用改密前固定签发的令牌验证）。
+// TestAdminAuthKilledByPasswordChange verifies invalidation on password change:
+// after a real updateAdmin password reset, /admin tokens issued before the reset
+// are uniformly 401 (checked with a token fixed up before the reset).
 func TestAdminAuthKilledByPasswordChange(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	seedAdminForJWT(t, db)
@@ -73,20 +76,21 @@ func TestAdminAuthKilledByPasswordChange(t *testing.T) {
 		t.Fatalf("before reset: %d; want 200", code)
 	}
 
-	// super 改密（/api 面 requireSuper 认 claim 角色，doJSON 即可触达）。
+	// super resets the password (the /api surface's requireSuper reads the claim role, so doJSON reaches it).
 	rec := doJSON(t, r, "PUT", "/api/admins/1", map[string]any{"password": "newpass123"})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("reset password: %d %s", rec.Code, rec.Body)
 	}
 
-	// 改密前签发的令牌：立即失效。
+	// Tokens issued before the reset: invalid immediately.
 	if code := adminGet(oldToken); code != http.StatusUnauthorized {
 		t.Fatalf("after reset: %d; want 401", code)
 	}
 }
 
-// TestAdminAuthSurvivesNonSecurityEdits 非安全字段改动（建号配额）不作废
-// 会话——作废只挂在停用/降级/改密三处，避免误伤正常运维。
+// TestAdminAuthSurvivesNonSecurityEdits checks that non-security field edits
+// (the sign-up quota) do not invalidate the session -- invalidation only hangs off
+// disable/demote/password-change, so routine operations are not disrupted.
 func TestAdminAuthSurvivesNonSecurityEdits(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	seedAdminForJWT(t, db)

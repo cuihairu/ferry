@@ -16,19 +16,19 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// promo 批（PROMO-1）测试：优惠码管理面 CRUD 校验 + panel 下单核销
-// （金额/账目三列/原子限次/窗口门槛范围/网关失败不烧码）。
+// promo batch (PROMO-1) tests: coupon admin CRUD validation + panel order redemption
+// (amount / three accounting columns / atomic cap / window threshold scope / gateway failure does not burn the code).
 
 func mkCouponBody(kind string, value int64) map[string]any {
 	return map[string]any{"kind": kind, "value": value}
 }
 
-// couponID 格式化路由里的 id 段。
+// couponID formats the id segment of the route.
 func couponID(id uint) string { return strconv.FormatUint(uint64(id), 10) }
 
-// TestCouponCRUDValidation 覆盖建/改/删校验：kind 枚举、pct 基点边界、
-// cut 正数、负值拒收、scope 形态与批次存在性、时间窗顺序、自动码、
-// 重复码 409、per_user 缺省 1。
+// TestCouponCRUDValidation covers create/edit/delete validation: kind enum, pct basis-point bounds,
+// positive cut, negative-value rejection, scope shape and batch existence, time-window order, auto code,
+// duplicate code 409, per_user default 1.
 func TestCouponCRUDValidation(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	batch := storage.CardBatch{Name: "包月", GrantType: "extend_days", GrantValue: 30, PriceCents: 1000, Total: 10, CreatedBy: "admin"}
@@ -36,7 +36,7 @@ func TestCouponCRUDValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 合法建码：显式码 + per_user 缺省
+	// Valid create: explicit code + default per_user
 	rec := doJSON(t, r, "POST", "/api/coupons", map[string]any{"code": "save200", "kind": "cut", "value": 200})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create: %d %s", rec.Code, rec.Body)
@@ -49,7 +49,7 @@ func TestCouponCRUDValidation(t *testing.T) {
 		t.Fatalf("coupon = %+v (code 应大写、per_user 缺省 1)", row)
 	}
 
-	// 自动码
+	// Auto-generated code
 	rec = doJSON(t, r, "POST", "/api/coupons", mkCouponBody("cut", 100))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("auto code: %d %s", rec.Code, rec.Body)
@@ -60,12 +60,12 @@ func TestCouponCRUDValidation(t *testing.T) {
 		t.Fatalf("auto code = %q", auto.Code)
 	}
 
-	// 重复码 409
+	// Duplicate code 409
 	if rec = doJSON(t, r, "POST", "/api/coupons", map[string]any{"code": "SAVE200", "kind": "cut", "value": 300}); rec.Code != http.StatusConflict {
 		t.Fatalf("dup code: %d", rec.Code)
 	}
 
-	// kind 枚举与数值边界
+	// kind enum and numeric bounds
 	for name, body := range map[string]map[string]any{
 		"bad kind":    {"kind": "half", "value": 100},
 		"pct zero":    {"kind": "pct", "value": 0},
@@ -79,12 +79,12 @@ func TestCouponCRUDValidation(t *testing.T) {
 			t.Fatalf("%s should 400: %d %s", name, rec.Code, rec.Body)
 		}
 	}
-	// pct 基点上边界内 9999 可收
+	// pct basis point 9999, inside the upper bound, is accepted
 	if rec = doJSON(t, r, "POST", "/api/coupons", map[string]any{"kind": "pct", "value": 9999}); rec.Code != http.StatusCreated {
 		t.Fatalf("pct 9999: %d %s", rec.Code, rec.Body)
 	}
 
-	// scope：合法批次、不存在批次、坏形态
+	// scope: valid batch, nonexistent batch, bad shape
 	if rec = doJSON(t, r, "POST", "/api/coupons", map[string]any{"kind": "cut", "value": 100, "scope": "batch:" + couponID(batch.ID)}); rec.Code != http.StatusCreated {
 		t.Fatalf("scope batch: %d %s", rec.Code, rec.Body)
 	}
@@ -95,14 +95,14 @@ func TestCouponCRUDValidation(t *testing.T) {
 		t.Fatalf("bad scope form: %d", rec.Code)
 	}
 
-	// 时间窗：end 早于 start 拒收
+	// Time window: end earlier than start is rejected
 	bad := time.Now().Add(-2 * time.Hour).Format(time.RFC3339)
 	good := time.Now().Add(time.Hour).Format(time.RFC3339)
 	if rec = doJSON(t, r, "POST", "/api/coupons", map[string]any{"kind": "cut", "value": 100, "starts_at": good, "ends_at": bad}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("window inverted: %d", rec.Code)
 	}
 
-	// 编辑：整包更新
+	// Edit: full update
 	rec = doJSON(t, r, "PUT", "/api/coupons/"+couponID(row.ID), map[string]any{"code": "SAVE200", "kind": "pct", "value": 500})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("update: %d %s", rec.Code, rec.Body)
@@ -112,7 +112,7 @@ func TestCouponCRUDValidation(t *testing.T) {
 	if updated.Kind != "pct" || updated.Value != 500 {
 		t.Fatalf("updated = %+v", updated)
 	}
-	// 编辑改码撞已有码 409
+	// Edit that collides with an existing code → 409
 	if rec = doJSON(t, r, "PUT", "/api/coupons/"+couponID(updated.ID), map[string]any{"code": auto.Code, "kind": "pct", "value": 500}); rec.Code != http.StatusConflict {
 		t.Fatalf("update dup code: %d", rec.Code)
 	}
@@ -120,7 +120,7 @@ func TestCouponCRUDValidation(t *testing.T) {
 		t.Fatalf("update missing: %d", rec.Code)
 	}
 
-	// 列表 + 删除 + 删除后 404
+	// List + delete + 404 after delete
 	if rec = doJSON(t, r, "GET", "/api/coupons", nil); rec.Code != http.StatusOK {
 		t.Fatalf("list: %d", rec.Code)
 	}
@@ -132,9 +132,10 @@ func TestCouponCRUDValidation(t *testing.T) {
 	}
 }
 
-// TestCouponApplyOnOrder 覆盖下单核销闭环（PROMO-1）：cut/pct 金额与下限
-// 0、账目三列（list/amount/promo 快照）、未知码/未开始/过期/门槛/范围/
-// 每用户限次/总量限次逐项 400、网关失败 502 不烧码、无码单三列零值。
+// TestCouponApplyOnOrder covers the order-redemption loop (PROMO-1): cut/pct amount and the floor of 0,
+// three accounting columns (list/amount/promo snapshot), unknown code / not-started / expired / threshold /
+// scope / per-user cap / total cap each a 400 per case, gateway failure 502 without burning the code, and a
+// no-code order with zeroed columns.
 func TestCouponApplyOnOrder(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	for _, name := range []string{"buyer"} {
@@ -163,8 +164,8 @@ func TestCouponApplyOnOrder(t *testing.T) {
 	}
 	sell := batches[0]
 	payment.Register(stubGateway{})
-	// doPanelFrom 以指定来源 IP 发请求：下单限流按 IP 计（10 次/分钟），
-	// 本用例单数超限，每次下单轮换 IP 隔离。
+	// doPanelFrom sends the request from a specified source IP: order rate limiting is counted per IP (10 per minute),
+	// and this case's order count exceeds it, so each order rotates to a different IP for isolation.
 	var orderSeq int
 	doPanelFrom := func(ip, coupon string) *httptest.ResponseRecorder {
 		body := map[string]any{"batch_id": sell.ID, "provider": "epusdt"}
@@ -213,7 +214,7 @@ func TestCouponApplyOnOrder(t *testing.T) {
 		return n
 	}
 
-	// cut：减 200 实付 800；大小写不敏感；账目三列与快照齐
+	// cut: minus 200 → pays 800; case-insensitive; the three accounting columns and snapshot all present
 	mk("CUT200", mkCouponBody("cut", 200))
 	code, out := order("cut200")
 	if code != http.StatusCreated || out["amount_cents"].(float64) != 800 {
@@ -231,19 +232,19 @@ func TestCouponApplyOnOrder(t *testing.T) {
 		t.Fatalf("used = %d, want 1", got)
 	}
 
-	// pct：25% 折后 750
+	// pct: 25% off → 750
 	mk("PCT25", mkCouponBody("pct", 2500))
 	if code, out = order("PCT25"); code != http.StatusCreated || out["amount_cents"].(float64) != 750 {
 		t.Fatalf("pct order: %d %v", code, out)
 	}
 
-	// 减额下限 0
+	// Floor of 0 for the discount
 	mk("BIGCUT", mkCouponBody("cut", 5000))
 	if code, out = order("BIGCUT"); code != http.StatusCreated || out["amount_cents"].(float64) != 0 {
 		t.Fatalf("floor order: %d %v", code, out)
 	}
 
-	// 无码单：金额=面价、promo 列零值
+	// No-code order: amount = list price, promo columns zeroed
 	if code, out = order(""); code != http.StatusCreated || out["amount_cents"].(float64) != 1000 {
 		t.Fatalf("plain order: %d %v", code, out)
 	}
@@ -253,12 +254,12 @@ func TestCouponApplyOnOrder(t *testing.T) {
 		t.Fatalf("plain order = %+v", plain)
 	}
 
-	// 未知码：400 不落单
+	// Unknown code: 400, no order landed
 	if code, _ = order("NOSUCH"); code != http.StatusBadRequest || orderCount() != 4 {
 		t.Fatalf("unknown coupon: %d count=%d", code, orderCount())
 	}
 
-	// 窗口：未开始 / 已过期
+	// Window: not started / expired
 	future := time.Now().Add(time.Hour).Format(time.RFC3339)
 	past := time.Now().Add(-time.Hour).Format(time.RFC3339)
 	mk("FUTURE", map[string]any{"kind": "cut", "value": 100, "starts_at": future})
@@ -270,21 +271,21 @@ func TestCouponApplyOnOrder(t *testing.T) {
 		t.Fatalf("expired: %d", code)
 	}
 
-	// 门槛：min_amount 高于面价
+	// Threshold: min_amount above the list price
 	mk("MIN5000", map[string]any{"kind": "cut", "value": 100, "min_amount": 5000})
 	if code, _ = order("MIN5000"); code != http.StatusBadRequest {
 		t.Fatalf("min_amount: %d", code)
 	}
 
-	// 范围：仅另一批次可用
+	// Scope: only valid for the other batch
 	mk("ONLYB2", map[string]any{"kind": "cut", "value": 100, "scope": "batch:" + couponID(batches[1].ID)})
 	if code, _ = order("ONLYB2"); code != http.StatusBadRequest {
 		t.Fatalf("scope mismatch: %d", code)
 	}
 
-	// 每用户限次：首单结算为 paid 后第二次同码 400（pending 不占限——本仓
-	// 无订单过期清扫，P2 修复后只计已结算订单，见
-	// TestCouponPendingDoesNotOccupyPerUserLimit）
+	// Per-user cap: after the first order settles to paid, a second use of the same code → 400 (pending does not occupy the cap —
+	// this repo has no order expiry sweeper, and since the P2 fix only settled orders count, see
+	// TestCouponPendingDoesNotOccupyPerUserLimit)
 	mk("ONCE", mkCouponBody("cut", 100))
 	if code, out = order("ONCE"); code != http.StatusCreated {
 		t.Fatalf("once first: %d", code)
@@ -294,7 +295,7 @@ func TestCouponApplyOnOrder(t *testing.T) {
 		t.Fatalf("once second after paid should 400: %d", code)
 	}
 
-	// 总量限次：total=1 第二单 400
+	// Total cap: total=1, the second order → 400
 	mk("LAST", map[string]any{"kind": "cut", "value": 100, "total": 1})
 	if code, _ = order("LAST"); code != http.StatusCreated {
 		t.Fatalf("last first: %d", code)
@@ -303,7 +304,7 @@ func TestCouponApplyOnOrder(t *testing.T) {
 		t.Fatalf("total reached should 400: %d", code)
 	}
 
-	// 网关失败 502：不烧码、不落单（新码验证，避免与已核销单混淆）
+	// Gateway failure 502: does not burn the code, does not land an order (fresh code to keep it distinct from redeemed ones)
 	mk("NOBURN", mkCouponBody("cut", 100))
 	payment.Register(stubEpusdt{err: errors.New("网关不可用")})
 	if code, _ = order("NOBURN"); code != http.StatusBadGateway {

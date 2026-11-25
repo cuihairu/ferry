@@ -9,10 +9,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 落地自动分配（E-21）管理端：策略查看/设置与现行 auto 分配行。
-// 分配判定由 alloc.Loop 周期执行，这里只读结果与改策略。
+// Landing auto-assignment (E-21) admin side: policy view/set and the current
+// auto assignment rows. Assignment decisions run periodically in alloc.Loop;
+// here we only read results and edit the policy.
 
-// listAlloc 返回当前策略与生效中的 auto 分配行。
+// listAlloc returns the current policy and the effective auto assignment rows.
 func (h *Handler) listAlloc(c *gin.Context) {
 	policy, err := alloc.LoadPolicy(h.db)
 	if err != nil {
@@ -28,7 +29,7 @@ func (h *Handler) listAlloc(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"policy": policy, "rows": rows})
 }
 
-// putAllocPolicy 设置各方向分配档位。
+// putAllocPolicy sets the assignment tiers for each direction.
 func (h *Handler) putAllocPolicy(c *gin.Context) {
 	var in alloc.PolicySetting
 	if err := c.ShouldBindJSON(&in); err != nil {

@@ -13,12 +13,14 @@ import (
 	"gorm.io/gorm"
 )
 
-// 限时活动（PROMO-2，运营设计 §5）：campaigns 表 + 管理面 CRUD + panel
-// 活动位 + 下单自动适用。取优口径同优惠码（DS §3.3）：一单一优惠源——
-// 码与活动至多取一，择惠大者；首单判定=无历史已付订单，续费=命中已有
-// 已付订单再次下单。
+// Time-limited campaigns (PROMO-2, operations design §5): campaigns table +
+// admin-side CRUD + panel campaign slot + automatic application at order time.
+// Discount selection follows the same convention as coupon codes (DS §3.3):
+// one discount source per order — a code and a campaign pick at most one,
+// whichever saves more; first order means no historical paid order, renew means
+// an existing paid order and ordering again.
 
-// campaignRules 是活动折扣规则（rules JSON）：与优惠码同一 cut/pct 口径。
+// campaignRules is a campaign discount rule set (rules JSON): same cut/pct convention as coupon codes.
 type campaignRules struct {
 	Kind      string `json:"kind"`
 	Value     int64  `json:"value"`
@@ -26,8 +28,9 @@ type campaignRules struct {
 	MinAmount int64  `json:"min_amount"`
 }
 
-// parseCampaignRules 解析并校验活动规则 JSON（口径同 validateDiscountRules）。
-// 兼容两种下发形态：JSON 对象与 JSON 字符串（RawMessage 绑字符串会带引号）。
+// parseCampaignRules parses and validates the campaign rules JSON (same
+// convention as validateDiscountRules). Two delivered shapes are supported: a
+// JSON object and a JSON string (RawMessage binding keeps the quotes for strings).
 func (h *Handler) parseCampaignRules(raw string) (campaignRules, error) {
 	var r campaignRules
 	s := strings.TrimSpace(raw)
@@ -49,8 +52,9 @@ func (h *Handler) parseCampaignRules(raw string) (campaignRules, error) {
 	return r, nil
 }
 
-// campaignInput 是建/改活动载荷（整包更新）。rules 收 JSON 字符串或对象
-// （RawMessage 两种形态均可绑），校验与存储统一走 parseCampaignRules。
+// campaignInput is the create/update campaign payload (full replacement).
+// rules accepts a JSON string or object (RawMessage binds both), and validation
+// and storage both go through parseCampaignRules.
 type campaignInput struct {
 	Name     string          `json:"name"`
 	Kind     string          `json:"kind"` // first_order / renew / timed
@@ -60,7 +64,7 @@ type campaignInput struct {
 	Enabled  *bool           `json:"enabled"`
 }
 
-// listCampaigns 活动列表（GET /api/campaigns）：id DESC，dash 全量管理。
+// listCampaigns lists campaigns (GET /api/campaigns): id DESC, full dash-side management.
 func (h *Handler) listCampaigns(c *gin.Context) {
 	var rows []storage.Campaign
 	if err := h.db.Order("id DESC").Find(&rows).Error; err != nil {
@@ -70,8 +74,8 @@ func (h *Handler) listCampaigns(c *gin.Context) {
 	c.JSON(http.StatusOK, rows)
 }
 
-// validateCampaignInput 校验活动载荷：名称、kind 枚举、rules JSON 口径、
-// 起止必填且 end 在 start 之后。
+// validateCampaignInput validates the campaign payload: name, kind enum,
+// rules JSON conventions, required start/end with end after start.
 func (h *Handler) validateCampaignInput(in *campaignInput) error {
 	if in.Name == "" {
 		return errors.New("name is required")
@@ -91,7 +95,7 @@ func (h *Handler) validateCampaignInput(in *campaignInput) error {
 	return nil
 }
 
-// createCampaign 新建活动（POST /api/campaigns）。
+// createCampaign creates a campaign (POST /api/campaigns).
 func (h *Handler) createCampaign(c *gin.Context) {
 	var in campaignInput
 	if err := c.ShouldBindJSON(&in); err != nil {
@@ -113,7 +117,7 @@ func (h *Handler) createCampaign(c *gin.Context) {
 	c.JSON(http.StatusCreated, row)
 }
 
-// updateCampaign 编辑活动（PUT /api/campaigns/:id）：整包更新。
+// updateCampaign edits a campaign (PUT /api/campaigns/:id): full replacement.
 func (h *Handler) updateCampaign(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -150,8 +154,9 @@ func (h *Handler) updateCampaign(c *gin.Context) {
 	c.JSON(http.StatusOK, row)
 }
 
-// deleteCampaign 删除活动（DELETE /api/campaigns/:id）：已核销订单的快照
-// 留档不受影响（promo_snapshot 自含明细）。
+// deleteCampaign deletes a campaign (DELETE /api/campaigns/:id): snapshots
+// already written for redeemed orders stay intact for the record
+// (promo_snapshot carries its own details).
 func (h *Handler) deleteCampaign(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -170,8 +175,9 @@ func (h *Handler) deleteCampaign(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// panelCampaigns 活动位（GET /api/panel/campaigns，PROMO-2）：进行中与
-// 即将开始的活动（含折扣规则明细供展示）；过期/停用不下发。
+// panelCampaigns serves the campaign slot (GET /api/panel/campaigns, PROMO-2):
+// running and upcoming campaigns (including discount rule details for display);
+// expired or disabled ones are never sent down.
 func (h *Handler) panelCampaigns(c *gin.Context) {
 	if _, ok := h.panelUser(c); !ok {
 		return
@@ -203,8 +209,9 @@ func (h *Handler) panelCampaigns(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
-// campaignEligible 判定活动对当前用户是否可参与：enabled、在窗内、
-// 首单/续费按历史已付订单判定（timed 恒可）。
+// campaignEligible decides whether a campaign applies to the current user:
+// enabled, inside the window, with first_order/renew judged from historical
+// paid orders (timed always applies).
 func (h *Handler) campaignEligible(tx *gorm.DB, c *storage.Campaign, u *storage.User, now time.Time) (bool, error) {
 	if !c.Enabled || now.Before(c.StartsAt) || !now.Before(c.EndsAt) {
 		return false, nil
@@ -224,8 +231,9 @@ func (h *Handler) campaignEligible(tx *gorm.DB, c *storage.Campaign, u *storage.
 	return paid > 0, nil // renew
 }
 
-// bestCampaign 在窗口内且适用该商品的活动里取惠大者（一单一优惠源，
-// 活动内部亦不叠加）。无命中返回 nil。
+// bestCampaign picks the biggest saving among campaigns inside the window that
+// apply to the product (one discount source per order, and campaigns never
+// stack with each other either). Returns nil on no match.
 func (h *Handler) bestCampaign(tx *gorm.DB, u *storage.User, batch *storage.CardBatch, price int64, now time.Time) (*storage.Campaign, int64, error) {
 	var rows []storage.Campaign
 	if err := tx.Where("enabled = ? AND starts_at <= ? AND ends_at > ?", true, now, now).
@@ -264,8 +272,9 @@ func (h *Handler) bestCampaign(tx *gorm.DB, u *storage.User, batch *storage.Card
 	return best, bestPaid, nil
 }
 
-// campaignSnapshot 活动快照（订单落 promo_snapshot）：活动/规则/原价/
-// 折扣/实付，活动删除后明细仍可对账。
+// campaignSnapshot builds the campaign snapshot (stored on the order as
+// promo_snapshot): campaign/rules/list price/discount/amount paid, so details
+// stay reconcilable after the campaign is deleted.
 func campaignSnapshot(c *storage.Campaign, rules campaignRules, list, paid int64) string {
 	b, _ := json.Marshal(map[string]any{
 		"source": "campaign", "campaign_id": c.ID, "name": c.Name,

@@ -6,8 +6,10 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// TestEnsureAdmin 覆盖首启引导三面：无管理员且配置密码时建号（IsAdmin、
-// bcrypt 可验）；已有管理员时忽略（换名也不建，单管理员口径）；空密码不引导。
+// TestEnsureAdmin covers three first-boot bootstrap sides: with no admin and a
+// configured password it creates the account (IsAdmin, bcrypt-verifiable); with an
+// existing admin it is ignored (a different name still creates nothing, single-
+// admin policy); an empty password does not bootstrap.
 func TestEnsureAdmin(t *testing.T) {
 	_, db := newTestRouterWithDB(t)
 
@@ -31,7 +33,7 @@ func TestEnsureAdmin(t *testing.T) {
 		t.Fatalf("bcrypt verify: %v", err)
 	}
 
-	// 已有管理员：同名/异名、换密码都不再建。
+	// Existing admin: neither the same nor another name, nor a changed password, creates one.
 	for _, tc := range [][2]string{{"admin", "second-pw"}, {"ops", "other-pw"}} {
 		created, err := EnsureAdmin(db, tc[0], tc[1])
 		if err != nil || created {
@@ -44,7 +46,7 @@ func TestEnsureAdmin(t *testing.T) {
 		t.Fatalf("users = %d, want 1", n)
 	}
 
-	// 空密码不引导。
+	// An empty password does not bootstrap.
 	if created, err := EnsureAdmin(db, "ghost", ""); err != nil || created {
 		t.Fatalf("empty password should no-op: created=%v err=%v", created, err)
 	}

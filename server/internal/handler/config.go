@@ -9,15 +9,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// configPushInput 是一份配置下发的载荷（单点与批量共用，A-15）。
+// configPushInput is the payload for one config push (shared by single-node and bulk, A-15).
 type configPushInput struct {
 	Proc    string `json:"proc"`
 	Kind    string `json:"kind"`
 	Payload string `json:"payload"`
 }
 
-// pushConfig 向节点下发一份进程配置（A-18）：
-// 落库 pending → 经 agenthub 等待 config.ack → 按结果置 applied/failed。
+// pushConfig pushes one process config to a node (A-18):
+// persist pending -> wait for config.ack via agenthub -> set applied/failed per the result.
 func (h *Handler) pushConfig(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -41,20 +41,22 @@ func (h *Handler) pushConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, row)
 }
 
-// deployConfig 执行单节点配置下发全流程，委托 relaypush.Pusher 的
-// 同链路实现（E-16b：自动换线重指与手动下发共用一条配置推送通道）。
-// 返回 err != nil 时 status 为对应 HTTP 状态码（transport 类失败）；
-// agent ack 的 OK=false 属业务失败，记录留痕后按 nil err 返回。
+// deployConfig runs the whole single-node config push flow, delegating to the
+// relaypush.Pusher implementation on the same chain (E-16b: automatic
+// re-routing/repointing and manual pushes share one config delivery channel).
+// When err != nil is returned, status is the matching HTTP code (transport-class
+// failure); an agent ack with OK=false is a business failure that is recorded
+// for the audit trail and returned with a nil err.
 func (h *Handler) deployConfig(nodeID uint, in configPushInput) (storage.NodeConfig, int, error) {
 	return h.pusher.Push(nodeID, in.Proc, in.Kind, in.Payload)
 }
 
-// finishNodeConfig 把下发的最终结果写回记录；委托 pusher 同链路实现。
+// finishNodeConfig writes the final push result back onto the record; it delegates to the pusher's same-chain implementation.
 func (h *Handler) finishNodeConfig(row *storage.NodeConfig, status string, reverted, validated bool, errMsg string) {
 	h.pusher.Finish(row, status, reverted, validated, errMsg)
 }
 
-// listNodeTraffic 返回节点的流量记账（新在前，默认 200 条）。
+// listNodeTraffic returns a node's traffic accounting (newest first, 200 rows by default).
 func (h *Handler) listNodeTraffic(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -78,7 +80,7 @@ func (h *Handler) listNodeTraffic(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
-// listNodeConfigs 返回节点的配置下发历史（新在前，默认 50 条）。
+// listNodeConfigs returns a node's config push history (newest first, 50 rows by default).
 func (h *Handler) listNodeConfigs(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

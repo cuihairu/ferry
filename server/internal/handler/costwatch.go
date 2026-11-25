@@ -11,9 +11,9 @@ import (
 	"gorm.io/gorm"
 )
 
-// 价格关注（E-32）管理端：关注条件 CRUD 与快照查询。扫描与告警在
-// cost.WatchLoop（降价/到位经 Herald price_alert），这里只管条件的增删
-// 改查与命中动态回显（最新快照 + 较上一次涨跌）。
+// Price watch (E-32) admin side: watch condition CRUD and snapshot queries. Scanning and alerting run in
+// cost.WatchLoop (price drops / hitting target go through Herald price_alert); here we only handle add/edit/delete/list of conditions
+// and replaying the hit dynamics (latest snapshot + change versus the previous one).
 
 type watchView struct {
 	ID           uint   `json:"id"`
@@ -24,20 +24,20 @@ type watchView struct {
 	Enabled      bool   `json:"enabled"`
 	LatestCents  *int64 `json:"latest_cents,omitempty"`
 	PrevCents    *int64 `json:"prev_cents,omitempty"`
-	ChangePct    *int64 `json:"change_pct,omitempty"` // 最新较上一次：负=降
-	AtTarget     bool   `json:"at_target"`            // 现价已到目标价
+	ChangePct    *int64 `json:"change_pct,omitempty"` // latest vs previous: negative = drop
+	AtTarget     bool   `json:"at_target"`            // current price has reached the target
 	LatestURL    string `json:"latest_url,omitempty"`
 	CapturedAt   string `json:"captured_at,omitempty"`
-	SnapshotDone bool   `json:"snapshot_done"` // 是否已有快照（没跑过扫描前无动态）
+	SnapshotDone bool   `json:"snapshot_done"` // whether a snapshot exists (no dynamics before a scan has run)
 }
 
-// watchViewOf 装配单条关注的动态（最近两快照比对）。
+// watchViewOf assembles the dynamics for one watch (compares the two most recent snapshots).
 func watchViewOf(db *gorm.DB, w storage.PriceWatch) watchView {
 	v := watchView{ID: w.ID, Provider: w.Provider, Region: w.Region, Spec: w.Spec,
 		TargetPrice: w.TargetPrice, Enabled: w.Enabled}
 	var snaps []storage.PriceSnapshot
 	if err := db.Where("watch_id = ?", w.ID).Order("id DESC").Limit(2).Find(&snaps).Error; err != nil || len(snaps) == 0 {
-		return v // 没跑过扫描前无动态、无到位
+		return v // no dynamics and no at-target before a scan has run
 	}
 	latest := snaps[0]
 	latestCents := latest.MonthlyCents
@@ -57,7 +57,7 @@ func watchViewOf(db *gorm.DB, w storage.PriceWatch) watchView {
 	return v
 }
 
-// listWatches 列关注（GET /api/cost/watches，含命中动态）。
+// listWatches lists watches (GET /api/cost/watches, including hit dynamics).
 func (h *Handler) listWatches(c *gin.Context) {
 	var rows []storage.PriceWatch
 	if err := h.db.Order("id ASC").Find(&rows).Error; err != nil {
@@ -79,13 +79,13 @@ type watchInput struct {
 	Enabled     *bool  `json:"enabled"`
 }
 
-// watchKey 归一关注键段（小写+去首尾空白），与 costref.Lookup 比对口径一致。
+// watchKey normalizes watch key segments (lowercase + trim), matching costref.Lookup's comparison contract.
 func watchKey(s string) string {
 	return strings.ToLower(strings.TrimSpace(s))
 }
 
-// createWatch 新增关注（POST /api/cost/watches）：provider+spec 必填，
-// 键唯一（重复 409），target_price 非负（0=只盯降价）。
+// createWatch adds a watch (POST /api/cost/watches): provider+spec are required,
+// the key is unique (duplicate → 409), and target_price must be non-negative (0 = only watch for drops).
 func (h *Handler) createWatch(c *gin.Context) {
 	var in watchInput
 	if err := c.ShouldBindJSON(&in); err != nil {
@@ -104,8 +104,8 @@ func (h *Handler) createWatch(c *gin.Context) {
 		}
 		target = *in.TargetPrice
 	}
-	// 键归一（小写+去空格）：与参考价表 costref 词表比对口径一致，
-	// 唯一索引才能拦住同键异写的重复关注。
+	// Normalize the key (lowercase + trim): matching the reference price table's costref vocabulary comparison
+	// contract, so the unique index can catch duplicate watches for the same key in different spellings.
 	w := storage.PriceWatch{Provider: watchKey(in.Provider), Region: watchKey(in.Region),
 		Spec: watchKey(in.Spec), TargetPrice: target, Enabled: true}
 	if in.Enabled != nil {
@@ -122,7 +122,7 @@ func (h *Handler) createWatch(c *gin.Context) {
 	c.JSON(http.StatusOK, watchViewOf(h.db, w))
 }
 
-// updateWatch 部分更新（PUT /api/cost/watches/:id）：目标价/开关。
+// updateWatch partially updates (PUT /api/cost/watches/:id): target price / enabled switch.
 func (h *Handler) updateWatch(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -156,7 +156,7 @@ func (h *Handler) updateWatch(c *gin.Context) {
 	c.JSON(http.StatusOK, watchViewOf(h.db, w))
 }
 
-// deleteWatch 删除关注并同删快照（应用层级联，对齐设计 DDL CASCADE 口径）。
+// deleteWatch deletes a watch and its snapshots together (application-level cascade, aligned with the design's DDL CASCADE contract).
 func (h *Handler) deleteWatch(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -175,8 +175,8 @@ func (h *Handler) deleteWatch(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"deleted": true})
 }
 
-// listWatchSnapshots 快照分页（GET /api/cost/watches/:id/snapshots?limit=，
-// id DESC，上限 100）。
+// listWatchSnapshots pages snapshots (GET /api/cost/watches/:id/snapshots?limit=,
+// id DESC, capped at 100).
 func (h *Handler) listWatchSnapshots(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

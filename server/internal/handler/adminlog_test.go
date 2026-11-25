@@ -8,7 +8,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/ringlog"
 )
 
-// TestAdminLogs 覆盖运行日志查看与清除（P1-11）。
+// TestAdminLogs covers runtime log viewing and clearing (P1-11).
 func TestAdminLogs(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	seedAdminForJWT(t, db)
@@ -20,7 +20,7 @@ func TestAdminLogs(t *testing.T) {
 		ring.Add(line)
 	}
 
-	// 默认返回全部（3 条）
+	// All three returned by default (3 entries)
 	w := doAdmin(t, r, "GET", "/admin/logs", nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("get logs: %d %s", w.Code, w.Body)
@@ -35,7 +35,7 @@ func TestAdminLogs(t *testing.T) {
 		t.Fatalf("entries mismatch: %+v", out.Entries)
 	}
 
-	// limit 截取最近 n 条
+	// limit takes the most recent n entries
 	w = doAdmin(t, r, "GET", "/admin/logs?limit=2", nil)
 	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -44,12 +44,12 @@ func TestAdminLogs(t *testing.T) {
 		t.Fatalf("limited entries mismatch: %+v", out.Entries)
 	}
 
-	// 非法 limit 400
+	// Invalid limit 400
 	if w = doAdmin(t, r, "GET", "/admin/logs?limit=0", nil); w.Code != http.StatusBadRequest {
 		t.Fatalf("bad limit should 400: %d", w.Code)
 	}
 
-	// 清除后为空
+	// Empty after clearing
 	if w = doAdmin(t, r, "DELETE", "/admin/logs", nil); w.Code != http.StatusOK {
 		t.Fatalf("clear logs: %d %s", w.Code, w.Body)
 	}
@@ -57,7 +57,7 @@ func TestAdminLogs(t *testing.T) {
 		t.Fatalf("after clear entries = %v", got)
 	}
 
-	// 无令牌 401
+	// No token 401
 	if w := doBare(t, r, "GET", "/admin/logs"); w.Code != http.StatusUnauthorized {
 		t.Fatalf("without token should 401: %d", w.Code)
 	}

@@ -11,11 +11,12 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// 多级管理员/子管理员配额（P2-2）测试：super 管理子管理员 CRUD（降级不删
-// 行、super 本体不可改/降）、operator 登录后层级 JWT 生效（super 面 403）、
-// max_users 建用户配额按 created_by 归账（0=不限）。
+// Multi-tier admin / sub-admin quota (P2-2) tests: super runs sub-admin CRUD
+// (demotion does not delete the row, super itself cannot be edited/demoted), an
+// operator's tiered JWT takes effect after login (super surface 403), and the
+// max_users sign-up quota is charged by created_by (0 = unlimited).
 
-// opJWT 直铸 operator 层级令牌（真实登录路径的用例另测）。
+// opJWT mints an operator-tier token directly (cases through the real login path are tested elsewhere).
 func opJWT(t *testing.T, subject string) string {
 	t.Helper()
 	claims := adminClaims{
@@ -34,12 +35,13 @@ func opJWT(t *testing.T, subject string) string {
 	return ss
 }
 
-// TestAdminRoleCRUD 覆盖管理员管理面：operator 越权 403、CRUD 全链、
-// super 防自锁（不可改/不可降）、停用登录被拒、降级保留用户行。
+// TestAdminRoleCRUD covers the admin management surface: an operator overstepping
+// gets 403, the full CRUD chain, super self-lockout protection (cannot be edited or
+// demoted), a disabled account is refused at login, and demotion keeps the user row.
 func TestAdminRoleCRUD(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 
-	// super：建子管理员（配额 2）。
+	// super: create a sub-admin (quota 2).
 	rec := doJSON(t, r, "POST", "/api/admins", map[string]any{
 		"username": "subop", "password": "password123", "max_users": 2,
 	})
@@ -55,7 +57,7 @@ func TestAdminRoleCRUD(t *testing.T) {
 	if row.Role != "operator" || row.MaxUsers != 2 {
 		t.Fatalf("row = %+v", row)
 	}
-	// 重复用户名 409、短密码 400、负配额 400。
+	// Duplicate username 409, short password 400, negative quota 400.
 	if rec = doJSON(t, r, "POST", "/api/admins", map[string]any{"username": "subop", "password": "password123"}); rec.Code != http.StatusConflict {
 		t.Fatalf("dup: %d", rec.Code)
 	}
@@ -66,7 +68,7 @@ func TestAdminRoleCRUD(t *testing.T) {
 		t.Fatalf("neg quota: %d", rec.Code)
 	}
 
-	// operator 直铸令牌：/api/admins 面全 403（层级门槛）。
+	// Directly minted operator token: the whole /api/admins surface is 403 (tier gate).
 	op := opJWT(t, "subop")
 	idStr := strconv.Itoa(int(row.ID))
 	for _, tc := range []struct{ m, p string }{
@@ -78,7 +80,7 @@ func TestAdminRoleCRUD(t *testing.T) {
 		}
 	}
 
-	// 真实登录路径：operator 登录拿到层级令牌（无 2FA 直过）。
+	// Real login path: operator login yields a tiered token (no 2FA, so it passes straight through).
 	rec = doPanel(t, r, "", "POST", "/admin/login", map[string]any{"username": "subop", "password": "password123"})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("operator login: %d %s", rec.Code, rec.Body)
@@ -90,23 +92,23 @@ func TestAdminRoleCRUD(t *testing.T) {
 	if rec = doPanel(t, r, lg.Token, "GET", "/api/admins", nil); rec.Code != http.StatusForbidden {
 		t.Fatalf("logged-in operator /admins: %d", rec.Code)
 	}
-	// 停用后登录被拒（users.enabled 复查在登录链）。
+	// Login refused after disabling (the users.enabled re-check is in the login chain).
 	if rec = doJSON(t, r, "PUT", "/api/admins/"+idStr, map[string]any{"enabled": false}); rec.Code != http.StatusOK {
 		t.Fatalf("disable: %d %s", rec.Code, rec.Body)
 	}
 	if rec = doPanel(t, r, "", "POST", "/admin/login", map[string]any{"username": "subop", "password": "password123"}); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("disabled login: %d", rec.Code)
 	}
-	// 恢复+改密+清配额一次 PUT。
+	// Re-enable + password change + quota reset in one PUT.
 	if rec = doJSON(t, r, "PUT", "/api/admins/"+idStr, map[string]any{"enabled": true, "max_users": 0, "password": "newpassword9"}); rec.Code != http.StatusOK {
 		t.Fatalf("re-enable: %d %s", rec.Code, rec.Body)
 	}
-	// 新密码可登录。
+	// The new password can log in.
 	if rec = doPanel(t, r, "", "POST", "/admin/login", map[string]any{"username": "subop", "password": "newpassword9"}); rec.Code != http.StatusOK {
 		t.Fatalf("new password login: %d %s", rec.Code, rec.Body)
 	}
 
-	// super 本体防自锁：不可改、不可降。
+	// super itself is protected against self-lockout: cannot be edited or demoted.
 	sup := storage.User{Username: "boss", SubToken: "st-boss", Password: "x", Enabled: true, IsAdmin: true, AdminRole: "super"}
 	if err := db.Create(&sup).Error; err != nil {
 		t.Fatal(err)
@@ -117,7 +119,7 @@ func TestAdminRoleCRUD(t *testing.T) {
 	if rec = doJSON(t, r, "DELETE", "/api/admins/"+strconv.Itoa(int(sup.ID)), nil); rec.Code != http.StatusForbidden {
 		t.Fatalf("demote super: %d", rec.Code)
 	}
-	// 非 admin 用户不在管理员名册（按 not found 处理）。
+	// A non-admin user is not in the admin roster (handled as not found).
 	plain := storage.User{Username: "plain1", SubToken: "st-p1", Enabled: true}
 	if err := db.Create(&plain).Error; err != nil {
 		t.Fatal(err)
@@ -126,7 +128,7 @@ func TestAdminRoleCRUD(t *testing.T) {
 		t.Fatalf("edit non-admin: %d", rec.Code)
 	}
 
-	// 降级：摘身份不删行，用户数据保留。
+	// Demotion: the identity is stripped without deleting the row, user data preserved.
 	if rec = doJSON(t, r, "DELETE", "/api/admins/"+idStr, nil); rec.Code != http.StatusOK {
 		t.Fatalf("demote: %d %s", rec.Code, rec.Body)
 	}
@@ -137,8 +139,9 @@ func TestAdminRoleCRUD(t *testing.T) {
 	}
 }
 
-// TestOperatorUserQuota 覆盖子管理员建用户配额：max_users=2 建满后 403、
-// 落 created_by、提额后可继续、max_users=0 不限、super 无配额概念。
+// TestOperatorUserQuota covers the sub-admin sign-up quota: with max_users=2, once
+// filled further creation is 403, created_by is recorded, raising the quota allows
+// more, max_users=0 is unlimited, and super has no quota concept at all.
 func TestOperatorUserQuota(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	super := adminJWT(t)
@@ -157,17 +160,17 @@ func TestOperatorUserQuota(t *testing.T) {
 	if got := mk(op, "q2"); got != http.StatusCreated {
 		t.Fatalf("q2: %d", got)
 	}
-	// 配额用满。
+	// Quota exhausted.
 	if got := mk(op, "q3"); got != http.StatusForbidden {
 		t.Fatalf("q3 over quota: %d want 403", got)
 	}
-	// created_by 归账。
+	// created_by attribution.
 	var q1 storage.User
 	db.Where("username = ?", "q1").First(&q1)
 	if q1.CreatedBy != "op2" {
 		t.Fatalf("created_by = %q", q1.CreatedBy)
 	}
-	// 提额后可继续。
+	// Can continue after raising the quota.
 	var opRow storage.User
 	db.Where("username = ? AND is_admin = ?", "op2", true).First(&opRow)
 	if rec := doJSON(t, r, "PUT", "/api/admins/"+strconv.Itoa(int(opRow.ID)), map[string]any{"max_users": 0}); rec.Code != http.StatusOK {
@@ -176,11 +179,11 @@ func TestOperatorUserQuota(t *testing.T) {
 	if got := mk(op, "q3"); got != http.StatusCreated {
 		t.Fatalf("q3 after raise: %d", got)
 	}
-	// super 建用户无配额概念。
+	// super has no quota concept when creating users.
 	if got := mk(super, "s1"); got != http.StatusCreated {
 		t.Fatalf("super mk: %d", got)
 	}
-	// 列表面：super 可读。
+	// List surface: readable by super.
 	if rec := doJSON(t, r, "GET", "/api/admins", nil); rec.Code != http.StatusOK {
 		t.Fatalf("list: %d %s", rec.Code, rec.Body)
 	}

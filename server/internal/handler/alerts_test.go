@@ -14,8 +14,9 @@ import (
 	"gorm.io/gorm"
 )
 
-// TestAgentWSAlarm 覆盖异常告警落库（A-22）：agent 上报 → 落库 →
-// 同节点同类别同进程去重刷新 → 列表/详情可查 → 手动处理。
+// TestAgentWSAlarm covers abnormal alert persistence (A-22): agent report ->
+// stored -> dedup refresh for the same node, kind and process -> list/detail
+// queryable -> manual resolve.
 func TestAgentWSAlarm(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	id, token := createNodeFor(t, r, "alm-1")
@@ -24,7 +25,7 @@ func TestAgentWSAlarm(t *testing.T) {
 	defer srv.Close()
 	c := fakeAgent(t, srv.URL, "alm-1", token)
 
-	// 进程崩溃告警 → 落库 active
+	// Process crash alert -> stored as active.
 	al, _ := agentproto.NewEnvelope("a1", agentproto.MsgAlarm, agentproto.Alarm{
 		Kind: agentproto.AlarmKindProcCrash, Severity: agentproto.AlarmSeverityCritical,
 		Proc: "xray", Message: "xray 崩溃且拉起失败", At: time.Now(),
@@ -35,7 +36,8 @@ func TestAgentWSAlarm(t *testing.T) {
 	if env := readEnv(t, c); env.Type != agentproto.MsgAlarmAck {
 		t.Fatalf("expected alarm_ack, got %s", env.Type)
 	}
-	// 崩溃告警激活同落 proc_crashed 事件（HERALD-3 余量）；WS 处理异步，轮询等落库
+	// Activating a crash alert also stores a proc_crashed event (HERALD-3 leftover);
+	// WS handling is async, so poll until it lands.
 	waitEventCount(t, db, "proc_crashed", 1)
 
 	var rows []storage.Alert
@@ -52,7 +54,8 @@ func TestAgentWSAlarm(t *testing.T) {
 		t.Fatalf("alert row mismatch: %+v", row)
 	}
 
-	// 同节点同类别同进程重复上报 → 刷新消息不新增
+	// A repeat report for the same node, kind and process -> the message is
+	// refreshed, no new row.
 	al2, _ := agentproto.NewEnvelope("a2", agentproto.MsgAlarm, agentproto.Alarm{
 		Kind: agentproto.AlarmKindProcCrash, Severity: agentproto.AlarmSeverityCritical,
 		Proc: "xray", Message: "xray 再次崩溃", At: time.Now(),
@@ -65,10 +68,10 @@ func TestAgentWSAlarm(t *testing.T) {
 	if len(rows) != 1 || rows[0].Message != "xray 再次崩溃" {
 		t.Fatalf("duplicate alarm should refresh: %v", rows)
 	}
-	// 重复上报只刷新：事件不重发
+	// A repeat report only refreshes: the event is not re-emitted.
 	waitEventCount(t, db, "proc_crashed", 1)
 
-	// 证书临期告警（无进程）→ 新增一条
+	// Cert-expiry alert (no process) -> a new row.
 	al3, _ := agentproto.NewEnvelope("a3", agentproto.MsgAlarm, agentproto.Alarm{
 		Kind: agentproto.AlarmKindCertExpiry, Severity: agentproto.AlarmSeverityWarning,
 		Message: "证书 hk.example.com 将于 2026-12-01 到期（剩 55 天）", At: time.Now(),
@@ -78,7 +81,7 @@ func TestAgentWSAlarm(t *testing.T) {
 	}
 	_ = readEnv(t, c)
 
-	// 列表：默认全部，新在前
+	// List: all by default, newest first.
 	lrec := doJSON(t, r, "GET", "/api/alerts", nil)
 	if lrec.Code != http.StatusOK {
 		t.Fatalf("list alerts: %d %s", lrec.Code, lrec.Body)
@@ -94,18 +97,18 @@ func TestAgentWSAlarm(t *testing.T) {
 		t.Fatalf("newest first: %v", list[0])
 	}
 
-	// 按节点/状态/类别过滤
+	// Filter by node/state/kind.
 	lrec = doJSON(t, r, "GET", fmt.Sprintf("/api/alerts?node_id=%d&state=active&kind=cert_expiry", id), nil)
 	_ = json.Unmarshal(lrec.Body.Bytes(), &list)
 	if len(list) != 1 || list[0]["kind"] != agentproto.AlarmKindCertExpiry {
 		t.Fatalf("filtered alerts mismatch: %v", list)
 	}
-	// 非法 state 400
+	// An invalid state is 400.
 	if rec := doJSON(t, r, "GET", "/api/alerts?state=bad", nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad state should 400: %d", rec.Code)
 	}
 
-	// 手动处理证书告警
+	// Resolve the cert alert manually.
 	certID := uint(list[0]["id"].(float64))
 	rrec := doJSON(t, r, "POST", fmt.Sprintf("/api/alerts/%d/resolve", certID), nil)
 	if rrec.Code != http.StatusOK {
@@ -116,19 +119,20 @@ func TestAgentWSAlarm(t *testing.T) {
 	if resolved["state"] != AlertStateResolved || resolved["resolved_at"] == nil {
 		t.Fatalf("resolve response mismatch: %v", resolved)
 	}
-	// 处理后再查 active 只剩 proc_crash
+	// After resolving, only proc_crash remains among active alerts.
 	lrec = doJSON(t, r, "GET", "/api/alerts?state=active", nil)
 	_ = json.Unmarshal(lrec.Body.Bytes(), &list)
 	if len(list) != 1 || list[0]["kind"] != agentproto.AlarmKindProcCrash {
 		t.Fatalf("active alerts after resolve: %v", list)
 	}
-	// 不存在的告警 404
+	// A nonexistent alert is 404.
 	if rec := doJSON(t, r, "POST", "/api/alerts/9999/resolve", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("resolve missing should 404: %d", rec.Code)
 	}
 }
 
-// waitEventCount 轮询直到某 kind 事件行数达标（WS 处理异步，无同步点）。
+// waitEventCount polls until the row count of events with a kind reaches the
+// target (WS handling is async, with no sync point).
 func waitEventCount(t *testing.T, db *gorm.DB, kind string, want int64) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
@@ -144,7 +148,8 @@ func waitEventCount(t *testing.T, db *gorm.DB, kind string, want int64) {
 	t.Fatalf("events kind=%s count = %d, want %d", kind, n, want)
 }
 
-// waitAlertState 轮询直到告警状态符合期望（WS 处理异步，无 ack 同步点）。
+// waitAlertState polls until an alert's state matches the expectation (WS
+// handling is async, with no ack sync point).
 func waitAlertState(t *testing.T, db *gorm.DB, id uint, want string) storage.Alert {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
@@ -161,8 +166,9 @@ func waitAlertState(t *testing.T, db *gorm.DB, id uint, want string) storage.Ale
 	return row
 }
 
-// TestAgentWSAlarmProcRecover 覆盖进程恢复自动消解（A-22）：
-// proc_crash 告警后 agent 上报 running → 告警自动转 resolved。
+// TestAgentWSAlarmProcRecover covers auto-resolution on process recovery
+// (A-22): after a proc_crash alert, the agent reports running -> the alert
+// turns resolved on its own.
 func TestAgentWSAlarmProcRecover(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	_, token := createNodeFor(t, r, "alm-2")
@@ -180,7 +186,7 @@ func TestAgentWSAlarmProcRecover(t *testing.T) {
 	}
 	_ = readEnv(t, c)
 
-	// 进程恢复运行 → 自动消解
+	// The process is running again -> auto-resolved.
 	rep, _ := agentproto.NewEnvelope("p1", agentproto.MsgProcReport, agentproto.ProcReport{
 		Procs: []agentproto.ProcStatus{{Name: "xray", State: "running", Since: time.Now()}},
 	})
@@ -198,7 +204,7 @@ func TestAgentWSAlarmProcRecover(t *testing.T) {
 		t.Fatalf("resolved alert should carry resolved_at: %+v", got)
 	}
 
-	// 其他进程的 running 不影响；stopped 也不消解
+	// Another process being running has no effect; stopped does not resolve either.
 	al2, _ := agentproto.NewEnvelope("a2", agentproto.MsgAlarm, agentproto.Alarm{
 		Kind: agentproto.AlarmKindProcCrash, Severity: agentproto.AlarmSeverityCritical,
 		Proc: "hysteria2", Message: "hysteria2 崩溃", At: time.Now(),
@@ -223,7 +229,8 @@ func TestAgentWSAlarmProcRecover(t *testing.T) {
 	}
 }
 
-// TestAgentWSAlarmMultiNode 覆盖多节点告警隔离：两节点同类别告警各自独立。
+// TestAgentWSAlarmMultiNode covers alert isolation across nodes: same-kind
+// alerts on two nodes stay independent.
 func TestAgentWSAlarmMultiNode(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	idA, tokenA := createNodeFor(t, r, "alm-a")
@@ -263,7 +270,7 @@ func TestAgentWSAlarmMultiNode(t *testing.T) {
 	if !seen[idA] || !seen[idB] {
 		t.Fatalf("both nodes should have alerts: %v", seen)
 	}
-	// 按节点过滤只回本节点
+	// The node filter returns only that node's alerts.
 	lrec = doJSON(t, r, "GET", fmt.Sprintf("/api/alerts?node_id=%d", idB), nil)
 	_ = json.Unmarshal(lrec.Body.Bytes(), &list)
 	if len(list) != 1 || uint(list[0]["node_id"].(float64)) != idB {
@@ -271,8 +278,9 @@ func TestAgentWSAlarmMultiNode(t *testing.T) {
 	}
 }
 
-// TestAlertGuards 覆盖告警面兜底与过滤校验：severity 缺省落 warning、
-// limit/state/node_id 非法 400、合法 limit 生效、resolve id 非法 404。
+// TestAlertGuards covers the alert plane's fallbacks and filter validation: a
+// missing severity defaults to warning, invalid limit/state/node_id are 400,
+// a valid limit applies, and an invalid resolve id is 404.
 func TestAlertGuards(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	id, token := createNodeFor(t, r, "alm-guard")
@@ -280,7 +288,7 @@ func TestAlertGuards(t *testing.T) {
 	defer srv.Close()
 	c := fakeAgent(t, srv.URL, "alm-guard", token)
 
-	// severity 缺省上报 → 落 warning（recordAlert 兜底）
+	// A report without severity -> stored as warning (recordAlert fallback).
 	al, _ := agentproto.NewEnvelope("g1", agentproto.MsgAlarm, agentproto.Alarm{
 		Kind: agentproto.AlarmKindConfigError, Proc: "xray", Message: "配置下发失败", At: time.Now(),
 	})
@@ -298,7 +306,7 @@ func TestAlertGuards(t *testing.T) {
 		t.Fatalf("default severity row = %+v", row)
 	}
 
-	// 列表：limit 非法/越界 400，合法 limit 生效
+	// List: an invalid or out-of-range limit is 400, a valid limit applies.
 	if rec := doJSON(t, r, "GET", "/api/alerts?limit=abc", nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad limit: %d", rec.Code)
 	}
@@ -317,7 +325,7 @@ func TestAlertGuards(t *testing.T) {
 		t.Fatalf("rows = %d, want 1", len(rows))
 	}
 
-	// state 非法 400；node_id 非法 400；合法过滤组合命中
+	// An invalid state is 400; an invalid node_id is 400; a valid filter combination hits.
 	if rec := doJSON(t, r, "GET", "/api/alerts?state=bogus", nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad state: %d", rec.Code)
 	}
@@ -335,7 +343,7 @@ func TestAlertGuards(t *testing.T) {
 		t.Fatalf("filtered rows = %+v", rows)
 	}
 
-	// 手动处理：id 非法 404
+	// Manual resolve: an invalid id is 404.
 	if rec := doJSON(t, r, "POST", "/api/alerts/abc/resolve", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("resolve bad id: %d", rec.Code)
 	}

@@ -14,17 +14,17 @@ import (
 	"gorm.io/gorm"
 )
 
-// distributorClaims 是代理登录令牌（DS 分销）：与管理员令牌同密钥签发但
-// claim 形状不同（role 恒为 distributor）——代理令牌过不了管理员校验，
-// 管理员令牌也过不了代理校验，两种身份互不越界。
+// distributorClaims is the distributor login token (DS distribution): signed with the same key as admin tokens but
+// with a different claim shape (role is always distributor) — a distributor token fails admin validation,
+// and an admin token fails distributor validation, so the two identities cannot cross into each other.
 type distributorClaims struct {
 	jwt.RegisteredClaims
-	Role string `json:"role"` // 恒 "distributor"
+	Role string `json:"role"` // always "distributor"
 }
 
-// DistributorLogin 代理登录（DS-1）：独立于 users 的代理凭证，bcrypt 复用
-// 管理员哈希口径，防爆破复用兑换限速，签发 role=distributor 的 JWT（24h）。
-// distAuth 中间件与代理自面视图随 DS-3 落地。
+// DistributorLogin distributor login (DS-1): distributor credentials independent of users, reusing the
+// admin bcrypt hashing contract, reusing the redemption rate limiter for brute-force protection, and issuing a role=distributor JWT (24h).
+// The distAuth middleware and the distributor self-view land with DS-3.
 func (h *Handler) DistributorLogin(c *gin.Context) {
 	ip := c.ClientIP()
 	if !h.loginLimiter.Allow(ip) {
@@ -42,7 +42,7 @@ func (h *Handler) DistributorLogin(c *gin.Context) {
 	var d storage.Distributor
 	err := h.db.Where("username = ?", strings.TrimSpace(in.Username)).First(&d).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		// 不存在与密码错同回 401，防枚举（与管理员登录同口径）。
+		// Not-found and wrong password both return 401, preventing enumeration (same contract as admin login).
 		h.loginLimiter.RecordFailure(ip)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
 		return
@@ -86,17 +86,17 @@ func (h *Handler) DistributorLogin(c *gin.Context) {
 	})
 }
 
-// distributorView 是代理列表行：附对账四元组（售卡收入/佣金/已结算/未结算）。
+// distributorView is a distributor list row: carries the reconciliation quadruple (card-sale revenue / commission / settled / unsettled).
 type distributorView struct {
 	storage.Distributor
-	SaleCents       int64 `json:"sale_cents"`       // Σsale（留痕统计）
-	CommissionCents int64 `json:"commission_cents"` // Σcommission（分润）
-	PayoutCents     int64 `json:"payout_cents"`     // Σpayout（已结算打款）
-	BalanceCents    int64 `json:"balance_cents"`    // 未结算 = Σcommission + Σadjust − Σpayout
+	SaleCents       int64 `json:"sale_cents"`       // Σsale (trace statistics only)
+	CommissionCents int64 `json:"commission_cents"` // Σcommission (revenue share)
+	PayoutCents     int64 `json:"payout_cents"`     // Σpayout (settled payments)
+	BalanceCents    int64 `json:"balance_cents"`    // unsettled = Σcommission + Σadjust − Σpayout
 }
 
-// listDistributors 代理列表（DS-1）：附对账四元组汇总，供 dash 代理管理卡与
-// 对账视图代理维度（DS-2）。
+// listDistributors distributor list (DS-1): carries the reconciliation quadruple summary, feeding the dash distributor management card and
+// the reconciliation view's distributor dimension (DS-2).
 func (h *Handler) listDistributors(c *gin.Context) {
 	var dists []storage.Distributor
 	if err := h.db.Order("id DESC").Find(&dists).Error; err != nil {
@@ -119,8 +119,8 @@ func (h *Handler) listDistributors(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"distributors": out})
 }
 
-// distributorTotals 是按代理汇总的对账四元组（DS-2）：sale 只留痕不进余额，
-// commission/adjust 按正负直加，payout 反向扣减。
+// distributorTotals is the per-distributor reconciliation quadruple (DS-2): sale is only traced and never enters the balance,
+// commission/adjust are added directly by sign, and payout is deducted in reverse.
 type distributorTotals struct {
 	Sale       int64
 	Commission int64
@@ -154,7 +154,7 @@ func (h *Handler) distributorTotals() (map[uint]distributorTotals, error) {
 	return out, nil
 }
 
-// distributorInput 是代理建号/更新的载荷：密码建号必填、更新可选（留空不动）。
+// distributorInput is the distributor create/update payload: password is required on create and optional on update (empty leaves it untouched).
 type distributorInput struct {
 	Username        string  `json:"username"`
 	Password        string  `json:"password"`
@@ -163,8 +163,8 @@ type distributorInput struct {
 	Enabled         *bool   `json:"enabled"`
 }
 
-// createDistributor 建代理号（DS-1）：用户名唯一，佣金比例 0-100，
-// 不提供删除——停用即禁登录，账目保留。
+// createDistributor creates a distributor account (DS-1): unique username, commission ratio 0-100,
+// and no delete offered — disabling blocks login while keeping the accounts intact.
 func (h *Handler) createDistributor(c *gin.Context) {
 	var in distributorInput
 	if err := c.ShouldBindJSON(&in); err != nil {
@@ -214,8 +214,8 @@ func (h *Handler) createDistributor(c *gin.Context) {
 		return
 	}
 	if !enabled {
-		// Enabled 带 default:true，零值 false 会被 GORM 略过落库默认值，需显式补写。
-		// Create 后结构体被库缺省 true 回填（RETURNING），按入参判定。
+		// Enabled carries default:true, so the zero value false is skipped by GORM and the DB default is persisted; it needs an explicit write-back.
+		// After Create the struct is refilled with the DB default true (RETURNING), so decide from the input parameter.
 		if err := h.db.Model(&storage.Distributor{}).Where("id=?", d.ID).Update("enabled", false).Error; err != nil {
 			fail(c, http.StatusInternalServerError, err)
 			return
@@ -225,8 +225,8 @@ func (h *Handler) createDistributor(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"distributor": d})
 }
 
-// updateDistributor 部分更新（DS-1）：密码重置/佣金比例/启用开关/备注；
-// 用户名不可改（登录身份即账目主体），不提供删除。
+// updateDistributor partial update (DS-1): password reset / commission ratio / enabled switch / note;
+// the username cannot change (the login identity is the account subject), and no delete is offered.
 func (h *Handler) updateDistributor(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -285,7 +285,7 @@ func (h *Handler) updateDistributor(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"distributor": d})
 }
 
-// distributorLedger 代理账目流水（DS-1）：id DESC 分页，附未结算余额。
+// distributorLedger distributor account ledger (DS-1): id DESC paging, with the unsettled balance attached.
 func (h *Handler) distributorLedger(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -326,21 +326,21 @@ func (h *Handler) distributorLedger(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ledger": rows, "balance_cents": totals[uint(id)].Balance})
 }
 
-// distributorPayout 结算打款（DS-2）：落 payout 行，未结算余额随之扣减。
-// 打款为线下手动动作（账期线下约定，面板只记账，不自动打款）；金额不得
-// 超过余额——超发先 adjust 入账，保余额域不为负。
+// distributorPayout settles a payout (DS-2): writes a payout row and deducts the unsettled balance accordingly.
+// Payout is a manual offline action (settlement terms agreed offline; the panel only books entries and never pays automatically); the amount must not
+// exceed the balance — overpaying first posts an adjust entry, keeping the balance domain non-negative.
 func (h *Handler) distributorPayout(c *gin.Context) {
 	h.writeLedgerOp(c, "payout")
 }
 
-// distributorAdjust 人工调整（DS-2）：±金额纠错/补偿，0 金额无意义拒收。
+// distributorAdjust manual adjustment (DS-2): ±amount for correction/compensation; a zero amount is meaningless and rejected.
 func (h *Handler) distributorAdjust(c *gin.Context) {
 	h.writeLedgerOp(c, "adjust")
 }
 
-// writeLedgerOp 处理 payout/adjust 两类人工账目操作：校验代理存在、金额
-// 语义与余额约束，落一行 ledger 后回新余额。payout 的余额约束落在落账
-// 语句自身（条件 INSERT，见下），预检只是快速失败，不承担并发安全。
+// writeLedgerOp handles the two kinds of manual account operations, payout/adjust: validates distributor existence, amount
+// semantics and balance constraints, writes one ledger row and returns the new balance. The payout balance constraint lives in the booking
+// statement itself (conditional INSERT, see below); the precheck is only a fast failure and does not provide concurrency safety.
 func (h *Handler) writeLedgerOp(c *gin.Context, kind string) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -387,10 +387,10 @@ func (h *Handler) writeLedgerOp(c *gin.Context, kind string) {
 		Note: strings.TrimSpace(in.Note), CreatedAt: time.Now(),
 	}
 	if kind == "payout" {
-		// 打款落账用一条条件 INSERT 完成校验与落账：并发打款都会通过上面
-		// 的快读预检，但只有合计余额仍足够的一方真正落账，落 0 行即透支
-		// 被拒。余额口径与 distributorTotals 一致（commission+adjust−payout）；
-		// FROM (SELECT 1) 为 MySQL 的 WHERE 前置占位（方言三兼容）。
+		// Booking a payout does validation and write-up in one conditional INSERT: concurrent payouts all pass the
+		// fast-read precheck above, but only the one whose aggregate balance is still sufficient actually books; a 0-row insert
+		// means overdraft was refused. The balance contract matches distributorTotals (commission+adjust−payout);
+		// FROM (SELECT 1) is MySQL's placeholder preceding WHERE (three-dialect compatibility).
 		res := h.db.Exec(
 			`INSERT INTO distributor_ledgers
 				(distributor_id, kind, amount_cents, note, created_at)

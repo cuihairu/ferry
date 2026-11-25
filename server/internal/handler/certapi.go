@@ -11,8 +11,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 证书任务（BR-4）管理端：CRUD 与手动触发签发。签发/续期执行在编排循环
-// 与触发 goroutine 内跑（acme.sh 单次秒到分钟级），任务行留状态与到期。
+// Admin side for cert tasks (BR-4): CRUD plus manually triggered issuance.
+// Issuance/renewal runs inside the orchestration loop and the trigger
+// goroutine (a single acme.sh run takes seconds to minutes); the task row only
+// keeps state and expiry.
 
 type certTaskInput struct {
 	Name          string `json:"name"`
@@ -119,7 +121,7 @@ func (h *Handler) updateCertTask(c *gin.Context) {
 	}
 	row.DNSProviderID = providerID
 	row.CA = in.CA
-	// 编排参数变更后重置为待签，循环自动重新签发。
+	// After orchestration parameters change, reset to pending so the loop re-issues automatically.
 	if row.State != cert.StatePending {
 		row.State = cert.StatePending
 	}
@@ -143,8 +145,9 @@ func (h *Handler) deleteCertTask(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// issueCertTask 手动触发签发（POST /api/cert-tasks/:id/issue）：异步执行，
-// 任务行立返 issuing；409 = 已在执行中。
+// issueCertTask manually triggers issuance (POST /api/cert-tasks/:id/issue):
+// it runs asynchronously and the task row returns issuing immediately; 409 =
+// already in progress.
 func (h *Handler) issueCertTask(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -156,7 +159,7 @@ func (h *Handler) issueCertTask(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "cert task not found"})
 		return
 	}
-	// issuing 抢占防重发（循环扫表会跳过 issuing）。
+	// Claiming issuing prevents double issuance (the loop's table scan skips rows already issuing).
 	res := h.db.Model(&storage.CertTask{}).
 		Where("id = ? AND state != ?", row.ID, "issuing").
 		Update("state", "issuing")
@@ -177,7 +180,7 @@ func (h *Handler) issueCertTask(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// getCertManager 编排执行器（环境口径与配置对齐）。
+// getCertManager builds the orchestration executor (the environment conventions match the config).
 func (h *Handler) getCertManager() *cert.Manager {
 	return &cert.Manager{
 		Bin: h.cfg.AcmeBin, Home: h.cfg.AcmeHome,

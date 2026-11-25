@@ -14,7 +14,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// newBotRouter 定制配置路由器：BotToken 开启的 TG bot 对接面（TOUCH-6）。
+// newBotRouter builds a router with custom config: the TG bot integration surface with BotToken enabled (TOUCH-6).
 func newBotRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	t.Helper()
 	db, err := storage.Open(storage.DriverSQLite, filepath.Join(t.TempDir(), "test.db"))
@@ -33,11 +33,11 @@ func newBotRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	return r, db
 }
 
-// TestBotSummary 覆盖 TG bot 对接面（TOUCH-6）：令牌未配置 404（防探测）、
-// 令牌错误 401、chat_id 未绑 404、命中返回用量/状态/最近订单/购买入口、
-// 禁用用户 404。
+// TestBotSummary covers the TG bot integration surface (TOUCH-6): unconfigured
+// token 404 (anti-probing), wrong token 401, unbound chat_id 404, a hit returns
+// usage/status/recent orders/buy entry, disabled user 404.
 func TestBotSummary(t *testing.T) {
-	// 未配置令牌的默认路由器：统一 404 防探测
+	// default router with no token configured: uniform 404 against probing
 	r0, db0 := newTestRouterWithDB(t)
 	panelToken(t, r0, "bot-user0")
 	if rec := doJSON(t, r0, "GET", "/api/bot/summary?chat_id=x", nil); rec.Code != http.StatusNotFound {
@@ -76,15 +76,15 @@ func TestBotSummary(t *testing.T) {
 		return rec
 	}
 
-	// 令牌错误 401
+	// wrong token: 401
 	if rec := get("888001", "wrong"); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("wrong token: %d", rec.Code)
 	}
-	// 未绑定 chat_id 404
+	// unbound chat_id: 404
 	if rec := get("999", "bot-secret"); rec.Code != http.StatusNotFound {
 		t.Fatalf("unbound chat: %d", rec.Code)
 	}
-	// 命中：用量/状态/订单/购买入口
+	// hit: usage/status/orders/buy entry
 	rec := get("888001", "bot-secret")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("summary: %d %s", rec.Code, rec.Body)
@@ -114,7 +114,7 @@ func TestBotSummary(t *testing.T) {
 		t.Fatalf("buy url: %s", out.BuyURL)
 	}
 
-	// 禁用用户 404
+	// disabled user: 404
 	if err := db.Model(&storage.User{}).Where("username = ?", "bot-user").Update("enabled", false).Error; err != nil {
 		t.Fatal(err)
 	}

@@ -14,22 +14,22 @@ import (
 	"gorm.io/gorm"
 )
 
-// maxCardsPerBatch 单批上限：批量生成走管理员路径，防误传大载荷。
+// maxCardsPerBatch is the per-batch cap: bulk generation goes through the admin path, guarding against oversized payloads.
 const maxCardsPerBatch = 10000
 
-// cardBatchInput 是建批次的请求载荷（PAY-3，授权面随 P1-1 登录收敛）。
+// cardBatchInput is the create-batch request payload (PAY-3, authorization surface tightened by P1-1 login).
 type cardBatchInput struct {
 	Name          string     `json:"name"`
 	GrantType     string     `json:"grant_type"` // add_quota / extend_days
 	GrantValue    int64      `json:"grant_value"`
-	PriceCents    int64      `json:"price_cents"` // 在线售价（分），0=仅兑换不出售（PAY-11）
+	PriceCents    int64      `json:"price_cents"` // online sale price in cents; 0=redeem only, not for sale (PAY-11)
 	Total         int        `json:"total"`
 	ExpiredAt     *time.Time `json:"expired_at,omitempty"`
 	CreatedBy     string     `json:"created_by"`
-	DistributorID uint       `json:"distributor_id"` // DS-1：代理归属，0=面板自营
+	DistributorID uint       `json:"distributor_id"` // DS-1: distributor ownership, 0=panel self-operated
 }
 
-// createCardBatch 生成一批卡密：批次与卡密同事务落库，任一失败整批回滚。
+// createCardBatch generates a batch of card codes: the batch and its codes persist in one transaction, and any failure rolls back the whole batch.
 func (h *Handler) createCardBatch(c *gin.Context) {
 	var in cardBatchInput
 	if err := c.ShouldBindJSON(&in); err != nil {
@@ -69,7 +69,7 @@ func (h *Handler) createCardBatch(c *gin.Context) {
 	if in.CreatedBy == "" {
 		in.CreatedBy = "admin"
 	}
-	// DS-1：代理归属须指向真实代理（批次归属建时定，代理不可自改）。
+	// DS-1: distributor ownership must point at a real distributor (ownership is fixed at creation and the distributor cannot change it).
 	if in.DistributorID > 0 {
 		var cnt int64
 		if err := h.db.Model(&storage.Distributor{}).Where("id = ?", in.DistributorID).Count(&cnt).Error; err != nil || cnt == 0 {
@@ -111,7 +111,7 @@ func (h *Handler) createCardBatch(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"batch": batch, "codes": codes})
 }
 
-// cardBatchView 是批次列表行：附剩余可用数。
+// cardBatchView is a batch list row: adds the remaining usable count.
 type cardBatchView struct {
 	storage.CardBatch
 	Remaining int64 `json:"remaining"`
@@ -157,7 +157,7 @@ func (h *Handler) listCardCodes(c *gin.Context) {
 	c.JSON(http.StatusOK, codes)
 }
 
-// exportCardBatchCSV 导出批次卡密明文（code,status），供站外发放。
+// exportCardBatchCSV exports the batch's card codes in plain text (code,status) for off-site distribution.
 func (h *Handler) exportCardBatchCSV(c *gin.Context) {
 	batch, ok := h.findCardBatch(c)
 	if !ok {
@@ -183,8 +183,9 @@ func cardBatchCSV(batch storage.CardBatch, codes []storage.CardCode) []byte {
 	return []byte(buf.String())
 }
 
-// disableCardCode 手动禁用一张卡密：仅 unused 可禁（used 保留核销事实，
-// disabled 终态不可逆），条件更新原子完成避免与兑换并发竞争。
+// disableCardCode manually disables one card code: only unused can be disabled
+// (used keeps the redemption fact, disabled is a terminal state and
+// irreversible); the conditional update is atomic to avoid racing with redemption.
 func (h *Handler) disableCardCode(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -194,7 +195,7 @@ func (h *Handler) disableCardCode(c *gin.Context) {
 	var existing storage.CardCode
 	if err := h.db.First(&existing, uint(id)).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			// 可解析但不存在的 id 与不可禁用同归 409，不区分「不存在」（防枚举口径）。
+			// A parseable but non-existent id and a non-disableable code both return 409 without distinguishing "not found" (anti-enumeration convention).
 			c.JSON(http.StatusConflict, gin.H{"error": "仅未使用的卡密可禁用"})
 			return
 		}
@@ -220,8 +221,9 @@ func (h *Handler) disableCardCode(c *gin.Context) {
 	c.JSON(http.StatusOK, code)
 }
 
-// deleteCardBatch 删除批次：DB 级联连带卡密（《支付设计》§3.1），
-// 导出发放前误建批次可整体回收。
+// deleteCardBatch deletes a batch: the DB cascade takes the codes with it
+// (payment design §3.1), so a mistakenly created batch can be reclaimed as a
+// whole before export and distribution.
 func (h *Handler) deleteCardBatch(c *gin.Context) {
 	batch, ok := h.findCardBatch(c)
 	if !ok {

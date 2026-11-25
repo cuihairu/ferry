@@ -10,12 +10,12 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// apiTokenClaims 是 API Token 的 JWT claim。
+// apiTokenClaims is the JWT claim of an API Token.
 type apiTokenClaims struct {
 	jwt.RegisteredClaims
 }
 
-// ApiTokenLimiter 是 API Token 的 IP 限流器（P1-2：每 IP 100 次/小时）。
+// ApiTokenLimiter is the API Token IP rate limiter (P1-2: 100 times per hour per IP).
 var ApiTokenLimiter = ratelimit.New(ratelimit.Options{
 	Window:      time.Hour,
 	MaxAttempts: 100,
@@ -23,20 +23,21 @@ var ApiTokenLimiter = ratelimit.New(ratelimit.Options{
 	Lockout:     60 * time.Minute,
 })
 
-// apiTokenSecretFallback 是 FERRY_API_SECRET 未配置时的缺省秘钥（与历史
-// 行为一致）；配置后以 cfg.ApiTokenSecret 为准（2026-10-10 修复：此前
-// 中间件侧硬编码缺省值，env 形同虚设）。
+// apiTokenSecretFallback is the default secret used when FERRY_API_SECRET is
+// unset (same behavior as historically); once configured, cfg.ApiTokenSecret
+// takes precedence (fixed 2026-10-10: the middleware side previously
+// hardcoded the default, making the env var useless).
 const apiTokenSecretFallback = "ferry-api-secret"
 
-// AdminGetApiToken 管理员生成 API Token（P1-2）：仅管理员可调，返回 signed JWT。
+// AdminGetApiToken lets an admin generate an API Token (P1-2): admins only; returns a signed JWT.
 func (h *Handler) AdminGetApiToken(c *gin.Context) {
-	// 仅管理员可访问
+	// Admins only.
 	adminID, _ := c.Get("adminUserID")
 	if adminID == "" {
 		c.JSON(http.StatusForbidden, gin.H{"error": "需要管理员权限"})
 		return
 	}
-	// 速率限流：每 IP 100 次/小时
+	// Rate limiting: 100 times per hour per IP.
 	ip := c.ClientIP()
 	if !ApiTokenLimiter.Allow(ip) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "尝试过于频繁，请稍后再试"})
@@ -50,10 +51,10 @@ func (h *Handler) AdminGetApiToken(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"api_token": token})
 }
 
-// generateApiToken 生成 API Token（P1-2）。
+// generateApiToken generates an API Token (P1-2).
 func (h *Handler) generateApiToken() (string, error) {
 	now := time.Now()
-	expire := now.Add(30 * 24 * time.Hour) // Token 有效期 30 天
+	expire := now.Add(30 * 24 * time.Hour) // Token validity: 30 days.
 	claims := apiTokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   "admin",
@@ -73,7 +74,7 @@ func (h *Handler) generateApiToken() (string, error) {
 	return ss, nil
 }
 
-// bearerToken 从 Authorization 头取 Bearer 载荷（空串=未携带）。
+// bearerToken takes the Bearer payload from the Authorization header (empty = absent).
 func bearerToken(c *gin.Context) string {
 	auth := c.GetHeader("Authorization")
 	if strings.HasPrefix(auth, "Bearer ") {
@@ -82,13 +83,16 @@ func bearerToken(c *gin.Context) string {
 	return ""
 }
 
-// apiAuth 是 /api 管理数据面中间件（2026-10-10 安全修复）：此前整个
-// /api 组（nodes/users/cards/distributors 等全部管理路由）裸挂无鉴权，
-// 仅 /api/token 挂 API Token 校验——管理面等同公网开放。现接受两种凭据：
-// 管理员 JWT（/admin/login 签发，dash 使用）或 API Token（P1-2 自动化），
-// 两者秘钥均取 cfg（FERRY_ADMIN_SECRET / FERRY_API_SECRET 生效）。
-// 自带凭据的公开面（panel 订阅令牌、bot 服务令牌、Herald 回执验签、
-// 支付回调验签）挂独立 open 组，不经此中间件。
+// apiAuth is the /api management data-plane middleware (security fix
+// 2026-10-10): the entire /api group (all management routes such as
+// nodes/users/cards/distributors) was previously left unauthenticated, with
+// only /api/token gated by API Token verification -- the management surface
+// was effectively public. It now accepts two credentials: an admin JWT
+// (signed by /admin/login, used by the dash) or an API Token (P1-2
+// automation); both secrets come from cfg (FERRY_ADMIN_SECRET / FERRY_API_SECRET
+// take effect). Credentialed public surfaces (panel subscription tokens, bot
+// service tokens, Herald receipt verification, payment callback verification)
+// live in a separate open group and do not pass through this middleware.
 func (h *Handler) apiAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if h.authorizeAPI(c) {
@@ -104,9 +108,10 @@ func (h *Handler) apiAuth() gin.HandlerFunc {
 	}
 }
 
-// authorizeAPI 校验管理面凭据（P2 供 health 等免中间件路径复用）：admin JWT
-// 或 API Token 任一有效即置上下文并返回 true；失败不改上下文返回 false
-// （未写响应，调用方决定收尾口径）。
+// authorizeAPI verifies management-plane credentials (reusable in P2 for
+// middleware-free paths such as health): a valid admin JWT or API Token sets
+// the context and returns true; on failure it leaves the context untouched and
+// returns false (no response written, so the caller decides how to finish).
 func (h *Handler) authorizeAPI(c *gin.Context) bool {
 	tokenStr := bearerToken(c)
 	if tokenStr == "" {
@@ -117,14 +122,16 @@ func (h *Handler) authorizeAPI(c *gin.Context) bool {
 		adminSecret = "ferry-admin-secret"
 	}
 	adminClaims := &adminClaims{}
-	// 只认 is_admin=true：代理令牌与管理员同密钥签发（DS-1），签名可验
-	// 但非管理员身份——不查此位=代理令牌直通管理数据面。
+	// Only is_admin=true is accepted: a distributor token is signed with the
+	// same secret as an admin (DS-1), so the signature verifies but the
+	// identity is not admin -- without this check a distributor token would
+	// pass straight through into the management data plane.
 	if tkn, err := jwt.ParseWithClaims(tokenStr, adminClaims, func(t *jwt.Token) (interface{}, error) {
 		return []byte(adminSecret), nil
 	}); err == nil && tkn.Valid && adminClaims.IsAdmin {
 		c.Set("adminUserID", adminClaims.ID)
 		c.Set("adminIsAdmin", adminClaims.IsAdmin)
-		// 管理员层级（P2-2）：requireSuper 门槛与 operator 配额归账取此。
+		// Admin tier (P2-2): requireSuper thresholds and operator quota accounting read from this.
 		c.Set("adminRole", normalizeAdminRole(adminClaims.Role))
 		c.Set("apiUser", adminClaims.Subject)
 		return true
@@ -143,7 +150,7 @@ func (h *Handler) authorizeAPI(c *gin.Context) bool {
 	return false
 }
 
-// GetCurrentUser 当前 API 用户（P1-2）：从上下文获取当前登录的 API 用户名。
+// GetCurrentUser is the current API user (P1-2): reads the logged-in API username from the context.
 func (h *Handler) GetCurrentUser(c *gin.Context) {
 	user, _ := c.Get("apiUser")
 	if user == "" {

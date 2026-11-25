@@ -15,11 +15,12 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// 限时活动（PROMO-2）测试：管理面 CRUD 校验 + 活动位（进行中/即将开始）+
-// 下单自动适用与取优（码 vs 活动择惠大者、落选码不核销；首单/续费按历史
-// 已付订单判定）。
+// Tests for time-limited campaigns (PROMO-2): admin-side CRUD validation +
+// the campaign slot (active/upcoming) + automatic application and best-pick at
+// order time (code vs campaign, whichever saves more; the losing coupon is not
+// redeemed; first order/renew judged from historical paid orders).
 
-// mkCampaign 建活动载荷。
+// mkCampaign builds a campaign payload.
 func mkCampaign(name, kind string, rules any, starts, ends string) map[string]any {
 	return map[string]any{
 		"name": name, "kind": kind, "rules": rules,
@@ -32,8 +33,8 @@ func jsonStr(v any) string {
 	return string(b)
 }
 
-// TestCampaignCRUDValidation 覆盖建/删校验：kind 枚举、rules JSON 口径、
-// 起止必填与顺序。
+// TestCampaignCRUDValidation covers create/delete validation: kind enum,
+// rules JSON conventions, required start/end and their order.
 func TestCampaignCRUDValidation(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	now := time.Now()
@@ -48,7 +49,7 @@ func TestCampaignCRUDValidation(t *testing.T) {
 	var row storage.Campaign
 	json.Unmarshal(rec.Body.Bytes(), &row)
 
-	// pct 规则（基点）
+	// pct rule (basis points)
 	if rec = doJSON(t, r, "POST", "/api/campaigns",
 		mkCampaign("会员折扣", "timed", map[string]any{"kind": "pct", "value": 2500}, start, end)); rec.Code != http.StatusCreated {
 		t.Fatalf("pct rules: %d %s", rec.Code, rec.Body)
@@ -68,7 +69,7 @@ func TestCampaignCRUDValidation(t *testing.T) {
 		}
 	}
 
-	// 编辑（含停用）与删除
+	// editing (including disabling) and deletion
 	if rec = doJSON(t, r, "PUT", "/api/campaigns/"+strconv.Itoa(int(row.ID)),
 		map[string]any{"name": "开年折扣改", "kind": "renew", "rules": jsonStr(map[string]any{"kind": "cut", "value": 300}),
 			"starts_at": start, "ends_at": end, "enabled": false}); rec.Code != http.StatusOK {
@@ -90,8 +91,10 @@ func TestCampaignCRUDValidation(t *testing.T) {
 	}
 }
 
-// TestCampaignAutoApply 覆盖活动自动适用与取优（PROMO-2）：首单/续费判定、
-// 活动位过滤、码 vs 活动择惠大者、落选码不核销、范围/门槛/窗口失效后回落面价。
+// TestCampaignAutoApply covers automatic campaign application and best-pick
+// (PROMO-2): first order/renew judgment, campaign slot filtering, code vs
+// campaign by whichever saves more, the losing coupon not being redeemed, and
+// falling back to the list price after scope/threshold/window become invalid.
 func TestCampaignAutoApply(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	for _, name := range []string{"buyer", "old"} {
@@ -103,7 +106,7 @@ func TestCampaignAutoApply(t *testing.T) {
 	}
 	var old storage.User
 	db.Where("sub_token = ?", "old-sub").First(&old)
-	// old 用户已有已付订单（首单资格用尽、续费资格命中）
+	// old already has a paid order (first_order eligibility used up, renew eligibility matches)
 	if err := db.Create(&storage.PaymentOrder{
 		OrderNo: "old-paid-1", UserID: old.ID, Provider: "epusdt",
 		AmountCents: 1000, ListAmountCents: 1000, Product: "包月", Status: "paid",
@@ -122,7 +125,7 @@ func TestCampaignAutoApply(t *testing.T) {
 	day := now.Format(time.RFC3339)
 	endDay := now.Add(7 * 24 * time.Hour).Format(time.RFC3339)
 
-	// 活动：新客首单减 300；续费减 200；限时节减 500（惠最大）；另品专属码活动（范围外）
+	// Campaigns: new-customer first order minus 300; renew minus 200; flash sale minus 500 (biggest saving); plus a product-specific code campaign (out of scope)
 	newCustomer := doJSON(t, r, "POST", "/api/campaigns", mkCampaign("新客首单", "first_order",
 		map[string]any{"kind": "cut", "value": 300}, day, endDay))
 	if newCustomer.Code != http.StatusCreated {
@@ -141,7 +144,7 @@ func TestCampaignAutoApply(t *testing.T) {
 	var flashRow storage.Campaign
 	json.Unmarshal(flash.Body.Bytes(), &flashRow)
 
-	// ---- 活动位：进行中三个（均在窗内），过期/停用/未开始不下发 ----
+	// ---- Campaign slot: three active (all inside the window); expired/disabled/not yet started are not sent down ----
 	rec := doPanel(t, r, "buyer-sub", "GET", "/api/panel/campaigns", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("campaigns: %d %s", rec.Code, rec.Body)
@@ -167,7 +170,7 @@ func TestCampaignAutoApply(t *testing.T) {
 			t.Fatalf("spot = %+v", s)
 		}
 	}
-	// 过期活动（窗口整体在过去）：活动位不下发
+	// expired campaign (the whole window in the past): not served by the campaign slot
 	if rec = doJSON(t, r, "POST", "/api/campaigns",
 		mkCampaign("历史活动", "timed", map[string]any{"kind": "cut", "value": 100},
 			now.Add(-2*time.Hour).Format(time.RFC3339), now.Add(-time.Hour).Format(time.RFC3339))); rec.Code != http.StatusCreated {
@@ -181,8 +184,8 @@ func TestCampaignAutoApply(t *testing.T) {
 		t.Fatalf("spots after expired = %+v", spots)
 	}
 
-	// ---- 下单取优：惠大者胜出（flash 减 500 > 首单减 300 > 续费减 200） ----
-	// 每个场景换 IP 绕下单限流（10 次/分钟）。
+	// ---- Best-pick at order time: the biggest saving wins (flash minus 500 > first order minus 300 > renew minus 200) ----
+	// Each scenario rotates the IP to bypass the order rate limit (10 per minute).
 	var seq int
 	order := func(token, code string) (int, map[string]any) {
 		seq++
@@ -205,7 +208,7 @@ func TestCampaignAutoApply(t *testing.T) {
 		return rec.Code, out
 	}
 
-	// buyer（无已付单）：命中 first_order+timed，flash 惠大 → 减 500 实付 500
+	// buyer (no paid order): first_order+timed match, flash saves the most -> minus 500, amount paid 500
 	code, out := order("buyer-sub", "")
 	if code != http.StatusCreated || out["amount_cents"].(float64) != 500 {
 		t.Fatalf("new customer order: %d %v", code, out)
@@ -219,29 +222,29 @@ func TestCampaignAutoApply(t *testing.T) {
 		t.Fatalf("snapshot discount = %s", ord.PromoSnapshot)
 	}
 
-	// old（有已付单）：first_order 出局，renew 减 200 vs flash 减 500 → flash 惠大
+	// old (has a paid order): first_order is out, renew minus 200 vs flash minus 500 -> flash saves the most
 	if code, out = order("old-sub", ""); code != http.StatusCreated || out["amount_cents"].(float64) != 500 {
 		t.Fatalf("renew order: %d %v", code, out)
 	}
 
-	// ---- 码 vs 活动取优：码惠大→码落单；活动惠大→码不核销 ----
-	// 建码减 600（大于 flash 减 500）
+	// ---- Code vs campaign best-pick: code saves more -> the code lands on the order; campaign saves more -> the code is not redeemed ----
+	// Create a code worth minus 600 (bigger than flash's minus 500)
 	doJSON(t, r, "POST", "/api/coupons", map[string]any{"code": "BIG600", "kind": "cut", "value": 600})
 	if code, out = order("buyer-sub", "BIG600"); code != http.StatusCreated || out["amount_cents"].(float64) != 400 {
 		t.Fatalf("coupon wins: %d %v", code, out)
 	}
-	ord = storage.PaymentOrder{} // GORM First 以非零主键为条件，须重置
-	ord = storage.PaymentOrder{} // GORM First 以非零主键为条件，须重置
+	ord = storage.PaymentOrder{} // GORM First conditions on a non-zero primary key, so it must be reset
+	ord = storage.PaymentOrder{} // GORM First conditions on a non-zero primary key, so it must be reset
 	db.Where("order_no = ?", out["order_no"]).First(&ord)
 	if ord.PromoCode != "BIG600" || !strings.Contains(ord.PromoSnapshot, `"code":"BIG600"`) {
 		t.Fatalf("coupon snapshot = %+v %s", ord, ord.PromoSnapshot)
 	}
-	// 码减 100（小于 flash 减 500）→ 活动胜出，码不核销
+	// code minus 100 (smaller than flash's minus 500) -> the campaign wins and the code is not redeemed
 	doJSON(t, r, "POST", "/api/coupons", map[string]any{"code": "SMALL100", "kind": "cut", "value": 100})
 	if code, out = order("buyer-sub", "SMALL100"); code != http.StatusCreated || out["amount_cents"].(float64) != 500 {
 		t.Fatalf("campaign wins: %d %v", code, out)
 	}
-	ord = storage.PaymentOrder{} // GORM First 以非零主键为条件，须重置
+	ord = storage.PaymentOrder{} // GORM First conditions on a non-zero primary key, so it must be reset
 	db.Where("order_no = ?", out["order_no"]).First(&ord)
 	if ord.PromoCode != "" || !strings.Contains(ord.PromoSnapshot, `"source":"campaign"`) {
 		t.Fatalf("campaign snapshot = %+v %s", ord, ord.PromoSnapshot)
@@ -252,7 +255,7 @@ func TestCampaignAutoApply(t *testing.T) {
 		t.Fatalf("losing coupon burned: used=%d", small.Used)
 	}
 
-	// ---- 停用全部活动后下单：无促销可命中，回落面价 ----
+	// ---- Ordering after disabling all campaigns: no promotion can match, fall back to the list price ----
 	var camps []storage.Campaign
 	db.Find(&camps)
 	for _, c := range camps {
@@ -266,7 +269,7 @@ func TestCampaignAutoApply(t *testing.T) {
 	if code, out = order("buyer-sub", ""); code != http.StatusCreated || out["amount_cents"].(float64) != 1000 {
 		t.Fatalf("no campaign left: %d %v", code, out)
 	}
-	ord = storage.PaymentOrder{} // GORM First 以非零主键为条件，须重置
+	ord = storage.PaymentOrder{} // GORM First conditions on a non-zero primary key, so it must be reset
 	db.Where("order_no = ?", out["order_no"]).First(&ord)
 	if ord.PromoCode != "" || ord.PromoSnapshot != "" {
 		t.Fatalf("plain order = %+v %s", ord, ord.PromoSnapshot)

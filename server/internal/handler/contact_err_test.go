@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// doPanelRaw 与 doPanel 同口径但载荷原样写入（坏 JSON 负例用）。
+// doPanelRaw follows the same convention as doPanel but writes the payload verbatim (for bad-JSON negative cases).
 func doPanelRaw(t *testing.T, r *gin.Engine, token, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -28,28 +28,29 @@ func doPanelRaw(t *testing.T, r *gin.Engine, token, method, path, body string) *
 	return rec
 }
 
-// TestPanelContactErrors 覆盖联系绑定错误面：无凭据、坏载荷、TG chat 过长、
-// 首绑落库失败、换绑保存失败。
+// TestPanelContactErrors covers the contact binding error surface: no
+// credentials, bad payload, TG chat too long, first-bind persist failure, and
+// rebind save failure.
 func TestPanelContactErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	token := panelToken(t, r, "ct-err")
 
-	// 无凭据 PUT → 404（panelUser 未命中分支）。
+	// PUT without credentials -> 404 (the panelUser no-hit branch).
 	if rec := doPanel(t, r, "", "PUT", "/api/panel/contact", map[string]any{"email": "a@b.c"}); rec.Code != http.StatusNotFound {
 		t.Fatalf("no token: %d", rec.Code)
 	}
-	// 坏载荷 → 400。
+	// Bad payload -> 400.
 	if rec := doPanelRaw(t, r, token, "PUT", "/api/panel/contact", "{bad"); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad json: %d", rec.Code)
 	}
-	// TG chat_id 超长 → 400。
+	// TG chat_id too long -> 400.
 	if rec := doPanel(t, r, token, "PUT", "/api/panel/contact", map[string]any{
 		"tg_chat_id": strings.Repeat("x", 65),
 	}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("chat too long: %d", rec.Code)
 	}
 
-	// 首绑落库失败 → 500（Create 链）。
+	// First-bind persist failure -> 500 (Create chain).
 	r2, db2 := newTestRouterWithDB(t)
 	token2 := panelToken(t, r2, "ct-new")
 	db2.Callback().Create().Before("gorm:create").Register("t:ctcreate", func(tx *gorm.DB) {
@@ -61,7 +62,7 @@ func TestPanelContactErrors(t *testing.T) {
 		t.Fatalf("create fail: %d %s", rec.Code, rec.Body)
 	}
 
-	// 换绑保存失败 → 500（Save 走 Update 链）。
+	// Rebind save failure -> 500 (Save goes through the Update chain).
 	r3, db3 := newTestRouterWithDB(t)
 	token3 := panelToken(t, r3, "ct-save")
 	if rec := doPanel(t, r3, token3, "PUT", "/api/panel/contact", map[string]any{"email": "a@b.c"}); rec.Code != http.StatusOK {
@@ -77,10 +78,11 @@ func TestPanelContactErrors(t *testing.T) {
 	}
 }
 
-// TestTouchResultContactErrors 覆盖回执联动的联系行兜底建档与建档失败静默
-// （回执端点不因联动失败报错）。
+// TestTouchResultContactErrors covers the receipt-linkage fallback creation of
+// the contact row and the silence when that creation fails (the receipt
+// endpoint must not error on a linkage failure).
 func TestTouchResultContactErrors(t *testing.T) {
-	// 用户无联系行 → failed 回执自动建零值行并标 stale。
+	// User has no contact row -> a failed receipt auto-creates a zero-value row and marks it stale.
 	r, db := newSecretRouter(t)
 	var uid uint
 	if rec := doJSON(t, r, "POST", "/api/users", map[string]any{"username": "ct-norow"}); rec.Code != http.StatusCreated {
@@ -112,7 +114,7 @@ func TestTouchResultContactErrors(t *testing.T) {
 		t.Fatalf("fallback row = %+v", ct)
 	}
 
-	// 兜底建档失败 → 静默返回，回执端点仍 200。
+	// Fallback creation fails -> return silently, the receipt endpoint still returns 200.
 	r2, db2 := newSecretRouter(t)
 	var uid2 uint
 	if rec := doJSON(t, r2, "POST", "/api/users", map[string]any{"username": "ct-norow2"}); rec.Code != http.StatusCreated {
@@ -148,8 +150,10 @@ func TestTouchResultContactErrors(t *testing.T) {
 	}
 }
 
-// TestTruncateErr 覆盖回执 detail 超长截断（列宽 255）；P2 UTF-8 截断修复
-// 后截断按字符边界回退——含中文的 detail 截断产物仍是合法 UTF-8。
+// TestTruncateErr covers truncation of an over-long receipt detail (column
+// width 255); after the P2 UTF-8 truncation fix, truncation backs off to a
+// character boundary — a Chinese-bearing detail stays valid UTF-8 after
+// truncation.
 func TestTruncateErr(t *testing.T) {
 	long := strings.Repeat("x", 300)
 	if got := truncateErr(long); len(got) != 255 {
@@ -158,7 +162,7 @@ func TestTruncateErr(t *testing.T) {
 	if got := truncateErr("short"); got != "short" {
 		t.Fatalf("passthrough = %q", got)
 	}
-	// 上限落在多字节字符中间（x 到 253、流 首字节占 253-255）：回退到边界。
+	// The limit falls in the middle of a multi-byte character (x fills up to 253 and the first byte of the CJK character used below occupies 253-255): back off to the boundary.
 	longZH := strings.Repeat("x", 253) + strings.Repeat("流", 10)
 	if got := truncateErr(longZH); len(got) != 253 || !utf8.ValidString(got) {
 		t.Fatalf("utf8 truncate = %d bytes, valid=%v", len(got), utf8.ValidString(got))

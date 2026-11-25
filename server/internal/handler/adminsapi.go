@@ -13,13 +13,16 @@ import (
 	"gorm.io/gorm"
 )
 
-// 多级管理员/子管理员配额（P2-2）管理面：两级口径对齐 Marzban is_sudo——
-// super（bootstrap 建号）可管管理员；operator（子管理员）为 IsAdmin 用户，
-// 受 max_users 建用户配额约束（见 user.go createUser）。管理员=users 表
-// IsAdmin 行，本组端点做的是提升/降级与配额维护，不另设表。
+// Multi-tier admin / sub-admin quota (P2-2) management surface: the two-tier
+// policy aligns with Marzban's is_sudo -- super (the bootstrap account) can manage
+// admins, while operator (sub-admin) is an IsAdmin user bound by the max_users
+// sign-up quota (see createUser in user.go). An admin is an IsAdmin row in the
+// users table, so these endpoints promote/demote and maintain quotas rather than
+// using a separate table.
 
-// requireSuper 管理员层级门槛：非 super（含 operator 与旧令牌归一后仍非
-// super 的）一律 403。挂在 /api/admins 组上。
+// requireSuper is the admin tier gate: anyone who is not super (including operator,
+// and legacy tokens that still normalize to non-super) gets 403. Attached to the
+// /api/admins group.
 func (h *Handler) requireSuper() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if role, _ := c.Get("adminRole"); role != RoleSuper {
@@ -31,7 +34,8 @@ func (h *Handler) requireSuper() gin.HandlerFunc {
 	}
 }
 
-// adminRow 是管理员列表/详情的下发形态（不泄密码/TOTP/订阅令牌）。
+// adminRow is the wire shape for admin list/detail responses (never leaks
+// password/TOTP/subscription token).
 type adminRow struct {
 	ID        uint   `json:"id"`
 	Username  string `json:"username"`
@@ -50,8 +54,9 @@ func toAdminRow(u storage.User) adminRow {
 	}
 }
 
-// checkOperatorQuota 子管理员建用户配额（P2-2）：按 created_by 归账计数，
-// max_users=0 不限；超配额回错由 createUser 转 403。
+// checkOperatorQuota is the sub-admin sign-up quota (P2-2): counts are charged by
+// created_by, and max_users=0 means unlimited; the over-quota error is turned
+// into 403 by createUser.
 func (h *Handler) checkOperatorQuota(operator string) error {
 	var op storage.User
 	if err := h.db.Where("username = ? AND is_admin = ?", operator, true).First(&op).Error; err != nil {
@@ -70,7 +75,7 @@ func (h *Handler) checkOperatorQuota(operator string) error {
 	return nil
 }
 
-// listAdmins 列出全部管理员（GET /api/admins，super）。
+// listAdmins lists all admins (GET /api/admins, super).
 func (h *Handler) listAdmins(c *gin.Context) {
 	rows := []storage.User{}
 	if err := h.db.Where("is_admin = ?", true).Order("id").Find(&rows).Error; err != nil {
@@ -84,9 +89,10 @@ func (h *Handler) listAdmins(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
-// createAdmin 提升子管理员（POST /api/admins，super）：建 IsAdmin 用户，
-// role 恒 operator（super 只由 bootstrap 产生，杜绝 API 造超管）；密码
-// bcrypt 落 users.password；max_users>=0（0=不限）。
+// createAdmin promotes a sub-admin (POST /api/admins, super): creates an IsAdmin
+// user whose role is always operator (super only ever comes from bootstrap, so the
+// API cannot mint a super admin); the password goes to users.password as a bcrypt
+// hash; max_users >= 0 (0 = unlimited).
 func (h *Handler) createAdmin(c *gin.Context) {
 	var in struct {
 		Username string `json:"username"`
@@ -147,9 +153,10 @@ func (h *Handler) createAdmin(c *gin.Context) {
 	c.JSON(http.StatusCreated, toAdminRow(u))
 }
 
-// updateAdmin 维护子管理员（PUT /api/admins/:id，super）：改密码/启停/
-// 配额。super 账号本体不可经此端点改动（防自锁——启停与降配额只对
-// operator 生效）。
+// updateAdmin maintains a sub-admin (PUT /api/admins/:id, super): change password /
+// enable-disable / quota. The super account itself cannot be modified through this
+// endpoint (self-lockout protection -- enable/disable and quota lowering only apply
+// to operator).
 func (h *Handler) updateAdmin(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id <= 0 {
@@ -158,8 +165,9 @@ func (h *Handler) updateAdmin(c *gin.Context) {
 	}
 	var u storage.User
 	if err := h.db.First(&u, id).Error; err != nil {
-		// gorm 的 ErrRecordNotFound 与 errNotFound 不是同一哨兵，必须显式判定，
-		// 否则经 replyFind 落 500（用户可见的应是 404）。
+		// gorm's ErrRecordNotFound is not the same sentinel as errNotFound, so it must be
+		// checked explicitly; otherwise replyFind turns it into a 500 (the user-facing
+		// answer should be 404).
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			fail(c, http.StatusNotFound, errors.New("admin not found"))
 			return
@@ -196,8 +204,9 @@ func (h *Handler) updateAdmin(c *gin.Context) {
 			return
 		}
 		updates["password"] = string(hash)
-		// 改密即作废旧管理员 JWT（审核修复 2026-11-12）：中间件回库复核时
-		// 对比令牌签发时间与本次改密时间，早于改密的令牌一律 401。
+		// A password change invalidates old admin JWTs immediately (audit fix 2026-11-12):
+		// the middleware re-check compares token issue time against this change time,
+		// and any token older than the change is 401.
 		now := time.Now()
 		updates["password_changed_at"] = now
 	}
@@ -224,9 +233,11 @@ func (h *Handler) updateAdmin(c *gin.Context) {
 	c.JSON(http.StatusOK, toAdminRow(out))
 }
 
-// deleteAdmin 降级子管理员（DELETE /api/admins/:id，super）：不是删用户
-// （名下可能有订单/配额数据），而是摘管理员身份——is_admin=false、角色清
-// 空、密码清空，回落普通订阅用户。super 账号不可降（唯一超管防自锁）。
+// deleteAdmin demotes a sub-admin (DELETE /api/admins/:id, super): it does not delete
+// the user (who may have orders/quota data under their name) but strips the admin
+// identity -- is_admin=false, role cleared, password cleared -- dropping them back
+// to a regular subscriber. A super account cannot be demoted (self-lockout
+// protection for the sole super admin).
 func (h *Handler) deleteAdmin(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id <= 0 {
@@ -235,7 +246,7 @@ func (h *Handler) deleteAdmin(c *gin.Context) {
 	}
 	var u storage.User
 	if err := h.db.First(&u, id).Error; err != nil {
-		// 查无同 update：显式判 gorm 记录不存在回 404，经 replyFind 会落 500。
+		// Same as update for the not-found case: explicitly detect a missing gorm record and return 404; replyFind would turn it into 500.
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			fail(c, http.StatusNotFound, errors.New("admin not found"))
 			return

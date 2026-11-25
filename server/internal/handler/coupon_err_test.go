@@ -10,17 +10,17 @@ import (
 	"gorm.io/gorm"
 )
 
-// 三十七批补口：优惠码（PROMO-1）错误口径——列表取数失败、validateDiscount
-// 规则 min_amount 越界/定向批次计数失败/坏 scope 形态、建号缺省 per_user
-// 落 1/落库失败、更新坏 id/库故障定位/坏绑定/校验失败/保存失败、删除坏
-// id/落删失败、couponCheck 定位失败/每用户计数失败、applyCouponTx 校验
-// 不过 passthrough 与条件核销零行报已领完/核销成功减额。
-// 留白 2 处：randomCode8 的 crypto/rand 错误（rand.Read 有主熵源恒成功）；
-// applyCouponTx 的 RowsAffected==0 核销兜底分支——其更新条件
-// total=0 OR used<total 与 couponCheck 的拒绝条件同形，串行流下读数即写
-// 条件，非并发改行不可达，与 panel 358 同型防御性代码。
+// Batch 37 coverage: coupon (PROMO-1) error contracts — list fetch failure, validateDiscount
+// rules min_amount out of range / targeted batch count failure / bad scope shape, create with default per_user
+// landing on 1 / persist failure, update with bad id / db-fault locate / bad bind / validation failure / save
+// failure, delete with bad id / delete failure, couponCheck locate failure / per-user count failure, applyCouponTx validation
+// passthrough plus conditional redemption reporting zero rows as exhausted / successful redemption discount.
+// Two gaps left: the crypto/rand error in randomCode8 (rand.Read has a primary entropy source and always succeeds);
+// applyCouponTx's RowsAffected==0 redemption backstop branch — its update condition
+// total=0 OR used<total is shaped identically to couponCheck's rejection condition, and in a serial flow the read is the
+// write condition, so a non-concurrent row edit is unreachable; same shape of defensive code as panel 358.
 
-// isCouponModel 判断语句是否落在优惠码表上。
+// isCouponModel reports whether the statement targets the coupon table.
 func isCouponModel(v any) bool {
 	switch v.(type) {
 	case *storage.Coupon, []storage.Coupon, *[]storage.Coupon:
@@ -29,7 +29,7 @@ func isCouponModel(v any) bool {
 	return false
 }
 
-// seedCouponRow 直落一行优惠码（scope 恒 all），返回其 ID。
+// seedCouponRow inserts a coupon row directly (scope always all) and returns its ID.
 func seedCouponRow(t *testing.T, db *gorm.DB, code, kind string, value, total, used, perUser int64) uint {
 	t.Helper()
 	row := storage.Coupon{Code: code, Kind: kind, Value: value, Scope: "all",
@@ -40,7 +40,7 @@ func seedCouponRow(t *testing.T, db *gorm.DB, code, kind string, value, total, u
 	return row.ID
 }
 
-// TestListCouponsError 列表取数失败 500。
+// TestListCouponsError list fetch failure → 500.
 func TestListCouponsError(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	failQueryOn(t, db, "test:coupon_q", isCouponModel)
@@ -49,8 +49,8 @@ func TestListCouponsError(t *testing.T) {
 	}
 }
 
-// TestValidateDiscountRulesErrors 校验规则直测：min_amount 越界、定向批
-// 次计数失败与坏 scope 形态。
+// TestValidateDiscountRulesErrors direct rule validation: min_amount out of range, targeted batch
+// count failure and bad scope shape.
 func TestValidateDiscountRulesErrors(t *testing.T) {
 	_, db := newTestRouterWithDB(t)
 	h := &Handler{db: db}
@@ -59,20 +59,20 @@ func TestValidateDiscountRulesErrors(t *testing.T) {
 		t.Fatalf("min amount: %v", err)
 	}
 
-	// 定向批次存在性计数失败（Count 落在 CardBatch 表）。
+	// Targeted batch existence count fails (Count lands on the CardBatch table).
 	failQueryOn(t, db, "test:cardbatch_q", isCardBatchModel)
 	if _, err := h.validateDiscountRules("cut", 10, "batch:1", 0); err == nil {
 		t.Fatalf("scope count: want err")
 	}
 
-	// 坏 scope 形态（batch: 后非数字）。
+	// Bad scope shape (non-numeric after batch:).
 	if _, err := h.validateDiscountRules("cut", 10, "batch:abc", 0); err == nil ||
 		!containsStr(err.Error(), "scope must be all") {
 		t.Fatalf("bad scope: %v", err)
 	}
 }
 
-// TestCreateCouponErrors 建号：坏绑定、缺省 per_user 落 1 与落库失败 500。
+// TestCreateCouponErrors create: bad bind, default per_user landing on 1, and persist failure → 500.
 func TestCreateCouponErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doJSON(t, r, http.MethodPost, "/api/coupons", "not json"); rec.Code != http.StatusBadRequest {
@@ -92,8 +92,8 @@ func TestCreateCouponErrors(t *testing.T) {
 	}
 }
 
-// TestUpdateCouponErrors 更新：坏 id、库故障定位、坏绑定、校验失败与保存
-// 失败。
+// TestUpdateCouponErrors update: bad id, db-fault locate, bad bind, validation failure and save
+// failure.
 func TestUpdateCouponErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doJSON(t, r, http.MethodPut, "/api/coupons/abc",
@@ -128,7 +128,7 @@ func TestUpdateCouponErrors(t *testing.T) {
 	}
 }
 
-// TestDeleteCouponErrors 删除：坏 id 与落删失败。
+// TestDeleteCouponErrors delete: bad id and delete failure.
 func TestDeleteCouponErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doJSON(t, r, http.MethodDelete, "/api/coupons/abc", nil); rec.Code != http.StatusBadRequest {
@@ -147,16 +147,16 @@ func TestDeleteCouponErrors(t *testing.T) {
 	}
 }
 
-// TestCouponCheckDBFails couponCheck 直测：定位失败与每用户计数失败。
+// TestCouponCheckDBFails couponCheck direct test: locate failure and per-user count failure.
 func TestCouponCheckDBFails(t *testing.T) {
-	// 定位失败（First 走 gorm:query）。
+	// Locate failure (First goes through gorm:query).
 	_, db := newTestRouterWithDB(t)
 	failQueryOn(t, db, "test:coupon_first", isCouponModel)
 	if _, err := couponCheck(db, "NOPE", &storage.User{}, &storage.CardBatch{}, 1000, time.Now()); err == nil {
 		t.Fatal("locate: want err")
 	}
 
-	// 每用户计数失败（Count 落在 PaymentOrder 表）。
+	// Per-user count failure (Count lands on the PaymentOrder table).
 	_, db = newTestRouterWithDB(t)
 	seedCouponRow(t, db, "CP1", "cut", 10, 0, 0, 0)
 	failQueryOn(t, db, "test:payorder_count", isPayOrderModel)
@@ -165,16 +165,16 @@ func TestCouponCheckDBFails(t *testing.T) {
 	}
 }
 
-// TestApplyCouponTxErrors applyCouponTx 直测：校验不过 passthrough、条件
-// 核销零行报已领完与核销成功减额。
+// TestApplyCouponTxErrors applyCouponTx direct test: validation passthrough, conditional
+// redemption reporting zero rows as exhausted, and successful redemption discount.
 func TestApplyCouponTxErrors(t *testing.T) {
-	// 校验不过 passthrough（无此码 → 优惠码无效）。
+	// Validation passthrough (no such code → invalid coupon).
 	_, db := newTestRouterWithDB(t)
 	if _, _, err := applyCouponTx(db, "NOPE", &storage.User{}, &storage.CardBatch{}, 1000, time.Now()); err == nil {
 		t.Fatal("passthrough: want err")
 	}
 
-	// 条件核销零行（used 已顶 total）报已领完。
+	// Conditional redemption affecting zero rows (used already at total) reports exhausted.
 	_, db = newTestRouterWithDB(t)
 	seedCouponRow(t, db, "CP2", "cut", 10, 1, 1, 0)
 	_, _, err := applyCouponTx(db, "CP2", &storage.User{}, &storage.CardBatch{}, 1000, time.Now())
@@ -182,7 +182,7 @@ func TestApplyCouponTxErrors(t *testing.T) {
 		t.Fatalf("burn exhausted: %v", err)
 	}
 
-	// 核销成功：cut 减额落实付 990 且 used+1。
+	// Successful redemption: the cut brings the amount paid to 990 and used+1.
 	_, db = newTestRouterWithDB(t)
 	seedCouponRow(t, db, "CP3", "cut", 10, 0, 0, 0)
 	paid, _, err := applyCouponTx(db, "CP3", &storage.User{}, &storage.CardBatch{}, 1000, time.Now())

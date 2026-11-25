@@ -7,8 +7,9 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestCostAPIDBError 覆盖成本看板取数失败：月初至今报告构建依赖设置读取，
-// 注入 settings 查询失败 → 500。
+// TestCostAPIDBError covers a failed data fetch for the cost dashboard: building
+// the month-to-date report depends on reading settings, so injecting a settings
+// query failure → 500.
 func TestCostAPIDBError(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	regQueryFail("t:cost_setting", db, (*storage.Setting)(nil))
@@ -17,7 +18,7 @@ func TestCostAPIDBError(t *testing.T) {
 	}
 }
 
-// TestCostThresholdGuards 覆盖阈值设置的两个校验口：坏载荷与缺 cents 均 400。
+// TestCostThresholdGuards covers the two validation gates on threshold setting: a bad payload and a missing cents both → 400.
 func TestCostThresholdGuards(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doRaw(t, r, http.MethodPut, "/api/cost/threshold", "{bad"); rec.Code != http.StatusBadRequest {

@@ -15,7 +15,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// readEnv 从连接读一条消息并解析为 Envelope。
+// readEnv reads one message from the connection and parses it into an Envelope.
 func readEnv(t *testing.T, c *websocket.Conn) agentproto.Envelope {
 	t.Helper()
 	_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
@@ -30,7 +30,7 @@ func readEnv(t *testing.T, c *websocket.Conn) agentproto.Envelope {
 	return env
 }
 
-// waitStatus 轮询直到节点状态符合期望。
+// waitStatus polls until the node status matches the expectation.
 func waitStatus(t *testing.T, r http.Handler, id int, want string) {
 	t.Helper()
 	path := "/api/nodes/" + strconv.Itoa(id)
@@ -53,7 +53,7 @@ func waitStatus(t *testing.T, r http.Handler, id int, want string) {
 func TestAgentWSHeartbeat(t *testing.T) {
 	r := newTestRouter(t)
 
-	// 造一个节点拿接入令牌
+	// create a node to get an access token
 	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
 		"name": "hk-1", "address": "hk.example.com", "port": 443, "protocol": "vless",
 	})
@@ -84,7 +84,7 @@ func TestAgentWSHeartbeat(t *testing.T) {
 		t.Fatalf("expected hello_ack, got %s", env.Type)
 	}
 
-	// 心跳 → heartbeat_ack，节点置 online
+	// heartbeat -> heartbeat_ack, node set to online
 	hb, _ := agentproto.NewEnvelope("hb-1", agentproto.MsgHeartbeat, agentproto.Heartbeat{
 		UptimeSec: 10, Load1: 0.1, At: time.Now(),
 	})
@@ -96,7 +96,7 @@ func TestAgentWSHeartbeat(t *testing.T) {
 	}
 	waitStatus(t, r, 1, "online")
 
-	// 断开后节点应回 offline
+	// after disconnect the node should go offline
 	c.Close()
 	waitStatus(t, r, 1, "offline")
 }
@@ -104,7 +104,7 @@ func TestAgentWSHeartbeat(t *testing.T) {
 func TestAgentWSHelloMeta(t *testing.T) {
 	r := newTestRouter(t)
 
-	// 造一个节点拿接入令牌
+	// create a node to get an access token
 	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
 		"name": "entry-1", "address": "sh.example.com", "port": 443, "protocol": "vless",
 	})
@@ -126,7 +126,7 @@ func TestAgentWSHelloMeta(t *testing.T) {
 	}
 	defer c.Close()
 
-	// 首次注册：hello 带元数据初值，hello_ack 应回传
+	// first registration: hello carries initial metadata, hello_ack should send it back
 	hello, _ := agentproto.NewEnvelope("h1", agentproto.MsgHello, agentproto.Hello{
 		Token: token, AgentID: "entry-1", Version: "test",
 		Meta: agentproto.NodeMeta{
@@ -159,7 +159,7 @@ func TestAgentWSHelloMeta(t *testing.T) {
 		t.Fatalf("labels mismatch: %v", ack.Meta.Labels)
 	}
 
-	// 节点详情应带上元数据
+	// node detail should carry the metadata
 	drec := doJSON(t, r, "GET", "/api/nodes/"+strconv.Itoa(id), nil)
 	var detail map[string]any
 	_ = json.Unmarshal(drec.Body.Bytes(), &detail)
@@ -168,7 +168,7 @@ func TestAgentWSHelloMeta(t *testing.T) {
 		t.Fatalf("node detail meta mismatch: %v", detail)
 	}
 
-	// 二次注册：面板为权威，agent 的新上报不覆盖，hello_ack 回面板值
+	// second registration: the panel is authoritative, the agent's newer report does not overwrite, hello_ack returns the panel values
 	c2, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("redial: %v", err)
@@ -224,7 +224,7 @@ func TestAgentWSProbeReport(t *testing.T) {
 		t.Fatalf("expected hello_ack, got %s", env.Type)
 	}
 
-	// 探测结论上报 → probe.ack 回执条数
+	// probe verdict report -> the record count in the probe.ack receipt
 	batch, _ := agentproto.NewEnvelope("pr-1", agentproto.MsgProbeReport, agentproto.ProbeReportBatch{
 		Items: []agentproto.ProbeReport{
 			{
@@ -254,7 +254,7 @@ func TestAgentWSProbeReport(t *testing.T) {
 func TestAgentWSProbeReportResolve(t *testing.T) {
 	r := newTestRouter(t)
 
-	// 目标节点（落地）：探测目标按地址解析到该节点
+	// target node (landing): the probe target resolves to this node by address
 	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
 		"name": "landing-1", "address": "sg.example.com", "port": 443, "protocol": "vless",
 	})
@@ -265,7 +265,7 @@ func TestAgentWSProbeReportResolve(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &landing)
 	landingID := landing["id"].(float64)
 
-	// 探测者节点（入口）
+	// prober node (entry)
 	rec = doJSON(t, r, "POST", "/api/nodes", map[string]any{
 		"name": "entry-1", "address": "sh.example.com", "port": 443, "protocol": "vless",
 	})
@@ -296,7 +296,7 @@ func TestAgentWSProbeReportResolve(t *testing.T) {
 		t.Fatalf("expected hello_ack, got %s", env.Type)
 	}
 
-	// 按地址上报探测结论（不带目标节点 ID）
+	// report probe verdicts by address (without a target node ID)
 	batch, _ := agentproto.NewEnvelope("pr-1", agentproto.MsgProbeReport, agentproto.ProbeReportBatch{
 		Items: []agentproto.ProbeReport{{
 			TargetKind: agentproto.ProbeTargetTunnel,
@@ -315,7 +315,7 @@ func TestAgentWSProbeReportResolve(t *testing.T) {
 		t.Fatalf("expected probe_ack, got %s", env.Type)
 	}
 
-	// 结论应解析到目标节点并补全区域/运营商快照
+	// the verdict should resolve to the target node and complete the region/ISP snapshot
 	lrec := doJSON(t, r, "GET", "/api/probe-reports", nil)
 	var reports []map[string]any
 	if err := json.Unmarshal(lrec.Body.Bytes(), &reports); err != nil {
@@ -394,7 +394,7 @@ func TestAgentWSConfigPush(t *testing.T) {
 		t.Fatalf("expected hello_ack, got %s", env.Type)
 	}
 
-	// 推送配置：请求阻塞等待 ack，agent 侧异步回 config.ack
+	// push configuration: the request blocks waiting for the ack, the agent replies config.ack asynchronously
 	done := make(chan *httptest.ResponseRecorder, 1)
 	go func() {
 		rec := doJSON(t, r, "POST", fmt.Sprintf("/api/nodes/%d/config", id), map[string]any{
@@ -438,7 +438,7 @@ func TestAgentWSConfigPush(t *testing.T) {
 		t.Fatal("push config timed out")
 	}
 
-	// 下发历史可查
+	// the deployment history is queryable
 	hrec := doJSON(t, r, "GET", fmt.Sprintf("/api/nodes/%d/configs", id), nil)
 	var rows []map[string]any
 	if err := json.Unmarshal(hrec.Body.Bytes(), &rows); err != nil {
@@ -459,7 +459,7 @@ func TestAgentWSConfigPushOffline(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &node)
 	id := int(node["id"].(float64))
 
-	// 节点未接入：502 且落一条 failed 记录
+	// node not connected: 502 plus one failed record written
 	rec = doJSON(t, r, "POST", fmt.Sprintf("/api/nodes/%d/config", id), map[string]any{
 		"proc": "xray", "kind": "xray", "payload": `{}`,
 	})
@@ -508,7 +508,7 @@ func TestAgentWSTrafficReport(t *testing.T) {
 		t.Fatalf("expected hello_ack, got %s", env.Type)
 	}
 
-	// 流量上报 → traffic_ack 回执条数（SAVE-4/7：xray 行带分流增量）
+	// traffic report -> the record count in the traffic_ack receipt (SAVE-4/7: xray rows carry the shunt deltas)
 	rep, _ := agentproto.NewEnvelope("tr-1", agentproto.MsgTraffic, agentproto.TrafficReport{
 		Items: []agentproto.ProcTraffic{
 			{Proc: "xray", Rx: 1024, Tx: 2048, DirectBytes: 4096, BlockedBytes: 512, Conns: 7, At: time.Now()},
@@ -530,7 +530,7 @@ func TestAgentWSTrafficReport(t *testing.T) {
 		t.Fatalf("recorded = %d, want 2", ack.Recorded)
 	}
 
-	// 记账可查
+	// the accounting is queryable
 	trec := doJSON(t, r, "GET", fmt.Sprintf("/api/nodes/%d/traffic-logs", id), nil)
 	var rows []map[string]any
 	if err := json.Unmarshal(trec.Body.Bytes(), &rows); err != nil {
@@ -546,7 +546,7 @@ func TestAgentWSTrafficReport(t *testing.T) {
 	if byProc["xray"]["rx_bytes"].(float64) != 1024 || byProc["xray"]["conns"].(float64) != 7 {
 		t.Fatalf("xray row mismatch: %v", byProc["xray"])
 	}
-	// 分流增量随行落库（SAVE-4 拦截 / SAVE-7 直连）；无采集的行缺省 0
+	// shunt deltas persist with the row (SAVE-4 blocked / SAVE-7 direct); rows without collection default to 0
 	if byProc["xray"]["direct_bytes"].(float64) != 4096 {
 		t.Fatalf("xray direct_bytes = %v, want 4096", byProc["xray"]["direct_bytes"])
 	}
@@ -558,8 +558,8 @@ func TestAgentWSTrafficReport(t *testing.T) {
 	}
 }
 
-// TestAgentWSUserTraffic 是 P1-3 逐用户映射：per-user 增量按
-// users.username=邮箱 落 traffic_logs，未注册邮箱丢弃不造用户。
+// TestAgentWSUserTraffic is the P1-3 per-user mapping: per-user deltas are written to
+// traffic_logs via users.username=the email, and unregistered emails are dropped without creating users.
 func TestAgentWSUserTraffic(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 
@@ -605,7 +605,7 @@ func TestAgentWSUserTraffic(t *testing.T) {
 				Users: []agentproto.UserTraffic{
 					{Email: "alice", Rx: 200, Tx: 100},
 					{Email: "bob", Rx: 100, Tx: 50},
-					{Email: "ghost", Rx: 999, Tx: 999}, // 未注册：丢弃
+					{Email: "ghost", Rx: 999, Tx: 999}, // unregistered: dropped
 				},
 			},
 		},
@@ -618,7 +618,7 @@ func TestAgentWSUserTraffic(t *testing.T) {
 		t.Fatalf("expected traffic_ack, got %s", env.Type)
 	}
 
-	// alice/bob 各落一行，ghost 落库即失败
+	// alice/bob each land one row, ghost fails to persist
 	var rows []storage.TrafficLog
 	if err := db.Order("user_id ASC").Find(&rows).Error; err != nil {
 		t.Fatalf("query traffic logs: %v", err)
@@ -658,8 +658,9 @@ func TestAgentWSUserTraffic(t *testing.T) {
 	}
 }
 
-// TestAgentWSUserOnlineState 验证 G2 per-user 流量上报同时刷新在线态
-// 与最近接入节点；接口视图应按 last_seen_at 推导 online 并返回节点名。
+// TestAgentWSUserOnlineState verifies that the G2 per-user traffic report refreshes online state
+// and the most recent node at the same time; the API view should derive online from last_seen_at and
+// return the node name.
 func TestAgentWSUserOnlineState(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 
@@ -729,8 +730,9 @@ func TestAgentWSUserOnlineState(t *testing.T) {
 	}
 }
 
-// TestAgentWSBatchTrim 覆盖批量上报条数上限（P1-6）：单帧条目超上限时
-// 截断到上限落库并如实回执，防一次帧打爆面板内存与 SQLite。
+// TestAgentWSBatchTrim covers the cap on batch report items (P1-6): when a frame carries more items
+// than the cap, they are truncated to the cap before persisting and the receipt reports honestly, so
+// one frame cannot blow out panel memory and SQLite.
 func TestAgentWSBatchTrim(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
@@ -791,8 +793,9 @@ func TestAgentWSBatchTrim(t *testing.T) {
 	}
 }
 
-// TestAgentWSFrameLimit 覆盖单帧字节上限（P1-6）：超限帧读失败即断连，
-// 防巨帧耗尽面板内存（gorilla 默认不限制帧长）。
+// TestAgentWSFrameLimit covers the per-frame byte cap (P1-6): a frame over the limit fails to read and
+// the connection drops, preventing a huge frame from exhausting panel memory (gorilla places no
+// limit on frame length by default).
 func TestAgentWSFrameLimit(t *testing.T) {
 	r := newTestRouter(t)
 	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
@@ -824,7 +827,7 @@ func TestAgentWSFrameLimit(t *testing.T) {
 		t.Fatalf("expected hello_ack, got %s", env.Type)
 	}
 
-	// 超限巨帧 → 服务端读失败断连，客户端读返回错误。
+	// an over-limit huge frame -> the server fails to read and drops the connection, and the client read returns an error.
 	if err := c.WriteMessage(websocket.TextMessage, make([]byte, maxAgentFrameBytes+1)); err != nil {
 		t.Fatalf("write oversize: %v", err)
 	}
@@ -833,8 +836,9 @@ func TestAgentWSFrameLimit(t *testing.T) {
 	}
 }
 
-// TestAgentWSCheckOrigin 覆盖 P2 显式 CheckOrigin：agent 出站连接不带
-// Origin 放行；带 Origin 要求同源（浏览器跨源 CSWSH 拒）；跨源/坏 Origin 拒。
+// TestAgentWSCheckOrigin covers the P2 explicit CheckOrigin: an agent-to-server connection with no
+// Origin is allowed; one carrying an Origin must be same-origin (a cross-origin browser CSWSH is
+// refused); cross-origin or malformed Origins are refused.
 func TestAgentWSCheckOrigin(t *testing.T) {
 	mk := func(origin string) *http.Request {
 		r := httptest.NewRequest(http.MethodGet, "http://panel.example/agent/ws", nil)

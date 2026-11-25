@@ -12,8 +12,8 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestCouponClaimExhausted 限次码领完即止：第二单核销被条件更新挡下，
-// 400 不落单（total=0 不限的反面口径）。
+// TestCouponClaimExhausted a capped code stops once used up: the second order's redemption is
+// blocked by the conditional update, and 400 leaves no order behind (the converse of the total=0 unlimited contract).
 func TestCouponClaimExhausted(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	if err := db.Create(&storage.User{
@@ -72,11 +72,11 @@ func TestCouponClaimExhausted(t *testing.T) {
 	}
 }
 
-// TestCouponPendingDoesNotOccupyPerUserLimit 覆盖 P2「优惠码 pending 占限次」
-// 修复：每用户限次只计已结算/已退款订单。修复前下单即置 pending 且本仓无
-// 订单过期清扫，用户一次未支付的下单就永久占掉自己的每用户限次（第二次用
-// 码 400 每用户限用一次）。修复后 pending 不计——同用户带码重复下单放行；
-// 订单结算（paid）后照常占限，再下即 400。
+// TestCouponPendingDoesNotOccupyPerUserLimit covers the P2 "coupon pending occupies the cap"
+// fix: the per-user cap only counts settled/refunded orders. Before the fix, an order was set to pending at creation and this
+// repo has no order expiry sweeper, so a single unpaid order permanently consumed the user's per-user cap (a second use of
+// the code → 400 per-user once only). After the fix pending is not counted — repeat coded orders from the same user are allowed;
+// once an order settles (paid) it counts toward the cap as usual, and the next one → 400.
 func TestCouponPendingDoesNotOccupyPerUserLimit(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	if err := db.Create(&storage.User{
@@ -113,7 +113,7 @@ func TestCouponPendingDoesNotOccupyPerUserLimit(t *testing.T) {
 		return rec.Code, rec.Body.String()
 	}
 
-	// 第一单落 pending；第二单带同码应放行（pending 不占每用户限次）。
+	// The first order lands as pending; the second with the same code should pass (pending does not occupy the per-user cap).
 	code, out := order("10.9.1.1")
 	if code != http.StatusCreated {
 		t.Fatalf("first order: %d %s", code, out)
@@ -122,7 +122,7 @@ func TestCouponPendingDoesNotOccupyPerUserLimit(t *testing.T) {
 		t.Fatalf("second order should pass (pending not counted): %d %s", code, out)
 	}
 
-	// 首单结算为 paid 后，paid 照常占限：第三单 400。
+	// After the first order settles to paid, paid counts toward the cap as usual: the third order → 400.
 	var first storage.PaymentOrder
 	if err := db.Where("promo_code = ?", "PEND1").Order("id").First(&first).Error; err != nil {
 		t.Fatal(err)

@@ -12,13 +12,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// TG bot 对接面（触达批 TOUCH-6，用户触达设计 §2）：bot 后端独立部署
-// （不依赖面板域名存活），ferry 只做对接——本组只读接口供 bot 交互命令
-// 直答（/flow /expire /order /buy）。鉴权=服务级令牌 FERRY_BOT_TOKEN
-// （空=bot 面禁用），bot 按用户 tg_chat_id（TOUCH-1 绑定）定位用户。
+// TG bot integration surface (outreach batch TOUCH-6, user outreach design §2):
+// the bot backend is deployed independently (it does not depend on the panel
+// domain being alive), and ferry only provides the integration -- this group of
+// read-only endpoints lets bot interactive commands answer directly (/flow
+// /expire /order /buy). Auth = the service-level token FERRY_BOT_TOKEN (empty
+// means the bot surface is disabled); the bot locates a user by tg_chat_id
+// (bound via TOUCH-1).
 
-// botUser 校验服务级令牌并按 chat_id 定位用户：Bot 面未配置统一 404
-// （防探测），令牌不匹配 401，chat_id 未绑定或用户不可用 404。
+// botUser verifies the service-level token and locates the user by chat_id:
+// an unconfigured bot surface is a uniform 404 (to foil probing), a mismatched
+// token is 401, and an unbound chat_id or an unusable user is 404.
 func (h *Handler) botUser(c *gin.Context) (storage.User, storage.UserContact, bool) {
 	token := h.cfg.BotToken
 	if token == "" {
@@ -52,8 +56,9 @@ func (h *Handler) botUser(c *gin.Context) (storage.User, storage.UserContact, bo
 	return u, ct, true
 }
 
-// botSummary bot 只读直答（GET /api/bot/summary?chat_id=）：流量（重置
-// 周期窗口口径，与 panel 一致）/到期/状态/联系信息失效态/最近订单/购买入口。
+// botSummary answers a bot read-only request (GET /api/bot/summary?chat_id=):
+// traffic (reset-cycle window semantics, matching the panel) / expiry / status /
+// contact-stale flag / recent orders / purchase entry.
 func (h *Handler) botSummary(c *gin.Context) {
 	u, ct, ok := h.botUser(c)
 	if !ok {
@@ -87,7 +92,7 @@ func (h *Handler) botSummary(c *gin.Context) {
 		"expires_at":  u.ExpiresAt,
 		"active":      sub.UserActive(&u, used, now),
 		"buy_url":     strings.TrimRight(h.cfg.BaseURL, "/") + "/panel",
-		"stale":       ct.Stale, // 联系信息失效态：bot 侧提示换绑
+		"stale":       ct.Stale, // contact-stale flag: the bot side prompts a rebinding
 		"orders":      items,
 	})
 }

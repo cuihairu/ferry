@@ -14,23 +14,26 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// auditBodyMax 是请求体快照的存储上限（AU-1）：超长按上限截断，防大请求
-// 把审计表冲成日志表。
+// auditBodyMax is the storage cap for request body snapshots (AU-1): oversized
+// bodies are truncated to the cap, preventing large requests from flooding the
+// audit table into a log table.
 const auditBodyMax = 2048
 
-// auditRedactKeys 是请求体快照的脱敏键名（AU-1）：密码/令牌/密钥类字段
-// 一律回 ***，审计行不携机密明文。
+// auditRedactKeys holds the key names redacted from request body snapshots
+// (AU-1): password/token/secret-style fields always come back as ***, so audit
+// rows carry no secret plaintext.
 var auditRedactKeys = map[string]bool{
 	"password": true, "password_hash": true, "token": true, "api_token": true,
 	"secret": true, "secret_key": true, "access_key": true, "authorization": true,
 	"totp": true, "recovery_code": true, "sub_token": true,
 }
 
-// auditActor 从鉴权面上下文取操作者（AU-1）：apiAuth 双凭据都落
-// adminUserID（管理员 JWT）或 apiUser（API Token），distAuth 面不挂本中间件。
+// auditActor picks the operator out of the auth-plane context (AU-1): both
+// apiAuth credentials leave adminUserID (admin JWT) or apiUser (API Token)
+// behind; the distAuth plane does not carry this middleware.
 func (h *Handler) auditActor(c *gin.Context) (string, string) {
 	if id, ok := c.Get("adminUserID"); ok && id != "" {
-		// 管理员 JWT：apiUser=Subject（用户名），比数字 ID 可读。
+		// Admin JWT: apiUser=Subject (the username), more readable than a numeric ID.
 		if sub, ok2 := c.Get("apiUser"); ok2 {
 			if s, ok3 := sub.(string); ok3 && s != "" {
 				return s, "admin"
@@ -48,14 +51,19 @@ func (h *Handler) auditActor(c *gin.Context) (string, string) {
 	return "unknown", "unknown"
 }
 
-// auditBodyReadMax 是请求体快照的读取上限（codex 深审 P2：整读请求体会
-// 把大请求全部吸进内存造成放大；审计只需 2048 字节快照，读取封顶 64KB。
-// 超限请求快照置标记不入库——截断前缀走的是未脱敏原文，不能入库）。
+// auditBodyReadMax is the read cap for request body snapshots (codex deep
+// review P2: reading the whole body pulls every large request into memory and
+// amplifies it; auditing only needs a 2048-byte snapshot, so reads are capped
+// at 64KB. Over-limit requests get a marker instead of a stored snapshot --
+// the truncated prefix would be un-redacted raw text, which must not be
+// stored).
 const auditBodyReadMax = 64 << 10
 
-// auditBodySnapshot 读请求体并还原（AU-1）：JSON 体递归脱敏敏感键，
-// 非 JSON 体按原文截断；读后必须还原 Body 供后续 ShouldBindJSON 使用
-// （读取封顶后已读前缀与残余流拼接还原，下游仍拿到完整请求体）。
+// auditBodySnapshot reads the request body and restores it (AU-1): JSON bodies
+// get sensitive keys recursively redacted, non-JSON bodies are truncated as-is;
+// afterwards the Body must be restored for the later ShouldBindJSON (after a
+// capped read, the already-read prefix is concatenated back onto the remaining
+// stream, so downstream still receives the full request body).
 func (h *Handler) auditBodySnapshot(c *gin.Context) string {
 	if c.Request.Body == nil || c.Request.Body == http.NoBody {
 		return ""
@@ -80,7 +88,7 @@ func (h *Handler) auditBodySnapshot(c *gin.Context) string {
 	return truncate(string(b), auditBodyMax)
 }
 
-// redactJSON 递归脱敏 map 的敏感键（AU-1），数组与标量原样保留。
+// redactJSON recursively redacts a map's sensitive keys (AU-1); arrays and scalars pass through unchanged.
 func redactJSON(v any) any {
 	switch t := v.(type) {
 	case map[string]any:
@@ -104,18 +112,22 @@ func redactJSON(v any) any {
 	}
 }
 
-// truncate 按 UTF-8 字符边界取前缀（快照体/回执 detail 可含中文，按字节
-// 硬切会把多字节字符截半；实现统一收口 safestr.Head——非法 UTF-8 输入
-// 至多回退 3 字节止损，不会把快照清成空串）。
+// truncate takes the prefix on a UTF-8 character boundary (snapshot bodies and
+// receipt details can contain Chinese, and a hard byte cut would slice a
+// multi-byte character in half; the implementation funnels into safestr.Head --
+// for invalid UTF-8 input it backs off at most 3 bytes to cut losses and never
+// empties the snapshot into an empty string).
 func truncate(s string, n int) string {
 	return safestr.Head(s, n)
 }
 
-// auditMiddleware 捕获管理员写操作（AU-1）：POST/PUT/PATCH/DELETE 过
-// apiAuth 与 adminAuthMiddleware 的 /api、/admin 组路由统一落 audit_logs。
-// GET/HEAD 不捕获（读量大，会把审计表冲成日志表）。本中间件挂鉴权之后：
-// 401 在 apiAuth 即中止不落行（登录失败另有 login_logs/限速锁），鉴权通过
-// 后的业务失败（409/400/500 等）落行 Success=false。
+// auditMiddleware captures admin write operations (AU-1): POST/PUT/PATCH/
+// DELETE routes under /api and /admin passing apiAuth and adminAuthMiddleware
+// uniformly land in audit_logs. GET/HEAD are not captured (their read volume
+// would flood the audit table into a log table). This middleware is mounted
+// after auth: a 401 aborts inside apiAuth and stores no row (login failures
+// are covered by login_logs / rate-limit lockout), while business failures
+// after auth passes (409/400/500 etc.) store a row with Success=false.
 func (h *Handler) auditMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead {
@@ -139,8 +151,8 @@ func (h *Handler) auditMiddleware() gin.HandlerFunc {
 	}
 }
 
-// ListAuditLogs 审计流水查询（AU-1）：操作者/方法/对象/时间范围过滤，
-// id DESC 上限 200 缺省 50。
+// ListAuditLogs queries the audit trail (AU-1): filters by actor/method/target/
+// time range, id DESC, capped at 200, defaulting to 50.
 func (h *Handler) ListAuditLogs(c *gin.Context) {
 	limit := 50
 	if s := c.Query("limit"); s != "" {

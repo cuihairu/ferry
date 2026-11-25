@@ -15,29 +15,29 @@ const refTestTable = `[
  {"provider":"dmit","region":"hk","spec":"100m-500g","monthly_cents":1400}
 ]`
 
-// TestCostRefTableAndProbe 覆盖 E-31：表导入校验、单点试查（自由键与
-// 节点映射）、偏差提示与各拒绝面。
+// TestCostRefTableAndProbe covers E-31: table import validation, single-point probe
+// (free-form keys and node mapping), deviation hints and each rejection path.
 func TestCostRefTableAndProbe(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 
-	// 未导入价格表：试查 400 明确指引导入端点。
+	// Price table not imported: probe → 400 explicitly pointing to the import endpoint.
 	rec := doJSON(t, r, "GET", "/api/cost/ref?provider=vultr&spec=100m", nil)
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "ref-table") {
 		t.Fatalf("no table probe status=%d body=%s", rec.Code, rec.Body)
 	}
 
-	// 脏表拒绝：缺月价。
+	// Dirty table rejected: missing monthly price.
 	rec = doJSON(t, r, "PUT", "/api/cost/ref-table", map[string]any{"table": `[{"provider":"vultr","spec":"x"}]`})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad table status=%d body=%s", rec.Code, rec.Body)
 	}
-	// 非 JSON 拒绝。
+	// Non-JSON rejected.
 	rec = doJSON(t, r, "PUT", "/api/cost/ref-table", map[string]any{"table": `not json`})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("non-json table status=%d", rec.Code)
 	}
 
-	// 好表落库，settings 留痕。
+	// A good table is persisted, leaving a trace in settings.
 	rec = doJSON(t, r, "PUT", "/api/cost/ref-table", map[string]any{"table": refTestTable})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("put table status=%d body=%s", rec.Code, rec.Body)
@@ -46,7 +46,7 @@ func TestCostRefTableAndProbe(t *testing.T) {
 		t.Fatalf("setting missing: ok=%v", ok)
 	}
 
-	// 已导入后：node_id 非数 400；node_id 与自由键都缺 400。
+	// After import: non-numeric node_id → 400; both node_id and free-form keys missing → 400.
 	if rec := doJSON(t, r, "GET", "/api/cost/ref?node_id=abc", nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad node_id: %d", rec.Code)
 	}
@@ -54,7 +54,7 @@ func TestCostRefTableAndProbe(t *testing.T) {
 		t.Fatalf("missing keys: %d", rec.Code)
 	}
 
-	// 自由键试查命中、不带手录价 → hit + reason（无偏差说明）。
+	// Free-form key probe hits with no manual price → hit + reason (explanation of no deviation).
 	rec = doJSON(t, r, "GET", "/api/cost/ref?provider=VULTR&region=Tokyo&spec=100M-500G", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("free probe status=%d body=%s", rec.Code, rec.Body)
@@ -79,7 +79,7 @@ func TestCostRefTableAndProbe(t *testing.T) {
 		t.Fatalf("expect reason without manual: %+v", out)
 	}
 
-	// 带手录价+币种 → 偏差提示（900 vs 600 = +50%，超缺省 30）。
+	// Manual price + currency → deviation hint (900 vs 600 = +50%, over the default 30).
 	rec = doJSON(t, r, "GET", "/api/cost/ref?provider=vultr&region=tokyo&spec=100m-500g&manual_cents=900&currency=CNY", nil)
 	out = struct {
 		Source    string          `json:"source"`
@@ -98,23 +98,23 @@ func TestCostRefTableAndProbe(t *testing.T) {
 		t.Fatalf("deviation = %+v", *out.Deviation)
 	}
 
-	// 币种不符 → reason。
+	// Currency mismatch → reason.
 	rec = doJSON(t, r, "GET", "/api/cost/ref?provider=vultr&region=tokyo&spec=100m-500g&manual_cents=900&currency=USD", nil)
 	if !strings.Contains(rec.Body.String(), "currency mismatch") {
 		t.Fatalf("expect mismatch reason: %s", rec.Body)
 	}
-	// 带手录价缺币种 → 400。
+	// Manual price without currency → 400.
 	rec = doJSON(t, r, "GET", "/api/cost/ref?provider=vultr&spec=100m-500g&manual_cents=900", nil)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("manual without currency status=%d", rec.Code)
 	}
-	// 未命中 → hit=false。
+	// Miss → hit=false.
 	rec = doJSON(t, r, "GET", "/api/cost/ref?provider=vultr&region=la&spec=100m-500g", nil)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"hit":false`) {
 		t.Fatalf("miss status=%d body=%s", rec.Code, rec.Body)
 	}
 
-	// 节点映射试查：机房/区域/套餐档齐全 + 手录月固定成本。
+	// Node-mapped probe: datacenter/region/spec tier all present + manual monthly fixed cost.
 	if err := db.Exec(`INSERT INTO nodes (name, address, port, protocol, token, datacenter, region,
 		bw_down_mbps, monthly_traffic_quota_bytes, monthly_cost_cents, currency, enabled)
 		VALUES ('tok-1', 'tok.example.com', 443, 'vless', 'tok-ref-1', 'vultr', 'tokyo',
@@ -142,7 +142,7 @@ func TestCostRefTableAndProbe(t *testing.T) {
 		t.Fatalf("quote url missing: %+v", out.Quote)
 	}
 
-	// 机房未填节点 → 400 指引补机房。
+	// Node with no datacenter filled in → 400 guiding to fill the datacenter.
 	if err := db.Exec(`INSERT INTO nodes (name, address, port, protocol, token, region,
 		monthly_cost_cents, enabled)
 		VALUES ('nodc-1', 'x.example.com', 443, 'vless', 'tok-ref-2', 'tokyo', 900, 1)`).Error; err != nil {
@@ -152,13 +152,13 @@ func TestCostRefTableAndProbe(t *testing.T) {
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "datacenter") {
 		t.Fatalf("no datacenter status=%d body=%s", rec.Code, rec.Body)
 	}
-	// 不存在节点 → 404。
+	// Nonexistent node → 404.
 	rec = doJSON(t, r, "GET", "/api/cost/ref?node_id=999", nil)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("missing node status=%d", rec.Code)
 	}
 
-	// 清空停用后再查 → 400。
+	// After clearing to disable, querying → 400.
 	rec = doJSON(t, r, "PUT", "/api/cost/ref-table", map[string]any{"table": ""})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("clear status=%d", rec.Code)
@@ -169,12 +169,12 @@ func TestCostRefTableAndProbe(t *testing.T) {
 	}
 }
 
-// TestCostRefCheck 覆盖批量对账：命中可比的进列表（偏差字段齐），
-// 未命中只进计数，机房/月固定成本不齐的不参查。
+// TestCostRefCheck covers batch reconciliation: hit and comparable rows enter the list
+// (full deviation fields), misses only count, and rows lacking datacenter/monthly fixed cost are not checked.
 func TestCostRefCheck(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 
-	// 未导入价格表：对账 400 明确指引导入端点。
+	// Price table not imported: reconciliation → 400 explicitly pointing to the import endpoint.
 	if rec := doJSON(t, r, "GET", "/api/cost/ref-check", nil); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "ref-table") {
 		t.Fatalf("no table check status=%d body=%s", rec.Code, rec.Body)
 	}
@@ -184,7 +184,7 @@ func TestCostRefCheck(t *testing.T) {
 		t.Fatalf("put table status=%d", rec.Code)
 	}
 
-	// n1 命中且偏差（900 vs 1400 = -36%）；n2 未命中；n3 机房缺不参查。
+	// n1 hits with a deviation (900 vs 1400 = -36%); n2 misses; n3 has no datacenter so is not checked.
 	seeds := []string{
 		`INSERT INTO nodes (name, address, port, protocol, token, datacenter, region,
 			bw_down_mbps, monthly_traffic_quota_bytes, monthly_cost_cents, currency, enabled)
@@ -239,7 +239,7 @@ func TestCostRefCheck(t *testing.T) {
 		t.Fatalf("items=%+v", out.Items)
 	}
 
-	// tolerance_pct 解析与夹取：非法值回落缺省 30，越界夹进 1..200。
+	// tolerance_pct parsing and clamping: an invalid value falls back to the default 30, out-of-range values clamp into 1..200.
 	for _, tc := range []struct {
 		q    string
 		want int64
@@ -258,7 +258,7 @@ func TestCostRefCheck(t *testing.T) {
 		}
 	}
 
-	// 币种不符行：命中 USD 牌价但手录 CNY → 只进 mismatches 计数不进列表。
+	// Currency mismatch row: hits a USD list price but the manual entry is CNY → counts only in mismatches, not listed.
 	extended := strings.TrimSuffix(refTestTable, "]") + `,
  {"provider":"vultr","region":"tokyo","spec":"200m-500g","monthly_cents":900,"currency":"USD"}]`
 	if rec := doJSON(t, r, "PUT", "/api/cost/ref-table", map[string]any{"table": extended}); rec.Code != http.StatusOK {

@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestCreateAdminDuplicateConflict 重名管理员：409 冲突，不冒称创建成功。
+// TestCreateAdminDuplicateConflict is a duplicate admin name: 409 conflict, never claimed as a successful create.
 func TestCreateAdminDuplicateConflict(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	body := map[string]any{"username": "dup-op", "password": "password123"}

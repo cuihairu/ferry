@@ -12,9 +12,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 联系信息绑定（触达批 TOUCH-1，用户触达设计 §3）：TG 或邮箱至少一个必填；
-// 例行邮件可退订（域名例行），账单类涉及权益默认必收（只可改通道，无开关）。
-// 投递失败的 stale 标记与失败计数由 TOUCH-5 回执侧维护，换绑即清零。
+// Contact info binding (touch batch TOUCH-1, user outreach design §3): at
+// least one of TG or email is required; routine emails can be unsubscribed
+// (domain-level routines), while billing messages touch entitlements and are
+// received by default (the channel can change, but there is no switch).
+// The stale flag and failure counter for failed deliveries are maintained on the
+// TOUCH-5 receipt side, and are cleared on a rebind.
 
 var (
 	errContactRequired = errors.New("email 与 tg_chat_id 至少填一项")
@@ -22,8 +25,10 @@ var (
 	errContactChat     = errors.New("TG chat_id 过长（≤64）")
 )
 
-// panelContact 回读绑定与偏好（GET /api/panel/contact）：未绑定为全空行
-// （行不存在也返回零值结构，前端以 email/tg_chat_id 均空判未就绪）。
+// panelContact reads back the binding and preferences (GET /api/panel/contact):
+// an unbound user gets an all-empty row (even when the row does not exist the
+// zero-value struct is returned, and the front end treats empty email and
+// tg_chat_id as not ready).
 func (h *Handler) panelContact(c *gin.Context) {
 	u, ok := h.panelUser(c)
 	if !ok {
@@ -31,7 +36,7 @@ func (h *Handler) panelContact(c *gin.Context) {
 	}
 	var row storage.UserContact
 	row.UserID = u.ID
-	h.db.First(&row, u.ID) // 查不到保持零值，不报错
+	h.db.First(&row, u.ID) // keep the zero value if nothing is found, no error
 	c.JSON(http.StatusOK, gin.H{
 		"email":          row.Email,
 		"tg_chat_id":     row.TgChatID,
@@ -41,8 +46,9 @@ func (h *Handler) panelContact(c *gin.Context) {
 	})
 }
 
-// panelContactPut 绑定/换绑（PUT /api/panel/contact）：{email?, tg_chat_id?,
-// routine_emails?}。两项都空 400；换绑（值变化）清 stale 与失败计数。
+// panelContactPut binds/rebinds (PUT /api/panel/contact): {email?, tg_chat_id?,
+// routine_emails?}. Both empty is 400; a rebind (a value change) clears stale
+// and the failure counter.
 func (h *Handler) panelContactPut(c *gin.Context) {
 	u, ok := h.panelUser(c)
 	if !ok {
@@ -78,10 +84,10 @@ func (h *Handler) panelContactPut(c *gin.Context) {
 	if in.RoutineEmails != nil {
 		routine = *in.RoutineEmails
 	} else if newRow {
-		routine = true // 首绑未指定：例行邮件默认收
+		routine = true // unspecified on the first bind: routine emails are received by default
 	}
 	if newRow || row.Email != email || row.TgChatID != chat {
-		// 首绑或换绑：重置绑定时间与失效标记。
+		// First bind or rebind: reset the binding time and the stale flag.
 		row.BoundAt = time.Now()
 		row.Stale = false
 		row.FailStreak = 0
@@ -105,14 +111,17 @@ func (h *Handler) panelContactPut(c *gin.Context) {
 	})
 }
 
-// 投递失败换绑闭环（触达批 TOUCH-5，用户触达设计 §3）：Herald 通道分发
-// 回执驱动——failed 把触达任务标失败并置用户联系信息 stale（站内提醒换绑），
-// 连续失败达阈值升级一条常规事件（换通道由 Herald 分发）；sent 清零恢复。
+// Delivery-failure rebind loop (touch batch TOUCH-5, user outreach design §3):
+// driven by Herald channel dispatch receipts — failed marks the touch job
+// failed and sets the user's contact info stale (an in-app prompt to rebind),
+// and consecutive failures reaching the threshold escalate into a routine event
+// (channel switching is Herald's business); sent clears everything and restores.
 const contactFailStreakLimit = 3
 
-// touchResult 由 eventResult（通道分发回执）调用；非触达事件（管理告警等
-// 没有 touch_jobs 行）直接返回不联动。联动失败静默——回执留痕已落，
-// 不因此让回执端点报错。
+// touchResult is called by eventResult (channel dispatch receipts); non-touch
+// events (admin alerts and the like, with no touch_jobs row) return
+// immediately without linkage. Linkage failures are silent — the receipt trail
+// is already recorded, so they must not make the receipt endpoint fail.
 func (h *Handler) touchResult(eventID int64, status, detail string) {
 	var job storage.TouchJob
 	if err := h.db.Where("event_id = ?", eventID).First(&job).Error; err != nil {
@@ -146,11 +155,11 @@ func (h *Handler) touchResult(eventID int64, status, detail string) {
 			Target: herald.TargetUser(job.UserID),
 			Meta:   map[string]any{"touch_job_id": job.ID, "kind": job.Kind, "streak": contactFailStreakLimit},
 		})
-		h.db.Model(&ct).Update("fail_streak", 0) // 升级即清零防重复刷
+		h.db.Model(&ct).Update("fail_streak", 0) // clearing on escalation prevents repeated spam
 	}
 }
 
-// notifyContactStale 站内提醒换绑（同一用户同日至多一条，防回执刷屏）。
+// notifyContactStale prompts rebind in app (at most one per user per day, against receipt spam).
 func (h *Handler) notifyContactStale(ct storage.UserContact) {
 	dayStart := time.Now().Truncate(24 * time.Hour)
 	var n int64
@@ -168,8 +177,10 @@ func (h *Handler) notifyContactStale(ct storage.UserContact) {
 	})
 }
 
-// truncateErr 回执 detail 可能很长，落 error 列前截断（列宽 255）；
-// 截断按 UTF-8 字符边界回退（detail 可含中文，按字节硬切会截半字符）。
+// truncateErr truncates the receipt detail, which can be long, before it lands
+// in the error column (column width 255); truncation backs off to a UTF-8
+// character boundary (detail may contain Chinese, and a hard byte cut would
+// split a character in half).
 func truncateErr(s string) string {
 	return truncate(s, 255)
 }

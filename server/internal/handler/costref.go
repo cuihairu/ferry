@@ -13,11 +13,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 成本参考库（E-31）管理端：价格表导入、单点试查与批量偏差对账。
-// 参考价只提示不改价——偏差行供节点卡「手录价偏离牌价」人工复核
-// （套餐与成本设计 §4.2）。
+// Cost reference library (E-31) admin side: price table import, single-point probe and batch deviation reconciliation.
+// Reference prices only hint and never change prices — deviation rows feed the node card's "manual price deviates from list price" for human review
+// (plan and cost design §4.2).
 
-// refTolerance 读偏差容忍度参数（百分比），缺省 30，夹在 1..200。
+// refTolerance reads the deviation tolerance parameter (percentage), default 30, clamped to 1..200.
 func refTolerance(c *gin.Context) int64 {
 	tol := int64(cost.DefaultRefTolerancePct)
 	if v := c.Query("tolerance_pct"); v != "" {
@@ -34,15 +34,15 @@ func refTolerance(c *gin.Context) int64 {
 	return tol
 }
 
-// refSource 取已导入的参考价来源；未导入回 nil（调用方按 400 指引导入）。
+// refSource gets the imported reference-price source; returns nil when not imported (callers guide import via 400).
 func (h *Handler) refSource() (costref.Source, error) {
 	return cost.LoadRefSource(h.db)
 }
 
-// getCostRef 单点试查：?node_id= 按节点映射（机房/区域/套餐档 + 手录价），
-// 或 provider/region/spec + manual_cents/currency 自由键。
-// 未命中回 200+hit=false（面板表格直显，不算错）；币种不符/手录未填
-// 回 reason 字段说明为何没有 deviation。
+// getCostRef single-point probe: ?node_id= maps by node (datacenter/region/spec tier + manual price),
+// or provider/region/spec + manual_cents/currency as free-form keys.
+// A miss returns 200+hit=false (the panel table shows it directly, not an error); a currency
+// mismatch / missing manual price returns a reason field explaining why there is no deviation.
 func (h *Handler) getCostRef(c *gin.Context) {
 	tol := refTolerance(c)
 	src, err := h.refSource()
@@ -119,8 +119,8 @@ func (h *Handler) getCostRef(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
-// getCostRefCheck 批量对账：机房+月固定成本齐全的节点逐个比对，回命中
-// 且可比的行（含偏差）；未命中/币种不符只进计数。数据源供成本页偏差表。
+// getCostRefCheck batch reconciliation: nodes with both datacenter and monthly fixed cost are compared
+// one by one, returning hit and comparable rows (with deviation); misses/currency mismatches only count. The data source feeds the cost page's deviation table.
 func (h *Handler) getCostRefCheck(c *gin.Context) {
 	tol := refTolerance(c)
 	src, err := h.refSource()
@@ -152,14 +152,14 @@ func (h *Handler) getCostRefCheck(c *gin.Context) {
 	for _, n := range nodes {
 		quote, dev, err := cost.CheckNode(src, n, tol)
 		if errors.Is(err, costref.ErrNotFound) {
-			continue // 未命中不进列表
+			continue // misses are not listed
 		}
 		if errors.Is(err, costref.ErrCurrencyMismatch) {
 			mismatches++
 			continue
 		}
 		if err != nil {
-			continue // 其余（理论不可达）不阻塞整表
+			continue // the rest (theoretically unreachable) do not block the whole table
 		}
 		items = append(items, refItem{NodeID: n.ID, NodeName: n.Name, Query: costref.Query{
 			Provider: n.Datacenter, Region: n.Region, Spec: cost.SpecOf(n.BwDownMbps, n.MonthlyTrafficQuotaBytes),
@@ -171,8 +171,8 @@ func (h *Handler) getCostRefCheck(c *gin.Context) {
 	})
 }
 
-// putCostRefTable 导入/清空价格表：table 为 JSON 数组文本（导入层校验，
-// 拒脏表）；空串清空停用。
+// putCostRefTable imports/clears the price table: table is JSON array text (validated at the
+// import layer, dirty tables rejected); an empty string clears and disables it.
 func (h *Handler) putCostRefTable(c *gin.Context) {
 	var in struct {
 		Table string `json:"table"`
@@ -189,7 +189,7 @@ func (h *Handler) putCostRefTable(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"cleared": true})
 		return
 	}
-	// 回读条数给个导入确认。
+	// Read back the row count as import confirmation.
 	var rows []costref.Entry
 	_ = json.Unmarshal([]byte(in.Table), &rows)
 	c.JSON(http.StatusOK, gin.H{"saved": true, "rows": len(rows)})

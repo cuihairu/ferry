@@ -17,17 +17,19 @@ import (
 	"gorm.io/gorm"
 )
 
-// Herald 事件回调回执（HERALD-5）：回执端点原生解析 §13.5 形状
-// （{event_id: "cb-…", app, kind, at, delivery: {…}}），验 X-Herald-Signature
-// HMAC；HERALD-2 旧形状（{event_id: int64, …}）双形状判别继续收。
+// Herald event callback receipt (HERALD-5): the receipt endpoint parses the
+// §13.5 shape natively ({event_id: "cb-...", app, kind, at, delivery: {...}})
+// and verifies the X-Herald-Signature HMAC; the HERALD-2 legacy shape
+// ({event_id: int64, ...}) is still accepted by the dual-shape dispatch.
 
-// callbackTestSecret 是测试用 Herald 回调验签密钥（32 字节口径，同
-// callback_test.go 既有取值）。
+// callbackTestSecret is the Herald callback verification secret used by tests
+// (32-byte convention, same value as already used in callback_test.go).
 const callbackTestSecret = "callback-secret-0123456789abcdef"
 
-// newSecretRouter 建带 Herald 回调验签密钥的路由器：P2 回执端点默认必验
-// 签，凡 POST /api/internal/event-results 的用例都须经此（或
-// newCallbackRouter）建带密钥实例。
+// newSecretRouter builds a router carrying the Herald callback verification
+// secret: since P2 the receipt endpoint verifies the signature by default, so
+// any case POSTing to /api/internal/event-results must be built through this
+// (or newCallbackRouter) to get a secret-configured instance.
 func newSecretRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	t.Helper()
 	return newTestRouterCfg(t, func(c *config.Config) {
@@ -35,20 +37,20 @@ func newSecretRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	})
 }
 
-// newCallbackRouter 定制配置路由器：配置回调验签密钥的实例。
+// newCallbackRouter builds a router with custom config: an instance with the callback verification secret set.
 func newCallbackRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	t.Helper()
 	return newSecretRouter(t)
 }
 
-// heraldSign 按 herald 侧口径签名：sha256=<hex HMAC-SHA256(secret, body)>。
+// heraldSign signs the herald-side way: sha256=<hex HMAC-SHA256(secret, body)>.
 func heraldSign(secret string, body []byte) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(body)
 	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
 }
 
-// postEventResult 带可选签名 POST 回执端点。
+// postEventResult POSTs to the receipt endpoint with an optional signature.
 func postEventResult(t *testing.T, r *gin.Engine, secret string, body []byte) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest("POST", "/api/internal/event-results", bytes.NewReader(body))
@@ -61,8 +63,9 @@ func postEventResult(t *testing.T, r *gin.Engine, secret string, body []byte) *h
 	return rec
 }
 
-// doSignedJSON 发带 X-Herald-Signature 的 JSON POST：回执端点默认必验签
-// （P2），凡走 /api/internal/event-results 成功路径的用例须带测试密钥签名。
+// doSignedJSON sends a JSON POST carrying X-Herald-Signature: the receipt
+// endpoint verifies the signature by default (P2), so any case exercising the
+// success path of /api/internal/event-results must be signed with the test secret.
 func doSignedJSON(t *testing.T, r *gin.Engine, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	var buf bytes.Buffer
@@ -77,8 +80,9 @@ func doSignedJSON(t *testing.T, r *gin.Engine, path string, body any) *httptest.
 	return rec
 }
 
-// doSignedRawBody 发带签名的原始字节体 POST（坏 JSON 等不能被编码器洗成
-// 合法形态的用例）；体读失败（errReader）走 doRawBody 即可，读体先于验签。
+// doSignedRawBody sends a signed raw-byte body POST (for cases such as broken
+// JSON that an encoder would launder into a legal shape); body-read failures
+// (errReader) only need doRawBody, since the body is read before verification.
 func doSignedRawBody(t *testing.T, r *gin.Engine, path string, body []byte) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
@@ -89,7 +93,7 @@ func doSignedRawBody(t *testing.T, r *gin.Engine, path string, body []byte) *htt
 	return rec
 }
 
-// §13.5 回调载荷样板：delivery.event_id 回带 ferry outbox id（字符串数字）。
+// §13.5 callback payload boilerplate: delivery.event_id carries the ferry outbox id back (as a numeric string).
 func callbackPayload(outboxID string, status, errMsg string) []byte {
 	payload := map[string]any{
 		"event_id": "cb-8f2c9d41", "app": "ferry", "kind": "delivery_result",
@@ -103,17 +107,18 @@ func callbackPayload(outboxID string, status, errMsg string) []byte {
 	return b
 }
 
-// TestEventResultHeraldCallback 覆盖 §13.5 原生解析（HERALD-5）：验签
-// 通过/失败、success/failed 映射 sent/failed（原因落 detail）、旧形状
-// 双形状判别继续收、非数字 event_id、缺字段、unsubscribe ack、
-// 未配置密钥不验签（既有通道不断）。
+// TestEventResultHeraldCallback covers §13.5 native parsing (HERALD-5):
+// signature pass/fail, success/failed mapped to sent/failed (reason stored in
+// detail), legacy shape still accepted by the dual-shape dispatch, non-numeric
+// event_id, missing fields, unsubscribe ack, and no verification without a
+// configured secret (existing channels stay intact).
 func TestEventResultHeraldCallback(t *testing.T) {
 	r, db := newCallbackRouter(t)
 	if err := db.Create(&storage.Event{ID: 3001, Kind: "notice", Severity: "info", Title: "t", Target: "user:7", Status: "sent", OccurredAt: time.Now()}).Error; err != nil {
 		t.Fatal(err)
 	}
 
-	// ① 验签通过：§13.5 success → EventDelivery sent
+	// (1) signature passes: §13.5 success -> EventDelivery sent
 	rec := postEventResult(t, r, "callback-secret-0123456789abcdef", callbackPayload("3001", "success", ""))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("signed callback: %d %s", rec.Code, rec.Body)
@@ -126,12 +131,12 @@ func TestEventResultHeraldCallback(t *testing.T) {
 		t.Fatalf("delivery row: %+v", rows[0])
 	}
 
-	// ② 验签失败：篡改签名 401
+	// (2) signature fails: tampered signature 401
 	bad := postEventResult(t, r, "wrong-secret", callbackPayload("3001", "success", ""))
 	if bad.Code != http.StatusUnauthorized {
 		t.Fatalf("bad signature: %d", bad.Code)
 	}
-	// 缺签名头（配置了密钥必须带）同样 401
+	// missing signature header (mandatory when a secret is configured) is also 401
 	bare := httptest.NewRequest("POST", "/api/internal/event-results", bytes.NewReader(callbackPayload("3001", "success", "")))
 	bare.Header.Set("Content-Type", "application/json")
 	bareRec := httptest.NewRecorder()
@@ -140,7 +145,7 @@ func TestEventResultHeraldCallback(t *testing.T) {
 		t.Fatalf("missing signature: %d", bareRec.Code)
 	}
 
-	// ③ failed → detail 落失败原因；触达任务联动（stale）
+	// (3) failed -> failure reason lands in detail; touch-job linkage (stale)
 	if err := db.Create(&storage.Event{ID: 3002, Kind: "bill", Severity: "info", Title: "t2", Target: "user:7", Status: "sent", OccurredAt: time.Now()}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +168,7 @@ func TestEventResultHeraldCallback(t *testing.T) {
 		t.Fatalf("touch linkage: %v %+v", err, ct)
 	}
 
-	// ④ 旧形状（HERALD-2）：带正确签名继续收——双形状判别不断流
+	// (4) legacy shape (HERALD-2): accepted with a correct signature — the dual-shape dispatch keeps the flow alive
 	old := []byte(`{"event_id":3001,"channel":"herald","status":"sent","detail":"via shim"}`)
 	rec = postEventResult(t, r, "callback-secret-0123456789abcdef", old)
 	if rec.Code != http.StatusOK {
@@ -175,13 +180,13 @@ func TestEventResultHeraldCallback(t *testing.T) {
 		t.Fatalf("legacy row missing: %d", n)
 	}
 
-	// ⑤ 非数字 delivery.event_id 400
+	// (5) non-numeric delivery.event_id: 400
 	rec = postEventResult(t, r, "callback-secret-0123456789abcdef", callbackPayload("cb-8f2c", "success", ""))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("non-numeric event id: %d %s", rec.Code, rec.Body)
 	}
 
-	// ⑥ 缺字段：delivery.status 非法 / 缺 channel 各 400
+	// (6) missing fields: invalid delivery.status / missing channel, 400 each
 	rec = postEventResult(t, r, "callback-secret-0123456789abcdef", callbackPayload("3001", "pending", ""))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad status: %d", rec.Code)
@@ -192,15 +197,17 @@ func TestEventResultHeraldCallback(t *testing.T) {
 		t.Fatalf("missing channel: %d", rec.Code)
 	}
 
-	// ⑦ unsubscribe（无 delivery）：ack 忽略防 herald 重试刷
+	// (7) unsubscribe (no delivery): the ack is ignored to stop herald retries from flooding
 	unsub := []byte(`{"event_id":"cb-1","app":"ferry","kind":"unsubscribe","at":"2026-10-08T00:00:00Z","unsubscribe":{"audience_id":"user.7","category":"notice","channel":"email","relation_type":"surface"}}`)
 	rec = postEventResult(t, r, "callback-secret-0123456789abcdef", unsub)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("unsubscribe ack: %d %s", rec.Code, rec.Body)
 	}
 
-	// ⑧ 未配置密钥的实例（P2 默认必验签）：两种形状均拒绝——无密钥即无
-	// 法确认真伪，伪造回执不被默认接收；且不留任何回执行。
+	// (8) instance with no secret configured (P2 requires verification by
+	// default): both shapes are rejected — without a secret there is no way to
+	// tell forged receipts apart, so they are not accepted by default, and no
+	// receipt row is left behind.
 	r0, db0 := newTestRouterWithDB(t)
 	if err := db0.Create(&storage.Event{ID: 3001, Kind: "notice", Severity: "info", Title: "t", Target: "user:7", Status: "sent", OccurredAt: time.Now()}).Error; err != nil {
 		t.Fatal(err)
@@ -216,17 +223,20 @@ func TestEventResultHeraldCallback(t *testing.T) {
 		t.Fatalf("secretless instance recorded delivery: %d err=%v", n0, err)
 	}
 
-	// ⑨ 不存在的事件 404（两种形状同口径）
+	// (9) non-existent event: 404 (same behavior for both shapes)
 	rec = postEventResult(t, r, "callback-secret-0123456789abcdef", callbackPayload("9999", "success", ""))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("missing event: %d", rec.Code)
 	}
 }
 
-// TestEventResultSecretlessRejected 覆盖 P2「event-results 默认不验签」修复：
-// 回执端点是 open 组公开路由，未配置 HeraldCallbackSecret 的实例不能接受任
-// 何回调（默认必验签）——修复前空密钥直接放行，伪造回执（含触达联动副作用）
-// 被默认接收；修复后无密钥实例两种形状统一 401 且不留回执行。
+// TestEventResultSecretlessRejected covers the P2 fix for "event-results not
+// verified by default": the receipt endpoint is a public route in the open
+// group, so an instance without HeraldCallbackSecret configured must not accept
+// any callback (verification is mandatory by default) — before the fix an empty
+// secret let everything through and forged receipts (including touch-linkage
+// side effects) were accepted by default; after the fix a secretless instance
+// returns 401 for both shapes and leaves no receipt row.
 func TestEventResultSecretlessRejected(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	if err := db.Create(&storage.Event{ID: 4001, Kind: "bill", Severity: "info", Title: "t", Target: "user:9", Status: "sent", OccurredAt: time.Now()}).Error; err != nil {
@@ -239,7 +249,7 @@ func TestEventResultSecretlessRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// §13.5 回调与旧形状：无密钥实例一律 401，触达联动副作用不触发。
+	// §13.5 callback and legacy shape: a secretless instance returns 401 in all cases, touch-linkage side effects never fire.
 	for _, body := range [][]byte{
 		callbackPayload("4001", "failed", "smtp: forged"),
 		[]byte(`{"event_id":4001,"channel":"email","status":"failed","detail":"forged"}`),

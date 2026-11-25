@@ -11,7 +11,7 @@ import (
 func TestCardBatchLifecycle(t *testing.T) {
 	r := newTestRouter(t)
 
-	// 建批次：3 张 add_quota 卡
+	// Create a batch: 3 add_quota cards
 	rec := doJSON(t, r, "POST", "/api/card-batches", map[string]any{
 		"name": "50GB 卡", "grant_type": "add_quota", "grant_value": 53687091200, "total": 3,
 	})
@@ -41,7 +41,7 @@ func TestCardBatchLifecycle(t *testing.T) {
 		t.Fatalf("default created_by = %q", created.Batch.CreatedBy)
 	}
 
-	// 列表：remaining = total
+	// Listing: remaining = total
 	rec = doJSON(t, r, "GET", "/api/card-batches", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list: %d", rec.Code)
@@ -58,12 +58,12 @@ func TestCardBatchLifecycle(t *testing.T) {
 		t.Fatalf("list = %+v", list)
 	}
 
-	// 卡密列表
+	// Card code listing
 	if rec := doJSON(t, r, "GET", "/api/card-batches/1/codes", nil); rec.Code != http.StatusOK {
 		t.Fatalf("codes: %d", rec.Code)
 	}
 
-	// CSV 导出：表头 + 3 行 + 附件头
+	// CSV export: header + 3 rows + attachment header
 	rec = doJSON(t, r, "GET", "/api/card-batches/1/export.csv", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("export: %d", rec.Code)
@@ -84,7 +84,7 @@ func TestCardBatchLifecycle(t *testing.T) {
 		t.Fatalf("missing batch: %d", rec.Code)
 	}
 
-	// 删除批次：连带卡密，批次列表清空、明细 404
+	// Delete batch: codes go with it, the batch list empties, and the detail returns 404
 	if rec := doJSON(t, r, "DELETE", "/api/card-batches/1", nil); rec.Code != http.StatusOK {
 		t.Fatalf("delete batch: %d %s", rec.Code, rec.Body)
 	}
@@ -99,7 +99,7 @@ func TestCardBatchLifecycle(t *testing.T) {
 	}
 }
 
-// TestCardCodeDisable 覆盖手动禁用：unused 可禁且禁后不可兑换，重复禁用 409。
+// TestCardCodeDisable covers manual disabling: an unused code can be disabled and can no longer be redeemed once disabled; disabling again is 409.
 func TestCardCodeDisable(t *testing.T) {
 	r := newTestRouter(t)
 	rec := doJSON(t, r, "POST", "/api/card-batches", map[string]any{
@@ -122,7 +122,7 @@ func TestCardCodeDisable(t *testing.T) {
 		t.Fatalf("decode codes: %v %s", err, rec.Body)
 	}
 
-	// 禁用第一张：200 + status=disabled
+	// Disable the first one: 200 + status=disabled
 	rec = doJSON(t, r, "PATCH", "/api/card-codes/"+strconv.FormatUint(uint64(codes[0].ID), 10)+"/disable", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("disable: %d %s", rec.Code, rec.Body)
@@ -135,14 +135,14 @@ func TestCardCodeDisable(t *testing.T) {
 		t.Fatalf("status = %q", disabled.Status)
 	}
 
-	// 已禁用的码兑换失败，且文案与「不存在」一致（防枚举）
+	// Redeeming a disabled code fails, and its wording matches the "not found" one (anti-enumeration)
 	rec = doJSON(t, r, "POST", "/api/redeem", map[string]any{
 		"code": codes[0].Code, "user_id": 1,
 	})
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "兑换失败") {
 		t.Fatalf("redeem disabled: %d %s", rec.Code, rec.Body)
 	}
-	// 第二张同码位（不存在的 id）也是同一文案
+	// The second code slot (a non-existent id) returns the same wording
 	rec = doJSON(t, r, "POST", "/api/redeem", map[string]any{
 		"code": "ZZZZ-ZZZZ-ZZZZ", "user_id": 1,
 	})
@@ -150,7 +150,7 @@ func TestCardCodeDisable(t *testing.T) {
 		t.Fatalf("redeem unknown: %d %s", rec.Code, rec.Body)
 	}
 
-	// 重复禁用 409；非法 id 404
+	// Re-disabling is 409; an invalid id is 404
 	if rec := doJSON(t, r, "PATCH", "/api/card-codes/"+strconv.FormatUint(uint64(codes[0].ID), 10)+"/disable", nil); rec.Code != http.StatusConflict {
 		t.Fatalf("re-disable: %d %s", rec.Code, rec.Body)
 	}

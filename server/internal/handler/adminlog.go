@@ -9,11 +9,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 运行日志查看（P1-11，来源：3x-ui 日志查看与 clear_logs_job；
-// Marzban 节点侧日志由 agent 采集另行推进）。
+// Runtime log viewing (P1-11, origins: 3x-ui log viewing and clear_logs_job;
+// Marzban node-side logs are collected by the agent and tracked separately).
 
-// adminLogs 查看面板运行日志（GET /admin/logs）：环形缓冲最近 limit 条
-// （时间升序，最新在后），limit 缺省 200、上限 1000。
+// adminLogs shows panel runtime logs (GET /admin/logs): the most recent limit
+// entries from the ring buffer (time ascending, newest last), with limit defaulting
+// to 200 and capped at 1000.
 func (h *Handler) adminLogs(c *gin.Context) {
 	limit := 200
 	if v := c.Query("limit"); v != "" {
@@ -27,7 +28,7 @@ func (h *Handler) adminLogs(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"entries": ringlog.Default().Entries(limit)})
 }
 
-// clearAdminLogs 清空运行日志（DELETE /admin/logs）。
+// clearAdminLogs clears the runtime logs (DELETE /admin/logs).
 func (h *Handler) clearAdminLogs(c *gin.Context) {
 	ringlog.Default().Clear()
 	c.JSON(http.StatusOK, gin.H{"cleared": true})

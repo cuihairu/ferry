@@ -6,12 +6,12 @@ import (
 	"testing"
 )
 
-// TestAllocAPI 覆盖策略查看/设置（E-21）：默认策略、设置落库、非法档位拒绝、
-// auto 行列表（manual 行不混入）。
+// TestAllocAPI covers policy view/set (E-21): default policy, persisted set,
+// rejection of invalid tiers, and the auto row list (no manual rows mixed in).
 func TestAllocAPI(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 
-	// 默认策略
+	// Default policy.
 	rec := doJSON(t, r, "GET", "/api/alloc", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get alloc status = %d body=%s", rec.Code, rec.Body)
@@ -32,7 +32,7 @@ func TestAllocAPI(t *testing.T) {
 		t.Fatalf("default policy = %+v", out.Policy)
 	}
 
-	// 设置档位与低峰窗口并回读
+	// Set tiers and the off-peak window, then read them back.
 	rec = doJSON(t, r, "PUT", "/api/alloc/policy", map[string]any{
 		"out": "cost_first", "in": "perf_first", "rebalance_start": 2, "rebalance_end": 6,
 	})
@@ -47,7 +47,7 @@ func TestAllocAPI(t *testing.T) {
 		t.Fatalf("policy after put = %+v", out.Policy)
 	}
 
-	// 非法窗口拒绝
+	// An invalid window is rejected.
 	rec = doJSON(t, r, "PUT", "/api/alloc/policy", map[string]any{
 		"out": "balanced", "in": "balanced", "rebalance_start": 9, "rebalance_end": 9,
 	})
@@ -55,7 +55,7 @@ func TestAllocAPI(t *testing.T) {
 		t.Fatalf("invalid window status = %d", rec.Code)
 	}
 
-	// 非法档位拒绝
+	// An invalid tier is rejected.
 	rec = doJSON(t, r, "PUT", "/api/alloc/policy", map[string]any{
 		"out": "greedy", "in": "balanced",
 	})
@@ -63,7 +63,8 @@ func TestAllocAPI(t *testing.T) {
 		t.Fatalf("invalid policy status = %d", rec.Code)
 	}
 
-	// 空档位表示回方向缺省（E-30）：出海 cost_first、回国 perf_first，窗口保留
+	// An empty tier means fall back to the direction default (E-30): out is
+	// cost_first, in is perf_first, and the window is kept.
 	rec = doJSON(t, r, "PUT", "/api/alloc/policy", map[string]any{
 		"out": "", "in": "", "rebalance_start": 3, "rebalance_end": 8,
 	})
@@ -78,7 +79,7 @@ func TestAllocAPI(t *testing.T) {
 		t.Fatalf("policy reset to defaults = %+v", out.Policy)
 	}
 
-	// auto 行入列表，manual 行不混入
+	// auto rows appear in the list; manual rows do not.
 	if err := db.Exec(`INSERT INTO landing_assignments
 		(entry_node_id, landing_node_id, direction, strategy, assigned_at)
 		VALUES (1, 2, 'out', 'least_conn', CURRENT_TIMESTAMP)`).Error; err != nil {

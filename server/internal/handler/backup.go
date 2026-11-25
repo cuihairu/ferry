@@ -10,13 +10,16 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 备份导出（P1-6 手动备份；P1 周期备份批起同面落档留痕）。
+// Backup export (P1-6 manual backup; from the P1 scheduled-backup batch the
+// same surface also leaves a recorded archive).
 
-// backupDB 导出当前数据库快照（GET /admin/backup/db）：VACUUM INTO 在线
-// 一致性快照落备份目录（配置了主密钥时为加密档 .enc），落 manual 行
-// （uploaded 恒 0——manual 落档不走外发，外发仅周期 Loop 经 S3Uploader）
-// 并按 KEEP 滚动清理后以附件下载该档；postgres/mysql 方言不支持（走各自
-// 备份设施）。
+// backupDB exports a snapshot of the current database (GET /admin/backup/db):
+// a VACUUM INTO online consistency snapshot lands in the backup directory
+// (an encrypted .enc archive when a master key is configured), a manual row
+// is stored (uploaded is always 0 -- a manual archive is not uploaded; uploads
+// only happen in the periodic Loop via S3Uploader), the archive is pruned
+// against KEEP and then served as an attachment download; the postgres/mysql
+// dialects are unsupported (they use their own backup facilities).
 func (h *Handler) backupDB(c *gin.Context) {
 	path, size, err := backup.Snapshot(h.db, h.cfg.BackupDir, h.secrets)
 	if err != nil {

@@ -13,10 +13,12 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// 回归（2026-10-10 dogfood 发现）：/api 管理数据面此前整组无鉴权，
-// 任意人可建用户/删节点/读全量订阅者。修后：无凭据 401、坏凭据 401、
-// 管理员 JWT 与 API Token 双凭据放行、FERRY_ADMIN_SECRET 生效、
-// 自带凭据的公开面（panel）不受影响。
+// Regression (found in the 2026-10-10 dogfood): the /api management data
+// plane was previously unauthenticated as a whole group, so anyone could
+// create users, delete nodes and read the full subscriber list. After the
+// fix: missing credentials are 401, bad credentials are 401, an admin JWT and
+// an API Token both pass, FERRY_ADMIN_SECRET takes effect, and the
+// credentialed public surface (panel) is unaffected.
 
 func req401(t *testing.T, r *gin.Engine, method, path, auth string) int {
 	t.Helper()
@@ -51,7 +53,7 @@ func TestApiDataPlaneAcceptsAdminJwt(t *testing.T) {
 
 func TestApiDataPlaneAcceptsApiToken(t *testing.T) {
 	r, _ := newTestRouterCfg(t, func(c *config.Config) { c.ApiTokenSecret = "custom-api-secret" })
-	// 用同一自定义秘钥签 API Token：数据面应放行。
+	// Sign an API Token with the same custom secret: the data plane should pass it.
 	claims := apiTokenClaims{RegisteredClaims: jwt.RegisteredClaims{
 		Subject:   "admin",
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
@@ -63,7 +65,7 @@ func TestApiDataPlaneAcceptsApiToken(t *testing.T) {
 	if code := req401(t, r, "GET", "/api/users", "Bearer "+ss); code != http.StatusOK {
 		t.Fatalf("api token GET /api/users = %d, want 200", code)
 	}
-	// 默认秘钥签的 API Token 在配置了自定义秘钥后必须被拒。
+	// An API Token signed with the default secret must be rejected once a custom one is configured.
 	def := apiTokenClaims{RegisteredClaims: jwt.RegisteredClaims{
 		Subject: "admin", ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 	}}
@@ -74,9 +76,11 @@ func TestApiDataPlaneAcceptsApiToken(t *testing.T) {
 }
 
 func TestApiDataPlaneHonorsAdminSecretEnv(t *testing.T) {
-	// FERRY_ADMIN_SECRET 配置后：该秘钥签的管理员 JWT 放行，缺省秘钥被拒
-	//（2026-10-10 修复：此前中间件硬编码缺省秘钥，env 形同虚设）。
-	// root 行为 /admin 组回库复核的既有管理员（seedAdminForJWT），id=1。
+	// Once FERRY_ADMIN_SECRET is configured: an admin JWT signed with that secret
+	// passes, and the default secret is rejected (fixed 2026-10-10: the
+	// middleware previously hardcoded the default secret, so the env was a no-op).
+	// The root row is the pre-existing admin used to re-check the /admin group's
+	// DB round-trip (seedAdminForJWT), with id=1.
 	r, db := newTestRouterCfg(t, func(c *config.Config) { c.AdminSecret = "custom-admin-secret" })
 	seedAdminForJWT(t, db)
 	custom := adminClaims{RegisteredClaims: jwt.RegisteredClaims{
@@ -92,7 +96,7 @@ func TestApiDataPlaneHonorsAdminSecretEnv(t *testing.T) {
 	if code := req401(t, r, "GET", "/api/users", "Bearer "+adminJWT(t)); code != http.StatusUnauthorized {
 		t.Fatalf("default-secret admin jwt after env override = %d, want 401", code)
 	}
-	// /admin 组同一口径。
+	// The /admin group follows the same rule.
 	if code := req401(t, r, "GET", "/admin/status", "Bearer "+adminJWT(t)); code != http.StatusUnauthorized {
 		t.Fatalf("default-secret on /admin = %d, want 401", code)
 	}
@@ -102,21 +106,24 @@ func TestApiDataPlaneHonorsAdminSecretEnv(t *testing.T) {
 }
 
 func TestPanelUnaffectedByApiAuth(t *testing.T) {
-	// panel 挂 open 组：订阅令牌身份照常工作，不受数据面鉴权影响。
+	// panel sits in the open group: the subscription token identity keeps working,
+	// unaffected by the data-plane authentication.
 	r, _ := newTestRouterWithDB(t)
 	token := panelToken(t, r, "grace")
 	if code := req401(t, r, "GET", "/api/panel/me", "Bearer "+token); code != http.StatusOK {
 		t.Fatalf("panel me with sub token = %d, want 200", code)
 	}
-	// 反向：订阅令牌不是管理凭据，不得越过数据面。
+	// Conversely: a subscription token is not a management credential and must not
+	// cross into the data plane.
 	if code := req401(t, r, "GET", "/api/users", "Bearer "+token); code != http.StatusUnauthorized {
 		t.Fatalf("sub token on admin route = %d, want 401", code)
 	}
 }
 
 func TestTokenIssuanceFlow(t *testing.T) {
-	// POST /api/token 用管理员 JWT 签发 API Token，随后 API Token 可用
-	//（此前 AdminGetApiToken 读不到 adminUserID 恒 403，端点死挂）。
+	// POST /api/token mints an API Token with an admin JWT, after which the API
+	// Token works (previously AdminGetApiToken could not read adminUserID and
+	// always returned 403, leaving the endpoint dead).
 	r, _ := newTestRouterWithDB(t)
 	req := httptest.NewRequest("POST", "/api/token", nil)
 	req.Header.Set("Authorization", "Bearer "+adminJWT(t))
@@ -135,7 +142,7 @@ func TestTokenIssuanceFlow(t *testing.T) {
 	if code := req401(t, r, "GET", "/api/users", "Bearer "+apiToken); code != http.StatusOK {
 		t.Fatalf("minted api token GET /api/users = %d, want 200", code)
 	}
-	// GET /api/token 回当前身份。
+	// GET /api/token reports the current identity.
 	req2 := httptest.NewRequest("GET", "/api/token", nil)
 	req2.Header.Set("Authorization", "Bearer "+apiToken)
 	rec2 := httptest.NewRecorder()
@@ -146,8 +153,10 @@ func TestTokenIssuanceFlow(t *testing.T) {
 }
 
 func TestPublicCallbackFacesStillOpen(t *testing.T) {
-	// 公开面（各自验签）不被数据面鉴权挡住：epusdt 回调垃圾体应到业务校验
-	//（非 401 令牌错误），Herald 回执同口径。
+	// Public surfaces (each with its own verification) are not blocked by the
+	// data-plane authentication: a garbage epusdt callback body should reach the
+	// business validation (not a 401 token error), and the Herald receipt
+	// follows the same rule.
 	r, _ := newTestRouterWithDB(t)
 	req := httptest.NewRequest("POST", "/api/pay/epusdt/notify", nil)
 	rec := httptest.NewRecorder()
@@ -158,9 +167,12 @@ func TestPublicCallbackFacesStillOpen(t *testing.T) {
 }
 
 func TestDistributorTokenRejectedOnAdminFaces(t *testing.T) {
-	// 2026-10-10 实机走查发现：代理令牌与管理员同密钥签发（DS-1），apiAuth
-	// 与 adminAuthMiddleware 只验签名不查 is_admin——代理令牌直通管理面
-	// 全权提升。修后两面均 401，代理自面不受影响。
+	// Found in a 2026-10-10 live walkthrough: a distributor token is signed with
+	// the same secret as an admin (DS-1), and apiAuth plus adminAuthMiddleware
+	// only verified the signature without checking is_admin -- a distributor
+	// token escalated straight through the management surface with full rights.
+	// After the fix both surfaces return 401, and the distributor's own portal
+	// is unaffected.
 	r, _ := newTestRouterWithDB(t)
 	rec := doJSON(t, r, "POST", "/api/distributors", map[string]any{"username": "d9", "password": "secret123"})
 	if rec.Code != http.StatusCreated {
@@ -179,16 +191,18 @@ func TestDistributorTokenRejectedOnAdminFaces(t *testing.T) {
 	if code := req401(t, r, "GET", "/admin/status", "Bearer "+dist); code != http.StatusUnauthorized {
 		t.Fatalf("dist token on /admin/status = %d, want 401", code)
 	}
-	// 代理自面照常（role=distributor 校验在自面中间件）。
+	// The distributor's own portal works as usual (the role=distributor check lives in that portal's middleware).
 	if code := req401(t, r, "GET", "/distributor/api/me", "Bearer "+dist); code != http.StatusOK {
 		t.Fatalf("dist token on own portal = %d, want 200", code)
 	}
 }
 
 func TestDistributorPortalHonorsAdminSecretEnv(t *testing.T) {
-	// 2026-10-10 实机走查发现：distAuthMiddleware 验签硬编码缺省常量，
-	// 运营设 FERRY_ADMIN_SECRET 后签发（cfg 秘钥）与验签错位，代理自面
-	// 整面 401。修后签发与验签同源。
+	// Found in a 2026-10-10 live walkthrough: distAuthMiddleware verified
+	// signatures against a hardcoded default constant, so once an operator set
+	// FERRY_ADMIN_SECRET, issuance (the cfg secret) and verification diverged
+	// and the whole distributor portal returned 401. After the fix issuance and
+	// verification share the same source.
 	r, _ := newTestRouterCfg(t, func(c *config.Config) { c.AdminSecret = "custom-admin-secret" })
 	custom := adminClaims{RegisteredClaims: jwt.RegisteredClaims{
 		ID: "1", ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),

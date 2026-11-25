@@ -12,21 +12,22 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// adminClaims 是 JWT claim，包含用户 ID、是否为管理员与管理员层级
-// （P2-2：super=超级管理员 / operator=子管理员；空=旧令牌，按 super 兼容）。
+// adminClaims is a JWT claim set holding the user ID, admin flag, and admin
+// tier (P2-2: super=super admin / operator=sub admin; empty=legacy token,
+// treated as super for compatibility).
 type adminClaims struct {
 	jwt.RegisteredClaims
 	IsAdmin bool   `json:"is_admin"`
 	Role    string `json:"role"`
 }
 
-// RoleSuper/RoleOperator 是管理员层级（users.admin_role 同值域）。
+// RoleSuper/RoleOperator are admin tiers (same domain as users.admin_role).
 const (
 	RoleSuper    = "super"
 	RoleOperator = "operator"
 )
 
-// normalizeAdminRole 归一层级：空/未知按 super（旧管理员兼容）。
+// normalizeAdminRole normalizes the tier: empty/unknown becomes super (legacy admin compatibility).
 func normalizeAdminRole(r string) string {
 	if r == RoleOperator {
 		return RoleOperator
@@ -34,14 +35,17 @@ func normalizeAdminRole(r string) string {
 	return RoleSuper
 }
 
-// AdminLogin 管理员登录（P1-1 + 安全设计 §1）：验证用户名/密码，绑定两步
-// 验证者再校验 TOTP/恢复码，返回 signed JWT。失败按 IP 滑动窗口计数达阈值
-// 锁定（复用兑换限速思路），每次尝试落 login_logs 审计，连续失败与新网段
-// 成功经 Herald login_alert 告警；未绑定 2FA 者登录行为不变。
+// AdminLogin is admin login (P1-1 + security design §1): verify username/password,
+// then for accounts with a bound authenticator verify the TOTP/recovery code,
+// and return a signed JWT. Failures are counted in a per-IP sliding window and
+// lock out past the threshold (reusing the redemption rate-limit idea); every
+// attempt is written to login_logs for audit, and consecutive failures plus
+// successful logins from new subnets raise a Herald login_alert; accounts
+// without 2FA keep their previous login behavior unchanged.
 func (h *Handler) AdminLogin(c *gin.Context) {
 	ip := c.ClientIP()
 	ua := c.Request.UserAgent()
-	// 速率限流：每 60 秒最多 5 次尝试，失败 5 次进入 15 分钟锁定
+	// Rate limiting: at most 5 attempts per 60 seconds, then a 15-minute lockout after 5 failures
 	if !h.loginLimiter.Allow(ip) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "尝试过于频繁，请稍后再试"})
 		return
@@ -49,7 +53,7 @@ func (h *Handler) AdminLogin(c *gin.Context) {
 	var in struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
-		TOTP     string `json:"totp"` // 6 位 TOTP 或一次性恢复码（绑定者必填）
+		TOTP     string `json:"totp"` // 6-digit TOTP or one-time recovery code (required for bound accounts)
 	}
 	if err := c.ShouldBindJSON(&in); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
@@ -57,7 +61,7 @@ func (h *Handler) AdminLogin(c *gin.Context) {
 	}
 	u, err := h.findUserByUsername(in.Username)
 	if err != nil {
-		// 无论用户是否存在，均记录一次失败以防止枚举
+		// Always record a failure whether or not the user exists, to prevent enumeration
 		h.loginFailed(c, in.Username, ip, ua, "用户名或密码错误", "")
 		return
 	}
@@ -69,13 +73,15 @@ func (h *Handler) AdminLogin(c *gin.Context) {
 		h.loginFailed(c, in.Username, ip, ua, "无管理员权限", "")
 		return
 	}
-	// password 校验：bcrypt 比对
+	// password check: bcrypt comparison
 	if err := bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(in.Password)); err != nil {
 		h.loginFailed(c, in.Username, ip, ua, "用户名或密码错误", "")
 		return
 	}
-	// 二次因子（安全设计 §1）：绑定者必须给 6 位 TOTP 或恢复码；
-	// 空值单独回码让 dash 补出验证码输入位，未绑定者直过。
+	// second factor (security design §1): bound accounts must supply a 6-digit
+	// TOTP or recovery code; an empty value gets its own code back so the dash
+	// UI can add a verification-code input, while unbound accounts pass straight
+	// through.
 	if u.TOTPEnabled && strings.TrimSpace(in.TOTP) == "" {
 		h.loginFailed(c, in.Username, ip, ua, "需要两步验证码", "totp_required")
 		return
@@ -85,7 +91,7 @@ func (h *Handler) AdminLogin(c *gin.Context) {
 		return
 	}
 	now := time.Now()
-	expire := now.Add(24 * time.Hour) // 登录令牌有效期 24 小时
+	expire := now.Add(24 * time.Hour) // login token lifetime of 24 hours
 	claims := adminClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   u.Username,
@@ -97,7 +103,7 @@ func (h *Handler) AdminLogin(c *gin.Context) {
 		Role:    normalizeAdminRole(u.AdminRole),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	// 使用配置中的秘钥签名；默认使用 "ferry-admin-secret"，可通过 FERRY_ADMIN_SECRET 环境变量覆盖
+	// Sign with the configured secret; defaults to "ferry-admin-secret" and can be overridden by the FERRY_ADMIN_SECRET env var
 	secret := h.cfg.AdminSecret
 	if secret == "" {
 		secret = "ferry-admin-secret"
@@ -107,14 +113,15 @@ func (h *Handler) AdminLogin(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "内部错误"})
 		return
 	}
-	// 审计落行 + 新网段告警（排除自身行取上次成功基线）。
+	// Audit row + new-subnet alert (previous successful baseline excludes this row itself).
 	row := h.writeLoginLog(u.Username, ip, ua, true)
 	h.alertLoginNewIP(u.Username, ip, row.ID)
 	c.JSON(http.StatusOK, gin.H{"token": ss})
 }
 
-// loginFailed 登录失败统一收尾：限速计数、审计落行、连续失败告警检查，
-// 然后回 401（code 可选机器可读标记，如 totp_required/totp_invalid）。
+// loginFailed is the common tail for a failed login: rate-limit counting, an audit
+// row, and a consecutive-failure alert check, then reply 401 (code is an optional
+// machine-readable marker, e.g. totp_required/totp_invalid).
 func (h *Handler) loginFailed(c *gin.Context, username, ip, ua, msg, code string) {
 	h.loginLimiter.RecordFailure(ip)
 	h.writeLoginLog(username, ip, ua, false)
@@ -126,9 +133,11 @@ func (h *Handler) loginFailed(c *gin.Context, username, ip, ua, msg, code string
 	c.JSON(http.StatusUnauthorized, body)
 }
 
-// adminAuthMiddleware 管理员身份中间件：从 Authorization: Bearer <token> 解析并验证。
-// 秘钥取 cfg.AdminSecret（FERRY_ADMIN_SECRET），缺省回落与 AdminLogin 签发侧一致
-// （2026-10-10 修复：此前硬编码缺省值，配置 env 后中间件仍按缺省验签，直接打挂 /admin）。
+// adminAuthMiddleware is the admin identity middleware: parse and verify the token
+// from Authorization: Bearer <token>. The secret comes from cfg.AdminSecret
+// (FERRY_ADMIN_SECRET), with a default fallback matching the AdminLogin signing side
+// (2026-10-10 fix: this was previously hardcoded, so after setting the env var the
+// middleware still verified against the default and broke /admin outright).
 func (h *Handler) adminAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tokenStr := bearerToken(c)
@@ -145,17 +154,21 @@ func (h *Handler) adminAuthMiddleware() gin.HandlerFunc {
 		tkn, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
 			return []byte(secret), nil
 		})
-		// 只认 is_admin=true：代理令牌（role=distributor）与管理员同密钥
-		// 签发，签名可验但非管理员身份——不查此位=代理可过 /admin 组。
+		// Only honor is_admin=true: distributor tokens (role=distributor) are signed with
+		// the same key as admin tokens, so the signature verifies even though the
+		// identity is not an admin -- skipping this check would let distributors pass
+		// the /admin group.
 		if err != nil || !tkn.Valid || !claims.IsAdmin {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "无效令牌"})
 			c.Abort()
 			return
 		}
-		// 回库复核（审核修复 2026-11-12）：签名有效只证明签发时点合法，
-		// 停用/摘管理员身份后旧 token 不得存活到自然过期。同时改密作废：
-		// 签发早于最近改密时间的令牌拒绝（password_changed_at，存量行为
-		// NULL 不判定）。
+		// Re-check against the DB (audit fix 2026-11-12): a valid signature only proves the
+		// token was legitimate at issue time, so after an account is disabled or
+		// demoted the old token must not survive until natural expiry. Password
+		// changes also invalidate it: tokens issued before the latest password change
+		// are rejected (password_changed_at; pre-existing rows hold NULL and are not
+		// judged).
 		adminID, idErr := strconv.ParseUint(claims.ID, 10, 64)
 		var u storage.User
 		if idErr != nil || h.db.First(&u, uint(adminID)).Error != nil ||
@@ -174,7 +187,7 @@ func (h *Handler) adminAuthMiddleware() gin.HandlerFunc {
 	}
 }
 
-// findUserByUsername 根据用户名查找用户。
+// findUserByUsername looks up a user by username.
 func (h *Handler) findUserByUsername(username string) (storage.User, error) {
 	var u storage.User
 	if err := h.db.Where("username = ?", username).First(&u).Error; err != nil {

@@ -1,8 +1,10 @@
 package handler
 
-// 证书任务与恢复流水线查询面缝隙批：cert-tasks CRUD 与手动触发的
-// 404/409 分支、recoveries 两查询端点此前零覆盖。issue 正常路径
-// 会真调 acme.sh（cert.IssueNow 已由 cert 包自测），本批不触发。
+// Gap-fill batch for the cert task and recovery pipeline query surface: cert-task
+// CRUD and the 404/409 branches of the manual trigger endpoints, plus the two
+// recoveries query endpoints, had zero coverage. The issue happy path really
+// shells out to acme.sh (cert.IssueNow is already tested inside the cert
+// package), so this batch does not trigger it.
 
 import (
 	"encoding/json"
@@ -17,14 +19,15 @@ import (
 
 func itoa(n uint) string { return strconv.FormatUint(uint64(n), 10) }
 
-// TestCertTasksCRUD 覆盖证书任务校验、创建、维护与删除。
+// TestCertTasksCRUD covers cert-task validation, creation, update and deletion.
 func TestCertTasksCRUD(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	prov := storage.DNSProvider{Name: "cf", Type: "cloudflare", APIKey: "tok"}
 	if err := db.Create(&prov).Error; err != nil {
 		t.Fatal(err)
 	}
-	// 校验负例：空域名/非 FQDN/非法 method/dns-01 缺 provider/provider 不存在。
+	// Validation negative cases: empty domain / non-FQDN / invalid method /
+	// dns-01 without a provider / provider not found.
 	for _, body := range []map[string]any{
 		{"domain": "", "method": "dns-01", "provider_id": prov.ID},
 		{"domain": "localhost", "method": "dns-01", "provider_id": prov.ID},
@@ -36,7 +39,7 @@ func TestCertTasksCRUD(t *testing.T) {
 			t.Fatalf("create %v: %d, want 400", body, rec.Code)
 		}
 	}
-	// 合法 dns-01（带 provider）与 http-01（免 provider）。
+	// Valid dns-01 (with a provider) and http-01 (no provider needed).
 	if rec := doJSON(t, r, "POST", "/api/cert-tasks",
 		map[string]any{"name": "edge", "domain": "edge.example.com", "method": "dns-01", "provider_id": prov.ID}); rec.Code != http.StatusOK {
 		t.Fatalf("create dns-01: %d %s", rec.Code, rec.Body)
@@ -56,7 +59,8 @@ func TestCertTasksCRUD(t *testing.T) {
 	if len(tasks) != 2 || tasks[0].ID >= tasks[1].ID || tasks[0].State != cert.StatePending {
 		t.Fatalf("tasks = %+v, want 2 rows id ASC state pending", tasks)
 	}
-	// 维护：改域名与 method，applied 任务重置回 pending 等循环重签。
+	// Update: change domain and method; an applied task is reset to pending so the
+	// renewal loop re-signs it.
 	if err := db.Model(&storage.CertTask{}).Where("id = ?", tasks[0].ID).Update("state", "applied").Error; err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +75,8 @@ func TestCertTasksCRUD(t *testing.T) {
 	if row.Domain != "edge2.example.com" || row.Method != "http-01" || row.State != cert.StatePending {
 		t.Fatalf("updated = %+v", row)
 	}
-	// 删除后不再在列表；触发类端点只测 404/409（正常路径真调 acme.sh）。
+	// No longer listed after delete; only the 404/409 branches of the trigger
+	// endpoints are tested (the happy path really calls acme.sh).
 	if rec = doJSON(t, r, "DELETE", "/api/cert-tasks/"+itoa(tasks[0].ID), nil); rec.Code != http.StatusOK {
 		t.Fatalf("delete: %d %s", rec.Code, rec.Body)
 	}
@@ -81,7 +86,8 @@ func TestCertTasksCRUD(t *testing.T) {
 	if rec = doJSON(t, r, "POST", "/api/cert-tasks/abc/issue", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("issue bad id: %d, want 404", rec.Code)
 	}
-	// issuing 抢占防重发：任务已 issuing 时 409，不进 IssueNow。
+	// Issuing-state claim prevents double issuance: 409 when the task is already
+	// issuing, and IssueNow is not reached.
 	issuing := storage.CertTask{Name: "i", Domain: "i.example.com", Method: "dns-01",
 		DNSProviderID: prov.ID, State: "issuing"}
 	if err := db.Create(&issuing).Error; err != nil {
@@ -92,7 +98,7 @@ func TestCertTasksCRUD(t *testing.T) {
 	}
 }
 
-// TestRecoveriesQuery 覆盖恢复流水线列表与动作回放查询。
+// TestRecoveriesQuery covers the recovery pipeline list and action replay queries.
 func TestRecoveriesQuery(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	now := time.Now()

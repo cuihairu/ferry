@@ -14,7 +14,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// newAgentConn 拨号 ws 并走 hello 认证，返回可用连接。
+// newAgentConn dials the ws and goes through hello auth, returning a usable connection.
 func newAgentConn(t *testing.T, srvURL, token, agentID string) *websocket.Conn {
 	t.Helper()
 	c, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(srvURL, "http")+"/agent/ws", nil)
@@ -33,7 +33,8 @@ func newAgentConn(t *testing.T, srvURL, token, agentID string) *websocket.Conn {
 	return c
 }
 
-// trafficFrame 固定内容的 traffic 帧（同 ID 同字节，钉死「只看 ID 不看内容」）。
+// trafficFrame is a traffic frame with fixed content (same ID, same bytes), pinning down the
+// "ID decides, content does not" criterion.
 func trafficFrame(id string) agentproto.Envelope {
 	env, _ := agentproto.NewEnvelope(id, agentproto.MsgTraffic, agentproto.TrafficReport{
 		Items: []agentproto.ProcTraffic{{
@@ -52,8 +53,9 @@ func countTrafficRows(t *testing.T, db *gorm.DB, nodeID int64) int64 {
 	return n
 }
 
-// TestAgentWSDuplicateTrafficFrame 覆盖幂等判据 C1/C6：同连接同 ID 的 traffic
-// 帧发两次，两次都收到字节等价的 ack，但流量只记一次（FERRY-004 §8）。
+// TestAgentWSDuplicateTrafficFrame covers idempotency criteria C1/C6: two traffic frames with
+// the same ID on the same connection are sent twice, both receive byte-equal acks, but the traffic
+// is only recorded once (FERRY-004 §8).
 func TestAgentWSDuplicateTrafficFrame(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
@@ -83,7 +85,7 @@ func TestAgentWSDuplicateTrafficFrame(t *testing.T) {
 	if ack1.Type != agentproto.MsgTrafficAck || ack2.Type != agentproto.MsgTrafficAck {
 		t.Fatalf("expected traffic_ack twice, got %s / %s", ack1.Type, ack2.Type)
 	}
-	// C6：重复帧 ack 与首帧字节等价（agent 据此安心丢弃重传）。
+	// C6: the duplicate frame's ack is byte-equal to the first frame's (so the agent can safely drop retransmissions).
 	a1, _ := json.Marshal(ack1)
 	a2, _ := json.Marshal(ack2)
 	if !bytes.Equal(a1, a2) {
@@ -93,14 +95,15 @@ func TestAgentWSDuplicateTrafficFrame(t *testing.T) {
 	if err := json.Unmarshal(ack1.Payload, &ta); err != nil || ta.Recorded != 1 {
 		t.Fatalf("ack payload = %+v err=%v", ack1.Payload, err)
 	}
-	// C1：副作用只执行一次。
+	// C1: the side effect executes exactly once.
 	if got := countTrafficRows(t, db, nodeID); got != 1 {
 		t.Fatalf("node_traffic_logs rows = %d; want 1", got)
 	}
 }
 
-// TestAgentWSDedupSurvivesReconnect 覆盖判据 C2：断开重连后同 ID 帧仍去重
-// （幂等窗口按 node_id 存活于面板进程，不随连接销毁）。
+// TestAgentWSDedupSurvivesReconnect covers criterion C2: an identical frame is still deduplicated
+// after a disconnect/reconnect (the idempotency window lives on node_id inside the panel process and
+// is not destroyed with the connection).
 func TestAgentWSDedupSurvivesReconnect(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
@@ -136,8 +139,8 @@ func TestAgentWSDedupSurvivesReconnect(t *testing.T) {
 	}
 }
 
-// TestAgentWSNewIDIsNewFrame 覆盖判据 C3：同内容换新 ID 正常记账
-// （判据只看 ID 不看内容）。
+// TestAgentWSNewIDIsNewFrame covers criterion C3: same content with a new ID records normally
+// (the criterion looks at the ID only, not the content).
 func TestAgentWSNewIDIsNewFrame(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
@@ -166,8 +169,8 @@ func TestAgentWSNewIDIsNewFrame(t *testing.T) {
 	}
 }
 
-// TestAgentWSEmptyIDNeverDeduped 覆盖判据 C4：空 ID 每帧都处理（向前兼容
-// 旧 agent 的 proc_report 空 ID 口径）。
+// TestAgentWSEmptyIDNeverDeduped covers criterion C4: an empty ID is processed for every frame
+// (forward compatibility with old agents' proc_report convention of an empty ID).
 func TestAgentWSEmptyIDNeverDeduped(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
@@ -196,8 +199,8 @@ func TestAgentWSEmptyIDNeverDeduped(t *testing.T) {
 	}
 }
 
-// TestAgentWSSameIDAcrossTypes 覆盖判据 C5：判据键含消息类型，
-// traffic 与 alarm 撞 ID 各自处理一次。
+// TestAgentWSSameIDAcrossTypes covers criterion C5: the criterion key includes the message type,
+// so traffic and alarm colliding on the same ID are each processed once.
 func TestAgentWSSameIDAcrossTypes(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
@@ -238,8 +241,8 @@ func TestAgentWSSameIDAcrossTypes(t *testing.T) {
 	}
 }
 
-// TestReportDeduperWindow 覆盖判据 C7（容量界）：FIFO 挤出后的同 ID 视为新帧；
-// 判据键含类型；空 ID 恒不去重。
+// TestReportDeduperWindow covers criterion C7 (capacity bound): after a FIFO eviction the same ID is
+// treated as a new frame; the criterion key includes the type; an empty ID is never deduplicated.
 func TestReportDeduperWindow(t *testing.T) {
 	d := newReportDeduperCap(2, time.Minute)
 	if d.repeat(agentproto.MsgTraffic, "a") {
@@ -251,7 +254,7 @@ func TestReportDeduperWindow(t *testing.T) {
 	if d.repeat(agentproto.MsgTraffic, "b") {
 		t.Fatal("first b must not be a repeat")
 	}
-	d.repeat(agentproto.MsgTraffic, "c") // 窗口满，挤出最早的 a
+	d.repeat(agentproto.MsgTraffic, "c") // window is full, evicting the oldest a
 	if d.repeat(agentproto.MsgTraffic, "a") {
 		t.Fatal("evicted a must be treated as a new frame")
 	}
@@ -263,7 +266,8 @@ func TestReportDeduperWindow(t *testing.T) {
 	}
 }
 
-// TestReportDeduperTTL 覆盖判据 C7（时间界）：TTL 过期后的同 ID 视为新帧。
+// TestReportDeduperTTL covers criterion C7 (time bound): after the TTL expires, the same ID is
+// treated as a new frame.
 func TestReportDeduperTTL(t *testing.T) {
 	d := newReportDeduperCap(4, 30*time.Millisecond)
 	if d.repeat(agentproto.MsgTraffic, "a") {

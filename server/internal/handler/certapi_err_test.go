@@ -11,14 +11,19 @@ import (
 	"gorm.io/gorm"
 )
 
-// 三十八批补口：证书任务（BR-4）错误口径——列表取数失败、建号坏绑定/缺省
-// method 落 dns-01/落库失败、更新坏 id/库故障定位（口径同 404）/坏绑定/
-// 校验失败/DNS 商查无 400/DNS 商命中回写/缺省 method 回写/保存失败、删除
-// 坏 id/落删失败、签发更新失败/IssueNow 取行失败/签发成功立返 200。
-// 留白：无（签发成功后真实签发在 goroutine 内异步跑，失败只记日志，不
-// 影响本端点口径）。
+// Batch 38 gap-filling: error paths for cert tasks (BR-4) — list fetch
+// failure, create with bad binding / default method landing on dns-01 /
+// persist failure, update with bad id / locate failure under a DB fault
+// (same convention as 404) / bad binding / validation failure / DNS provider
+// not found 400 / DNS provider hit written back / default method written back /
+// save failure, delete with bad id and persist failure, and issue with update
+// failure / IssueNow fetch failure / successful issuance returning 200
+// immediately.
+// Gaps left: none (after a successful issue the real issuance runs
+// asynchronously in a goroutine; failures are only logged and do not affect
+// this endpoint's convention).
 
-// isCertTaskModel 判断语句是否落在证书任务表上。
+// isCertTaskModel reports whether a statement lands on the cert task table.
 func isCertTaskModel(v any) bool {
 	switch v.(type) {
 	case *storage.CertTask, []storage.CertTask, *[]storage.CertTask:
@@ -27,7 +32,7 @@ func isCertTaskModel(v any) bool {
 	return false
 }
 
-// seedCertTaskRow 直落一行证书任务（HTTP-01 无需 DNS 商凭证）。
+// seedCertTaskRow inserts one cert task row directly (HTTP-01 needs no DNS provider credentials).
 func seedCertTaskRow(t *testing.T, db *gorm.DB, name, state string) uint {
 	t.Helper()
 	row := storage.CertTask{Name: name, Domain: name + ".example.com",
@@ -38,7 +43,7 @@ func seedCertTaskRow(t *testing.T, db *gorm.DB, name, state string) uint {
 	return row.ID
 }
 
-// TestListCertTasksError 列表取数失败 500。
+// TestListCertTasksError: list fetch failure returns 500.
 func TestListCertTasksError(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	failQueryOn(t, db, "test:certtask_q", isCertTaskModel)
@@ -47,14 +52,14 @@ func TestListCertTasksError(t *testing.T) {
 	}
 }
 
-// TestCreateCertTaskErrors 建号：坏绑定、缺省 method 落 dns-01 与落库失
-// 败。
+// TestCreateCertTaskErrors: create — bad binding, the default method landing
+// on dns-01, and persist failure.
 func TestCreateCertTaskErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doJSON(t, r, http.MethodPost, "/api/cert-tasks", "not json"); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bind: %d %s", rec.Code, rec.Body)
 	}
-	// 缺 method：校验允许空串，落库前归一为 dns-01。
+	// Missing method: validation allows the empty string, normalized to dns-01 before persisting.
 	rec := doJSON(t, r, http.MethodPost, "/api/cert-tasks",
 		map[string]any{"name": "d1", "domain": "d1.example.com"})
 	if rec.Code != http.StatusOK || !containsStr(rec.Body.String(), `"method":"dns-01"`) {
@@ -69,8 +74,9 @@ func TestCreateCertTaskErrors(t *testing.T) {
 	}
 }
 
-// TestUpdateCertTaskErrors 更新：坏 id、库故障定位、坏绑定、校验失败、
-// DNS 商查无、DNS 商命中回写、缺省 method 回写与保存失败。
+// TestUpdateCertTaskErrors: update — bad id, locate failure under a DB fault,
+// bad binding, validation failure, DNS provider not found, DNS provider hit
+// written back, default method written back, and save failure.
 func TestUpdateCertTaskErrors(t *testing.T) {
 	valid := func(domain string) map[string]any {
 		return map[string]any{"name": "u", "domain": domain, "method": "http-01"}
@@ -81,7 +87,7 @@ func TestUpdateCertTaskErrors(t *testing.T) {
 		t.Fatalf("bad id: %d %s", rec.Code, rec.Body)
 	}
 
-	// 库故障定位：本端点把 First 一切错误都归 404。
+	// Locate failure under a DB fault: this endpoint folds every First error into 404.
 	r, db := newTestRouterWithDB(t)
 	seedCertTaskRow(t, db, "u1", cert.StatePending)
 	closeSQL(t, db)
@@ -103,7 +109,7 @@ func TestUpdateCertTaskErrors(t *testing.T) {
 		t.Fatalf("provider missing: %d %s", rec.Code, rec.Body)
 	}
 
-	// DNS 商命中：回写 provider_id 并重置待签。
+	// DNS provider hit: provider_id is written back and the task is reset to pending.
 	r, db = newTestRouterWithDB(t)
 	seedCertTaskRow(t, db, "u3", "applied")
 	pid := seedDNSProvider(t, db, "cert-p")
@@ -116,7 +122,7 @@ func TestUpdateCertTaskErrors(t *testing.T) {
 		t.Fatalf("provider hit: %d %s", rec.Code, rec.Body)
 	}
 
-	// 缺 method 回写：归一为 dns-01。
+	// Missing method written back: normalized to dns-01.
 	r, db = newTestRouterWithDB(t)
 	seedCertTaskRow(t, db, "u4", "applied")
 	rec = doJSON(t, r, http.MethodPut, "/api/cert-tasks/1",
@@ -125,7 +131,7 @@ func TestUpdateCertTaskErrors(t *testing.T) {
 		t.Fatalf("method default: %d %s", rec.Code, rec.Body)
 	}
 
-	// 保存失败。
+	// Save failure.
 	r, db = newTestRouterWithDB(t)
 	seedCertTaskRow(t, db, "u5", cert.StatePending)
 	failUpdateOn(t, db, "test:certtask_save", isCertTaskModel)
@@ -134,7 +140,7 @@ func TestUpdateCertTaskErrors(t *testing.T) {
 	}
 }
 
-// TestDeleteCertTaskErrors 删除：坏 id 与落删失败。
+// TestDeleteCertTaskErrors: delete — bad id and persist failure.
 func TestDeleteCertTaskErrors(t *testing.T) {
 	r, _ := newTestRouterWithDB(t)
 	if rec := doJSON(t, r, http.MethodDelete, "/api/cert-tasks/abc", nil); rec.Code != http.StatusNotFound {
@@ -153,10 +159,10 @@ func TestDeleteCertTaskErrors(t *testing.T) {
 	}
 }
 
-// TestIssueCertTaskErrors 签发：抢占更新失败、IssueNow 取行失败与签发成
-// 功立返 200。
+// TestIssueCertTaskErrors: issue — the claim update failing, IssueNow failing
+// to fetch the row, and a successful issue returning 200 immediately.
 func TestIssueCertTaskErrors(t *testing.T) {
-	// 抢占更新失败（同事务条件更新落库故障）。
+	// Claim update failure (a DB fault on the conditional update in the same transaction).
 	r, db := newTestRouterWithDB(t)
 	seedCertTaskRow(t, db, "i1", cert.StatePending)
 	failUpdateOn(t, db, "test:certtask_issue_update", isCertTaskModel)
@@ -164,7 +170,7 @@ func TestIssueCertTaskErrors(t *testing.T) {
 		t.Fatalf("update: %d %s", rec.Code, rec.Body)
 	}
 
-	// IssueNow 取行失败：处理器定位（第 1 查）放行，IssueNow 取行（第 2 查）注错。
+	// IssueNow fetch failure: let the handler's locate query (1st) pass and inject the error into IssueNow's row fetch (2nd query).
 	r, db = newTestRouterWithDB(t)
 	seedCertTaskRow(t, db, "i2", cert.StatePending)
 	seen := 0
@@ -180,7 +186,7 @@ func TestIssueCertTaskErrors(t *testing.T) {
 		t.Fatalf("issue now: %d %s", rec.Code, rec.Body)
 	}
 
-	// 签发成功：任务行立返 200（真实签发异步跑，无 acme.sh 时仅记日志）。
+	// Successful issue: the task row returns 200 immediately (the real issuance runs asynchronously and only logs when acme.sh is missing).
 	r, db = newTestRouterWithDB(t)
 	id := seedCertTaskRow(t, db, "i3", cert.StatePending)
 	if rec := doJSON(t, r, http.MethodPost, "/api/cert-tasks/"+strconv.Itoa(int(id))+"/issue", nil); rec.Code != http.StatusOK {

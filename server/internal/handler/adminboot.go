@@ -1,9 +1,11 @@
 package handler
 
-// 管理员首启引导（安全设计 §1）：ferry 此前没有任何生产路径能造出
-// IsAdmin 账号（createUser 不收 is_admin），dash 登录面落地后须给部署者
-// 一条明确的建号路径——FERRY_ADMIN_PASSWORD 非空且库内无管理员时启动建号；
-// 已有管理员则忽略（单管理员口径，不覆盖密码）。
+// Admin first-boot bootstrap (security design §1): ferry previously had no
+// production path able to create an IsAdmin account (createUser does not accept
+// is_admin), so once the dash login surface landed, deployers needed a clear
+// account-creation path -- if FERRY_ADMIN_PASSWORD is non-empty and the database
+// has no admin, one is created at startup; if an admin already exists this is
+// ignored (single-admin policy, the password is not overwritten).
 
 import (
 	"strings"
@@ -13,8 +15,10 @@ import (
 	"gorm.io/gorm"
 )
 
-// EnsureAdmin 在库内无管理员且 password 非空时创建管理员账号，返回是否新建。
-// 密码走 bcrypt 默认成本；订阅令牌与业务用户同源 RandomToken。
+// EnsureAdmin creates an admin account when the database has no admin and
+// password is non-empty, returning whether one was created. The password uses
+// bcrypt's default cost; the subscription token comes from the same RandomToken
+// used for regular users.
 func EnsureAdmin(db *gorm.DB, username, password string) (bool, error) {
 	if strings.TrimSpace(username) == "" || password == "" {
 		return false, nil
@@ -44,8 +48,9 @@ func EnsureAdmin(db *gorm.DB, username, password string) (bool, error) {
 	return true, nil
 }
 
-// NormalizeAdminRoles 多级管理员（P2-2）旧号归一：bootstrap 时代的管理员
-// 无角色字段，统一补 super（幂等，随启动跑）。子管理员（operator）不受影响。
+// NormalizeAdminRoles normalizes legacy accounts for multi-tier admins (P2-2):
+// admins from the bootstrap era have no role field, so they are uniformly given
+// super (idempotent, runs at startup). Sub-admins (operator) are unaffected.
 func NormalizeAdminRoles(db *gorm.DB) error {
 	return db.Model(&storage.User{}).
 		Where("is_admin = ? AND (admin_role = '' OR admin_role IS NULL)", true).

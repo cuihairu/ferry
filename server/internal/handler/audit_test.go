@@ -15,8 +15,10 @@ import (
 	"gorm.io/gorm"
 )
 
-// AU-1（P2-6 观察项转正）：管理员写操作统一落 audit_logs——谁/何时/动作/
-// 对象/请求体快照（脱敏）/成败/IP，dash 分页可查；GET 不捕获。
+// AU-1 (P2-6 watch item promoted to a formal requirement): admin write
+// operations uniformly land in audit_logs -- who/when/action/target/request
+// body snapshot (redacted)/outcome/IP, pageable from the dash; GET is not
+// captured.
 
 func auditCount(t *testing.T, db *gorm.DB) int64 {
 	t.Helper()
@@ -35,7 +37,7 @@ func TestAuditLogsCaptureWriteOps(t *testing.T) {
 	if n := auditCount(t, db); n != 3 {
 		t.Fatalf("audit rows after 3 writes = %d, want 3", n)
 	}
-	// GET 不捕获。
+	// GET is not captured.
 	doJSON(t, r, "GET", "/api/users", nil)
 	if n := auditCount(t, db); n != 3 {
 		t.Fatalf("audit rows after GET = %d, want 3", n)
@@ -51,7 +53,7 @@ func TestAuditLogsCaptureWriteOps(t *testing.T) {
 	if rows[2].Target != "1" {
 		t.Fatalf("delete target = %q, want 1", rows[2].Target)
 	}
-	// 查询端点回读。
+	// Read back through the query endpoint.
 	rec := doJSON(t, r, "GET", "/api/audit-logs?limit=2", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /api/audit-logs = %d %s", rec.Code, rec.Body)
@@ -87,7 +89,7 @@ func TestAuditLogsRedactSensitiveBody(t *testing.T) {
 func TestAuditLogsCaptureFailedWriteAndFilters(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	seedAdminForJWT(t, db)
-	// 业务失败（409 重复用户名）也落行。
+	// A business failure (409 duplicate username) also stores a row.
 	doJSON(t, r, "POST", "/api/distributors", map[string]any{"username": "au-dup", "password": "pw-123"})
 	doJSON(t, r, "POST", "/api/distributors", map[string]any{"username": "au-dup", "password": "pw-123"})
 	var rows []storage.AuditLog
@@ -95,7 +97,7 @@ func TestAuditLogsCaptureFailedWriteAndFilters(t *testing.T) {
 	if len(rows) != 2 || rows[1].Success {
 		t.Fatalf("rows = %d, second success = %v, want 2/false", len(rows), rows[1].Success)
 	}
-	// actor 过滤。
+	// actor filter.
 	rec := doJSON(t, r, "GET", "/api/audit-logs?actor=nobody", nil)
 	var out struct {
 		AuditLogs []storage.AuditLog `json:"audit_logs"`
@@ -104,13 +106,13 @@ func TestAuditLogsCaptureFailedWriteAndFilters(t *testing.T) {
 	if len(out.AuditLogs) != 0 {
 		t.Fatalf("actor filter = %d rows, want 0", len(out.AuditLogs))
 	}
-	// method 过滤（DELETE 无行）。
+	// method filter (no DELETE rows).
 	rec = doJSON(t, r, "GET", "/api/audit-logs?method=DELETE", nil)
 	json.Unmarshal(rec.Body.Bytes(), &out)
 	if len(out.AuditLogs) != 0 {
 		t.Fatalf("method filter = %d rows, want 0", len(out.AuditLogs))
 	}
-	// admin 组同口径：写操作落行（2FA 状态切换）。
+	// The admin group follows the same rule: write operations store rows (2FA state toggle).
 	doJSON(t, r, "POST", "/admin/2fa/setup", nil)
 	if n := auditCount(t, db); n != 3 {
 		t.Fatalf("audit rows after admin write = %d, want 3", n)
@@ -118,7 +120,8 @@ func TestAuditLogsCaptureFailedWriteAndFilters(t *testing.T) {
 }
 
 func TestAuditLogsUnauthenticatedWriteNotCaptured(t *testing.T) {
-	// 401 在 apiAuth 中止，审计中间件不落行（登录失败面另有 login_logs）。
+	// A 401 aborts inside apiAuth, so the audit middleware stores no row (login
+	// failures are covered by login_logs instead).
 	r, db := newTestRouterWithDB(t)
 	req401(t, r, "POST", "/api/users", "Bearer garbage-token-xyz")
 	if n := auditCount(t, db); n != 0 {
@@ -126,8 +129,9 @@ func TestAuditLogsUnauthenticatedWriteNotCaptured(t *testing.T) {
 	}
 }
 
-// TestAuditListGuards 覆盖审计查询护栏：limit 夹取 1..200、offset 非法跳过/
-// 合法生效、target 过滤、from/to 非法时间跳过与有效时间过滤、取数失败 500。
+// TestAuditListGuards covers the audit query guards: limit clamping to 1..200,
+// an invalid offset skipped / a valid offset applied, target filtering, invalid
+// from/to times skipped and valid times filtered, and a fetch failure as 500.
 func TestAuditListGuards(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	doJSON(t, r, "POST", "/api/users", map[string]any{"username": "ag-1", "password": "pw-12345"})
@@ -150,14 +154,14 @@ func TestAuditListGuards(t *testing.T) {
 		}
 		return len(out.AuditLogs)
 	}
-	// limit 夹取：0→1，500→200（表里只有 3 行）。
+	// Limit clamping: 0 -> 1, 500 -> 200 (the table only holds 3 rows).
 	if n := count("?limit=0"); n != 1 {
 		t.Fatalf("limit=0 → %d rows, want 1", n)
 	}
 	if n := count("?limit=500"); n != 3 {
 		t.Fatalf("limit=500 → %d rows, want 3", n)
 	}
-	// offset 非法跳过：仍取最新一行。
+	// An invalid offset is skipped: the newest row is still fetched.
 	if n := count("?limit=1&offset=abc"); n != 1 {
 		t.Fatalf("offset=abc → %d rows, want 1", n)
 	}
@@ -171,7 +175,7 @@ func TestAuditListGuards(t *testing.T) {
 	if out.AuditLogs[0].Action != "DELETE /api/users/1" {
 		t.Fatalf("bad offset should return newest: %s", out.AuditLogs[0].Action)
 	}
-	// offset=0 同跳过；offset=1 生效跳过最新一行。
+	// offset=0 is likewise skipped; offset=1 applies and skips the newest row.
 	if n := count("?limit=2&offset=0"); n != 2 {
 		t.Fatalf("offset=0 → %d rows, want 2", n)
 	}
@@ -182,18 +186,18 @@ func TestAuditListGuards(t *testing.T) {
 	if out.AuditLogs[0].Action != "PUT /api/users/1" {
 		t.Fatalf("offset=1 should skip newest: %s", out.AuditLogs[0].Action)
 	}
-	// target 过滤：PUT 与 DELETE 都带 target=1。
+	// Target filter: PUT and DELETE both carry target=1.
 	if n := count("?target=1"); n != 2 {
 		t.Fatalf("target=1 → %d rows, want 2", n)
 	}
-	// from/to 非法时间跳过 → 全量。
+	// Invalid from/to times are skipped -> the full set.
 	if n := count("?from=abc"); n != 3 {
 		t.Fatalf("from=abc → %d rows, want 3", n)
 	}
 	if n := count("?to=abc"); n != 3 {
 		t.Fatalf("to=abc → %d rows, want 3", n)
 	}
-	// 有效时间：from 早于全部不筛；to 早于全部 → 0 行。
+	// Valid times: a from earlier than everything filters nothing; a to earlier than everything -> 0 rows.
 	if n := count("?from=2000-01-01T00:00:00Z"); n != 3 {
 		t.Fatalf("early from → %d rows, want 3", n)
 	}
@@ -201,7 +205,7 @@ func TestAuditListGuards(t *testing.T) {
 		t.Fatalf("early to → %d rows, want 0", n)
 	}
 
-	// 取数失败 → 500。
+	// A fetch failure -> 500.
 	db.Callback().Query().Before("gorm:query").Register("t:auditfail", func(tx *gorm.DB) {
 		if _, ok := tx.Statement.Dest.(*[]storage.AuditLog); ok {
 			tx.AddError(errors.New("db down"))
@@ -212,9 +216,9 @@ func TestAuditListGuards(t *testing.T) {
 	}
 }
 
-// TestAuditActorAndSnapshot 直测 auditActor 的 api/unknown 分支与
-// auditBodySnapshot 的 GetBody 还原分支（httptest 请求不带 GetBody，
-// 需 http.NewRequest 构造才走得到）。
+// TestAuditActorAndSnapshot tests auditActor's api/unknown branches and
+// auditBodySnapshot's GetBody restore branch directly (httptest requests carry
+// no GetBody, so it is only reachable via a request built with http.NewRequest).
 func TestAuditActorAndSnapshot(t *testing.T) {
 	h := &Handler{}
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
@@ -227,7 +231,8 @@ func TestAuditActorAndSnapshot(t *testing.T) {
 		t.Fatalf("unknown actor = %s/%s", a, k)
 	}
 
-	// GetBody 分支：读后还原，后续处理仍能拿到原文。
+	// The GetBody branch: the body is restored after reading, so later handling
+	// still sees the original text.
 	req, err := http.NewRequest("POST", "/x", strings.NewReader(`{"password":"secret-z","a":1}`))
 	if err != nil {
 		t.Fatal(err)
@@ -247,16 +252,18 @@ func TestAuditActorAndSnapshot(t *testing.T) {
 	}
 }
 
-// TestTruncateUTF8Boundary 覆盖 P2「UTF-8 截断」修复：按字节截断回退到
-// UTF-8 字符边界——含中文的超长快照截断后仍是合法 UTF-8；边界恰在字符
-// 起始时截至上限整字节；短文本直通。
+// TestTruncateUTF8Boundary covers the P2 "UTF-8 truncation" fix: a byte cut
+// backs off to a UTF-8 character boundary -- an over-long snapshot containing
+// Chinese is still valid UTF-8 after truncation; when the boundary lands
+// exactly at a character start the cut runs the full cap in bytes; short text
+// passes through.
 func TestTruncateUTF8Boundary(t *testing.T) {
-	// 上限字节落在多字节字符中间（流 首字节在 253）：回退到 253。
+	// The cap byte lands mid multi-byte character (the character below starts at byte 253): back off to 253.
 	s := strings.Repeat("x", 253) + strings.Repeat("流", 10)
 	if got := truncate(s, 255); len(got) != 253 || !utf8.ValidString(got) {
 		t.Fatalf("mid-rune truncate = %d bytes, valid=%v", len(got), utf8.ValidString(got))
 	}
-	// 边界恰在字符起始（85×3=255 整）：截至上限整字节。
+	// The boundary lands exactly at a character start (85x3=255): cut the full cap in bytes.
 	if got := truncate(strings.Repeat("流", 100), 255); len(got) != 255 || !utf8.ValidString(got) {
 		t.Fatalf("aligned truncate = %d bytes, valid=%v", len(got), utf8.ValidString(got))
 	}

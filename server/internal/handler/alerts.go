@@ -15,14 +15,15 @@ import (
 	"gorm.io/gorm"
 )
 
-// 告警状态取值。
+// Alert state values.
 const (
 	AlertStateActive   = "active"
 	AlertStateResolved = "resolved"
 )
 
-// recordAlert 落一条告警：同节点同类别同进程的活跃告警只保留一条，
-// 重复上报刷新消息与时间（agent 侧自带节流，面板侧再兜一层去重）。
+// recordAlert records an alert: only one active alert is kept per node, kind
+// and process; a repeated report refreshes the message and time (the agent side
+// already throttles, and the panel adds a second dedup layer).
 func (h *Handler) recordAlert(nodeID uint, al agentproto.Alarm) {
 	sev := al.Severity
 	if sev == "" {
@@ -41,8 +42,10 @@ func (h *Handler) recordAlert(nodeID uint, al agentproto.Alarm) {
 			log.Printf("create alert node=%d kind=%s: %v", nodeID, al.Kind, err)
 			return
 		}
-		// 告警激活即落事件（HERALD-3 余量）：进程崩溃拉起失败投 Herald；
-		// 活跃告警唯一性即去重闸门（恢复消解后复发才再发）。失败只记日志。
+		// An event is emitted as soon as the alert activates (HERALD-3 leftover): a
+		// process crash whose restart failed goes to Herald; the uniqueness of
+		// active alerts is the dedup gate (only a recurrence after resolution
+		// emits again). Failures are logged only.
 		if al.Kind == agentproto.AlarmKindProcCrash {
 			if _, err := herald.Emit(h.db, herald.EmitInput{
 				Kind: herald.KindProcCrashed, Severity: herald.SeverityCritical,
@@ -67,7 +70,8 @@ func (h *Handler) recordAlert(nodeID uint, al agentproto.Alarm) {
 	}
 }
 
-// resolveProcCrashAlerts 进程恢复运行时自动消解对应的崩溃告警（A-22）。
+// resolveProcCrashAlerts auto-resolves the matching crash alerts once the
+// process is running again (A-22).
 func (h *Handler) resolveProcCrashAlerts(nodeID uint, proc string) {
 	now := time.Now()
 	res := h.db.Model(&storage.Alert{}).
@@ -79,7 +83,8 @@ func (h *Handler) resolveProcCrashAlerts(nodeID uint, proc string) {
 	}
 }
 
-// listAlerts 返回告警列表（新在前，默认 100 条）：可按 state/node_id/kind 过滤。
+// listAlerts returns the alert list (newest first, 100 by default):
+// filterable by state/node_id/kind.
 func (h *Handler) listAlerts(c *gin.Context) {
 	limit := 100
 	if v := c.Query("limit"); v != "" {
@@ -117,7 +122,7 @@ func (h *Handler) listAlerts(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
-// resolveAlert 手动标记一条告警为已处理（POST /api/alerts/:id/resolve）。
+// resolveAlert manually marks an alert as handled (POST /api/alerts/:id/resolve).
 func (h *Handler) resolveAlert(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

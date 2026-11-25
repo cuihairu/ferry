@@ -12,8 +12,9 @@ import (
 	"gorm.io/gorm"
 )
 
-// TestBackupDBSnapshotFail 覆盖产档失败 500：备份目录父路径是普通文件，
-// MkdirAll 报 not a directory。
+// TestBackupDBSnapshotFail covers a 500 on archive production failure: the
+// backup directory's parent path is a plain file, so MkdirAll reports
+// not a directory.
 func TestBackupDBSnapshotFail(t *testing.T) {
 	base := t.TempDir()
 	blocker := filepath.Join(base, "file")
@@ -29,7 +30,7 @@ func TestBackupDBSnapshotFail(t *testing.T) {
 	}
 }
 
-// TestBackupDBRecordFail 覆盖快照行落库失败 500（产档已成功）。
+// TestBackupDBRecordFail covers a 500 when the snapshot row fails to store (the archive itself was produced successfully).
 func TestBackupDBRecordFail(t *testing.T) {
 	r, db := newTestRouterCfg(t, func(c *config.Config) {
 		c.BackupDir = t.TempDir()
