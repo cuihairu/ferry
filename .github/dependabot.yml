@@ -1,18 +1,20 @@
-# 本文件接管账号级 Dependabot 默认配置（2026-10-09 dependabot 批）。
+# This file takes over the account-level Dependabot default config (2026-10-09 dependabot batch).
 #
-# npm 版本更新整体关闭：dependabot 的 pnpm updater 不识别 pnpm-workspace.yaml
-# overrides（dependabot-core#11953/#11135 已知缺口）——2026-10-09 首批先试
-# ignore vite/esbuild，run 37943084657 仍失败（parse 层缺陷不随 ignore 消失，
-# 见 todo.md dependabot 收口批拍板），按兜底条件改 open-pull-requests-limit: 0。
-# security alerts 独立于版本更新不受影响；vitepress 2 stable 撤 override 后
-# 可重开 npm 更新。
-# 补充（2026-11-22 复核，run 44959739326）：npm 的 security-update job 同样会红——
-# 它按 directory: / 找 /package.json，根无该文件（pnpm workspace 根只有
-# pnpm-workspace.yaml），updater 报「/package.json not found」中止。此失败不影响
-# alerts：告警由 scanner 依 lockfile 是否含脆弱版本自动开/关，修复靠手动改 override
-#（vite 6.4.6 批已 0 开放告警收口），该红 run 属已知限制表象、无需处理。
+# npm version updates are switched off entirely: dependabot's pnpm updater does not understand
+# pnpm-workspace.yaml overrides (known gaps dependabot-core#11953/#11135) — the 2026-10-09 batch first
+# tried ignoring vite/esbuild, and run 37943084657 still failed (a parse-layer defect that does not go
+# away with ignore, see todo.md's dependabot wrap-up decision), so as a fallback open-pull-requests-limit
+# was set to 0.
+# Security alerts are independent of version updates and are unaffected; once vitepress 2 stable drops
+# the override, npm updates can be re-enabled.
+# Supplement (2026-11-22 review, run 44959739326): npm's security-update job also goes red — it looks for
+# /package.json under directory: /, and the root has no such file (a pnpm workspace root only has
+# pnpm-workspace.yaml), so the updater aborts with "/package.json not found". This failure does not affect
+# alerts: the scanner opens/closes them automatically based on whether the lockfile contains vulnerable
+# versions, and fixes come from editing the override by hand (the vite 6.4.6 batch already wrapped up with
+# 0 open alerts). That red run is the known symptom of the limitation, nothing to do.
 #
-# gomod 六个 module 维持账号默认行为：weekly + go_modules 全量分组。
+# The six gomod modules keep the account default behavior: weekly + a go_modules group for everything.
 version: 2
 updates:
   - package-ecosystem: gomod
