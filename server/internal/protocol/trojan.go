@@ -86,5 +86,28 @@ func init() {
 			in["tls"] = tls
 			return in, nil
 		},
+		RenderXray: func(rc *RenderCtx) (map[string]any, error) {
+			cfg := rc.Config
+			if cfg.Password == "" {
+				return nil, errors.New("trojan requires config.password")
+			}
+			// trojan is TLS by its own semantics (trojan://), so security tls is
+			// emitted even when cfg.tls is not written -- the same decision as the
+			// sing-box hook, which passes enabled=true.
+			stream, err := xrayStreamTLS(rc, true)
+			if err != nil {
+				return nil, err
+			}
+			ob := xrayOutbound(rc, "trojan")
+			ob["settings"] = map[string]any{
+				"servers": []any{map[string]any{
+					"address":  rc.Node.Address,
+					"port":     rc.Node.Port,
+					"password": cfg.Password,
+				}},
+			}
+			ob["streamSettings"] = stream
+			return ob, nil
+		},
 	})
 }

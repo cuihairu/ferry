@@ -86,6 +86,11 @@ type Protocol struct {
 	RenderSingbox func(rc *RenderCtx) (map[string]any, error)
 	// RenderSingboxEndpoint produces a sing-box endpoints entry (the new wireguard form).
 	RenderSingboxEndpoint func(rc *RenderCtx) (map[string]any, error)
+	// RenderXray produces an Xray-core outbound object (subscription xray-json
+	// format, G1): the protocol's own outbound schema plus the shared stream
+	// settings. Protocols Xray has no outbound for (hysteria2, tuic, wireguard)
+	// return ErrNotSupported, and the subscription packing surface skips them.
+	RenderXray func(rc *RenderCtx) (map[string]any, error)
 	// RenderSingboxInbound produces the server-side sing-box inbound object
 	// (agent kernel config surface): TLS-family protocols need
 	// rc.CertPath/KeyPath, and a missing path is reported rather than silenced.

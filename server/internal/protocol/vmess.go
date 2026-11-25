@@ -97,6 +97,32 @@ func init() {
 			}
 			return in, nil
 		},
+		RenderXray: func(rc *RenderCtx) (map[string]any, error) {
+			cfg := rc.Config
+			if cfg.UUID == "" {
+				return nil, errors.New("vmess requires config.uuid")
+			}
+			stream, err := xrayStream(rc)
+			if err != nil {
+				return nil, err
+			}
+			// scy falls back to auto, the same default the sing-box hook applies.
+			user := map[string]any{
+				"id":       cfg.UUID,
+				"alterId":  cfg.AID,
+				"security": defaultString(cfg.Scy, "auto"),
+			}
+			ob := xrayOutbound(rc, "vmess")
+			ob["settings"] = map[string]any{
+				"vnext": []any{map[string]any{
+					"address": rc.Node.Address,
+					"port":    rc.Node.Port,
+					"users":   []any{user},
+				}},
+			}
+			ob["streamSettings"] = stream
+			return ob, nil
+		},
 	})
 }
 

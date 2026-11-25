@@ -103,5 +103,29 @@ func init() {
 			}
 			return in, nil
 		},
+		RenderXray: func(rc *RenderCtx) (map[string]any, error) {
+			cfg := rc.Config
+			if cfg.UUID == "" {
+				return nil, errors.New("vless requires config.uuid")
+			}
+			user := map[string]any{"id": cfg.UUID, "encryption": "none"}
+			if cfg.Flow != "" {
+				user["flow"] = cfg.Flow
+			}
+			stream, err := xrayStream(rc)
+			if err != nil {
+				return nil, err
+			}
+			ob := xrayOutbound(rc, "vless")
+			ob["settings"] = map[string]any{
+				"vnext": []any{map[string]any{
+					"address": rc.Node.Address,
+					"port":    rc.Node.Port,
+					"users":   []any{user},
+				}},
+			}
+			ob["streamSettings"] = stream
+			return ob, nil
+		},
 	})
 }

@@ -23,6 +23,9 @@ type clashGroup struct {
 	// The url-test group's self-optimizing fields (E-19); left empty for select groups.
 	URL      string `yaml:"url,omitempty"`
 	Interval int    `yaml:"interval,omitempty"`
+	// Lazy defers the url-test probing until the group is actually selected:
+	// mihomo's recommended default (G1), only the mihomo target sets it.
+	Lazy bool `yaml:"lazy,omitempty"`
 }
 
 type clashDoc struct {
@@ -54,7 +57,23 @@ func clashProxyName(entry any) (string, error) {
 // PROXY select group aggregating the region groups. notes is remark text
 // (TOUCH-7 outage resilience): each line is inserted as a YAML comment line at
 // the head of the document, so the client cache carries its own escape hatch.
+// PackClash packs with the conservative plain-clash vocabulary.
 func PackClash(entries []Entry, notes []string) (string, error) {
+	return packClash(entries, notes, false)
+}
+
+// PackMihomo is the Clash.Meta/mihomo subscription target (G1): the same
+// proxies/proxy-groups/rules document as the clash target plus the meta-only
+// extensions -- vless entries carry packet-encoding=xudp (UDP over vless, a
+// Clash.Meta field plain clash loaders would not know) and the url-test groups
+// are lazy (latency probing starts when the group is selected).
+func PackMihomo(entries []Entry, notes []string) (string, error) {
+	return packClash(entries, notes, true)
+}
+
+// packClash is the shared packing pipeline; meta selects the Clash.Meta
+// extensions of PackMihomo.
+func packClash(entries []Entry, notes []string, meta bool) (string, error) {
 	doc := clashDoc{
 		Proxies:     []any{},
 		ProxyGroups: []clashGroup{{Name: "PROXY", Type: "select", Proxies: []string{}}},
@@ -86,15 +105,20 @@ func PackClash(entries []Entry, notes []string) (string, error) {
 		name = claim(name)
 		// The name must be written back before the append: once the struct form is stored in an any slice it is no longer addressable.
 		entry = withClashName(entry, name)
+		if meta {
+			entry = withMetaExtras(entry)
+		}
 		doc.Proxies = append(doc.Proxies, entry)
 
 		region := entryRegion(e)
 		gi, ok := regionGroup[region]
 		if !ok {
-			doc.ProxyGroups = append(doc.ProxyGroups, clashGroup{
-				Name: claim(region), Type: "url-test", Proxies: []string{},
-				URL: urlTestURL, Interval: urlTestInterval,
-			})
+			g := clashGroup{Name: claim(region), Type: "url-test", Proxies: []string{},
+				URL: urlTestURL, Interval: urlTestInterval}
+			if meta {
+				g.Lazy = true
+			}
+			doc.ProxyGroups = append(doc.ProxyGroups, g)
 			gi = len(doc.ProxyGroups) - 1
 			regionGroup[region] = gi
 			doc.ProxyGroups[0].Proxies = append(doc.ProxyGroups[0].Proxies, doc.ProxyGroups[gi].Name)
@@ -149,6 +173,25 @@ func withClashName(entry any, name string) any {
 		return v
 	case map[string]any:
 		v["name"] = name
+		return v
+	}
+	return entry
+}
+
+// withMetaExtras adds the Clash.Meta-only extensions (G1): packet-encoding for
+// the vless entries. The value forms are handled the same way as withClashName
+// (a struct stored in an any cannot be mutated in place).
+func withMetaExtras(entry any) any {
+	switch v := entry.(type) {
+	case protocol.ClashProxy:
+		if v.Type == "vless" {
+			v.PacketEncoding = "xudp"
+		}
+		return v
+	case map[string]any:
+		if t, _ := v["type"].(string); t == "vless" {
+			v["packet-encoding"] = "xudp"
+		}
 		return v
 	}
 	return entry

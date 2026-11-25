@@ -1,7 +1,7 @@
 // Custom subscription delivery (ferry-sub-filters, decided by the user on 2026-11-21):
 // GET /sub/x/:token.
 // The guardrails are identical to the main subscription /sub/:token (rate limiting,
-// device checks, usage headers, three-format UA negotiation); the only differences
+// device checks, usage headers, five-format UA negotiation); the only differences
 // are the token source and the node-set customization: the token is looked up in the
 // subscriptions table; the node candidate set is fetched in full with the same SQL
 // conditions as the main subscription, and then per-sub filter and config are applied
@@ -127,7 +127,7 @@ func (h *Handler) subscriptionFiltered(c *gin.Context) {
 }
 
 // subXDeliver assembles the custom subscription response: target negotiation, usage
-// headers, three-format packing (same semantics as the main subscription; the main
+// headers, five-format packing (same semantics as the main subscription; the main
 // subscription path does not reuse this function so its behavior cannot drift).
 func (h *Handler) subXDeliver(c *gin.Context, u storage.User, usage trafficUsage, entries []sub.Entry) {
 	target := c.Query("target")
@@ -158,6 +158,21 @@ func (h *Handler) subXDeliver(c *gin.Context, u storage.User, usage trafficUsage
 			return
 		}
 		c.Data(http.StatusOK, "text/yaml; charset=utf-8", []byte(body))
+	case "mihomo":
+		body, err := sub.PackMihomo(entries, notes)
+		if err != nil {
+			fail(c, http.StatusInternalServerError, err)
+			return
+		}
+		c.Data(http.StatusOK, "text/yaml; charset=utf-8", []byte(body))
+	case "xray":
+		// xray-json: an Xray-core outbounds array (G1); plain JSON has no comment position, same omission reasoning as singbox.
+		body, err := sub.PackXray(entries)
+		if err != nil {
+			fail(c, http.StatusInternalServerError, err)
+			return
+		}
+		c.Data(http.StatusOK, "application/json; charset=utf-8", []byte(body))
 	case "singbox":
 		// sing-box is plain JSON with no comment position, so contingency notes are omitted (consistent with the main subscription).
 		body, err := sub.PackSingBox(entries)
@@ -167,7 +182,7 @@ func (h *Handler) subXDeliver(c *gin.Context, u storage.User, usage trafficUsage
 		}
 		c.Data(http.StatusOK, "application/json; charset=utf-8", []byte(body))
 	default:
-		fail(c, http.StatusBadRequest, errors.New("target must be v2ray, clash or singbox"))
+		fail(c, http.StatusBadRequest, errors.New("target must be v2ray, clash, mihomo, singbox or xray"))
 	}
 }
 

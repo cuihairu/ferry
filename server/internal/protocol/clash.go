@@ -39,6 +39,11 @@ type ClashProxy struct {
 
 	// Username serves http/socks-style proxies (new protocols; the field is appended so the legacy order stays untouched).
 	Username string `yaml:"username,omitempty"`
+
+	// PacketEncoding is a Clash.Meta/mihomo-only vless UDP field (xudp); it is
+	// set only by the mihomo subscription target (G1), so the plain clash YAML
+	// stays byte-identical (golden-gated).
+	PacketEncoding string `yaml:"packet-encoding,omitempty"`
 }
 
 // ClashWSOpts is the expanded struct for the ws transport layer.

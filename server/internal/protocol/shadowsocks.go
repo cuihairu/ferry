@@ -58,5 +58,22 @@ func init() {
 			in["password"] = cfg.Password
 			return in, nil
 		},
+		RenderXray: func(rc *RenderCtx) (map[string]any, error) {
+			cfg := rc.Config
+			if cfg.Password == "" || cfg.Method == "" {
+				return nil, errors.New("shadowsocks requires config.method and config.password")
+			}
+			// shadowsocks has no transport / TLS layer, so no streamSettings.
+			ob := xrayOutbound(rc, "shadowsocks")
+			ob["settings"] = map[string]any{
+				"servers": []any{map[string]any{
+					"address":  rc.Node.Address,
+					"port":     rc.Node.Port,
+					"method":   cfg.Method,
+					"password": cfg.Password,
+				}},
+			}
+			return ob, nil
+		},
 	})
 }

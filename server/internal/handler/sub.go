@@ -23,16 +23,25 @@ type trafficUsage struct {
 }
 
 // subTargetByUA negotiates the subscription format by client UA (when ?target= is not
-// explicitly given): clash family (clash/clash-verge/mihomo) gets YAML; sing-box native
-// and Stash get outbounds JSON; everything else falls back to v2ray base64 (SHOP-2).
-// Shared by the main subscription and the custom subscriptions.
+// explicitly given): the Clash.Meta/mihomo family gets the mihomo YAML, plain clash
+// clients the conservative clash YAML, sing-box native and Stash get the sing-box
+// outbounds JSON, xray-family clients the xray-json outbounds, and everything else
+// falls back to v2ray base64 (SHOP-2; the mihomo and xray-json targets are G1). The
+// meta tokens are matched before the bare "clash" token because a mihomo UA also
+// carries it. Shared by the main subscription and the custom subscriptions.
 func subTargetByUA(ua string) string {
 	ua = strings.ToLower(ua)
 	switch {
+	case strings.Contains(ua, "clash.meta"), strings.Contains(ua, "clashmeta"),
+		strings.Contains(ua, "mihomo"), strings.Contains(ua, "flclash"),
+		strings.Contains(ua, "verge"):
+		return "mihomo"
 	case strings.Contains(ua, "clash"):
 		return "clash"
 	case strings.Contains(ua, "sing-box"), strings.Contains(ua, "stash"):
 		return "singbox"
+	case strings.Contains(ua, "xray"):
+		return "xray"
 	default:
 		return "v2ray"
 	}
@@ -157,6 +166,22 @@ func (h *Handler) subscription(c *gin.Context) {
 			return
 		}
 		c.Data(http.StatusOK, "text/yaml; charset=utf-8", []byte(body))
+	case "mihomo":
+		body, err := sub.PackMihomo(entries, notes)
+		if err != nil {
+			fail(c, http.StatusInternalServerError, err)
+			return
+		}
+		c.Data(http.StatusOK, "text/yaml; charset=utf-8", []byte(body))
+	case "xray":
+		// xray-json: an Xray-core outbounds array (G1). Plain JSON has no comment
+		// position, so the contingency notes are omitted, same reasoning as singbox.
+		body, err := sub.PackXray(entries)
+		if err != nil {
+			fail(c, http.StatusInternalServerError, err)
+			return
+		}
+		c.Data(http.StatusOK, "application/json; charset=utf-8", []byte(body))
 	case "singbox":
 		// A sing-box outbounds array (built in the hy2 batch, five protocols completed in
 		// the SB batch): clients just merge it into their outbounds section. TOUCH-7 escape
@@ -170,7 +195,7 @@ func (h *Handler) subscription(c *gin.Context) {
 		}
 		c.Data(http.StatusOK, "application/json; charset=utf-8", []byte(body))
 	default:
-		fail(c, http.StatusBadRequest, errors.New("target must be v2ray, clash or singbox"))
+		fail(c, http.StatusBadRequest, errors.New("target must be v2ray, clash, mihomo, singbox or xray"))
 	}
 }
 

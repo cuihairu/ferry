@@ -50,8 +50,11 @@ func (h *Handler) listProtocols(c *gin.Context) {
 			Example:     p.ExampleConfig(),
 			Fields:      fields,
 			Formats: map[string]bool{
-				"link":     p.RenderLink != nil,
-				"clash":    p.RenderClash != nil,
+				"link":  p.RenderLink != nil,
+				"clash": p.RenderClash != nil,
+				// mihomo (G1) reuses the clash render hook with meta extensions.
+				"mihomo":   p.RenderClash != nil,
+				"xray":     p.RenderXray != nil,
 				"singbox":  p.RenderSingbox != nil,
 				"inbound":  p.RenderSingboxInbound != nil,
 				"endpoint": p.RenderSingboxEndpoint != nil,
