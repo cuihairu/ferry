@@ -782,8 +782,8 @@ External Client
     - 备注（Task ID: F-0268 | Status: Done | Evidence: pathhealth.GroupHealth 按非排除成员 worst-of 聚合（无成员=unknown）；GET /api/path-groups/:id/health 返回 group health+逐成员状态 | Verification: TestGroupHealthAndAvailability/TestPathHealthEndpoints | Commit: c40c735）
 -   [x] `F-0269` 支持 Group 可用性统计。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0269 | Status: Done | Evidence: pathhealth.Availability 按成员落点节点 24h 窗口内探测 verdict 的 healthy 占比（无探测数据返回 null），随 group health 接口同出 | Verification: TestGroupHealthAndAvailability（50%/null 断言）/TestPathHealthEndpoints（100%） | Commit: c40c735）
--   [ ] `F-0270` 支持 Group 与订阅策略关联。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0270 | 未满足原因：Group 维度尚未接入 Policy（Policy 仅 system/plan/user 三 scope，无 group 关联字段/接口）；依赖的 F-0282 Policy 模型已落地（c74c69c），本项可实现。）
+-   [x] `F-0270` 支持 Group 与订阅策略关联。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0270 | Status: Done | Evidence: PolicyConstraints 增 path_group_id 字段（Resolve 链深层 wins），pathhealth.ResolveGroupPath 解析 group 服务路径（default 优先、Position 顺序、健康感知：非 off 成员中 healthy/unknown 先选、degraded 兜底、excluded 不服务、组禁用/全不可用/组缺失→nil 空交付），policyapi 校验 path_group_id 引用存在、simulate 返回 path_group 解析结果，sub.go 交付侧只出解析路径的 entry（仍需过约束过滤） | Verification: TestResolveGroupPath/TestPolicyGroupLink/TestSubscriptionGroupDelivery（degraded default 让位 healthy candidate、删 pin 恢复全量） | Commit: ed2889c）
 
 ## 2.5 Policy
 
