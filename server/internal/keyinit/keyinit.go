@@ -1,9 +1,9 @@
-// Package keyinit 是签名/加密密钥的初始化门禁（FERRY-003）：三把服务密钥
-// （管理员 JWT 签名 FERRY_ADMIN_SECRET、API Token 签名 FERRY_API_SECRET、
-// 机密加密主密钥 FERRY_SECRET_KEY）按「显式配置 > 密钥文件 > 生成并持久化」
-// 定值。目的：新装首启自动拿随机钥且重启稳定；生产环境（FERRY_ENV=production）
-// 缺钥无从持久化、弱钥、显式配开发默认常量一律拒绝启动——不再静默吃
-// apitoken.go 的历史开发缺省。密钥值只进 cfg/密钥文件，错误与日志一律不回显。
+// Package keyinit is the signing/encryption key initialization gate (FERRY-003): three service
+// secrets (FERRY_ADMIN_SECRET for the admin JWT signature, FERRY_API_SECRET for the API Token
+// signature, FERRY_SECRET_KEY the master key for secret encryption) are resolved in the order
+// "explicit config > key file > generate and persist". Goal: a fresh install gets random keys
+// on first start and stays stable across restarts; production (FERRY_ENV=production) refuses to
+// boot when a key cannot be persisted safely, is weak, or is set to the dev default constants explicitly - the legacy dev defaults of apitoken.go are no longer swallowed silently. Key values only ever reach cfg/the key file; errors and logs never echo them.
 package keyinit
 
 import (
@@ -18,33 +18,33 @@ import (
 	"github.com/cuihairu/ferry/server/internal/config"
 )
 
-// keyfile 默认文件名（落 sqlite 库同目录，容器里即 /data 卷，重启随卷保留）。
+// keyfile is the default key-file name (next to the sqlite DB, i.e. the /data volume in a container, kept across restarts).
 const defaultKeyFileName = "ferry-keys.env"
 
-// devFallbackSecrets 是历史开发缺省常量（与 apitoken.go 回退一致）：生产环境
-// 显式配成它们=配置事故，拒绝启动。
+// devFallbackSecrets are the legacy dev default constants (matching the apitoken.go fallback):
+// configuring them explicitly in production is a configuration accident, so boot is refused.
 var devFallbackSecrets = map[string]string{
 	"FERRY_ADMIN_SECRET": "ferry-admin-secret",
 	"FERRY_API_SECRET":   "ferry-api-secret",
 }
 
-// keySpec 描述一把密钥：env 名、cfg 取值、dev 缺省常量。
+// keySpec describes one secret: env name, cfg value, dev default constant.
 type keySpec struct {
 	envName    string
 	value      string
 	devDefault string
 }
 
-// Result 报告解析结果：Generated=本轮新生成的 env 名；KeyFile=持久化文件
-// （""=未落盘）；Warnings=非致命告警（弱钥等，开发环境可见）。
+// Result reports the resolution: Generated = env names newly created this round;
+// KeyFile = the persistence file ("" = not written); Warnings = non-fatal warnings (weak key etc., visible in dev).
 type Result struct {
 	Generated []string
 	KeyFile   string
 	Warnings  []string
 }
 
-// Resolve 按门禁口径定值三把密钥，返回更新后的 cfg。生产环境任何一步无法
-// 安全定值即报错（main 侧 Fatal 退出）；开发环境回退 cfg 原值并记 Warnings。
+// Resolve determines all three secrets per the gate rules and returns the updated cfg. Any
+// step that cannot be resolved safely in production errors out (the main side exits fatally); in dev it falls back to the original cfg values and records Warnings.
 func Resolve(cfg config.Config) (config.Config, Result, error) {
 	res := Result{}
 	production := cfg.Env == "production"
@@ -74,18 +74,18 @@ func Resolve(cfg config.Config) (config.Config, Result, error) {
 		sp := &specs[i]
 		switch {
 		case sp.value != "":
-			// 显式配置（Load 已从 env 注入）：校验后直接用，不落盘。
+			// Explicitly configured (Load already injected it from the env): validate and use as is, never persisted.
 			if err := checkKey(sp.envName, sp.value, production); err != nil {
 				return cfg, res, err
 			}
 		case fileVals[sp.envName] != "":
-			// 密钥文件已有：加载使用，不重生成（重启稳定）。
+			// Already in the key file: load and use it, no regeneration (stable across restarts).
 			sp.value = fileVals[sp.envName]
 			if err := checkKey(sp.envName, sp.value, production); err != nil {
 				return cfg, res, err
 			}
 		default:
-			// 都没有：生成随机钥。
+			// Neither: generate a random key.
 			v, err := generateKey()
 			if err != nil {
 				return cfg, res, fmt.Errorf("generate %s: %w", sp.envName, err)
@@ -95,8 +95,8 @@ func Resolve(cfg config.Config) (config.Config, Result, error) {
 		}
 	}
 
-	// 新生成的钥持久化；写不进去时生产拒绝、开发降级为不持久化（回退 cfg
-	// 原值并告警，维持历史开发行为）。
+	// Persist the newly generated keys; if that write fails, production refuses while dev degrades
+	// to unpersisted (falls back to the original cfg values with a warning, keeping the legacy dev behaviour).
 	if len(generated) > 0 {
 		if kf == "" {
 			if production {
@@ -106,7 +106,7 @@ func Resolve(cfg config.Config) (config.Config, Result, error) {
 				"keys generated but no key file available (FERRY_KEYFILE unset, non-sqlite db); "+
 					"they are ephemeral this run — configure FERRY_ADMIN_SECRET/FERRY_API_SECRET/FERRY_SECRET_KEY explicitly")
 			res.Generated = sortedNames(generated)
-			return cfg, res, nil // 开发环境：cfg 保持原值（下游吃历史开发缺省）
+			return cfg, res, nil // dev environment: cfg keeps its original values (downstream swallows the legacy dev defaults)
 		}
 		if err := mergeKeyFile(kf, fileVals, generated); err != nil {
 			if production {
@@ -122,7 +122,7 @@ func Resolve(cfg config.Config) (config.Config, Result, error) {
 		}
 	}
 
-	// 弱钥开发环境只告警（生产已在 checkKey 拒绝）。
+	// A weak key only warns in dev (production already refused it in checkKey).
 	for i := range specs {
 		sp := &specs[i]
 		if sp.value != "" && len(sp.value) < 16 {
@@ -137,9 +137,9 @@ func Resolve(cfg config.Config) (config.Config, Result, error) {
 	return cfg, res, nil
 }
 
-// keyFilePath 定密钥文件路径：显式 FERRY_KEYFILE 原样用（父目录须已存在）；
-// 未配置时 sqlite 库同目录 ferry-keys.env（目录随库建）；非 sqlite 未配置=
-// 无处持久化，返回空串交上层判定。
+// keyFilePath decides the key-file path: an explicit FERRY_KEYFILE is used verbatim (its parent
+// directory must already exist); when unset, ferry-keys.env next to the sqlite DB (created with the DB directory);
+// a non-sqlite DB with no config means nowhere to persist, so it returns an empty string for the caller to judge.
 func keyFilePath(cfg config.Config) (string, error) {
 	if cfg.KeyFile != "" {
 		if filepath.Dir(cfg.KeyFile) == cfg.KeyFile {
@@ -151,16 +151,16 @@ func keyFilePath(cfg config.Config) (string, error) {
 		return "", nil
 	}
 	dir := filepath.Dir(cfg.DBDSN)
-	// 库文件目录与密钥文件同处（容器内即数据卷）；目录不存在则一并创建，
-	// 与 storage.Open 建库目录同口径。
+	// The DB file and the key file share a directory (the data volume inside a container); if the
+	// directory does not exist it is created together, per the same rule as storage.Open creating the DB directory.
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("create key file dir %s: %w", dir, err)
 	}
 	return filepath.Join(dir, defaultKeyFileName), nil
 }
 
-// checkKey 单钥校验：生产环境拒开发缺省常量与短钥（<16）；开发环境短钥
-// 只在 Result.Warnings 记（此处返回 nil），弱常量照用（本地跑通用）。
+// checkKey validates one key: production refuses the dev default constants and short keys (<16);
+// dev only records a short key in Result.Warnings (returns nil here) and still uses the weak constant (good enough to run locally).
 func checkKey(envName, value string, production bool) error {
 	if !production {
 		return nil
@@ -174,8 +174,8 @@ func checkKey(envName, value string, production bool) error {
 	return nil
 }
 
-// generateKey 生成 256 位随机钥（base64url），与 handler.RandomToken 同强度
-// 不同用途（此处是服务侧签名/加密钥，不与节点/订阅令牌混用）。
+// generateKey creates a 256-bit random key (base64url), as strong as handler.RandomToken but
+// for a different purpose (a service-side signing/encryption key, never mixed with node/subscription tokens).
 func generateKey() (string, error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
@@ -184,7 +184,7 @@ func generateKey() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
-// readKeyFile 解析 KEY=VALUE 行（# 注释与空行跳过），返回 env 名→值。
+// readKeyFile parses KEY=VALUE lines (# comments and blank lines skipped) into env name -> value.
 func readKeyFile(path string) (map[string]string, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -205,8 +205,8 @@ func readKeyFile(path string) (map[string]string, error) {
 	return out, nil
 }
 
-// mergeKeyFile 既有内容原样保留，只追加本轮新生成的 KEY=value 行（显式配置
-// 的值绝不落盘），文件 0600。
+// mergeKeyFile keeps the existing content verbatim and only appends the newly generated
+// KEY=value lines of this round (explicitly configured values are never written), file mode 0600.
 func mergeKeyFile(path string, existing, generated map[string]string) error {
 	var b strings.Builder
 	if len(existing) == 0 {
@@ -225,7 +225,7 @@ func mergeKeyFile(path string, existing, generated map[string]string) error {
 	return err
 }
 
-// sortedNames 稳定输出 env 名顺序（ADMIN、API、SECRET_KEY，落盘行序可复现）。
+// sortedNames emits the env names in a stable order (ADMIN, API, SECRET_KEY) so the persisted line order is reproducible.
 func sortedNames(m map[string]string) []string {
 	order := []string{"FERRY_ADMIN_SECRET", "FERRY_API_SECRET", "FERRY_SECRET_KEY"}
 	out := make([]string, 0, len(order))

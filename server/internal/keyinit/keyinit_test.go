@@ -9,7 +9,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/config"
 )
 
-// testCfg 建独立临时目录的基线配置（sqlite 库落临时目录，密钥文件默认同目录）。
+// testCfg builds a baseline config with an isolated temp directory (sqlite DB and the key file both land in it).
 func testCfg(t *testing.T) config.Config {
 	t.Helper()
 	dir := t.TempDir()
@@ -21,7 +21,7 @@ func testCfg(t *testing.T) config.Config {
 	return cfg
 }
 
-// TestGeneratePersistsAndStable：首启生成三密钥并持久化（0600），重启后同钥。
+// TestGeneratePersistsAndStable: first start generates and persists the three keys (0600), and a restart gets the same keys.
 func TestGeneratePersistsAndStable(t *testing.T) {
 	cfg := testCfg(t)
 	got, res, err := Resolve(cfg)
@@ -49,7 +49,7 @@ func TestGeneratePersistsAndStable(t *testing.T) {
 		t.Fatalf("keyfile perm = %o want 600", perm)
 	}
 
-	// 重启稳定性：同一路径再次 Resolve 必须取回同一组钥（不得每次重生成）。
+	// Restart stability: resolving the same path again must return the same key set (never regenerated per run).
 	cfg2 := testCfg(t)
 	cfg2.KeyFile = res.KeyFile
 	got2, res2, err := Resolve(cfg2)
@@ -64,12 +64,12 @@ func TestGeneratePersistsAndStable(t *testing.T) {
 	}
 }
 
-// TestEnvPrecedence：env 显式配置优先于密钥文件，且 env 值不落盘。
+// TestEnvPrecedence: an explicitly configured env value wins over the key file, and env values are never persisted.
 func TestEnvPrecedence(t *testing.T) {
 	dir := t.TempDir()
 	cfg := testCfg(t)
 	cfg.KeyFile = filepath.Join(dir, "keys.env")
-	// 显式配置经 cfg 注入（config.Load 已把 env 读进 cfg，Resolve 不重读 env）。
+	// Explicit config arrives via cfg (config.Load already read the env into cfg; Resolve does not re-read the env).
 	cfg.AdminSecret = "env-admin-secret-0123456789"
 	cfg.ApiTokenSecret = "env-api-secret-0123456789abcd"
 
@@ -80,7 +80,7 @@ func TestEnvPrecedence(t *testing.T) {
 	if got.AdminSecret != "env-admin-secret-0123456789" || got.ApiTokenSecret != "env-api-secret-0123456789abcd" {
 		t.Fatalf("env keys not honored: admin=%q api=%q", got.AdminSecret, got.ApiTokenSecret)
 	}
-	// master 未配 env → 走生成并落盘；两个 env 钥不得写进文件。
+	// master has no env value -> generated and persisted; the two env keys must not be written into the file.
 	raw, err := os.ReadFile(res.KeyFile)
 	if err != nil {
 		t.Fatalf("read keyfile: %v", err)
@@ -94,7 +94,7 @@ func TestEnvPrecedence(t *testing.T) {
 	}
 }
 
-// TestKeyfileRoundTrip：既有密钥文件的值被加载使用，不重生成。
+// TestKeyfileRoundTrip: values in an existing key file are loaded and used, not regenerated.
 func TestKeyfileRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	kf := filepath.Join(dir, "keys.env")
@@ -116,7 +116,7 @@ func TestKeyfileRoundTrip(t *testing.T) {
 	}
 }
 
-// TestProductionRejectsDevFallbackValues：生产环境显式配开发默认常量拒绝启动。
+// TestProductionRejectsDevFallbackValues: production refuses to boot when the dev default constants are configured explicitly.
 func TestProductionRejectsDevFallbackValues(t *testing.T) {
 	dir := t.TempDir()
 	cfg := testCfg(t)
@@ -130,7 +130,7 @@ func TestProductionRejectsDevFallbackValues(t *testing.T) {
 	}
 }
 
-// TestProductionRejectsShortKey：生产环境短钥（<16）拒绝启动；开发环境只警告。
+// TestProductionRejectsShortKey: production refuses a short key (<16) to boot; dev only warns.
 func TestProductionRejectsShortKey(t *testing.T) {
 	dir := t.TempDir()
 	cfg := testCfg(t)
@@ -152,12 +152,12 @@ func TestProductionRejectsShortKey(t *testing.T) {
 	}
 }
 
-// TestProductionRequiresPersistence：生产环境密钥文件不可写（无从持久化）时拒绝启动。
+// TestProductionRequiresPersistence: production refuses to boot when the key file is not writable (nowhere to persist).
 func TestProductionRequiresPersistence(t *testing.T) {
 	dir := t.TempDir()
 	cfg := testCfg(t)
 	cfg.Env = "production"
-	// 指向一个不存在且不可创建的路径（目录不存在）。
+	// Points at a path that does not exist and cannot be created (the directory is missing).
 	cfg.KeyFile = filepath.Join(dir, "no-such-dir", "keys.env")
 
 	if _, _, err := Resolve(cfg); err == nil {
@@ -165,8 +165,8 @@ func TestProductionRequiresPersistence(t *testing.T) {
 	}
 }
 
-// TestDevDefaultsWhenUnpersistable：开发环境无 env 无密钥文件时不 block——
-// 回退历史开发缺省（仅本地跑通用），并给出警告。
+// TestDevDefaultsWhenUnpersistable: in dev, with no env and no key file, this does not block -
+// it falls back to the legacy dev defaults (only to run locally) and reports a warning.
 func TestDevDefaultsWhenUnpersistable(t *testing.T) {
 	cfg := config.Default()
 	cfg.Env = ""
@@ -185,7 +185,7 @@ func TestDevDefaultsWhenUnpersistable(t *testing.T) {
 	}
 }
 
-// TestKeyfileMergeKeepsExisting：密钥文件已有部分钥时只补缺失的，不动既有行。
+// TestKeyfileMergeKeepsExisting: when the key file already holds some keys, only the missing ones are added, existing lines untouched.
 func TestKeyfileMergeKeepsExisting(t *testing.T) {
 	dir := t.TempDir()
 	kf := filepath.Join(dir, "keys.env")
