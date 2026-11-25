@@ -10,27 +10,28 @@ const ProtocolVersion = 1
 
 // Message types: agent→panel use the agent. prefix, panel→agent use the panel. prefix.
 const (
-	MsgHello        = "agent.hello"         // handshake, carries the node token
-	MsgHelloAck     = "panel.hello_ack"     // handshake reply
-	MsgHeartbeat    = "agent.heartbeat"     // periodic heartbeat
-	MsgHeartbeatAck = "panel.heartbeat_ack" // heartbeat reply
-	MsgAlarm        = "agent.alarm"         // anomaly alarm
-	MsgAlarmAck     = "panel.alarm_ack"     // alarm reply
-	MsgTraffic      = "agent.traffic"       // traffic and online-count report
-	MsgTrafficAck   = "panel.traffic_ack"   // traffic report reply
-	MsgProcReport   = "agent.proc_report"   // process state event report
-	MsgProcCtl      = "panel.proc_ctl"      // panel process control command
-	MsgProcCtlAck   = "agent.proc_ctl_ack"  // process control reply
-	MsgProcLogs     = "panel.proc_logs"     // panel process log fetch request (P1-11)
-	MsgProcLogsAck  = "agent.proc_logs_ack" // process log fetch reply
-	MsgConfigPush   = "panel.config_push"   // config push
-	MsgConfigAck    = "agent.config_ack"    // config push reply
-	MsgProbeReport  = "agent.probe_report"  // edge probe verdict report
-	MsgProbeAck     = "panel.probe_ack"     // probe report reply
-	MsgCalibrate    = "agent.calibrate"     // speed calibration report (E-8)
-	MsgCalibrateAck = "panel.calibrate_ack" // speed calibration reply
-	MsgUpgrade      = "panel.upgrade"       // self-upgrade command (A-23)
-	MsgUpgradeAck   = "agent.upgrade_ack"   // self-upgrade reply
+	MsgHello         = "agent.hello"          // handshake, carries the node token
+	MsgHelloAck      = "panel.hello_ack"      // handshake reply
+	MsgHeartbeat     = "agent.heartbeat"      // periodic heartbeat
+	MsgHeartbeatAck  = "panel.heartbeat_ack"  // heartbeat reply
+	MsgAlarm         = "agent.alarm"          // anomaly alarm
+	MsgAlarmAck      = "panel.alarm_ack"      // alarm reply
+	MsgTraffic       = "agent.traffic"        // traffic and online-count report
+	MsgTrafficAck    = "panel.traffic_ack"    // traffic report reply
+	MsgProcReport    = "agent.proc_report"    // process state event report
+	MsgProcCtl       = "panel.proc_ctl"       // panel process control command
+	MsgProcCtlAck    = "agent.proc_ctl_ack"   // process control reply
+	MsgProcLogs      = "panel.proc_logs"      // panel process log fetch request (P1-11)
+	MsgProcLogsAck   = "agent.proc_logs_ack"  // process log fetch reply
+	MsgConfigPush    = "panel.config_push"    // config push
+	MsgConfigAck     = "agent.config_ack"     // config push reply
+	MsgProbeReport   = "agent.probe_report"   // edge probe verdict report
+	MsgProbeAck      = "panel.probe_ack"      // probe report reply
+	MsgCalibrate     = "agent.calibrate"      // speed calibration report (E-8)
+	MsgCalibrateAck  = "panel.calibrate_ack"  // speed calibration reply
+	MsgUpgrade       = "panel.upgrade"        // self-upgrade command (A-23)
+	MsgUpgradeAck    = "agent.upgrade_ack"    // self-upgrade reply
+	MsgUpgradeStatus = "agent.upgrade_status" // self-upgrade progress report (F-0712)
 )
 
 // Envelope is the common wrapper for all messages. The requester sets ID; the replier echoes it back.

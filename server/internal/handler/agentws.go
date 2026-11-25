@@ -586,6 +586,17 @@ func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID 
 			if err := hc.Send(reply); err != nil {
 				return
 			}
+		case agentproto.MsgUpgradeStatus:
+			// Self-upgrade progress (F-0712): one-way report keyed by the command id; the envelope
+			// id is "<command>-<state>", so dedupe absorbs retransmissions of the same state.
+			var us agentproto.UpgradeStatus
+			if err := env.Decode(&us); err != nil || !agentproto.ValidUpgradeState(us.State) {
+				continue
+			}
+			if h.repeatReport(nodeID, env.Type, env.ID) {
+				continue
+			}
+			h.recordUpgradeStatus(nodeID, us)
 		case agentproto.MsgCalibrate:
 			reply, ok := h.handleCalibrate(nodeID, env)
 			if !ok {

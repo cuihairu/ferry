@@ -3,12 +3,15 @@ package handler
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/cuihairu/ferry/packages/agentproto"
 	"github.com/cuihairu/ferry/server/internal/agenthub"
+	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
 )
 
@@ -74,4 +77,41 @@ func (h *Handler) nodeUpgrade(c *gin.Context) {
 		"node_id": n.ID, "version": ack.Version, "accepted": true,
 		"current_version": n.AgentVersion,
 	})
+}
+
+// recordUpgradeStatus stores one self-upgrade progress frame (F-0712); storage failures are
+// logged, never blocking the heartbeat loop.
+func (h *Handler) recordUpgradeStatus(nodeID int64, us agentproto.UpgradeStatus) {
+	row := storage.NodeUpgrade{
+		NodeID: uint(nodeID), UpgradeID: us.UpgradeID, Version: us.Version,
+		State: us.State, Error: us.Error,
+	}
+	if err := h.db.Create(&row).Error; err != nil {
+		log.Printf("record upgrade status node=%d: %v", nodeID, err)
+	}
+}
+
+// listNodeUpgrades serves GET /api/nodes/:id/upgrades: the node's self-upgrade progress rows,
+// newest first, capped at limit (default 100).
+func (h *Handler) listNodeUpgrades(c *gin.Context) {
+	n, err := h.findNode(c.Param("id"))
+	if err != nil {
+		replyFind(c, err)
+		return
+	}
+	limit := 100
+	if v := c.Query("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 500 {
+			fail(c, http.StatusBadRequest, errors.New("limit must be 1-500"))
+			return
+		}
+		limit = n
+	}
+	out := []storage.NodeUpgrade{}
+	if err := h.db.Where("node_id=?", n.ID).Order("id DESC").Limit(limit).Find(&out).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"upgrades": out})
 }

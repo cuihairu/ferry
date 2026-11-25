@@ -325,3 +325,30 @@ type UpgradeAck struct {
 	OK      bool   `json:"ok"`
 	Error   string `json:"error,omitempty"`
 }
+
+// Self-upgrade progress states (F-0712), reported in flow order; applied means
+// the binary was swapped and the restart is imminent.
+const (
+	UpgradeStateDownloading = "downloading"
+	UpgradeStateApplying    = "applying"
+	UpgradeStateApplied     = "applied"
+	UpgradeStateFailed      = "failed"
+)
+
+// UpgradeStatus is the agent's one-way progress report during a self-upgrade
+// (F-0712), keyed by the upgrade command id; failed carries the reason.
+type UpgradeStatus struct {
+	UpgradeID string `json:"upgrade_id"`
+	Version   string `json:"version"`
+	State     string `json:"state"`
+	Error     string `json:"error,omitempty"`
+}
+
+// ValidUpgradeState reports whether s is a known upgrade progress state.
+func ValidUpgradeState(s string) bool {
+	switch s {
+	case UpgradeStateDownloading, UpgradeStateApplying, UpgradeStateApplied, UpgradeStateFailed:
+		return true
+	}
+	return false
+}

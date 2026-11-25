@@ -158,13 +158,24 @@ func (a *App) maybeCalibrate(send func(agentproto.Envelope) error) {
 }
 
 // doUpgrade performs self-upgrade in the background (A-23): failures are only logged and the binary is left as it is.
-func (a *App) doUpgrade(up agentproto.Upgrade) {
+// Progress is reported per state (F-0712) under an envelope id derived from the command id, so the panel
+// can dedupe retransmissions per state.
+func (a *App) doUpgrade(up agentproto.Upgrade, id string) {
+	report := func(st agentproto.UpgradeStatus) {
+		st.UpgradeID = id
+		env, err := agentproto.NewEnvelope(id+"-"+st.State, agentproto.MsgUpgradeStatus, st)
+		if err != nil {
+			return
+		}
+		_ = a.sendIfConnected(env)
+	}
 	self, err := upgrade.Self()
 	if err != nil {
 		a.log.Printf("upgrade: locate self: %v", err)
+		report(agentproto.UpgradeStatus{Version: up.Version, State: agentproto.UpgradeStateFailed, Error: err.Error()})
 		return
 	}
-	if err := upgrade.Do(context.Background(), self, up, a.log); err != nil {
+	if err := upgrade.DoWithProgress(context.Background(), self, up, a.log, report); err != nil {
 		a.log.Printf("upgrade to %s failed: %v", up.Version, err)
 	}
 }
@@ -289,7 +300,7 @@ func (a *App) OnMessage(_ context.Context, env agentproto.Envelope, send func(ag
 		} else {
 			ack.Version = up.Version
 			ack.OK = true
-			go a.doUpgrade(up)
+			go a.doUpgrade(up, env.ID)
 		}
 		reply, _ := agentproto.NewEnvelope(env.ID, agentproto.MsgUpgradeAck, ack)
 		_ = a.sendIfConnected(reply)

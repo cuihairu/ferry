@@ -227,6 +227,19 @@ type TrafficLog struct {
 	Node       *Node     `gorm:"foreignKey:NodeID;references:ID;constraint:OnDelete:SET NULL" json:"-"`
 }
 
+// NodeUpgrade is the panel-side record of an agent's self-upgrade progress (F-0712): the agent
+// reports downloading/applying/applied/failed along the flow; applied means the binary was
+// swapped and the restart (hello with the new version) follows.
+type NodeUpgrade struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	NodeID    uint      `gorm:"index;not null" json:"node_id"`
+	UpgradeID string    `gorm:"size:128;index" json:"upgrade_id"`
+	Version   string    `gorm:"size:64" json:"version"`
+	State     string    `gorm:"size:16;not null" json:"state"`
+	Error     string    `gorm:"size:255" json:"error,omitempty"`
+	CreatedAt time.Time `gorm:"index" json:"created_at"`
+}
+
 // Setting is a panel setting key-value pair (a lightweight KV, Value holds JSON text).
 type Setting struct {
 	Key       string    `gorm:"primaryKey;size:64" json:"key"`

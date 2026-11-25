@@ -97,6 +97,27 @@ func Exec(self string) {
 // Do runs the whole upgrade flow: download -> verify -> back up -> replace -> write the marker -> restart.
 // any step failing returns an error and leaves the current binary untouched.
 func Do(ctx context.Context, self string, up agentproto.Upgrade, logger *log.Logger) error {
+	return DoWithProgress(ctx, self, up, logger, nil)
+}
+
+// DoWithProgress is Do with a progress reporter (F-0712): it fires downloading/applying/applied in
+// flow order and failed with the reason when any step errors. notify may be nil (plain Do).
+func DoWithProgress(ctx context.Context, self string, up agentproto.Upgrade, logger *log.Logger, notify func(agentproto.UpgradeStatus)) error {
+	report := func(state, errMsg string) {
+		if notify == nil {
+			return
+		}
+		notify(agentproto.UpgradeStatus{Version: up.Version, State: state, Error: errMsg})
+	}
+	report(agentproto.UpgradeStateDownloading, "")
+	err := doUpgrade(ctx, self, up, logger, report)
+	if err != nil {
+		report(agentproto.UpgradeStateFailed, err.Error())
+	}
+	return err
+}
+
+func doUpgrade(ctx context.Context, self string, up agentproto.Upgrade, logger *log.Logger, report func(state, errMsg string)) error {
 	if logger == nil {
 		logger = log.Default()
 	}
@@ -154,6 +175,7 @@ func Do(ctx context.Context, self string, up agentproto.Upgrade, logger *log.Log
 	}
 
 	// back up the current binary (clearing old backups), then replace atomically.
+	report(agentproto.UpgradeStateApplying, "")
 	_ = os.Remove(bakPath(self))
 	if err := os.Rename(self, bakPath(self)); err != nil {
 		return fmt.Errorf("backup self: %w", err)
@@ -169,6 +191,7 @@ func Do(ctx context.Context, self string, up agentproto.Upgrade, logger *log.Log
 		return fmt.Errorf("write pending marker: %w", err)
 	}
 	logger.Printf("upgrading to %s, restarting", up.Version)
+	report(agentproto.UpgradeStateApplied, "")
 	Exec(self)
 	return nil
 }
