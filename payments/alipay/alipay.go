@@ -1,6 +1,7 @@
-// Package alipay 是支付宝渠道占位（PAY-10）：注册占位 Provider 使
-// 渠道枚举完整、下单得到「未启用」文案；商户资质到位后在此替换为
-// 真实现（当面付/手机网站下单 + RSA2 回调验签）。
+// Package alipay is the Alipay channel placeholder (PAY-10): it registers a placeholder Provider so
+// the channel listing stays complete and ordering yields a "not enabled" message; once merchant
+// credentials are in place, replace it here with the real implementation (face-to-face / mobile-web
+// ordering plus RSA2 callback signature verification).
 package alipay
 
 import "github.com/cuihairu/ferry/packages/payment"
