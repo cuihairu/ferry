@@ -33,7 +33,7 @@ func TestRoleExitsOnCancel(t *testing.T) {
 	}
 }
 
-// dialTarget 起一个只接受连接的本地 listener，返回 host:port。
+// dialTarget starts a local listener that only accepts connections and returns host:port.
 func dialTarget(t *testing.T) string {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -53,7 +53,7 @@ func dialTarget(t *testing.T) string {
 	return ln.Addr().String()
 }
 
-// runBrief 起 Run 并等它探测一轮后取消（5 轮 × 200ms 间隔 ≈ 0.8s）。
+// runBrief starts Run and cancels once it has probed one round (5 rounds x 200ms interval ~= 0.8s).
 func runBrief(t *testing.T, cfg config.Config) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -71,8 +71,8 @@ func runBrief(t *testing.T, cfg config.Config) {
 	}
 }
 
-// TestRoleForwardsToSpool 角色进程只经 spool 上报（不直连面板，E-7）：
-// 探测结论落成 spool 行文件，载荷可解码回 ProbeReport。
+// TestRoleForwardsToSpool covers the role process reporting only through the spool (no direct panel connection, E-7):
+// probe conclusions land as spool line files and the payload decodes back into a ProbeReport.
 func TestRoleForwardsToSpool(t *testing.T) {
 	spoolDir := filepath.Join(t.TempDir(), "spool")
 	cfg := config.Config{
@@ -111,7 +111,7 @@ func TestRoleForwardsToSpool(t *testing.T) {
 	}
 }
 
-// TestRoleNoSpoolDirDrops 无 spool_dir 是调试形态：探测照跑，上报进黑洞。
+// TestRoleNoSpoolDirDrops covers a missing spool_dir being the debugging form: probing keeps running and reports go into a black hole.
 func TestRoleNoSpoolDirDrops(t *testing.T) {
 	cfg := config.Config{
 		Probes: []config.ProbeSpec{{
@@ -119,5 +119,5 @@ func TestRoleNoSpoolDirDrops(t *testing.T) {
 			IntervalSec: 3600,
 		}},
 	}
-	runBrief(t, cfg) // 不 panic、不落盘即可
+	runBrief(t, cfg) // no panic and nothing written to disk is enough
 }

@@ -1,15 +1,15 @@
-// Package relay 是 relay 数据面组件（E-5）：入口角色的独立转发进程。
+// Package relay is the relay data plane component (E-5): the standalone forwarding process of the entry role.
 //
-// 形态：本机监听 → 每条前端连接经传输插件（默认 tls-camo）拨落地 → 双向拷贝。
-// 崩溃只断转发，核心心跳不受影响；被管方式是 procs 的一条普通规格
-// （exec=ferry-agent，args=[-role, relay]），随面板 proc_ctl 启停。
+// Shape: listen locally -> each frontend connection dials the landing through a transport plugin (tls-camo by default) -> copy both ways.
+// A crash only breaks forwarding, leaving the core heartbeat untouched; it is managed as an ordinary procs spec
+// (exec=ferry-agent, args=[-role, relay]) started and stopped by panel proc_ctl.
 //
-// P0 口径：单流转发（传输插件 Dial 的连接即数据通道）；落地侧只需能终结
-// 该传输（tls-camo 对端是任意 TLS 监听），无需 ferry 私有握手协议。
+// P0 rule: single-stream forwarding (the connection dialed by the transport plugin is the data channel); the landing side only needs to terminate
+// that transport (the tls-camo peer is any TLS listener), with no ferry-private handshake protocol.
 //
-// 摘挂热更新换线（E-16b）：RunFile 支持落地覆盖文件——面板 config.push
-// 把落地指向（RelaySpec 子集 JSON）写到该文件，SIGHUP 重读热切换，
-// 新连接走新落地，存量连接按旧拨号自然排空（不硬断）。
+// Hot-swapping the landing (E-16b): RunFile supports a landing override file -- the panel's config.push
+// writes the landing target (a RelaySpec subset in JSON) into that file; a SIGHUP re-reads it and hot-switches,
+// so new connections use the new landing while existing ones drain naturally on the old dial (never hard-cut).
 package relay
 
 import (
@@ -31,18 +31,18 @@ import (
 	"github.com/cuihairu/ferry/agent/internal/tunnel"
 )
 
-// maxConns 是并发转发上限：入口小机器防爆，超限直接拒掉新连接。
+// maxConns caps concurrent forwarding: protects small entry machines, and new connections beyond the limit are refused outright.
 const maxConns = 128
 
-// dialTimeout 是单条转发连接的落地拨号超时。
+// dialTimeout is the landing dial timeout of one forwarded connection.
 const dialTimeout = 15 * time.Second
 
-// Run 阻塞运行到 ctx 取消：监听 → 逐连接转发。
+// Run blocks until the ctx is cancelled: listen -> forward connection by connection.
 func Run(ctx context.Context, spec config.RelaySpec, logger *log.Logger) error {
 	return run(ctx, spec, "", nil, nil, logger)
 }
 
-// RunFile 在 Run 之上启用落地覆盖文件（E-16b）：SIGHUP 重读 path 热切换。
+// RunFile enables the landing override file on top of Run (E-16b): a SIGHUP re-reads path and hot-switches.
 func RunFile(ctx context.Context, base config.RelaySpec, path string, logger *log.Logger) error {
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)
@@ -50,8 +50,8 @@ func RunFile(ctx context.Context, base config.RelaySpec, path string, logger *lo
 	return run(ctx, base, path, hup, nil, logger)
 }
 
-// run 是 Run/RunFile 的公共体：overridePath 非空时启用覆盖热重载；
-// ln/hup 可注入供测试。启动前先打开现行传输插件（坏插件尽早暴露）。
+// run is the common body of Run/RunFile: a non-empty overridePath enables hot-reloading the override;
+// ln/hup are injectable for tests. The current transport plugin is opened before startup (bad plugins surface early).
 func run(ctx context.Context, base config.RelaySpec, overridePath string, hup <-chan os.Signal, ln net.Listener, logger *log.Logger) error {
 	if logger == nil {
 		logger = log.Default()
@@ -63,7 +63,7 @@ func run(ctx context.Context, base config.RelaySpec, overridePath string, hup <-
 	if overridePath != "" {
 		ov, err := loadOverride(overridePath)
 		if err != nil {
-			return err // 文件存在但损坏：启动失败尽早暴露，不静默落回
+			return err // the file exists but is corrupt: fail startup early rather than silently falling back
 		}
 		cur = mergeSpec(base, ov)
 	}
@@ -90,7 +90,7 @@ func run(ctx context.Context, base config.RelaySpec, overridePath string, hup <-
 	var curSpec atomic.Pointer[config.RelaySpec]
 	curSpec.Store(&cur)
 
-	// 热重载：SIGHUP 重读覆盖文件换落地指向；坏文件或空落地保现行只记日志。
+	// hot reload: a SIGHUP re-reads the override file to switch the landing target; a corrupt file or an empty landing keeps the current one and only logs.
 	if overridePath != "" && hup != nil {
 		go func() {
 			for {
@@ -113,7 +113,7 @@ func run(ctx context.Context, base config.RelaySpec, overridePath string, hup <-
 				if next.LandingAddr == old.LandingAddr &&
 					next.ServerName == old.ServerName && next.CAFile == old.CAFile &&
 					tunnelPluginOf(next) == tunnelPluginOf(*old) {
-					continue // 没变化不切，避免无谓日志
+					continue // no change means no switch, avoiding pointless logs
 				}
 				curSpec.Store(&next)
 				logger.Printf("relay repointed -> %s via %s", next.LandingAddr, tunnelPluginOf(next))
@@ -158,7 +158,7 @@ func run(ctx context.Context, base config.RelaySpec, overridePath string, hup <-
 	}
 }
 
-// serveConn 为一条前端连接拨落地并双向拷贝；任一方向结束即断开整条。
+// serveConn dials the landing for one frontend connection and copies both ways; either direction ending tears down the whole connection.
 func serveConn(ctx context.Context, tn tunnel.Tunnel, landing string, front net.Conn, logger *log.Logger) {
 	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
 	defer cancel()
@@ -189,9 +189,9 @@ func serveConn(ctx context.Context, tn tunnel.Tunnel, landing string, front net.
 	}
 }
 
-// mergeSpec 以 agent 本地配置为基底叠加面板覆盖（E-16b）：listen 等
-// 本机参数不归面板管，只吃落地指向相关字段的非空值。ssh 四参是本机
-// 文件引用与认证面（E-28），与 listen 同口径不归面板管（面板只换传输名）。
+// mergeSpec layers the panel override on top of the agent's local config (E-16b): local parameters such as
+// listen are not the panel's business; only non-empty values of landing-related fields are taken. The four ssh parameters are a
+// local file reference and authentication surface (E-28), treated like listen and not the panel's business (the panel only changes the transport name).
 func mergeSpec(base, ov config.RelaySpec) config.RelaySpec {
 	s := base
 	if ov.LandingAddr != "" {
@@ -209,7 +209,7 @@ func mergeSpec(base, ov config.RelaySpec) config.RelaySpec {
 	return s
 }
 
-// loadOverride 读覆盖文件；不存在属正常态（尚未下发过），返回零值不报错。
+// loadOverride reads the override file; a missing file is a normal state (nothing has been pushed yet) and returns zero values without an error.
 func loadOverride(path string) (config.RelaySpec, error) {
 	var spec config.RelaySpec
 	b, err := os.ReadFile(path)
@@ -225,7 +225,7 @@ func loadOverride(path string) (config.RelaySpec, error) {
 	return spec, nil
 }
 
-// tunnelPluginOf relay 传输插件名：空=缺省。
+// tunnelPluginOf maps the relay transport plugin name: empty = the default.
 func tunnelPluginOf(spec config.RelaySpec) string {
 	if spec.Tunnel == "" {
 		return tunnel.DefaultPlugin
@@ -233,8 +233,8 @@ func tunnelPluginOf(spec config.RelaySpec) string {
 	return spec.Tunnel
 }
 
-// tunnelCache 按插件与 TLS 参数缓存 Tunnel：热重载换落地不重开插件，
-// 旧 Tunnel 由旧连接持有，进程退出统一关。
+// tunnelCache caches Tunnels by plugin and TLS parameters: hot-reloading a landing does not reopen the plugin,
+// the old Tunnel stays held by old connections, and everything is closed when the process exits.
 type tunnelCache struct {
 	mu     sync.Mutex
 	m      map[string]tunnel.Tunnel
@@ -246,8 +246,8 @@ func newTunnelCache(logger *log.Logger) *tunnelCache {
 }
 
 func (c *tunnelCache) get(spec config.RelaySpec) (tunnel.Tunnel, error) {
-	// 缓存键含插件全部实例参数：同插件名不同参数（如 ssh 换用户/密钥/
-	// 目标）必须分开实例，否则复用串配置。
+	// the cache key contains every instance parameter of the plugin: the same plugin name with different parameters (ssh with a different user/key/
+	// target) must be separate instances, otherwise reuse would cross the configurations.
 	key := strings.Join([]string{
 		tunnelPluginOf(spec), spec.ServerName, spec.CAFile,
 		spec.SSHUser, spec.SSHKeyFile, spec.SSHKnownHosts, spec.SSHForwardAddr,

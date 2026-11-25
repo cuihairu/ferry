@@ -1,8 +1,8 @@
-// Package proberole 是边缘探测器组件的独立进程形态（E-7）。
+// Package proberole is the standalone-process form of the edge prober component (E-7).
 //
-// 运行：ferry-agent -role probe。只读配置里的 probes 段，经 spool 上报
-// 结论（不直连面板，单连接归核心）。崩溃时 procs 监管按退避拉起，
-// 最坏情况丢探测结论，心跳与流量上报不受影响。
+// Run: ferry-agent -role probe. It reads only the probes section of the config and reports conclusions
+// through the spool (no direct panel connection; the single connection belongs to the core). On crash the procs supervision restarts it with backoff,
+// the worst case being lost probe conclusions, while the heartbeat and traffic reporting are unaffected.
 package proberole
 
 import (
@@ -15,7 +15,7 @@ import (
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
 
-// Run 阻塞运行到 ctx 取消。
+// Run blocks until the ctx is cancelled.
 func Run(ctx context.Context, cfg config.Config, logger *log.Logger) error {
 	if cfg.SpoolDir == "" {
 		logger.Print("probe role: no spool_dir, reports go nowhere; set spool_dir to forward via core")
@@ -23,7 +23,7 @@ func Run(ctx context.Context, cfg config.Config, logger *log.Logger) error {
 	r := probe.New(cfg.Probes, logger)
 	r.SetSend(func(env agentproto.Envelope) error {
 		if cfg.SpoolDir == "" {
-			return nil // 无 spool 即黑洞（调试形态），不断言失败
+			return nil // with no spool it is a black hole (debugging form), never asserting failure
 		}
 		return spool.Write(cfg.SpoolDir, "probe", env)
 	})

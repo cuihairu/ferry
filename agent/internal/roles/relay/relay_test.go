@@ -17,8 +17,8 @@ import (
 	"github.com/cuihairu/ferry/agent/internal/tunnel"
 )
 
-// 注册测试用明文插件（Dial=裸 TCP）：relay 与传输解耦的证明，
-// 生产走 tls-camo，本测试只验证转发 plumbing。
+// registers a plaintext plugin for tests (Dial = bare TCP): proof that relay is decoupled from the transport;
+// production uses tls-camo, and this test only verifies the forwarding plumbing.
 func init() {
 	_ = tunnel.Register("plain-test", func(o tunnel.Options) (tunnel.Tunnel, error) {
 		return &plain{}, nil
@@ -39,7 +39,7 @@ func (p *plain) ServeHeartbeat(ctx context.Context, conn net.Conn, d time.Durati
 func (p *plain) Close() error { return nil }
 
 func TestRelayForwards(t *testing.T) {
-	// 落地回显
+	// landing echo
 	back, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -67,12 +67,12 @@ func TestRelayForwards(t *testing.T) {
 		}
 	}()
 
-	// relay 本机监听
+	// the relay's local listener
 	front, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = front.Close() // 仅占个端口号，relay 自己监听
+	_ = front.Close() // just occupies a port number; relay listens on its own
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	logger := log.New(os.Stderr, "test ", 0)
@@ -83,7 +83,7 @@ func TestRelayForwards(t *testing.T) {
 			Tunnel:      "plain-test",
 		}, logger)
 	}()
-	time.Sleep(200 * time.Millisecond) // 等监听就绪
+	time.Sleep(200 * time.Millisecond) // wait for the listener to be ready
 
 	var conn net.Conn
 	deadline := time.Now().Add(5 * time.Second)
@@ -124,10 +124,10 @@ func TestRelayValidation(t *testing.T) {
 	}
 }
 
-// TestRelayHotRepoint 覆盖落地覆盖文件热重指（E-16b）：SIGHUP 重读后新连接
-// 走新落地，坏覆盖文件保现行不中断。
+// TestRelayHotRepoint covers hot-repointing via the landing override file (E-16b): after a SIGHUP re-read, new connections
+// use the new landing, and a corrupt override file keeps the current one without interruption.
 func TestRelayHotRepoint(t *testing.T) {
-	// 两个落地回显，各自计数
+	// two landing echoes, each counting its own
 	type landing struct {
 		ln    net.Listener
 		mu    sync.Mutex
@@ -219,7 +219,7 @@ func TestRelayHotRepoint(t *testing.T) {
 		}
 	}
 
-	// waitConns 反复拨号直到指定落地收到 want 条新连接（热重载异步生效）。
+	// waitConns dials repeatedly until the given landing has received want new connections (a hot reload takes effect asynchronously).
 	waitConns := func(l *landing, want int) {
 		t.Helper()
 		deadline := time.Now().Add(5 * time.Second)
@@ -241,12 +241,12 @@ func TestRelayHotRepoint(t *testing.T) {
 	dialEcho()
 	waitConns(a, 1)
 
-	// 热重指到 b：重读应用后新连接落 b（重载是异步的，轮询到生效为止）。
+	// hot-repoint to b: after the re-read is applied new connections land on b (the reload is asynchronous, so poll until it takes effect).
 	writeOV(b.ln.Addr().String())
 	hup <- syscall.SIGHUP
 	waitConns(b, 1)
 
-	// 坏覆盖文件：保现行（b），不中断。
+	// a corrupt override file: keep the current one (b) without interruption.
 	if err := os.WriteFile(ovPath, []byte("{broken"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -265,19 +265,19 @@ func TestRelayHotRepoint(t *testing.T) {
 	}
 }
 
-// TestRelayRunFile RunFile 出口：覆盖文件缺失按空覆盖处理、损坏即启动失败；
-// 正常起监听并随 ctx 取消退出（SIGHUP 注册路径一并覆盖）。
+// TestRelayRunFile covers the RunFile path: a missing override file is treated as an empty override and a corrupt one fails startup;
+// it also listens normally and exits when the ctx is cancelled (covering the SIGHUP registration path as well).
 func TestRelayRunFile(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	logger := log.New(os.Stderr, "test ", 0)
 
-	// 缺失覆盖文件：不阻塞启动（按空覆盖），因 listen 非法而失败
+	// a missing override file: startup is not blocked (treated as an empty override) and fails because listen is invalid
 	if err := RunFile(ctx, config.RelaySpec{}, filepath.Join(t.TempDir(), "absent.json"), logger); err == nil {
 		t.Fatal("empty spec must fail")
 	}
 
-	// 损坏覆盖文件：启动失败尽早在 run 内暴露
+	// a corrupt override file: startup fails early, surfacing inside run
 	bad := filepath.Join(t.TempDir(), "ov.json")
 	if err := os.WriteFile(bad, []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
@@ -287,7 +287,7 @@ func TestRelayRunFile(t *testing.T) {
 		t.Fatal("corrupt override must fail startup")
 	}
 
-	// 正常路径：占一个端口号让 RunFile 自己监听
+	// the normal path: occupy a port number and let RunFile listen on its own
 	probe, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

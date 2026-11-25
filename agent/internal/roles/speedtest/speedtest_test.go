@@ -53,7 +53,7 @@ func TestMeasure(t *testing.T) {
 		t.Fatalf("bad result: %+v", res)
 	}
 
-	// 服务端 500 即报错
+	// a server 500 errors right away
 	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))

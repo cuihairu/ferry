@@ -1,5 +1,5 @@
-// Package speedtest 是自动测速校准（E-8）：注册后从面板下载固定字节，
-// 算出实测下行容量。轻量（默认 4MB，一次），偏差大以实测为准的判定在面板。
+// Package speedtest is the automatic speed-test calibration (E-8): after registration it downloads a fixed number of bytes from the panel
+// and computes the measured download capacity. It is lightweight (4MB by default, once); deciding that a large deviation means the measured value wins lives in the panel.
 package speedtest
 
 import (
@@ -11,14 +11,14 @@ import (
 	"time"
 )
 
-// DefaultBytes 是单次测速字节数（与面板 speedtestDefault 对齐）。
+// DefaultBytes is the number of bytes per speed test (aligned with the panel's speedtestDefault).
 const DefaultBytes = 4 << 20
 
-// Timeout 是单次测速总超时（含建连与下载）。
+// Timeout is the total timeout of one speed test (connecting and downloading included).
 const Timeout = 60 * time.Second
 
-// BaseURL 从 agent 的 PanelURL 派生面板 http(s) 根地址：
-// wss://host/agent/ws → https://host；ws:// → http://。
+// BaseURL derives the panel's http(s) root address from the agent's PanelURL:
+// wss://host/agent/ws -> https://host; ws:// -> http://.
 func BaseURL(panelURL string) (string, error) {
 	u := panelURL
 	switch {
@@ -36,15 +36,15 @@ func BaseURL(panelURL string) (string, error) {
 	return strings.TrimSuffix(u, "/"), nil
 }
 
-// Result 是单次测速结果。
+// Result is the outcome of one speed test.
 type Result struct {
 	Bytes   int64
 	Seconds float64
-	// Mbps 是实测下行容量（兆比特/秒）。
+	// Mbps is the measured download capacity (megabits per second).
 	Mbps int
 }
 
-// Measure 下载 n 字节并测速（n<=0 取默认）。
+// Measure downloads n bytes and measures the speed (n<=0 uses the default).
 func Measure(ctx context.Context, base string, n int64) (Result, error) {
 	if n <= 0 {
 		n = DefaultBytes

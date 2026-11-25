@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// TestMeasureDefaultBytes n<=0 取缺省字节数（与面板 speedtestDefault 对齐）。
+// TestMeasureDefaultBytes covers n<=0 taking the default byte count (aligned with the panel's speedtestDefault).
 func TestMeasureDefaultBytes(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write(make([]byte, DefaultBytes))
@@ -26,25 +26,25 @@ func TestMeasureDefaultBytes(t *testing.T) {
 	}
 }
 
-// TestMeasureBadBaseURL 面板根地址非法：构造请求即失败。
+// TestMeasureBadBaseURL covers an invalid panel root address: building the request fails right away.
 func TestMeasureBadBaseURL(t *testing.T) {
 	if _, err := Measure(context.Background(), "http://bad\nurl.example", 100); err == nil {
 		t.Fatal("malformed base URL must error")
 	}
 }
 
-// TestMeasureConnRefused 面板不可达：上报错误。
+// TestMeasureConnRefused covers an unreachable panel: an error is reported.
 func TestMeasureConnRefused(t *testing.T) {
 	if _, err := Measure(context.Background(), "http://127.0.0.1:1", 100); err == nil {
 		t.Fatal("refused endpoint must error")
 	}
 }
 
-// TestMeasureTruncatedBody 声明长度与实际不符：下载中断报错。
+// TestMeasureTruncatedBody covers a declared length not matching reality: the download is cut short and errors.
 func TestMeasureTruncatedBody(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Length", "1000")
-		_, _ = w.Write([]byte("short")) // 只给一部分即断开
+		_, _ = w.Write([]byte("short")) // closes after sending only part of it
 	}))
 	defer srv.Close()
 	if _, err := Measure(context.Background(), srv.URL, 1000); err == nil {
@@ -52,7 +52,7 @@ func TestMeasureTruncatedBody(t *testing.T) {
 	}
 }
 
-// TestMeasureNoData 空响应体：判无效结果而不是除零/0 Mbps。
+// TestMeasureNoData covers an empty response body: judged an invalid result rather than a division by zero / 0 Mbps.
 func TestMeasureNoData(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
 	defer srv.Close()
