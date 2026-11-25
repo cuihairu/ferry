@@ -205,6 +205,13 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.GET("/cloud-operations", h.listCloudOperations)
 		api.GET("/cloud-operations/:id", h.getCloudOperation)
 		api.POST("/cloud-operations/:id/cancel", h.cancelCloudOperation)
+		// Cloud resource ↔ Node linkage (F-0391~F-0404): controlled refresh,
+		// shutdown preflight, maintenance drain and post-boot Agent checks.
+		api.POST("/cloud-resources/:id/link", h.linkCloudResource)
+		api.GET("/nodes/:id/cloud-shutdown-check", h.preflightCloudShutdown)
+		api.POST("/nodes/:id/cloud-drain", h.drainCloudNode)
+		api.POST("/nodes/:id/cloud-boot-check", h.checkCloudNodeBoot)
+		api.GET("/nodes/:id/cloud-path-health", h.cloudNodePathHealth)
 		api.POST("/provision-templates/:id/apply", h.applyTemplate)
 		api.POST("/provision-templates/:id/plan", h.planTemplate)
 		api.GET("/provision-jobs", h.listProvisionJobs)

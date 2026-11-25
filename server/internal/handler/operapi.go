@@ -69,6 +69,13 @@ func (h *Handler) createCloudOperation(c *gin.Context) {
 			}
 		}
 	}
+	// Controlled post-operation linkage (F-0398): a vendor success alone never
+	// makes the bound Node available; the cloudlink service queries the real
+	// state and applies the mapped Node dimensions (F-0397).
+	link := h.cloudlinkService()
+	for _, row := range rows {
+		_, _, _ = link.ApplyOperation(c.Request.Context(), row.ID, time.Now())
+	}
 	c.JSON(http.StatusOK, gin.H{"id": id, "count": len(rows), "batch_id": rows[0].BatchID, "operations": rows})
 }
 

@@ -24,6 +24,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/audit"
 	"github.com/cuihairu/ferry/server/internal/backup"
 	"github.com/cuihairu/ferry/server/internal/cert"
+	"github.com/cuihairu/ferry/server/internal/cloudlink"
 	"github.com/cuihairu/ferry/server/internal/cloudsync"
 	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/cost"
@@ -241,6 +242,12 @@ func run(ctx context.Context, cfg config.Config) error {
 	// soft-synced into CloudResource rows and every run is logged.
 	go cloudsync.Loop(ctx, db, secret.NewStore(cfg.SecretKey),
 		time.Duration(cfg.CloudSyncIntervalSec)*time.Second, "scheduled")
+
+	// Bound resources are refreshed on a controlled cadence (F-0398): the vendor
+	// is queried before any Node scheduling dimension changes; a vendor outage
+	// never changes the Node state.
+	go cloudlink.Loop(ctx, db, secret.NewStore(cfg.SecretKey),
+		time.Duration(cfg.CloudOpsIntervalSec)*time.Second, nil)
 
 	// Cloud operation reconciliation (F-0373): tasks left Unknown by a vendor
 	// timeout are settled by querying the vendor state; no blind re-execution.

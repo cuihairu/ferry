@@ -30,19 +30,20 @@ const ChannelHerald = "herald"
 
 // Event kinds and target values ("alert channel design" §2 list; wired in per class from HERALD-3 on).
 const (
-	KindRegionFault    = "region_fault"       // region aggregate fully faulty
-	KindISPFault       = "isp_fault"          // ISP aggregate fully faulty
-	KindNodeBlocked    = "node_blocked"       // node judged banned, entered the recovery pipeline
-	KindNodeDown       = "node_down"          // single-point auto removal
-	KindCostExceeded   = "cost_exceeded"      // high-cost alert activated
-	KindProcCrashed    = "proc_crashed"       // process restart after crash failed
-	KindRecoveryFailed = "recovery_failed"    // recovery pipeline exhausted all tiers (escalates to a human)
-	KindCertExpiring   = "cert_expiring"      // certificate nearing expiry
-	KindBackupFailed   = "backup_failed"      // backup failure (panel availability §2.2, P1 periodic backup wired to production points)
-	KindLoginAlert     = "login_alert"        // anomalous admin login (security design §1: consecutive failures / new subnet, login audit wired to production points)
-	KindPriceAlert     = "price_alert"        // price watch hit a drop / target price (plans and cost design §4.2, E-32 reference-library batch wired to production points)
-	KindGeoSyncFailed  = "geodns_sync_failed" // smart-DNS per-region reconciliation failure (entries and load balancing §C.8, E-27 wired to production points)
-	KindDeviceLimit    = "device_limit"       // subscription client device/IP count exceeded (P2-4, deduped per user per day)
+	KindRegionFault     = "region_fault"       // region aggregate fully faulty
+	KindISPFault        = "isp_fault"          // ISP aggregate fully faulty
+	KindNodeBlocked     = "node_blocked"       // node judged banned, entered the recovery pipeline
+	KindNodeDown        = "node_down"          // single-point auto removal
+	KindCostExceeded    = "cost_exceeded"      // high-cost alert activated
+	KindProcCrashed     = "proc_crashed"       // process restart after crash failed
+	KindRecoveryFailed  = "recovery_failed"    // recovery pipeline exhausted all tiers (escalates to a human)
+	KindCertExpiring    = "cert_expiring"      // certificate nearing expiry
+	KindBackupFailed    = "backup_failed"      // backup failure (panel availability §2.2, P1 periodic backup wired to production points)
+	KindLoginAlert      = "login_alert"        // anomalous admin login (security design §1: consecutive failures / new subnet, login audit wired to production points)
+	KindPriceAlert      = "price_alert"        // price watch hit a drop / target price (plans and cost design §4.2, E-32 reference-library batch wired to production points)
+	KindGeoSyncFailed   = "geodns_sync_failed" // smart-DNS per-region reconciliation failure (entries and load balancing §C.8, E-27 wired to production points)
+	KindDeviceLimit     = "device_limit"       // subscription client device/IP count exceeded (P2-4, deduped per user per day)
+	KindCloudBootFailed = "cloud_boot_failed"  // cloud instance booted but its Ferry Node did not come back (F-0403)
 
 	// User outreach (HERALD-4, §2.2; in-app messages still go out, this channel serves out-of-app delivery).
 	KindExpire = "expire" // account expiry reminder
