@@ -559,8 +559,8 @@
     - 备注（Task ID: F-0043 | Status: Done | Evidence: 幂等——PaymentOrder.OrderNo uniqueIndex(models.go:347)、PaymentTransaction(provider,external_id) unique(models.go:431)、paynotify 条件态翻转(paynotify.go:66-96)、refund paid→refunded(payrecon.go:210)、redeem 条件消耗(redeem.go:75)、applyGrant 乐观守卫 | Verification: TestEpusdtNotifyConcurrentSettle/TestOrderRefundAndDetail/TestRefundRevokesGrants/TestRedeemFailureModes/TestApplyGrantLostUpdateGuard | Commit: c79d570）
 -   [x] `F-0044` 所有批量操作支持部分失败结果，不得只返回笼统成功。
     - 备注（Task ID: F-0044 | Status: Done | Evidence: 逐项部分失败——batchNodeProc/batchNodeConfig 返回 {node_id,ok,error} 行(procop.go:99-189)、importUsers 返回 {created,skipped,users,skipped_rows} 逐行 reason(userio.go:57-132) | Verification: TestBatchNodeProc/TestBatchNodeConfig/TestUserExportImport/TestUserImportValidation | Commit: c79d570）
--   [ ] `F-0045` 所有敏感操作写入审计日志。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0045 | 未满足原因：审计核心机制完备（auditMiddleware router.go:119,347+loginlog.go），但两处敏感操作未入审计组：distributor 登录(router.go:335)、面板侧 redeem(router.go:300 开放组)——「所有敏感操作」未全满足，留待补。）
+-   [x] `F-0045` 所有敏感操作写入审计日志。
+    - 备注（Task ID: F-0045 | Status: Done | Evidence: 两处脱管敏感操作补齐——distributor 登录用 defer auditSensitive 记录提交用户名/成功状态（正/误密码/未知用户/停用账户均留痕），面板 redeem 记录订阅用户+卡码+成功状态，均在 handler 内显式写 AuditLog（开放组无 auditMiddleware）；新增 actor_kind=distributor|panel；审计写失败只记日志不阻断业务，密码不入审计正文 | Verification: TestDistributorLoginAuditRows/TestPanelRedeemAuditRows；go test ./... 全绿+gofmt/vet clean | Commit: ac0afcc）
 -   [x] `F-0046` 所有配置下发具备版本、校验、确认和失败处理。
     - 备注（Task ID: F-0046 | Status: Done | Evidence: 版本/校验/确认/失败——relaypush.go:69-88（sha256 版本+ack 阻塞 60s）、configd.go:60-117（sha256 校验+validate+原子替换+回滚）、agenthub 错误映射 502/504 | Verification: TestPushAckApplied/TestPushTimeout/TestAgentWSConfigPush/TestApplyValidateFailsKeepsOld/TestApplyReloadFailRollsBack | Commit: c79d570）
 -   [ ] `F-0047` 所有外部 API 调用具备超时、限流和错误分类。（依赖：无；完成条件：需求落地+测试绿+证据行）
