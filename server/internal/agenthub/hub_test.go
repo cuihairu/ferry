@@ -112,19 +112,19 @@ func TestHubRequestDeliver(t *testing.T) {
 	}
 }
 
-// TestHubDeliverNodeOwnership 覆盖 P2 节点归属校验：请求挂在节点 1 下，
-// 节点 2 发来的同 ID 消息不得认领（跨节点伪应答被拒），只有本节点的应答
-// 能投递——修复前 waiters 只按 ID 键，任何节点的同 ID 消息都能冒充。
+// TestHubDeliverNodeOwnership covers P2 node-ownership validation: a request hung under node 1,
+// a same-ID message sent by node 2 must not be claimed (a cross-node fake answer is rejected); only this node's
+// own answer can be delivered - before the fix, waiters keyed only by ID, so any node's same-ID message could impersonate.
 func TestHubDeliverNodeOwnership(t *testing.T) {
 	h := New()
 	w := &mockWriter{}
 	h.Register(NewConn(1, w))
 	h.Register(NewConn(2, w))
-	// 节点 2 先发同 ID 伪应答：必须没人认领（返回 false）。
+	// node 2 sends a fake same-ID answer first: nobody may claim it (returns false).
 	if h.Deliver(2, agentproto.Envelope{ID: "r1"}) {
 		t.Fatal("cross-node deliver must not claim the waiter")
 	}
-	// 请求挂在节点 1：节点 1 的同 ID 应答正常投递。
+	// The request is hung under node 1: node 1's same-ID answer is delivered normally.
 	go func() {
 		time.Sleep(5 * time.Millisecond)
 		h.Deliver(1, agentproto.Envelope{ID: "r1", Type: agentproto.MsgConfigAck})

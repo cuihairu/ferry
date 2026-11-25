@@ -1,4 +1,4 @@
-// Package agenthub 维护 agent 的在线连接与请求应答关联。
+// Package agenthub maintains agents' online connections and request/answer correlation.
 package agenthub
 
 import (
@@ -10,18 +10,18 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// writer 抽象底层连接的写入口，便于测试替换。
+// writer abstracts the write entry point of an underlying connection, easy to substitute in tests.
 type writer interface {
 	WriteMessage(messageType int, data []byte) error
 }
 
-// ErrOffline 表示目标节点当前不在线。
+// ErrOffline means the target node is not currently online.
 var ErrOffline = errors.New("agent offline")
 
-// ErrTimeout 表示等待应答超时。
+// ErrTimeout means the wait for an answer timed out.
 var ErrTimeout = errors.New("agent reply timeout")
 
-// Conn 是一条已认证的 agent 连接。
+// Conn is one authenticated agent connection.
 type Conn struct {
 	NodeID int64
 	ws     writer
@@ -30,12 +30,12 @@ type Conn struct {
 	closed bool
 }
 
-// NewConn 创建连接包装。
+// NewConn creates the connection wrapper.
 func NewConn(nodeID int64, ws writer) *Conn {
 	return &Conn{NodeID: nodeID, ws: ws}
 }
 
-// Close 关闭底层连接（幂等）。
+// Close closes the underlying connection (idempotent).
 func (c *Conn) Close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -48,7 +48,7 @@ func (c *Conn) Close() {
 	}
 }
 
-// Send 串行化写出一条消息。
+// Send serializes writing out one message.
 func (c *Conn) Send(env agentproto.Envelope) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -62,26 +62,26 @@ func (c *Conn) Send(env agentproto.Envelope) error {
 	return c.ws.WriteMessage(websocket.TextMessage, raw)
 }
 
-// waiterKey 是等待中的请求键（P2 节点归属校验）：同一请求 ID 挂在不同节点
-// 下互不串扰，跨节点注入的伪应答找不到等待者，不会冒充他人应答。
+// waiterKey is the key of a waiting request (P2 node-ownership validation): the same request ID hung under
+// different nodes does not cross-talk; a fake answer injected from another node finds no waiter and cannot impersonate.
 type waiterKey struct {
 	nodeID int64
 	id     string
 }
 
-// Hub 持有全部在线连接与等待中的请求。
+// Hub holds all online connections and the waiting requests.
 type Hub struct {
 	mu      sync.RWMutex
 	conns   map[int64]*Conn
 	waiters map[waiterKey]chan agentproto.Envelope
 }
 
-// New 创建 Hub。
+// New creates a Hub.
 func New() *Hub {
 	return &Hub{conns: map[int64]*Conn{}, waiters: map[waiterKey]chan agentproto.Envelope{}}
 }
 
-// Register 登记连接；同节点旧连接被顶替并返回（调用方负责关闭）。
+// Register records a connection; an older connection from the same node is displaced and returned (the caller closes it).
 func (h *Hub) Register(conn *Conn) (replaced *Conn) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -93,7 +93,7 @@ func (h *Hub) Register(conn *Conn) (replaced *Conn) {
 	return old
 }
 
-// Unregister 注销连接，仅当仍是这条连接时生效。
+// Unregister unregisters a connection, only taking effect if it is still this connection.
 func (h *Hub) Unregister(nodeID int64, conn *Conn) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -102,7 +102,7 @@ func (h *Hub) Unregister(nodeID int64, conn *Conn) {
 	}
 }
 
-// IsOnline 查询节点是否在线。
+// IsOnline queries whether a node is online.
 func (h *Hub) IsOnline(nodeID int64) bool {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -110,14 +110,14 @@ func (h *Hub) IsOnline(nodeID int64) bool {
 	return ok
 }
 
-// OnlineCount 返回当前在线 agent 连接数（health 自检口径）。
+// OnlineCount returns the current number of online agent connections (health self-check policy).
 func (h *Hub) OnlineCount() int {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return len(h.conns)
 }
 
-// Request 向节点发送请求并等待同 ID 应答。
+// Request sends a request to a node and waits for the same-ID answer.
 func (h *Hub) Request(nodeID int64, env agentproto.Envelope, timeout time.Duration) (agentproto.Envelope, error) {
 	h.mu.RLock()
 	conn := h.conns[nodeID]
@@ -150,9 +150,9 @@ func (h *Hub) Request(nodeID int64, env agentproto.Envelope, timeout time.Durati
 	}
 }
 
-// Deliver 把某节点连接上的应答投递给该节点等待中的请求；返回是否有人认领。
-// 按 (nodeID, ID) 键查找（P2 节点归属校验）：来自其他节点的同 ID 消息找不到
-// 本节点的等待者，不会冒充应答——修复前 waiters 只按 ID 键，跨节点可注入。
+// Deliver passes an answer on a node's connection to that node's waiting request; returns whether someone claimed it.
+// Looked up by the (nodeID, ID) key (P2 node-ownership validation): a same-ID message from another node finds no
+// waiter on this node and cannot impersonate - before the fix, waiters keyed only by ID, so cross-node injection was possible.
 func (h *Hub) Deliver(nodeID int64, env agentproto.Envelope) bool {
 	if env.ID == "" {
 		return false
