@@ -11,7 +11,7 @@ import (
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
 
-// fakeCollector 一个进程有数据，另一个未实现。
+// fakeCollector: one process has data, the other is unimplemented.
 type fakeCollector struct{}
 
 func (fakeCollector) Collect(proc string) (uint64, uint64, int, error) {
@@ -66,7 +66,7 @@ func TestReporterCollectsAndReports(t *testing.T) {
 
 func TestReporterOfflineDropsSilently(t *testing.T) {
 	r := New(specs(), 10*time.Millisecond, fakeCollector{}, log.New(io.Discard, "", 0))
-	// 未绑定发送口（离线）：Run 不发送、不 panic。
+	// no sender bound (offline): Run neither sends nor panics.
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -90,7 +90,7 @@ func TestCollectorForUnintegratedKindsNoop(t *testing.T) {
 	}
 }
 
-// fakeUserCollector 带 per-user 明细（对齐 xray gRPC stats 的采集口径）。
+// fakeUserCollector carries per-user detail (matching the xray gRPC stats collection rule).
 type fakeUserCollector struct{ fakeCollector }
 
 func (fakeUserCollector) CollectUsers(proc string) ([]agentproto.UserTraffic, error) {
@@ -104,7 +104,7 @@ func (fakeUserCollector) CollectUsers(proc string) ([]agentproto.UserTraffic, er
 }
 
 func TestReporterPerUserPath(t *testing.T) {
-	// per-user 采集器存在时：节点级 = per-user 求和，明细随 items 上报。
+	// with a per-user collector present: the node-level figure is the per-user sum, and the detail is reported in items.
 	r := New(specs(), 10*time.Millisecond, fakeUserCollector{}, log.New(io.Discard, "", 0))
 	items := r.collectAll()
 	if len(items) != 1 {
@@ -120,7 +120,7 @@ func TestReporterPerUserPath(t *testing.T) {
 }
 
 func TestDispatchRoutesXrayStats(t *testing.T) {
-	// 配了 stats_api 的 xray 进程装配真实采集器；其余回退 Noop。
+	// an xray process with stats_api configured gets the real collector; everything else falls back to Noop.
 	specs := []config.ProcSpec{
 		{Name: "xray", Kind: "xray", StatsAPI: "127.0.0.1:10085"},
 		{Name: "sb", Kind: "sing-box"},
@@ -138,7 +138,7 @@ func TestDispatchRoutesXrayStats(t *testing.T) {
 	}
 }
 
-// fakeOutboundCollector 在 per-user 采集之上带分流计数（对齐 xraystats.Collector）。
+// fakeOutboundCollector adds routed counters on top of per-user collection (matching xraystats.Collector).
 type fakeOutboundCollector struct{ fakeUserCollector }
 
 func (fakeOutboundCollector) CollectOutbound(proc string) (uint64, uint64, error) {
@@ -148,11 +148,11 @@ func (fakeOutboundCollector) CollectOutbound(proc string) (uint64, uint64, error
 	return 55, 77, nil
 }
 
-// TestReporterAttachesOutbound 覆盖分流增量附带（SAVE-4/7）：支持
-// OutboundCollector 的采集器在同周期把直连/拦截增量挂进行上；不支持或
-// 查询报错时字段保持缺省，不影响流量行。
+// TestReporterAttachesOutbound covers attaching routed deltas (SAVE-4/7): a collector supporting
+// OutboundCollector hangs the direct/blocked deltas onto the line in the same cycle; when unsupported or
+// the query errors, the fields keep their defaults and the traffic line is unaffected.
 func TestReporterAttachesOutbound(t *testing.T) {
-	// 支持分流采集：xray 行带 DirectBytes/BlockedBytes
+	// routed collection supported: the xray line carries DirectBytes/BlockedBytes
 	r := New(specs(), 10*time.Millisecond, fakeOutboundCollector{}, log.New(io.Discard, "", 0))
 	items := r.collectAll()
 	if len(items) != 1 {
@@ -162,7 +162,7 @@ func TestReporterAttachesOutbound(t *testing.T) {
 		t.Fatalf("item = %+v, want xray direct=55 blocked=77", items[0])
 	}
 
-	// 不支持分流采集（plain fake）：字段缺省不报错
+	// routed collection unsupported (plain fake): fields keep defaults without an error
 	r2 := New(specs(), 10*time.Millisecond, fakeUserCollector{}, log.New(io.Discard, "", 0))
 	for _, it := range r2.collectAll() {
 		if it.DirectBytes != 0 || it.BlockedBytes != 0 {
@@ -170,7 +170,7 @@ func TestReporterAttachesOutbound(t *testing.T) {
 		}
 	}
 
-	// 分流查询报错按缺失处理，不影响流量行
+	// a routed-query error counts as missing and leaves the traffic line alone
 	r3 := New(specs(), 10*time.Millisecond, fakeOutboundErr{}, log.New(io.Discard, "", 0))
 	items = r3.collectAll()
 	if len(items) != 1 || items[0].DirectBytes != 0 || items[0].BlockedBytes != 0 || items[0].Rx != 160 {
@@ -178,7 +178,7 @@ func TestReporterAttachesOutbound(t *testing.T) {
 	}
 }
 
-// fakeOutboundErr 分流查询恒报错的采集器。
+// fakeOutboundErr is a collector whose routed query always errors.
 type fakeOutboundErr struct{ fakeUserCollector }
 
 func (fakeOutboundErr) CollectOutbound(string) (uint64, uint64, error) {

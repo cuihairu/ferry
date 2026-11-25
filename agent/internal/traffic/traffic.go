@@ -1,6 +1,6 @@
-// Package traffic 周期采集进程流量并上报（A-19/A-21）。
-// 采集实现按 kind 注册：xray 走 gRPC stats 采集真实用户流量（P1-3），
-// 其余 kind 仍 Noop（标记未实现，采集不到就不上报，避免零值噪音写进记账）。
+// Package traffic periodically collects process traffic and reports it (A-19/A-21).
+// Collection implementations register by kind: xray uses gRPC stats to collect real per-user traffic (P1-3),
+// other kinds stay Noop (marked unimplemented; when nothing can be collected nothing is reported, keeping zero-value noise out of accounting).
 package traffic
 
 import (
@@ -16,44 +16,44 @@ import (
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
 
-// errNotImplemented 标记该 kind 的采集尚未实现。
+// errNotImplemented marks a kind whose collection is not implemented yet.
 var errNotImplemented = errors.New("traffic collection not implemented for this kind")
 
-// Collector 返回单个进程自上次查询的流量增量与在线连接数。
+// Collector returns one process's traffic delta since the last query and its online connection count.
 type Collector interface {
 	Collect(proc string) (rx, tx uint64, conns int, err error)
 }
 
-// UserCollector 能按用户拆分流量增量的采集器（P1-3 xray gRPC stats）；
-// 实现者存在时 Reporter 优先走 per-user 路径，节点级由 per-user 求和。
+// UserCollector is a collector able to split traffic deltas per user (P1-3 xray gRPC stats);
+// when an implementation exists the Reporter prefers the per-user path, with the node-level figure summed from per-user values.
 type UserCollector interface {
 	Collector
 	CollectUsers(proc string) ([]agentproto.UserTraffic, error)
 }
 
-// OutboundCollector 能采集分流出站字节增量的采集器（SAVE-4 拦截 /
-// SAVE-7 直连，xray outbound 计数一次查询同取）；实现者存在时 Reporter
-// 在同周期附带两组增量，报错按缺失处理（分流计数不影响流量记账主流程）。
+// OutboundCollector is a collector able to collect routed outbound byte deltas (SAVE-4 blocked /
+// SAVE-7 direct, both fetched in one xray outbound counter query); when an implementation exists the Reporter
+// attaches both delta sets in the same cycle, and an error is treated as missing (routed counters never disturb the main traffic accounting flow).
 type OutboundCollector interface {
 	CollectOutbound(proc string) (direct, blocked uint64, err error)
 }
 
-// Noop 是不做任何事的空实现，对齐面板侧 xray.NoopHandler 的 P0 边界模式。
+// Noop is an empty implementation that does nothing, matching the P0 boundary pattern of the panel-side xray.NoopHandler.
 type Noop struct{}
 
 func (Noop) Collect(string) (uint64, uint64, int, error) {
 	return 0, 0, 0, errNotImplemented
 }
 
-// CollectorFor 按 kind 返回采集器；未对接的 kind 返回 Noop。
+// CollectorFor returns a collector by kind; an unconnected kind gets a Noop.
 func CollectorFor(kind string) Collector {
 	return Noop{}
 }
 
-// xray 采集器满足 per-user 口径（编译期断言）。
+// the xray collector satisfies the per-user rule (a compile-time assertion).
 var _ UserCollector = (*xraystats.Collector)(nil)
 
-// Dispatch 按进程规格把采集请求路由到对应 kind 的采集器。
+// Dispatch routes a collection request to the collector of the right kind per the process spec.
 func Dispatch(specs []config.ProcSpec) Collector {
 	byProc := map[string]Collector{}
 	for _, s := range specs {
@@ -76,8 +76,8 @@ func (d dispatchCollector) Collect(proc string) (uint64, uint64, int, error) {
 	return c.Collect(proc)
 }
 
-// CollectUsers 把 per-user 采集路由到内部的 UserCollector；
-// 该 proc 未接真实采集（Noop）时返回未实现，调用方按跳过处理。
+// CollectUsers routes per-user collection to the internal UserCollector;
+// when the proc has no real collection attached (Noop) it returns not-implemented and the caller skips it.
 func (d dispatchCollector) CollectUsers(proc string) ([]agentproto.UserTraffic, error) {
 	uc, ok := d[proc].(UserCollector)
 	if !ok {
@@ -88,7 +88,7 @@ func (d dispatchCollector) CollectUsers(proc string) ([]agentproto.UserTraffic, 
 
 var _ UserCollector = dispatchCollector{}
 
-// Reporter 周期采集全部进程并批量上报。
+// Reporter collects every process periodically and reports in batches.
 type Reporter struct {
 	log       *log.Logger
 	interval  time.Duration
@@ -96,13 +96,13 @@ type Reporter struct {
 	collector Collector
 
 	sendMu sync.Mutex
-	send   func(agentproto.Envelope) error // 当前连接的发送口；断开即清空
+	send   func(agentproto.Envelope) error // sender of the current connection; cleared on disconnect
 
-	// collectErr 记录每进程已报过的采集错误，同类错误只打一次日志。
+	// collectErr remembers each process's already-reported collection errors, so the same kind of error is logged once.
 	collectErr map[string]bool
 }
 
-// New 创建上报器。procs 为被管进程名列表，interval <=0 时关闭周期采集。
+// New creates a reporter. procs is the list of managed process names; interval <=0 disables periodic collection.
 func New(specs []config.ProcSpec, interval time.Duration, collector Collector, logger *log.Logger) *Reporter {
 	if logger == nil {
 		logger = log.Default()
@@ -120,14 +120,14 @@ func New(specs []config.ProcSpec, interval time.Duration, collector Collector, l
 	}
 }
 
-// SetSend 绑定当前连接的发送口。
+// SetSend binds the sender of the current connection.
 func (r *Reporter) SetSend(send func(agentproto.Envelope) error) {
 	r.sendMu.Lock()
 	r.send = send
 	r.sendMu.Unlock()
 }
 
-// Run 周期采集上报，直到 ctx 取消。
+// Run collects and reports periodically until the ctx is cancelled.
 func (r *Reporter) Run(ctx context.Context) {
 	if r.interval <= 0 {
 		return
@@ -147,9 +147,9 @@ func (r *Reporter) Run(ctx context.Context) {
 	}
 }
 
-// collectAll 采集全部进程；采集失败的进程跳过（同类错误只记一次日志）。
-// 采集器支持 per-user 口径时优先走 CollectUsers，节点级增量由 per-user 求和
-// （避免为节点级再查一次 reset 统计，把增量清成零）。
+// collectAll collects every process; a process whose collection fails is skipped (the same kind of error is logged once).
+// when the collector supports the per-user rule it prefers CollectUsers and the node-level delta is summed from per-user values
+// (avoiding a second reset-stat query for the node level, which would zero out the delta).
 func (r *Reporter) collectAll() []agentproto.ProcTraffic {
 	now := time.Now()
 	items := make([]agentproto.ProcTraffic, 0, len(r.procs))
@@ -180,8 +180,8 @@ func (r *Reporter) collectAll() []agentproto.ProcTraffic {
 	return items
 }
 
-// attachOutbound 给流量行附带本周期分流增量（SAVE-4 拦截/SAVE-7 直连）：
-// 采集器不支持或查询报错时保持缺省，不拖累流量记账。
+// attachOutbound attaches this cycle's routed deltas to a traffic line (SAVE-4 blocked / SAVE-7 direct):
+// when the collector does not support it or the query errors, the defaults are kept and traffic accounting is never dragged down.
 func (r *Reporter) attachOutbound(item *agentproto.ProcTraffic) {
 	oc, ok := r.collector.(OutboundCollector)
 	if !ok {
@@ -193,7 +193,7 @@ func (r *Reporter) attachOutbound(item *agentproto.ProcTraffic) {
 	}
 }
 
-// collectUsers 采集 per-user 增量并把节点级增量求和。
+// collectUsers collects per-user deltas and sums the node-level delta.
 func collectUsers(uc UserCollector, name string, now time.Time) (agentproto.ProcTraffic, error) {
 	users, err := uc.CollectUsers(name)
 	if err != nil {
@@ -208,7 +208,7 @@ func collectUsers(uc UserCollector, name string, now time.Time) (agentproto.Proc
 	return item, nil
 }
 
-// noteCollectErr 记录采集错误：同类只打一次日志。
+// noteCollectErr records a collection error: the same kind is logged only once.
 func (r *Reporter) noteCollectErr(name string, err error) {
 	if !r.collectErr[name] {
 		r.collectErr[name] = true
@@ -216,7 +216,7 @@ func (r *Reporter) noteCollectErr(name string, err error) {
 	}
 }
 
-// report 批量上报；离线时静默丢弃（周期性数据，下一轮再报）。
+// report reports in batch; dropped silently while offline (periodic data, reported again next round).
 func (r *Reporter) report(items []agentproto.ProcTraffic) {
 	r.sendMu.Lock()
 	send := r.send

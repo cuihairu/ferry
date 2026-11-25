@@ -11,7 +11,7 @@ import (
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
 
-// TestDispatchUnknownProc 分发器对未注册进程报错；已注册进程正常委托。
+// TestDispatchUnknownProc covers the dispatcher erroring on an unregistered process and delegating normally for registered ones.
 func TestDispatchUnknownProc(t *testing.T) {
 	d := dispatchCollector{"xray": fakeCollector{}}
 	if _, _, _, err := d.Collect("ghost"); err == nil {
@@ -23,7 +23,7 @@ func TestDispatchUnknownProc(t *testing.T) {
 	}
 }
 
-// TestNewNilLogger logger 缺省：不 panic 且用默认 logger（只验证构造）。
+// TestNewNilLogger covers a nil logger: no panic and the default logger is used (construction only).
 func TestNewNilLogger(t *testing.T) {
 	r := New(nil, time.Second, nil, nil)
 	if r == nil || r.log == nil {
@@ -31,12 +31,12 @@ func TestNewNilLogger(t *testing.T) {
 	}
 }
 
-// TestRunZeroIntervalReturns interval<=0 关闭周期采集：Run 立即返回。
+// TestRunZeroIntervalReturns covers interval<=0 disabling periodic collection: Run returns immediately.
 func TestRunZeroIntervalReturns(t *testing.T) {
 	r := New(nil, 0, fakeCollector{}, log.New(io.Discard, "", 0))
 	done := make(chan struct{})
 	go func() {
-		r.Run(context.Background()) // ctx 永不取消，靠 interval<=0 自行退出
+		r.Run(context.Background()) // the ctx is never cancelled; Run exits by itself via interval<=0
 		close(done)
 	}()
 	select {
@@ -46,9 +46,9 @@ func TestRunZeroIntervalReturns(t *testing.T) {
 	}
 }
 
-// TestReportSendFailure 上报发出失败：记日志不 panic，数据留在采集侧。
+// TestReportSendFailure covers a failed report send: log it without panicking, leaving the data on the collection side.
 func TestReportSendFailure(t *testing.T) {
 	r := New(specs(), 10*time.Millisecond, fakeCollector{}, log.New(io.Discard, "", 0))
 	r.SetSend(func(agentproto.Envelope) error { return errors.New("link down") })
-	r.report(r.collectAll()) // 不应 panic；同类错误不重复打日志由 collectErr 管
+	r.report(r.collectAll()) // must not panic; the de-duplicated logging of same-kind errors is collectErr's job
 }
