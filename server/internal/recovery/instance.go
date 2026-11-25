@@ -11,22 +11,22 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// InstanceAction 是 L3 一键开新机：按恢复模板走供给流水线开替换实例
-// （与 dash 一键开服同一条 PrepareLaunch 路径，预签发节点、cloud-init
-// 装 agent、首连接入池）。模板/凭证不可用时失败留原因，由编排推进。
+// InstanceAction is the L3 one-click new instance: provision a replacement
+// instance through the recovery template's supply pipeline (the same
+// PrepareLaunch path as dash's one-click launch: pre-issue the node row, install the agent via cloud-init, join the pool on first connect). If the template/credentials are unavailable it fails with a reason and the orchestration advances.
 type InstanceAction struct {
 	Manager    *provision.Manager
 	Store      *secret.Store
 	TemplateID uint
-	// Launch 是面板注入的开服参数装配（面板地址/下载口径/令牌签发），
-	// 复用 handler 侧同一套环境口径。
+	// Launch is the panel-injected launch-params assembler (panel URL/download base/token
+	// issuing), reusing the same environment conventions as the handler side.
 	Launch func(name string) provision.LaunchParams
 }
 
-// Name 是动作留痕名（Recovery.Action）。
+// Name is the action trace name (Recovery.Action).
 func (a *InstanceAction) Name() string { return "new_instance" }
 
-// Run 同步开一台替换机：PrepareLaunch（建节点行与 job）→ Execute → 回填。
+// Run provisions a replacement machine synchronously: PrepareLaunch (create the node row and job) → Execute → write back.
 func (a *InstanceAction) Run(ctx context.Context, node storage.Node) error {
 	if a.Manager == nil || a.Launch == nil || a.TemplateID == 0 {
 		return errors.New("recovery: new_instance action not configured (set FERRY_RECOVERY_TEMPLATE_ID)")
@@ -58,7 +58,7 @@ func (a *InstanceAction) Run(ctx context.Context, node storage.Node) error {
 	return nil
 }
 
-// lastLine 取日志尾行作错误摘要（完整尾部在 provision_jobs 留痕）。
+// lastLine takes the tail log line as the error summary (the full tail is kept in provision_jobs traces).
 func lastLine(s string) string {
 	lines := strings.Split(strings.TrimSpace(s), "\n")
 	return lines[len(lines)-1]

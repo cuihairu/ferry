@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// fakeDNS 记录每次 upsert（name|type|value），可注入失败。
+// fakeDNS records every upsert (name|type|value); failures can be injected.
 type fakeDNS struct {
 	upserts []string
 	err     error
@@ -35,7 +35,7 @@ func (f *fakeDNS) Delete(ctx context.Context, name, rtype string) error {
 	return nil
 }
 
-// setupDNSAction 入库一条启用 DNS 商与一条前置记录，返回注入 fake 的动作。
+// setupDNSAction seeds one enabled DNS provider and one front record, returning the action with the fake injected.
 func setupDNSAction(t *testing.T, backups string, fake *fakeDNS) *DNSAction {
 	t.Helper()
 	db := newTestDB(t)
@@ -53,7 +53,7 @@ func setupDNSAction(t *testing.T, backups string, fake *fakeDNS) *DNSAction {
 	if err := db.Create(&front).Error; err != nil {
 		t.Fatal(err)
 	}
-	// 被封入口节点（OnDone 链路测试要查它复位）。
+	// The blocked entry node (OnDone pipeline tests check that it got reset).
 	node := storage.Node{Name: "entry-1", Port: 443, Protocol: "vless", Enabled: true,
 		Token: "t-entry-1", Status: "online", PoolState: "suspended"}
 	if err := db.Create(&node).Error; err != nil {
@@ -70,7 +70,7 @@ func setupDNSAction(t *testing.T, backups string, fake *fakeDNS) *DNSAction {
 	}
 }
 
-// loadFront 取唯一前置记录。
+// loadFront fetches the single front record.
 func loadFront(t *testing.T, a *DNSAction) storage.DNSFront {
 	t.Helper()
 	var f storage.DNSFront
@@ -80,8 +80,8 @@ func loadFront(t *testing.T, a *DNSAction) storage.DNSFront {
 	return f
 }
 
-// TestDNSActionSwitch L1 切换：备用 IP 按轮换游标取用，upsert 成功才落
-// switched；再次切离轮换到下一个备用 IP。
+// TestDNSActionSwitch covers the L1 switch: backup IPs are taken by the rotation
+// cursor, and switched is only recorded after the upsert succeeds; switching away again rotates to the next backup IP.
 func TestDNSActionSwitch(t *testing.T) {
 	fake := &fakeDNS{}
 	a := setupDNSAction(t, `["10.0.0.2","10.0.0.3"]`, fake)
@@ -98,7 +98,7 @@ func TestDNSActionSwitch(t *testing.T) {
 		t.Fatalf("upserts = %v", fake.upserts)
 	}
 
-	// 模拟又一轮判封（手动复位切离态）：轮换到下一个备用 IP。
+	// Simulate another verdict round (manually reset the switched state): rotate to the next backup IP.
 	if err := a.DB.Model(&storage.DNSFront{}).Where("id = ?", f.ID).
 		Update("switched", false).Error; err != nil {
 		t.Fatal(err)
@@ -112,8 +112,8 @@ func TestDNSActionSwitch(t *testing.T) {
 	}
 }
 
-// TestDNSActionRestore 回切：切离记录 Upsert 回 PrimaryIP 并清 switched；
-// 未配置前置时失败留原因（编排按失败推进 L2）。
+// TestDNSActionRestore covers switching back: switched records are upserted back to PrimaryIP with switched cleared;
+// without a configured front it fails with a reason (the orchestration advances to L2 on failure).
 func TestDNSActionRestore(t *testing.T) {
 	fake := &fakeDNS{}
 	a := setupDNSAction(t, `["10.0.0.2"]`, fake)
@@ -132,7 +132,7 @@ func TestDNSActionRestore(t *testing.T) {
 		t.Fatalf("last upsert = %q", got)
 	}
 
-	// 无切离记录时回切是空操作。
+	// Restoring with no switched records is a no-op.
 	if err := a.Restore(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestDNSActionRestore(t *testing.T) {
 	}
 }
 
-// TestDNSActionNotConfigured 未配置域名前置：失败留原因，不冒称成功。
+// TestDNSActionNotConfigured: no domain front configured - fails with a reason, never fakes success.
 func TestDNSActionNotConfigured(t *testing.T) {
 	fake := &fakeDNS{}
 	a := setupDNSAction(t, `["10.0.0.2"]`, fake)
@@ -157,7 +157,7 @@ func TestDNSActionNotConfigured(t *testing.T) {
 	}
 }
 
-// TestDNSActionUpsertFailed DNS 商报错：Run 失败推进（不落 switched 半态）。
+// TestDNSActionUpsertFailed: the DNS provider errors - Run fails and advances (no switched half state).
 func TestDNSActionUpsertFailed(t *testing.T) {
 	fake := &fakeDNS{err: errors.New("api down")}
 	a := setupDNSAction(t, `["10.0.0.2"]`, fake)
@@ -170,8 +170,8 @@ func TestDNSActionUpsertFailed(t *testing.T) {
 	}
 }
 
-// TestOnDoneRestoresDNS 恢复收尾钩子：探测恢复（done）经 OnDone 回切
-// 前置记录常态——接通「复位 → 回切」闭环。
+// TestOnDoneRestoresDNS covers the recovery-finish hook: probe recovery (done) switches the
+// front records back to normal via OnDone - closing the "reset -> switch back" loop.
 func TestOnDoneRestoresDNS(t *testing.T) {
 	fake := &fakeDNS{}
 	a := setupDNSAction(t, `["10.0.0.2"]`, fake)
@@ -180,7 +180,7 @@ func TestOnDoneRestoresDNS(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 开一条进行中的恢复流水线，节点已复位（pool active）。
+	// Open a running recovery pipeline; the node is already reset (pool active).
 	db := a.DB
 	var n storage.Node
 	if err := db.Where("name = ?", "entry-1").First(&n).Error; err != nil {
@@ -221,8 +221,8 @@ func TestOnDoneRestoresDNS(t *testing.T) {
 	}
 }
 
-// TestParseBackups 备用 IP 解析口径：空串/全空项为空集，非字符串数组
-// 报 JSON 错（错误文案带配置字段名便于排障）。
+// TestParseBackups covers the backup IP parsing rules: empty string / all-empty entries yield an empty set,
+// and a non-string array yields a JSON error (the message names the config field for easier debugging).
 func TestParseBackups(t *testing.T) {
 	ips, err := parseBackups("")
 	if err != nil || len(ips) != 0 {
@@ -246,21 +246,21 @@ func TestParseBackups(t *testing.T) {
 	}
 }
 
-// TestDNSActionFactoryDefault 未注入工厂时缺省走 dns.New 插件位。
+// TestDNSActionFactoryDefault: without an injected factory, defaults to the dns.New plugin slot.
 func TestDNSActionFactoryDefault(t *testing.T) {
 	if a := (&DNSAction{}); a.factory() == nil {
 		t.Fatal("default factory must resolve to dns.New")
 	}
 }
 
-// TestDNSActionNoMasterKey 未配置主密钥：Restore 阶段解不出凭证即失败，
-// 不冒称回切成功。
+// TestDNSActionNoMasterKey: master key not configured - Restore fails at decryption,
+// never faking a successful switch-back.
 func TestDNSActionNoMasterKey(t *testing.T) {
 	a := setupDNSAction(t, `["10.0.0.2"]`, &fakeDNS{})
 	if err := a.Run(context.Background(), storage.Node{Name: "entry-1"}); err != nil {
 		t.Fatal(err)
 	}
-	// 另一实例只带库不带密钥库：切离记录回切时在 providerFor 处失败。
+	// A second instance with only a DB and no secret store: restoring the switched record fails at providerFor.
 	b := &DNSAction{DB: a.DB}
 	err := b.Restore(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "master key not configured") {
@@ -271,8 +271,8 @@ func TestDNSActionNoMasterKey(t *testing.T) {
 	}
 }
 
-// TestDNSActionRestoreUpsertFailed 回切时 DNS 商报错：失败冒出，切离态
-// 不被清（下轮收尾再试）。
+// TestDNSActionRestoreUpsertFailed: the DNS provider errors on switch-back - the
+// failure surfaces and the switched state is not cleared (retried on the next finish round).
 func TestDNSActionRestoreUpsertFailed(t *testing.T) {
 	fake := &fakeDNS{}
 	a := setupDNSAction(t, `["10.0.0.2"]`, fake)
@@ -289,7 +289,7 @@ func TestDNSActionRestoreUpsertFailed(t *testing.T) {
 	}
 }
 
-// failUpdates 注册一个必失败的更新回调（gorm 注错位），模拟落库失败。
+// failUpdates registers an always-failing update callback (gorm error-injection slot) to simulate a write failure.
 func failUpdates(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	if err := db.Callback().Update().Before("gorm:update").Register("test:fail_update",
@@ -298,8 +298,8 @@ func failUpdates(t *testing.T, db *gorm.DB) {
 	}
 }
 
-// TestDNSActionSwitchDBUpdateFailed upsert 成功但落 switched 失败：错误
-// 冒出且不留半态（switched 不置位，下轮重切）。
+// TestDNSActionSwitchDBUpdateFailed: the upsert succeeds but recording switched
+// fails - the error surfaces and no half state remains (switched unset, re-switched next round).
 func TestDNSActionSwitchDBUpdateFailed(t *testing.T) {
 	a := setupDNSAction(t, `["10.0.0.2"]`, &fakeDNS{})
 	failUpdates(t, a.DB)
@@ -312,8 +312,8 @@ func TestDNSActionSwitchDBUpdateFailed(t *testing.T) {
 	}
 }
 
-// TestDNSActionRestoreDBUpdateFailed 回切 upsert 成功但清 switched 落库
-// 失败：错误冒出，记录保持切离（幂等重试安全）。
+// TestDNSActionRestoreDBUpdateFailed: the switch-back upsert succeeds but clearing
+// switched fails to persist - the error surfaces and the record stays switched (safe for idempotent retry).
 func TestDNSActionRestoreDBUpdateFailed(t *testing.T) {
 	a := setupDNSAction(t, `["10.0.0.2"]`, &fakeDNS{})
 	if err := a.Run(context.Background(), storage.Node{Name: "entry-1"}); err != nil {

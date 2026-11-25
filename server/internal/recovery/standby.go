@@ -9,17 +9,17 @@ import (
 	"gorm.io/gorm"
 )
 
-// StandbyAction 是 L2 预备机补位（BR-3）：从预备清单取一台在线备用入口
-// 升入池，订阅换线即时生效（分钟级）；清单空则失败推进 L3。池空常态
-// 保底开服由 replenish 承接，不在恢复流水线内重复开新机。
+// StandbyAction is the L2 standby backfill (BR-3): take one online standby
+// entry from the standby list and promote it into the pool; the subscription
+// line switch takes effect immediately (minutes). An empty list fails and advances to L3. Baseline provisioning while the pool is empty is handled by replenish, so this action does not spin up a new machine inside the recovery pipeline.
 type StandbyAction struct {
 	DB *gorm.DB
 }
 
-// Name 是动作留痕名（Recovery.Action）。
+// Name is the action trace name (Recovery.Action).
 func (a *StandbyAction) Name() string { return "standby_promote" }
 
-// Run 升一台预备机入池；成功后探测恢复（原节点复位）由编排收尾。
+// Run promotes one standby node into the pool; afterwards probe recovery (the original node resetting) is finished by the orchestration.
 func (a *StandbyAction) Run(ctx context.Context, node storage.Node) error {
 	if a.DB == nil {
 		return errors.New("recovery: standby action not wired")

@@ -11,8 +11,8 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestAdvanceUnknownActionStateFallsThrough 动作态是未认识的值：不推进不
-// 启动，静默等人工（防御脏数据）。
+// TestAdvanceUnknownActionStateFallsThrough: an unrecognized action-state value neither
+// advances nor starts anything, silently waiting for a human (defends against dirty data).
 func TestAdvanceUnknownActionStateFallsThrough(t *testing.T) {
 	db := newTestDB(t)
 	changed := time.Now().Add(-DefaultSustainedAfter - time.Minute)
@@ -20,7 +20,7 @@ func TestAdvanceUnknownActionStateFallsThrough(t *testing.T) {
 	if err := Sweep(db, time.Now(), Options{}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	// 开线后把动作态改成脏值，再 Sweep 一轮：不动状态机。
+	// After opening, set the action state to a dirty value and sweep once more: the state machine does not move.
 	rec := loadRecovery(t, db, n.ID)
 	if err := db.Model(&storage.Recovery{}).Where("id = ?", rec.ID).
 		Update("action_state", "weird").Error; err != nil {
@@ -35,7 +35,7 @@ func TestAdvanceUnknownActionStateFallsThrough(t *testing.T) {
 	}
 }
 
-// TestDNSActionSwitchableNoProviders 未配 DNS 商：切换报未配置、回切空操作。
+// TestDNSActionSwitchableNoProviders: no DNS provider configured - switching reports not-configured, restoring is a no-op.
 func TestDNSActionSwitchableNoProviders(t *testing.T) {
 	a := &DNSAction{DB: newTestDB(t)}
 	if err := a.Run(context.Background(), storage.Node{Name: "n"}); err == nil ||
@@ -47,7 +47,7 @@ func TestDNSActionSwitchableNoProviders(t *testing.T) {
 	}
 }
 
-// TestDNSActionBadBackupIPs 备用 IP 列表不是 JSON 数组：切换报错留域名。
+// TestDNSActionBadBackupIPs: the backup IP list is not a JSON array - switching errors and keeps the domain in the message.
 func TestDNSActionBadBackupIPs(t *testing.T) {
 	a := setupDNSAction(t, "{oops", &fakeDNS{})
 	err := a.Run(context.Background(), storage.Node{Name: "n"})
@@ -57,7 +57,7 @@ func TestDNSActionBadBackupIPs(t *testing.T) {
 	}
 }
 
-// TestDNSActionNoBackupIPs 备用 IP 全空：切换报无可用备用。
+// TestDNSActionNoBackupIPs: all backup IPs empty - switching reports no usable backups.
 func TestDNSActionNoBackupIPs(t *testing.T) {
 	a := setupDNSAction(t, `["", ""]`, &fakeDNS{})
 	err := a.Run(context.Background(), storage.Node{Name: "n"})
@@ -66,7 +66,7 @@ func TestDNSActionNoBackupIPs(t *testing.T) {
 	}
 }
 
-// TestDNSActionNoMasterKeyOnSwitch 凭证入口未配：切换在解密边界即报错。
+// TestDNSActionNoMasterKeyOnSwitch: the credential entry is not configured - switching fails right at the decryption boundary.
 func TestDNSActionNoMasterKeyOnSwitch(t *testing.T) {
 	a := setupDNSAction(t, `["1.1.1.1"]`, &fakeDNS{})
 	a.Store = nil
@@ -76,7 +76,7 @@ func TestDNSActionNoMasterKeyOnSwitch(t *testing.T) {
 	}
 }
 
-// TestDNSActionDecryptFailure 凭证密文解不开（换钥后旧密文）：报错留商家名。
+// TestDNSActionDecryptFailure: the credential ciphertext cannot be decrypted (old ciphertext after a key rotation) - the error names the provider.
 func TestDNSActionDecryptFailure(t *testing.T) {
 	a := setupDNSAction(t, `["1.1.1.1"]`, &fakeDNS{})
 	if err := a.DB.Model(&storage.DNSProvider{}).Where("1=1").
@@ -89,7 +89,7 @@ func TestDNSActionDecryptFailure(t *testing.T) {
 	}
 }
 
-// TestInstanceActionTemplateErrors 模板与供应商三档缺失：原样上抛留原因。
+// TestInstanceActionTemplateErrors covers the three missing template/provider tiers: the error is passed through with its reason.
 func TestInstanceActionTemplateErrors(t *testing.T) {
 	db := newTestDB(t)
 	m := provision.New(db, "tofu", t.TempDir(), func(ctx context.Context, dir string, args []string, env map[string]string) (string, error) {
@@ -100,14 +100,14 @@ func TestInstanceActionTemplateErrors(t *testing.T) {
 	}
 	store := secret.NewStore("l3-master")
 
-	// 模板不存在。
+	// The template does not exist.
 	a := &InstanceAction{Manager: m, Store: store, TemplateID: 99999, Launch: launch}
 	if err := a.Run(context.Background(), storage.Node{Name: "n"}); err == nil ||
 		!strings.Contains(err.Error(), "recovery template 99999") {
 		t.Fatalf("missing template err = %v", err)
 	}
 
-	// 模板指向不存在的供应商。
+	// The template points to a non-existent provider.
 	tpl := storage.ProvisionTemplate{Name: "t1", ProviderID: 99999}
 	if err := db.Create(&tpl).Error; err != nil {
 		t.Fatal(err)
@@ -118,7 +118,7 @@ func TestInstanceActionTemplateErrors(t *testing.T) {
 		t.Fatalf("missing provider err = %v", err)
 	}
 
-	// 供应商被禁用。
+	// The provider is disabled.
 	store2 := secret.NewStore("l3-master")
 	sealed, err := store2.Encrypt("sk-live")
 	if err != nil {
@@ -128,7 +128,7 @@ func TestInstanceActionTemplateErrors(t *testing.T) {
 	if err := db.Create(&prov).Error; err != nil {
 		t.Fatal(err)
 	}
-	// gorm 对带 default 的布尔零值跳写，禁用需显式更新。
+	// gorm skips writing a zero bool that carries a default; disabling needs an explicit update.
 	if err := db.Model(&prov).Update("enabled", false).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func TestInstanceActionTemplateErrors(t *testing.T) {
 	}
 }
 
-// TestInstanceActionApplyFailed 执行失败：状态非 ok 时留日志尾行报错。
+// TestInstanceActionApplyFailed: run failed - a non-ok status errors with the tail log line.
 func TestInstanceActionApplyFailed(t *testing.T) {
 	db := newTestDB(t)
 	store := secret.NewStore("l3-master")
@@ -176,13 +176,13 @@ func TestInstanceActionApplyFailed(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "recovery apply failed: ") {
 		t.Fatalf("err = %v; want last line of failed log", err)
 	}
-	// lastLine 取的是执行日志尾行：errString 把错误文本缀在末尾。
+	// lastLine takes the execution log's tail line: errString appends the error text at the end.
 	if !strings.HasSuffix(err.Error(), "context deadline exceeded") {
 		t.Fatalf("err = %v; want log tail line", err)
 	}
 }
 
-// TestStandbyActionNotWired 未接库的预备动作：失败留原因，不冒称成功。
+// TestStandbyActionNotWired: the standby action without a DB - fails with a reason, never faking success.
 func TestStandbyActionNotWired(t *testing.T) {
 	a := &StandbyAction{}
 	err := a.Run(context.Background(), storage.Node{Name: "n"})

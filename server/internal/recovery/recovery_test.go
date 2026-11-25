@@ -60,7 +60,7 @@ func (f *fakeAction) Run(ctx context.Context, node storage.Node) error {
 	return f.err
 }
 
-// suspendedNode 建一个被自动摘除且持续未恢复的入口节点。
+// suspendedNode creates an entry node that was auto-suspended and left unrestored.
 func suspendedNode(t *testing.T, db *gorm.DB, name, reason string, changedAt time.Time) storage.Node {
 	t.Helper()
 	n := storage.Node{Name: name, Port: 443, Protocol: "vless", Enabled: true, Token: "t-" + name,
@@ -80,7 +80,7 @@ func loadRecovery(t *testing.T, db *gorm.DB, nodeID uint) storage.Recovery {
 	return rec
 }
 
-// waitRecovery 轮询等待恢复行满足条件（动作回写在 goroutine 中）。
+// waitRecovery polls until the recovery row satisfies the condition (the action writes back in a goroutine).
 func waitRecovery(t *testing.T, db *gorm.DB, nodeID uint, cond func(storage.Recovery) bool) storage.Recovery {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -96,8 +96,8 @@ func waitRecovery(t *testing.T, db *gorm.DB, nodeID uint, cond func(storage.Reco
 	}
 }
 
-// TestSweepOpenAndAdvance 覆盖判封开线与分级推进：摘除持续未恢复开线，
-// L1/L2 未注册 skipped 推进，L3 注册动作启动；手动摘除不开线。
+// TestSweepOpenAndAdvance covers verdict opening and tiered advancement: removal left
+// unrestored opens a pipeline; unregistered L1/L2 advance as skipped; a registered L3 action starts; manual removal does not open one.
 func TestSweepOpenAndAdvance(t *testing.T) {
 	db := newTestDB(t)
 	now := time.Now()
@@ -107,7 +107,7 @@ func TestSweepOpenAndAdvance(t *testing.T) {
 	l3 := &fakeAction{name: "new_instance"}
 	reg := Registry{3: l3}
 
-	// 第一轮：判封开线（含手动摘除排除）。
+	// First round: open the verdict (including the manual-removal exclusion).
 	if err := Sweep(db, now, Options{}, reg, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestSweepOpenAndAdvance(t *testing.T) {
 	if manual != 0 {
 		t.Fatal("manual suspend must not open recovery")
 	}
-	// 判封事件（HERALD-3）：开线节点落 node_blocked，手动摘除不落
+	// Verdict event (HERALD-3): the opened node lands node_blocked; manual removal does not
 	var blockedEv []storage.Event
 	if err := db.Where("kind = ?", "node_blocked").Find(&blockedEv).Error; err != nil {
 		t.Fatal(err)
@@ -129,20 +129,20 @@ func TestSweepOpenAndAdvance(t *testing.T) {
 		t.Fatalf("node_blocked events = %+v", blockedEv)
 	}
 
-	// 后续轮次：L1/L2 skipped 推进 → L3 启动。
+	// Later rounds: L1/L2 skipped advancement → L3 starts.
 	for i := 0; i < 3; i++ {
 		if err := Sweep(db, now, Options{}, reg, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
-	// L3 动作很快跑完（fake），等已启动（action 落名）即可，不卡 running 态。
+	// The L3 action finishes quickly (fake); just wait until it has started (action name recorded) without relying on the running state.
 	rec = waitRecovery(t, db, 1, func(r storage.Recovery) bool {
 		return r.Level == 3 && r.Action == "new_instance"
 	})
 	if rec.ActionState != ActionRunning && rec.ActionState != ActionOK {
 		t.Fatalf("action_state = %+v", rec)
 	}
-	// 后续轮次推进不重复发判封事件
+	// Later rounds advancing must not re-emit the verdict event
 	var evN int64
 	db.Model(&storage.Event{}).Where("kind = ?", "node_blocked").Count(&evN)
 	if evN != 1 {
@@ -150,8 +150,8 @@ func TestSweepOpenAndAdvance(t *testing.T) {
 	}
 }
 
-// TestRecoveryDoneOnResume 覆盖探测恢复即完成：摘挂复位（pool active）后
-// 流水线收尾 done，不写失败原因。
+// TestRecoveryDoneOnResume covers probe recovery finishing immediately: after the suspension
+// reset (pool active) the pipeline closes as done, with no failure reason written.
 func TestRecoveryDoneOnResume(t *testing.T) {
 	db := newTestDB(t)
 	now := time.Now()
@@ -173,13 +173,13 @@ func TestRecoveryDoneOnResume(t *testing.T) {
 	}
 }
 
-// TestTimeoutExhaustFails 覆盖级超时推进与全级耗尽：L3 动作超时 →
-// 无下一级 → 流水线 failed（升级人工由 BR-5 承接）。
+// TestTimeoutExhaustFails covers level-timeout advancement and full exhaustion:
+// L3 action timeout → no next level → pipeline failed (escalation is BR-5's job).
 func TestTimeoutExhaustFails(t *testing.T) {
 	db := newTestDB(t)
 	now := time.Now()
 	n := suspendedNode(t, db, "entry-3", "连续 3 次探测 sick", now.Add(-15*time.Minute))
-	start := now.Add(-11 * time.Minute) // 超过默认 LevelTimeout 10 分钟
+	start := now.Add(-11 * time.Minute) // past the default LevelTimeout of 10 minutes
 	rec := storage.Recovery{NodeID: n.ID, NodeName: n.Name, Level: 3, State: StateRunning,
 		Action: "new_instance", ActionState: ActionRunning,
 		LevelStartedAt: start, StartedAt: start, UpdatedAt: start}
@@ -195,8 +195,8 @@ func TestTimeoutExhaustFails(t *testing.T) {
 	}
 }
 
-// TestActionFailedAdvances 覆盖动作失败立即进下一级并最终耗尽：L3 动作
-// 报错 → 流水线 failed 留原因。
+// TestActionFailedAdvances covers failing immediately into the next level and eventually
+// exhausting: L3 action error → pipeline failed with the reason recorded.
 func TestActionFailedAdvances(t *testing.T) {
 	db := newTestDB(t)
 	now := time.Now()
@@ -210,7 +210,7 @@ func TestActionFailedAdvances(t *testing.T) {
 	if err := Sweep(db, now, Options{}, Registry{3: l3}, nil); err != nil {
 		t.Fatal(err)
 	}
-	// 动作在 goroutine 中失败回写，等落库后再扫一轮推进到终态。
+	// The action fails in its goroutine and writes back; wait for the DB write, then sweep once more to reach a terminal state.
 	waitRecovery(t, db, n.ID, func(r storage.Recovery) bool { return r.ActionState == ActionFailed })
 	if err := Sweep(db, now, Options{}, Registry{3: l3}, nil); err != nil {
 		t.Fatal(err)
@@ -224,8 +224,8 @@ func TestActionFailedAdvances(t *testing.T) {
 	}
 }
 
-// TestInstanceActionL3 覆盖 L3 一键开新机走供给流水线：预签发替换节点行、
-// tofu apply 成功（注入 fake runner）、job 留痕 ok；凭证缺失失败留原因。
+// TestInstanceActionL3 covers the L3 one-click new instance going through the provisioning
+// pipeline: the replacement node row is pre-issued, tofu apply succeeds (fake runner injected), the job is traced ok; missing credentials fail with a reason.
 func TestInstanceActionL3(t *testing.T) {
 	db := newTestDB(t)
 	store := secret.NewStore("recovery-master")
@@ -272,15 +272,15 @@ func TestInstanceActionL3(t *testing.T) {
 		t.Fatalf("jobs = %+v err=%v", jobs, err)
 	}
 
-	// 未配置模板：失败留原因，不冒称支持。
+	// No template configured: fails with a reason, never faking support.
 	bare := &InstanceAction{Manager: m, Store: store}
 	if err := bare.Run(context.Background(), node); err == nil {
 		t.Fatal("unconfigured L3 must fail")
 	}
 }
 
-// TestTraceRowsReplay 覆盖动作留痕（BR-5）：L1/L2 未注册记 skipped、
-// L3 动作失败记 failed 带原因，按级别回放序完整。
+// TestTraceRowsReplay covers action traces (BR-5): unregistered L1/L2 record skipped,
+// the failed L3 action records failed with a reason; the per-level replay order is complete.
 func TestTraceRowsReplay(t *testing.T) {
 	db := newTestDB(t)
 	now := time.Now()
@@ -288,7 +288,7 @@ func TestTraceRowsReplay(t *testing.T) {
 	l3 := &fakeAction{name: "new_instance", err: context.DeadlineExceeded}
 	reg := Registry{3: l3}
 
-	// 开线 + 推进：L1 skipped → L2 skipped → L3 启动（goroutine 报错回写）。
+	// Open + advance: L1 skipped → L2 skipped → L3 starts (the goroutine writes back an error).
 	for i := 0; i < 4; i++ {
 		if err := Sweep(db, now, Options{}, reg, nil); err != nil {
 			t.Fatal(err)
@@ -320,8 +320,8 @@ func TestTraceRowsReplay(t *testing.T) {
 	}
 }
 
-// TestFailedEscalationNotify 覆盖失败升级（BR-5）：全级耗尽终态 failed
-// 经通知通道外发一次升级告警；在途留痕行同步收尾 timeout。
+// TestFailedEscalationNotify covers failure escalation (BR-5): exhaustion lands the terminal
+// failed state and sends one escalation alert over the notify channel; in-flight trace rows close out as timeout.
 func TestFailedEscalationNotify(t *testing.T) {
 	db := newTestDB(t)
 	now := time.Now()
@@ -342,14 +342,14 @@ func TestFailedEscalationNotify(t *testing.T) {
 	}
 
 	n := suspendedNode(t, db, "entry-6", "连续 3 次探测 sick", now.Add(-15*time.Minute))
-	start := now.Add(-11 * time.Minute) // 超过默认 LevelTimeout
+	start := now.Add(-11 * time.Minute) // past the default LevelTimeout
 	rec := storage.Recovery{NodeID: n.ID, NodeName: n.Name, Level: 3, State: StateRunning,
 		Action: "new_instance", ActionState: ActionRunning,
 		LevelStartedAt: start, StartedAt: start, UpdatedAt: start}
 	if err := db.Create(&rec).Error; err != nil {
 		t.Fatal(err)
 	}
-	// 在途留痕行（真实启动动作时会落，这里补齐以验证超时收尾）。
+	// The in-flight trace row (it would be written when a real action starts; filled in here to verify timeout close-out).
 	if err := db.Create(&storage.RecoveryAction{RecoveryID: rec.ID, NodeID: n.ID,
 		NodeName: n.Name, Level: 3, Action: "new_instance", State: ActionRunning,
 		StartedAt: start, UpdatedAt: start}).Error; err != nil {
@@ -360,7 +360,7 @@ func TestFailedEscalationNotify(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 留痕行收尾 timeout 留原因。
+	// The trace row closes out as timeout with a reason.
 	var trace storage.RecoveryAction
 	if err := db.Where("recovery_id = ?", rec.ID).First(&trace).Error; err != nil {
 		t.Fatal(err)
@@ -369,8 +369,8 @@ func TestFailedEscalationNotify(t *testing.T) {
 		t.Fatalf("trace = %+v", trace)
 	}
 
-	// 升级告警同步外发（Send 在 Sweep 内联执行），恰好一次；
-	// 事件 outbox 同步落 recovery_failed（HERALD-3）。
+	// The escalation alert is sent synchronously (Send runs inline in Sweep), exactly once;
+	// the event outbox lands recovery_failed at the same time (HERALD-3).
 	mu.Lock()
 	defer mu.Unlock()
 	if len(events) != 1 {
@@ -388,21 +388,21 @@ func TestFailedEscalationNotify(t *testing.T) {
 	}
 }
 
-// TestLoopSweepsAndStops 覆盖周期循环：首轮立即跑（interval<=0 回退 60s），
-// 判封节点开线；ctx 取消后 Loop 返回。
+// TestLoopSweepsAndStops covers the periodic loop: the first round runs immediately
+// (interval<=0 falls back to 60s) and the verdict node opens; Loop returns after ctx cancel.
 func TestLoopSweepsAndStops(t *testing.T) {
 	db := newTestDB(t)
 	suspendedNode(t, db, "entry-1", "连续 3 次探测 sick", time.Now().Add(-15*time.Minute))
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel() // 先停 Loop 再关库（t.Cleanup 在函数返回后跑）
+	defer cancel() // stop the Loop before closing the DB (t.Cleanup runs after the function returns)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		Loop(ctx, db, 0, Options{}, Registry{}, nil) // interval 0：走回退分支
+		Loop(ctx, db, 0, Options{}, Registry{}, nil) // interval 0: takes the fallback branch
 	}()
 
-	// 首轮 Sweep 才落恢复行，行不存在也要继续等。
+	// Only the first Sweep writes the recovery row; keep waiting even when the row is missing.
 	var rec storage.Recovery
 	deadline := time.Now().Add(5 * time.Second)
 	for {
@@ -426,7 +426,7 @@ func TestLoopSweepsAndStops(t *testing.T) {
 	}
 }
 
-// TestLastLine 日志尾行取错误摘要：去空行后取末行，空串不炸。
+// TestLastLine takes the tail log line as the error summary: blank lines trimmed before the last line; an empty string is safe.
 func TestLastLine(t *testing.T) {
 	cases := map[string]string{
 		"a\nb\nc":   "c",
@@ -442,7 +442,7 @@ func TestLastLine(t *testing.T) {
 	}
 }
 
-// TestActionNames 三个动作的留痕名固定（Recovery.Action 按名落库）。
+// TestActionNames pins the trace names of the three actions (Recovery.Action is stored by name).
 func TestActionNames(t *testing.T) {
 	if got := (&InstanceAction{}).Name(); got != "new_instance" {
 		t.Errorf("instance name = %q", got)
@@ -455,7 +455,7 @@ func TestActionNames(t *testing.T) {
 	}
 }
 
-// logBuf 是并发安全的日志缓冲（Loop goroutine 与断言共读共写）。
+// logBuf is a concurrency-safe log buffer (the Loop goroutine and the assertions read and write it together).
 type logBuf struct {
 	mu sync.Mutex
 	b  bytes.Buffer
@@ -473,7 +473,7 @@ func (l *logBuf) String() string {
 	return l.b.String()
 }
 
-// closeDB 关闭底层连接（错误分支注入位：库不可用即各层冒错/记日志）。
+// closeDB closes the underlying connection (the error-branch injection slot: an unavailable DB makes every layer surface errors or log them).
 func closeDB(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	sqlDB, err := db.DB()
@@ -485,8 +485,8 @@ func closeDB(t *testing.T, db *gorm.DB) {
 	}
 }
 
-// TestNodeByIDBranches 节点查找三分支：命中、不存在返回 (nil, nil)、
-// 库故障冒错。
+// TestNodeByIDBranches covers the three node-lookup branches: found, missing returns
+// (nil, nil), and a broken DB surfaces the error.
 func TestNodeByIDBranches(t *testing.T) {
 	db := newTestDB(t)
 	n := suspendedNode(t, db, "entry-1", "连续 3 次探测 sick", time.Now())
@@ -504,8 +504,8 @@ func TestNodeByIDBranches(t *testing.T) {
 	}
 }
 
-// TestSweepNodeDeletedFails 状态行在而节点被删：直接终态失败，不悬置。
-// 顺带覆盖 reg/logger 缺省（nil 注册表、缺省日志器）。
+// TestSweepNodeDeletedFails: the state row exists but the node was deleted - go
+// straight to a terminal failure without hanging. Also covers the reg/logger defaults (nil registry, default logger).
 func TestSweepNodeDeletedFails(t *testing.T) {
 	db := newTestDB(t)
 	now := time.Now()
@@ -523,8 +523,8 @@ func TestSweepNodeDeletedFails(t *testing.T) {
 	}
 }
 
-// TestHeraldEmitFailureTolerated 事件 outbox 故障：判封开线与失败终态
-// 都只记日志不阻断状态机（emit 失败不回滚恢复流水线）。
+// TestHeraldEmitFailureTolerated: event outbox failure - both verdict opening and the
+// failed terminal state only log instead of blocking the state machine (an emit failure does not roll back the pipeline).
 func TestHeraldEmitFailureTolerated(t *testing.T) {
 	db := newTestDB(t)
 	now := time.Now()
@@ -532,14 +532,14 @@ func TestHeraldEmitFailureTolerated(t *testing.T) {
 	if err := db.Migrator().DropTable(&storage.Event{}); err != nil {
 		t.Fatal(err)
 	}
-	// 判封开线：事件落库失败照常开线。
+	// Verdict opening: a failed event write still opens the pipeline.
 	if err := Sweep(db, now, Options{}, Registry{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if rec := loadRecovery(t, db, 1); rec.State != StateRunning {
 		t.Fatalf("open-line blocked by emit failure: %+v", rec)
 	}
-	// 失败终态：升级事件落库失败照常收尾。
+	// Failed terminal state: a failed escalation write still closes out.
 	rec := storage.Recovery{NodeID: 999, NodeName: "gone", Level: 1, State: StateRunning,
 		ActionState: ActionUnset, LevelStartedAt: now, StartedAt: now, UpdatedAt: now}
 	if err := db.Create(&rec).Error; err != nil {
@@ -553,8 +553,8 @@ func TestHeraldEmitFailureTolerated(t *testing.T) {
 	}
 }
 
-// TestSweepAndLoopOnClosedDB 库不可用：Sweep 冒错、Loop 对 Sweep 失败只
-// 记日志不停摆（下轮继续尝试）。
+// TestSweepAndLoopOnClosedDB: DB unavailable - Sweep surfaces the error, and Loop only
+// logs a Sweep failure without stopping (the next round keeps trying).
 func TestSweepAndLoopOnClosedDB(t *testing.T) {
 	db := newTestDB(t)
 	closeDB(t, db)
@@ -581,8 +581,8 @@ func TestSweepAndLoopOnClosedDB(t *testing.T) {
 	}
 }
 
-// TestAdvanceOKAndRunningWindows 等待窗口口径：OK 未超时原地等探测恢复；
-// OK 超时进下一级；Running 窗口内不重复动作。
+// TestAdvanceOKAndRunningWindows covers the wait-window rules: an OK action within the
+// timeout waits in place for probe recovery; an OK action past the timeout advances; a Running action is not duplicated within its window.
 func TestAdvanceOKAndRunningWindows(t *testing.T) {
 	db := newTestDB(t)
 	now := time.Now()
@@ -602,21 +602,21 @@ func TestAdvanceOKAndRunningWindows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// OK 未超时：原地等待，不推进。
+	// OK within the timeout: wait in place, do not advance.
 	if err := advance(db, okRec, n1, now, opts, Registry{}, lg); err != nil {
 		t.Fatal(err)
 	}
 	if got := loadRecovery(t, db, n1.ID); got.Level != 1 || got.ActionState != ActionOK {
 		t.Fatalf("OK within window advanced: %+v", got)
 	}
-	// OK 超时：进下一级且动作态复位。
+	// OK past the timeout: advance and reset the action state.
 	if err := advance(db, okRec, n1, now.Add(2*time.Minute), opts, Registry{}, lg); err != nil {
 		t.Fatal(err)
 	}
 	if got := loadRecovery(t, db, n1.ID); got.Level != 2 || got.ActionState != ActionUnset {
 		t.Fatalf("OK timeout did not advance: %+v", got)
 	}
-	// Running 窗口内：不超时不动。
+	// Running within the window: no timeout, no movement.
 	if err := advance(db, runRec, n2, now, opts, Registry{}, lg); err != nil {
 		t.Fatal(err)
 	}
@@ -625,8 +625,8 @@ func TestAdvanceOKAndRunningWindows(t *testing.T) {
 	}
 }
 
-// TestRunActionTruncatesAndLateDrop 动作结果回写口径：超长错误只留尾部
-// 500 字；流水线已终态时迟到结果丢弃。
+// TestRunActionTruncatesAndLateDrop covers writing back action results: an over-long
+// error keeps only the last 500 characters; late results are dropped once the pipeline is terminal.
 func TestRunActionTruncatesAndLateDrop(t *testing.T) {
 	db := newTestDB(t)
 	now := time.Now()
@@ -638,7 +638,7 @@ func TestRunActionTruncatesAndLateDrop(t *testing.T) {
 	}
 	lg := log.New(io.Discard, "", 0)
 
-	// 超长错误：last_err 截尾 500 字（保尾部现场）。
+	// Over-long error: last_err is truncated to the last 500 characters (keeping the tail scene).
 	long := errors.New(strings.Repeat("x", 600))
 	runAction(db, &fakeAction{name: "fake", err: long}, rec, node, lg)
 	got := loadRecovery(t, db, node.ID)
@@ -646,7 +646,7 @@ func TestRunActionTruncatesAndLateDrop(t *testing.T) {
 		t.Fatalf("truncated = state %s errLen %d", got.ActionState, len(got.LastErr))
 	}
 
-	// 迟到结果：流水线已终态，回写落空即丢弃。
+	// Late result: the pipeline is already terminal, so the write back misses and is dropped.
 	if err := db.Model(&storage.Recovery{}).Where("id = ?", got.ID).
 		Update("state", StateDone).Error; err != nil {
 		t.Fatal(err)
@@ -657,8 +657,8 @@ func TestRunActionTruncatesAndLateDrop(t *testing.T) {
 	}
 }
 
-// TestTraceHelpersOnClosedDB 留痕辅助的容错口径：库不可用时留痕只记日志
-// 不炸，收尾/推进类冒错交上层。
+// TestTraceHelpersOnClosedDB covers trace-helper tolerance: with the DB unavailable, traces
+// only log without panicking, while finish/advance-class helpers surface errors to the caller.
 func TestTraceHelpersOnClosedDB(t *testing.T) {
 	db := newTestDB(t)
 	now := time.Now()
@@ -681,11 +681,11 @@ func TestTraceHelpersOnClosedDB(t *testing.T) {
 	if err := advanceNext(db, rec, now, lg); err == nil {
 		t.Fatal("advanceNext on closed db must fail")
 	}
-	// 未注册级别：更新留痕落库失败冒错（skipped 推进前）。
+	// Unregistered level: the trace update write fails and surfaces the error (before the skipped advancement).
 	if err := advance(db, rec, node, now, Options{}, Registry{}, lg); err == nil {
 		t.Fatal("advance unregistered on closed db must fail")
 	}
-	// 已注册级别：置 running 的更新失败冒错。
+	// Registered level: the update setting running fails and surfaces the error.
 	if err := advance(db, rec, node, now, Options{}, Registry{1: &fakeAction{name: "fake"}}, lg); err == nil {
 		t.Fatal("advance registered on closed db must fail")
 	}

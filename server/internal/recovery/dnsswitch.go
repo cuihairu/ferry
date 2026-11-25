@@ -12,17 +12,17 @@ import (
 	"gorm.io/gorm"
 )
 
-// DNSAction 是 L1 域名前置切换（BR-2）：前置域名 A 记录切到备用 IP 轮换
-// （域名不换、IP 随换，秒级），探测恢复收尾经 Restore 回切常态。
-// 未配置域名前置时失败留原因，编排推进（口径同 L3 未配置模板）。
+// DNSAction is the L1 domain-front switch (BR-2): the front domain's A record
+// moves onto a rotating backup IP (domain unchanged, IP swapped, seconds scale);
+// Restore switches back to normal on probe-recovery finish. With no domain front configured it fails with a reason and the orchestration advances (as with L3 and no template).
 type DNSAction struct {
 	DB    *gorm.DB
 	Store *secret.Store
-	// New 是插件位工厂（缺省 dns.New），测试可注入假通道。
+	// New is the plugin-slot factory (defaults to dns.New); tests may inject a fake channel.
 	New func(kind, token string) (dns.Provider, error)
 }
 
-// Name 是动作留痕名（Recovery.Action）。
+// Name is the action trace name (Recovery.Action).
 func (a *DNSAction) Name() string { return "dns_switch" }
 
 func (a *DNSAction) factory() func(kind, token string) (dns.Provider, error) {
@@ -32,7 +32,7 @@ func (a *DNSAction) factory() func(kind, token string) (dns.Provider, error) {
 	return dns.New
 }
 
-// providerFor 解出一家 DNS 商的写通道；凭证解密只在方法边界内出现。
+// providerFor resolves a DNS provider's write channel; credential decryption only happens inside method boundaries.
 func (a *DNSAction) providerFor(prow storage.DNSProvider) (dns.Provider, error) {
 	if a.Store == nil || !a.Store.Enabled() {
 		return nil, errors.New("recovery: secret master key not configured (set FERRY_SECRET_KEY)")
@@ -44,7 +44,7 @@ func (a *DNSAction) providerFor(prow storage.DNSProvider) (dns.Provider, error) 
 	return a.factory()(prow.Type, token)
 }
 
-// switchable 返回可操作的前置记录与其凭证行（只取 enabled 的 DNS 商）。
+// switchable returns the operable front records with their credential rows (only enabled DNS providers are taken).
 func (a *DNSAction) switchable(switched bool) ([]storage.DNSFront, []storage.DNSProvider, error) {
 	var provs []storage.DNSProvider
 	if err := a.DB.Where("enabled = ?", true).Find(&provs).Error; err != nil {
@@ -67,8 +67,8 @@ func (a *DNSAction) switchable(switched bool) ([]storage.DNSFront, []storage.DNS
 	return fronts, provs, nil
 }
 
-// Run 切走全部未切离的前置记录：按备用 IP 轮换游标取下一个，
-// upsert 成功才落 switched（失败不留半态，编排按失败推进）。
+// Run switches away every front record not yet switched: take the next backup
+// IP by the rotation cursor, and only record switched once the upsert succeeded (no half state on failure; the orchestration advances on failure).
 func (a *DNSAction) Run(ctx context.Context, node storage.Node) error {
 	fronts, provs, err := a.switchable(false)
 	if err != nil {
@@ -110,8 +110,8 @@ func (a *DNSAction) Run(ctx context.Context, node storage.Node) error {
 	return nil
 }
 
-// Restore 把已切离的前置记录回切常态（探测恢复收尾钩子）：
-// 回到 PrimaryIP 并清 switched；没有切离记录时是空操作。
+// Restore switches the switched-away front records back to normal (the
+// probe-recovery finish hook): back to PrimaryIP with switched cleared; a no-op when there are no switched-away records.
 func (a *DNSAction) Restore(ctx context.Context) error {
 	fronts, provs, err := a.switchable(true)
 	if err != nil {
@@ -144,7 +144,7 @@ func (a *DNSAction) Restore(ctx context.Context) error {
 	return nil
 }
 
-// parseBackups 解析备用 IP 列表（JSON 字符串数组），跳过空串。
+// parseBackups parses the backup IP list (JSON string array), skipping empty strings.
 func parseBackups(raw string) ([]string, error) {
 	var ips []string
 	if raw == "" {

@@ -9,19 +9,19 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestStandbyActionPromote 覆盖 L2 预备机补位：从清单取在线备用入口升池
-// 留痕；清单空失败留原因推进 L3。
+// TestStandbyActionPromote covers the L2 standby backfill: take an online standby
+// entry from the list and promote it into the pool with a trace; an empty list fails with a reason and advances to L3.
 func TestStandbyActionPromote(t *testing.T) {
 	db := newTestDB(t)
 	act := &StandbyAction{DB: db}
 
-	// 无预备机：失败留原因（不冒称成功）。
+	// No standby node: fails with a reason (never faking success).
 	err := act.Run(context.Background(), storage.Node{Name: "entry-1"})
 	if err == nil || !strings.Contains(err.Error(), "no standby") {
 		t.Fatalf("empty standby err = %v", err)
 	}
 
-	// 离线预备机不取用；在线预备机升池。
+	// Offline standby nodes are not taken; an online standby node is promoted into the pool.
 	mk := func(name, status string) storage.Node {
 		n := storage.Node{Name: name, Port: 443, Protocol: "vless", Enabled: true,
 			Token: "tok-" + name, Status: status, Role: "entry"}
