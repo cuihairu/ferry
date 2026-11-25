@@ -18,10 +18,10 @@ import (
 	"gorm.io/gorm"
 )
 
-// 面板主从同步（P2-1）测试：拉取→解密→原子替换全链、防篡改/错钥/错令
-// 牌/主面板不可达四类失败不替换、关闭态与替换钩子的 Loop 语义。
+// Panel master/standby sync (P2-1) test: pull -> decrypt -> atomic replace full chain, four failure modes that do not replace:
+// tamper/wrong key/wrong token/master unreachable, and the Loop semantics of the disabled state and the replace hook.
 
-// closeDB 收尾关连接池。
+// closeDB closes the connection pool at the end.
 func closeDB(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	if sqlDB, err := db.DB(); err == nil {
@@ -29,7 +29,7 @@ func closeDB(t *testing.T, db *gorm.DB) {
 	}
 }
 
-// mkSource 建源库并落一行标记，返回库文件字节（加密与否随 store）。
+// mkSource builds the source DB, writes one marker row, and returns the DB file bytes (encrypted or not per store).
 func mkSource(t *testing.T, store *secret.Store, mark string) []byte {
 	t.Helper()
 	srcPath := filepath.Join(t.TempDir(), "src.db")
@@ -58,7 +58,7 @@ func mkSource(t *testing.T, store *secret.Store, mark string) []byte {
 	return raw
 }
 
-// mkTarget 建本机库（旧数据）供替换，返回 gorm 句柄与文件路径。
+// mkTarget builds the local DB (old data) to be replaced; returns the gorm handle and the file path.
 func mkTarget(t *testing.T) (*gorm.DB, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "ferry.db")
@@ -76,8 +76,8 @@ func mkTarget(t *testing.T) (*gorm.DB, string) {
 	return db, path
 }
 
-// TestSyncOnceRoundtrip 覆盖全链：拉取加密快照→解密校验→替换本机库，
-// 旧数据换新、侧车文件不残留。
+// TestSyncOnceRoundtrip covers the full chain: pull the encrypted snapshot -> decrypt + validate -> replace the local DB,
+// old data swapped for new, sidecar files left behind.
 func TestSyncOnceRoundtrip(t *testing.T) {
 	store := secret.NewStore("standby-master")
 	body := mkSource(t, store, "from-master")
@@ -100,7 +100,7 @@ func TestSyncOnceRoundtrip(t *testing.T) {
 	if hits != 1 {
 		t.Fatalf("hits = %d", hits)
 	}
-	// SyncOnce 已静默关闭旧连接池，重开验证落盘内容。
+	// SyncOnce already silently closed the old connection pool; reopen to verify the persisted content.
 	fresh, err := storage.Open(storage.DriverSQLite, path)
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
@@ -121,8 +121,8 @@ func TestSyncOnceRoundtrip(t *testing.T) {
 	}
 }
 
-// TestSyncOnceFailureModes 覆盖四类失败都不替换本机库：防篡改（非密文）、
-// 错主密钥、错令牌（403）、主面板不可达。
+// TestSyncOnceFailureModes covers four failure modes that do not replace the local DB: tamper (non-ciphertext),
+// wrong master key, wrong token (403), master unreachable.
 func TestSyncOnceFailureModes(t *testing.T) {
 	store := secret.NewStore("standby-master")
 	other := secret.NewStore("another-key")
@@ -144,7 +144,7 @@ func TestSyncOnceFailureModes(t *testing.T) {
 		{name: "tampered body", url: newBodyServer(t, []byte("not a ciphertext")), st: store},
 		{name: "wrong key", url: srv.URL, st: other},
 	}
-	// 错令牌单独跑（srv 403 分支）。
+	// Wrong token runs separately (the srv 403 branch).
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			db, path := mkTarget(t)
@@ -161,19 +161,19 @@ func TestSyncOnceFailureModes(t *testing.T) {
 			}
 		})
 	}
-	// 主面板不可达：已关闭端口的 server。
+	// Master unreachable: the server with its port closed.
 	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	dead.Close()
 	db, path := mkTarget(t)
 	if got, err := SyncOnce(Options{MasterURL: dead.URL, Token: "tok", DBPath: path}, db, store); err == nil || got {
 		t.Fatalf("unreachable: replaced=%v err=%v", got, err)
 	}
-	// 错令牌：403 分支。
+	// Wrong token: the 403 branch.
 	db2, path2 := mkTarget(t)
 	if got, err := SyncOnce(Options{MasterURL: srv.URL, Token: "bad", DBPath: path2}, db2, store); err == nil || got {
 		t.Fatalf("wrong token: replaced=%v err=%v", got, err)
 	}
-	// 守卫：空 URL / 空 token / 未配主密钥。
+	// Guards: empty URL / empty token / master key not configured.
 	db3, path3 := mkTarget(t)
 	if _, err := SyncOnce(Options{DBPath: path3}, db3, store); err == nil {
 		t.Fatal("empty url should fail")
@@ -186,7 +186,7 @@ func TestSyncOnceFailureModes(t *testing.T) {
 	}
 }
 
-// newBodyServer 返回恒写 body 的临时 server 地址（用完随测试目录回收）。
+// newBodyServer returns the address of a temporary server that always writes the body (cleaned up with the test directory).
 func newBodyServer(t *testing.T, body []byte) string {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -196,10 +196,10 @@ func newBodyServer(t *testing.T, body []byte) string {
 	return srv.URL
 }
 
-// TestLoopGuards 覆盖 Loop：MasterURL 空=未开启立即返回；成功替换触发
-// OnReplace 恰一次且循环退出。
+// TestLoopGuards covers Loop: MasterURL empty = disabled, returns immediately; a successful replacement triggers
+// OnReplace exactly once and the loop exits.
 func TestLoopGuards(t *testing.T) {
-	// 未开启：直接返回（tick 极短防误等）。
+	// Disabled: returns directly (tick is extremely short to avoid a false wait).
 	Loop(context.Background(), Options{Sec: 1, tick: time.Millisecond}, nil, nil, func() {})
 
 	store := secret.NewStore("standby-master")
@@ -227,7 +227,7 @@ func TestLoopGuards(t *testing.T) {
 	}
 }
 
-// TestSQLitePath 覆盖 DSN 取路径：裸路径/file: 前缀/pragma 查询段。
+// TestSQLitePath covers DSN path extraction: bare path / file: prefix / pragma query segment.
 func TestSQLitePath(t *testing.T) {
 	for dsn, want := range map[string]string{
 		"ferry.db":            "ferry.db",
@@ -241,28 +241,28 @@ func TestSQLitePath(t *testing.T) {
 	}
 }
 
-// TestDBPathFromDSNExport 导出包装与 sqlitePath 同口径（main 取本机库路径）。
+// TestDBPathFromDSNExport wraps export with the same behavior as sqlitePath (main takes the local DB path).
 func TestDBPathFromDSNExport(t *testing.T) {
 	if got := DBPathFromDSN("file:/data/ferry.db?_pragma=journal_mode(WAL)"); got != "/data/ferry.db" {
 		t.Fatalf("DBPathFromDSN = %q", got)
 	}
 }
 
-// TestSyncOnceGuardsAndBadSnap 补齐守卫与坏快照分支：空 dbPath、非法 URL、
-// 解密通过但非 sqlite 库文件（错钥外另三类拒收口）。
+// TestSyncOnceGuardsAndBadSnap fills in the guards and bad-snapshot branches: empty dbPath, illegal URL,
+// decryption succeeds but the file is not a sqlite DB (three more rejection cases beyond the wrong key).
 func TestSyncOnceGuardsAndBadSnap(t *testing.T) {
 	store := secret.NewStore("standby-master")
 	db, path := mkTarget(t)
 
-	// 空 dbPath：替换无目标。
+	// empty dbPath: nothing to replace.
 	if _, err := SyncOnce(Options{MasterURL: "http://x", Token: "t", DBPath: ""}, db, store); err == nil {
 		t.Fatal("empty db path should fail")
 	}
-	// 非法 URL：请求构造即失败，不触网。
+	// Illegal URL: the request construction fails, never touching the network.
 	if _, err := SyncOnce(Options{MasterURL: "http://bad host", Token: "t", DBPath: path}, db, store); err == nil {
 		t.Fatal("invalid url should fail")
 	}
-	// 解密成功但不是 sqlite 库：magic 校验拒收。
+	// Decryption succeeds but it is not a sqlite DB: the magic check rejects it.
 	enc, err := store.EncryptBytes([]byte("definitely not a sqlite db"))
 	if err != nil {
 		t.Fatal(err)
@@ -272,7 +272,7 @@ func TestSyncOnceGuardsAndBadSnap(t *testing.T) {
 	}
 }
 
-// TestSyncOnceSnapshotReadError 响应体截断：ReadAll 报错冒上，本机库不动。
+// TestSyncOnceSnapshotReadError truncated response body: the ReadAll error bubbles up, the local DB is untouched.
 func TestSyncOnceSnapshotReadError(t *testing.T) {
 	store := secret.NewStore("standby-master")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -295,25 +295,25 @@ func TestSyncOnceSnapshotReadError(t *testing.T) {
 	}
 }
 
-// TestSyncOnceTmpAndReplaceFail 落盘两处失败：tmp 目录缺失开文件失败、
-// rename 目标被目录占住。
+// TestSyncOnceTmpAndReplaceFail covers two write failures: the tmp directory is missing so opening the file fails,
+// and the rename target is occupied by a directory.
 func TestSyncOnceTmpAndReplaceFail(t *testing.T) {
 	store := secret.NewStore("standby-master")
 	body := mkSource(t, store, "from-master")
 	url := newBodyServer(t, body)
 
 	db, _ := mkTarget(t)
-	// tmp 父目录缺失：OpenFile 失败。
+	// tmp parent directory missing: OpenFile fails.
 	if _, err := SyncOnce(Options{MasterURL: url, Token: "t", DBPath: "/no-such-dir-xyz/ferry.db"}, db, store); err == nil || !strings.Contains(err.Error(), "write tmp") {
 		t.Fatalf("missing tmp dir err = %v", err)
 	}
-	// dbPath 是目录：rename 报错。
+	// dbPath is a directory: rename errors.
 	if _, err := SyncOnce(Options{MasterURL: url, Token: "t", DBPath: t.TempDir()}, db, store); err == nil || !strings.Contains(err.Error(), "replace db") {
 		t.Fatalf("dir target err = %v", err)
 	}
 }
 
-// syncBuf 互斥保护的日志缓冲：Loop 协程写、测试协程读不构成竞争。
+// syncBuf is a mutex-protected log buffer: the Loop goroutine writes and the test goroutine reads, not a data race.
 type syncBuf struct {
 	mu  sync.Mutex
 	buf bytes.Buffer
@@ -331,7 +331,7 @@ func (b *syncBuf) String() string {
 	return b.buf.String()
 }
 
-// TestLoopRetriesAndStops 主面板不可达：按 tick 记错重试不放弃；ctx 取消即退。
+// TestLoopRetriesAndStops master unreachable: logs errors per tick and retries without giving up; ctx cancellation exits.
 func TestLoopRetriesAndStops(t *testing.T) {
 	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	dead.Close()
