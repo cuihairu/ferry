@@ -17,7 +17,7 @@ import (
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
 
-// stubExec 拦截重启：记录调用并恢复默认。
+// stubExec intercepts the restart: it records the call and restores the default.
 func stubExec(t *testing.T) *[]string {
 	t.Helper()
 	calls := &[]string{}
@@ -27,7 +27,7 @@ func stubExec(t *testing.T) *[]string {
 	return calls
 }
 
-// writeFakeBin 写一个可执行假二进制，返回路径与内容哈希。
+// writeFakeBin writes an executable fake binary and returns its path and content hash.
 func writeFakeBin(t *testing.T, dir, name, content string) (string, string) {
 	t.Helper()
 	p := filepath.Join(dir, name)
@@ -77,7 +77,7 @@ func TestDoSha256Mismatch(t *testing.T) {
 	if len(*calls) != 0 {
 		t.Fatalf("no exec on mismatch, calls=%v", *calls)
 	}
-	// 原二进制未被替换
+	// the original binary was not replaced
 	got, _ := os.ReadFile(self)
 	if string(got) != "#!/bin/sh\n" {
 		t.Fatalf("self binary must stay intact: %q", got)
@@ -102,7 +102,7 @@ func TestDoSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Do: %v", err)
 	}
-	// 新二进制就位、备份与待验证标记存在、触发重启
+	// the new binary is in place, the backup and pending marker exist, and the restart fired
 	got, _ := os.ReadFile(self)
 	if string(got) != "#!/bin/sh\necho v2\n" {
 		t.Fatalf("self binary not swapped: %q", got)
@@ -117,7 +117,7 @@ func TestDoSuccess(t *testing.T) {
 		t.Fatalf("exec once with self: %v", *calls)
 	}
 
-	// Commit：标记与备份清除
+	// Commit: the marker and backup are cleared
 	Commit(self)
 	if Pending(self) {
 		t.Fatal("pending marker should be cleared after commit")
@@ -132,7 +132,7 @@ func TestWatchdogRollback(t *testing.T) {
 	self, _ := writeFakeBin(t, dir, "agent", "#!/bin/sh\n")
 	calls := stubExec(t)
 
-	// 模拟升级后状态：新二进制 + 备份 + 待标记
+	// simulating the post-upgrade state: a new binary + a backup + the pending marker
 	if err := os.WriteFile(bakPath(self), []byte("#!/bin/sh\necho old\n"), 0o755); err != nil {
 		t.Fatalf("write bak: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestWatchdogRollback(t *testing.T) {
 		t.Fatalf("write pending: %v", err)
 	}
 
-	// 超时未 Commit → 回滚到备份并重启
+	// no Commit before the timeout -> roll back to the backup and restart
 	Watchdog(self, 50*time.Millisecond, nil)
 	if len(*calls) != 1 {
 		t.Fatalf("rollback should re-exec once: %v", *calls)
@@ -162,7 +162,7 @@ func TestWatchdogCommitted(t *testing.T) {
 	if err := os.WriteFile(pendingPath(self), []byte(time.Now().Format(time.RFC3339)), 0o644); err != nil {
 		t.Fatalf("write pending: %v", err)
 	}
-	Commit(self) // 验证通过，标记清除
+	Commit(self) // verification passed and the marker is cleared
 
 	Watchdog(self, 50*time.Millisecond, nil)
 	if len(*calls) != 0 {
@@ -205,7 +205,7 @@ func TestDoBadDownloadURL(t *testing.T) {
 func TestDoMalformedURL(t *testing.T) {
 	self, _ := writeFakeBin(t, t.TempDir(), "agent", "#!/bin/sh\n")
 	stubExec(t)
-	// URL 无法构造请求：应止于建请求，不触网、不替换二进制。
+	// the URL cannot build a request: it should stop at building it, touching no network and replacing no binary.
 	err := Do(context.Background(), self, agentproto.Upgrade{
 		Version: "v2", URL: "http://%zz",
 	}, nil)
@@ -228,12 +228,12 @@ func TestDoSelfMissing(t *testing.T) {
 	}
 }
 
-// TestDoBackupRenameFails 备份路径被非空目录占住：替换中止，原二进制保持。
+// TestDoBackupRenameFails covers the backup path being blocked by a non-empty directory: the replacement aborts and the original binary stays.
 func TestDoBackupRenameFails(t *testing.T) {
 	dir := t.TempDir()
 	self, _ := writeFakeBin(t, dir, "agent", "#!/bin/sh\n")
 	stubExec(t)
-	// os.Remove 对非空目录失败（被忽略），随后 rename 目标非空目录 → 失败。
+	// os.Remove fails on a non-empty directory (and is ignored); the subsequent rename onto the non-empty directory -> fails.
 	if err := os.MkdirAll(filepath.Join(bakPath(self), "keep"), 0o755); err != nil {
 		t.Fatalf("mkdir blocker: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestDoBackupRenameFails(t *testing.T) {
 	}
 }
 
-// TestRollbackPendingRemoveError 待验证标记路径被非空目录占住：回滚冒错且不动二进制。
+// TestRollbackPendingRemoveError covers the pending-marker path being blocked by a non-empty directory: rollback errors and never touches the binary.
 func TestRollbackPendingRemoveError(t *testing.T) {
 	dir := t.TempDir()
 	self, _ := writeFakeBin(t, dir, "agent", "#!/bin/sh\n")
@@ -271,7 +271,7 @@ func TestRollbackPendingRemoveError(t *testing.T) {
 	}
 }
 
-// TestWatchdogRollbackFailure 回滚失败时只记日志、不重启（留在新版本等人工处理）。
+// TestWatchdogRollbackFailure covers a failed rollback: log only, no restart (stay on the new version and wait for manual handling).
 func TestWatchdogRollbackFailure(t *testing.T) {
 	dir := t.TempDir()
 	self, _ := writeFakeBin(t, dir, "agent", "#!/bin/sh\n")
@@ -286,7 +286,7 @@ func TestWatchdogRollbackFailure(t *testing.T) {
 	}
 }
 
-// TestRollbackWithoutBackup 只清标记、无备份可还原：正常返回。
+// TestRollbackWithoutBackup covers clearing only the marker with no backup to restore: a normal return.
 func TestRollbackWithoutBackup(t *testing.T) {
 	self, _ := writeFakeBin(t, t.TempDir(), "agent", "#!/bin/sh\n")
 	if err := os.WriteFile(pendingPath(self), []byte("x"), 0o644); err != nil {

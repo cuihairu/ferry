@@ -11,15 +11,15 @@ import (
 	"github.com/cuihairu/ferry/packages/agentproto"
 )
 
-// TestDoDownloadBodyError 下载中途断流（声明长度与实际不符）：报
-// download body 错误，原二进制不动、无标记。
+// TestDoDownloadBodyError covers the download stream breaking midway (declared length != actual): it reports
+// a download body error, leaving the original binary untouched and no marker.
 func TestDoDownloadBodyError(t *testing.T) {
 	self, _ := writeFakeBin(t, t.TempDir(), "agent", "#!/bin/sh\n")
 	calls := stubExec(t)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Length", "1000")
-		_, _ = w.Write([]byte("#!/bin/sh")) // 只给一部分即断开
+		_, _ = w.Write([]byte("#!/bin/sh")) // closes after sending only part of it
 	}))
 	defer srv.Close()
 
