@@ -124,6 +124,14 @@ func AutoMigrate(db *gorm.DB) error {
 		&EnrollmentToken{},
 		&CapabilityChange{},
 		&Policy{},
+		&CostProvider{},
+		&CostRecord{},
+		&CostItem{},
+		&CostAllocation{},
+		&CostEstimate{},
+		&CostReconciliation{},
+		&BillImport{},
+		&CostAllocationRule{},
 	)
 }
 
