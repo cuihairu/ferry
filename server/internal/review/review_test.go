@@ -23,18 +23,18 @@ func TestDisableInactive(t *testing.T) {
 	past := time.Now().Add(-24 * time.Hour)
 	future := time.Now().Add(24 * time.Hour)
 	users := []storage.User{
-		{Username: "expired", SubToken: "t-expired", Enabled: true, ExpiresAt: &past},   // 应停：已到期
-		{Username: "valid-exp", SubToken: "t-valid", Enabled: true, ExpiresAt: &future}, // 保留：未到期
-		{Username: "no-expiry", SubToken: "t-noexp", Enabled: true},                     // 保留：无到期
-		{Username: "already-off", SubToken: "t-off", Enabled: false, ExpiresAt: &past},  // 不动：本就停用
-		{Username: "over-quota", SubToken: "t-quota", Enabled: true, QuotaBytes: 100},   // 应停：超限（下插用量）
-		{Username: "under-quota", SubToken: "t-under", Enabled: true, QuotaBytes: 100},  // 保留：未超
-		{Username: "unlimited", SubToken: "t-unl", Enabled: true, QuotaBytes: 0},        // 保留：不限配额
+		{Username: "expired", SubToken: "t-expired", Enabled: true, ExpiresAt: &past},   // should stop: already expired
+		{Username: "valid-exp", SubToken: "t-valid", Enabled: true, ExpiresAt: &future}, // keep: not yet expired
+		{Username: "no-expiry", SubToken: "t-noexp", Enabled: true},                     // keep: no expiry
+		{Username: "already-off", SubToken: "t-off", Enabled: false, ExpiresAt: &past},  // untouched: already disabled
+		{Username: "over-quota", SubToken: "t-quota", Enabled: true, QuotaBytes: 100},   // should stop: over quota (usage seeded below)
+		{Username: "under-quota", SubToken: "t-under", Enabled: true, QuotaBytes: 100},  // keep: under quota
+		{Username: "unlimited", SubToken: "t-unl", Enabled: true, QuotaBytes: 0},        // keep: unlimited quota
 	}
 	if err := db.Create(&users).Error; err != nil {
 		t.Fatalf("seed users: %v", err)
 	}
-	// Enabled 带 default:true，直接 Create 写不进 false，显式补写停用态。
+	// Enabled carries default:true, so Create cannot write false directly; explicitly patch the disabled state.
 	if err := db.Model(&storage.User{}).Where("username=?", "already-off").
 		Update("enabled", false).Error; err != nil {
 		t.Fatalf("seed disabled user: %v", err)
@@ -96,9 +96,9 @@ func TestDisableInactiveRespectsResetCycle(t *testing.T) {
 		}
 	})
 
-	// day 用户：上月 200 超 100 配额，但窗口外不计；今日 60 未超 → 不停。
+	// day user: 200 last month exceeds the 100 quota, but out of window it does not count; today's 60 is under → not disabled.
 	dayUser := storage.User{Username: "day-u", SubToken: "c1", Enabled: true, QuotaBytes: 100, ResetCycle: "day"}
-	// none 用户：同样流量分布，全量 260 ≥ 100 → 停。
+	// none user: the same traffic distribution, total 260 >= 100 → disabled.
 	noneUser := storage.User{Username: "none-u", SubToken: "c2", Enabled: true, QuotaBytes: 100, ResetCycle: "none"}
 	users := []storage.User{dayUser, noneUser}
 	if err := db.Create(&users).Error; err != nil {
@@ -109,8 +109,8 @@ func TestDisableInactiveRespectsResetCycle(t *testing.T) {
 	now := time.Now()
 	du, nu := dayUser.ID, noneUser.ID
 	traffic := []storage.TrafficLog{
-		{UserID: &du, RxBytes: 100, TxBytes: 100, RecordedAt: now.Add(-30 * 24 * time.Hour)}, // 上月
-		{UserID: &du, RxBytes: 60, TxBytes: 0, RecordedAt: now.Add(-time.Hour)},              // 今天
+		{UserID: &du, RxBytes: 100, TxBytes: 100, RecordedAt: now.Add(-30 * 24 * time.Hour)}, // last month
+		{UserID: &du, RxBytes: 60, TxBytes: 0, RecordedAt: now.Add(-time.Hour)},              // today
 		{UserID: &nu, RxBytes: 100, TxBytes: 100, RecordedAt: now.Add(-30 * 24 * time.Hour)},
 		{UserID: &nu, RxBytes: 60, TxBytes: 0, RecordedAt: now.Add(-time.Hour)},
 	}
@@ -141,13 +141,13 @@ func TestDisableInactiveRespectsResetCycle(t *testing.T) {
 	}
 }
 
-// TestRunZeroIntervalReturns 覆盖 Run 关闭口径：interval<=0 直接返回不起循环。
+// TestRunZeroIntervalReturns covers Run's disabled criteria: interval<=0 returns directly without starting the loop.
 func TestRunZeroIntervalReturns(t *testing.T) {
-	Run(context.Background(), nil, 0) // 不应 panic 也不起 ticker
+	Run(context.Background(), nil, 0) // should not panic and not start a ticker
 }
 
-// TestRunTickDisablesAndStopsOnCancel 覆盖 Run 循环：到点执行 DisableInactive
-// （过期用户被停用），ctx 取消后退出。
+// TestRunTickDisablesAndStopsOnCancel covers the Run loop: DisableInactive runs on tick
+// (the expired user is disabled), and it exits after ctx cancel.
 func TestRunTickDisablesAndStopsOnCancel(t *testing.T) {
 	db, err := storage.Open(storage.DriverSQLite, filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {

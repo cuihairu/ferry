@@ -1,4 +1,4 @@
-// Package review 周期扫表停用到期/超限用户（P0-11，对齐 Marzban review_users）。
+// Package review periodically scans tables to disable expired/over-quota users (P0-11, aligned with Marzban review_users).
 package review
 
 import (
@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// Run 周期执行 DisableInactive，interval<=0 表示关闭。
+// Run executes DisableInactive periodically; interval<=0 means disabled.
 func Run(ctx context.Context, db *gorm.DB, interval time.Duration) {
 	if interval <= 0 {
 		return
@@ -29,7 +29,7 @@ func Run(ctx context.Context, db *gorm.DB, interval time.Duration) {
 				log.Printf("review users: %v", err)
 			} else if n > 0 {
 				log.Printf("review users: disabled %d", n)
-				// 事件外发（P1-10）：批量停用汇总一条，失败只记日志。
+				// Event outbound (P1-10): one summary per batch disable; failures only log.
 				if notifier := notify.FromDB(db); notifier.Enabled() {
 					ev := notify.Event{Event: "review.disabled",
 						Text:   fmt.Sprintf("已停用 %d 个到期/超限用户", n),
@@ -43,10 +43,10 @@ func Run(ctx context.Context, db *gorm.DB, interval time.Duration) {
 	}
 }
 
-// DisableInactive 一次性停用已到期与已超配额的启用用户，返回停用数。
-// 判定口径与订阅可用性（sub.UserActive）一致：quota=0 不限；used>=quota 即停。
-// 超限按 reset_cycle 分组批量判定（P1-4）：窗口起点只依赖周期与 now，
-// 同周期共享一条 SQL；none=全量累计。
+// DisableInactive disables enabled users that are expired or over quota in one pass, returning the count.
+// The verdict criteria match subscription availability (sub.UserActive): quota=0 means unlimited; used>=quota disables.
+// Over-quota is judged in batch per reset_cycle (P1-4): the window start depends only on the cycle and now,
+// so the same cycle shares one SQL; none = cumulative total.
 func DisableInactive(db *gorm.DB, now time.Time) (int64, error) {
 	var total int64
 	res := db.Model(&storage.User{}).
@@ -66,7 +66,7 @@ func DisableInactive(db *gorm.DB, now time.Time) (int64, error) {
 	return total, nil
 }
 
-// disableOverQuota 停用单一周期内超配额的启用用户。
+// disableOverQuota disables enabled users over quota within one cycle.
 func disableOverQuota(db *gorm.DB, cycle string, now time.Time) (int64, error) {
 	sub := "SELECT COALESCE(SUM(rx_bytes + tx_bytes), 0) FROM traffic_logs WHERE traffic_logs.user_id = users.id"
 	args := []any{true, cycle}

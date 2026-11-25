@@ -17,10 +17,10 @@ import (
 	"gorm.io/gorm"
 )
 
-// 二十二批补口：review 库故障冒错、循环内错误只记日志、停用后外通道
-// 故障容错口径。
+// Batch 22 coverage: review DB failures surfacing, in-loop errors only logged, and outbound
+// channel fault tolerance after disabling.
 
-// openDB 建文件库并迁移（与既有内联建库口径一致）。
+// openDB opens a file-backed database and migrates it (same criteria as the existing inline DB setup).
 func openDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := storage.Open(storage.DriverSQLite, filepath.Join(t.TempDir(), "review.db"))
@@ -35,7 +35,7 @@ func openDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-// closeSQL 关掉底层连接，之后库操作一律报错。
+// closeSQL closes the underlying connection so all later DB operations error.
 func closeSQL(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	sqlDB, err := db.DB()
@@ -47,7 +47,7 @@ func closeSQL(t *testing.T, db *gorm.DB) {
 	}
 }
 
-// bufLogger 线程安全日志缓冲（Run 在独立 goroutine 写）。
+// bufLogger is a thread-safe log buffer (Run writes from a separate goroutine).
 type bufLogger struct {
 	mu  sync.Mutex
 	buf bytes.Buffer
@@ -65,15 +65,15 @@ func (l *bufLogger) String() string {
 	return l.buf.String()
 }
 
-// withDefaultLog 把默认 logger 指向缓冲（Run 无 logger 注入点，只有
-// log.Printf；用例间无并行，用毕恢复 stderr）。
+// withDefaultLog points the default logger at the buffer (Run has no logger injection point, only
+// log.Printf; no tests run in parallel, stderr is restored afterwards).
 func withDefaultLog(t *testing.T, l *bufLogger) {
 	t.Helper()
 	log.SetOutput(l)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 }
 
-// waitForLog 轮询等待日志出现期望串（避免 sleep 卡死用例）。
+// waitForLog polls until the expected string appears in the log (avoids sleeps hanging the case).
 func waitForLog(t *testing.T, want string, l *bufLogger) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
@@ -86,7 +86,7 @@ func waitForLog(t *testing.T, want string, l *bufLogger) {
 	t.Fatalf("log lacks %q: %s", want, l.String())
 }
 
-// deadAddr 返回一个必被拒的本地地址（已关闭的监听端口）。
+// deadAddr returns a local address that must be refused (an already-closed listen port).
 func deadAddr(t *testing.T) string {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -100,7 +100,7 @@ func deadAddr(t *testing.T) string {
 	return addr
 }
 
-// TestDisableInactiveDBError 首查即失败：不落停用数、直接冒错。
+// TestDisableInactiveDBError covers immediate failure on the first query: no disable count, the error surfaces directly.
 func TestDisableInactiveDBError(t *testing.T) {
 	db := openDB(t)
 	closeSQL(t, db)
@@ -109,8 +109,8 @@ func TestDisableInactiveDBError(t *testing.T) {
 	}
 }
 
-// TestDisableInactiveOverQuotaError 到期停用成功、超限判定失败即冒错
-// （拆流量表：超限子查询引用它）。
+// TestDisableInactiveOverQuotaError covers expiry disabling succeeding while the over-quota pass
+// fails (drop the traffic table: the over-quota subquery references it).
 func TestDisableInactiveOverQuotaError(t *testing.T) {
 	db := openDB(t)
 	past := time.Now().Add(-24 * time.Hour)
@@ -127,7 +127,7 @@ func TestDisableInactiveOverQuotaError(t *testing.T) {
 	}
 }
 
-// TestRunLogsDisableError 循环内停用失败只记日志、不退出循环。
+// TestRunLogsDisableError covers an in-loop disable failure being only logged, without exiting the loop.
 func TestRunLogsDisableError(t *testing.T) {
 	db := openDB(t)
 	closeSQL(t, db)
@@ -149,8 +149,8 @@ func TestRunLogsDisableError(t *testing.T) {
 	}
 }
 
-// TestRunLogsNotifyFailure 停用计数大于零且外通道故障：告警只记日志，
-// 停用动作本身已生效。
+// TestRunLogsNotifyFailure covers a nonzero disable count with an outbound channel fault: the
+// alert is only logged; the disabling itself already took effect.
 func TestRunLogsNotifyFailure(t *testing.T) {
 	db := openDB(t)
 	past := time.Now().Add(-24 * time.Hour)
