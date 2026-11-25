@@ -553,8 +553,8 @@
     - 备注（Task ID: F-0040 | Status: Done | Evidence: storage.Open→AutoMigrate（storage.go:60,67-116，43 模型）；无版本化路径，演进由模型定义驱动 | Verification: storage.go+cmd/ferry/main.go:90 | Commit: c79d570）
 -   [x] `F-0041` 为破坏性 Migration 提供备份、迁移和回滚方案。
     - 备注（Task ID: F-0041 | Status: Done | Evidence: deploy/MIGRATION-RUNBOOK.md 备份/迁移/回滚；restore.sh:115-126 预备份+原子 mv；install-rollback-test.sh | Verification: deploy/ 脚本+测试 | Commit: c79d570）
--   [ ] `F-0042` 所有新增后台任务具备超时、重试上限和取消机制。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0042 | 未满足原因：背景任务超时/重试上限不一致：cert 无最大重试(无限重试)且无单次超时(cert.go:33,61)；provision 用 context.Background() 无超时无重试上限(replenish.go:87)；recovery 的 runAction goroutine 在层级超时后仍运行(recovery.go:283)。取消机制普遍具备，超时/重试上限未全覆盖——留待补齐。）
+-   [x] `F-0042` 所有新增后台任务具备超时、重试上限和取消机制。
+    - 备注（Task ID: F-0042 | Status: Done | Evidence: 三处补齐——cert：CertTask.Attempts 计数+MaxAttempts=5 封顶（dueForRetry 达顶不再重试，耗尽发 cert_issue/renew_exhausted 提醒，成功清零）+IssueTimeout=10m 单次超时（runIssue/runRenew ctx 包裹）+IssueNow 后台 goroutine 与请求 ctx 解耦（原先响应返回即取消）；provision：replenish 后台 launch 从 context.Background() 改为 sweep ctx+LaunchTimeout=15m 派生 ctx（关停也取消在途 launch）；recovery：runAction goroutine 持 LevelTimeout 截止 ctx，层级超时真正取消动作而非仅弃结果，晚到结果仍按 recovery+level 幂等丢弃 | Verification: TestSweepRetryCapStopsRetrying/TestSweepFailureTracksAttempts/TestSweepRenewFailureTracksAttempts/TestIssueAttemptTimeout/TestIssueNowDetachedContext/TestReplenishLaunchCtxBound/TestActionCancelledAtLevelDeadline；go test ./... 全绿+gofmt/vet clean | Commit: 4ca1bcd）
 -   [x] `F-0043` 所有有副作用的 API 和消息定义幂等语义。
     - 备注（Task ID: F-0043 | Status: Done | Evidence: 幂等——PaymentOrder.OrderNo uniqueIndex(models.go:347)、PaymentTransaction(provider,external_id) unique(models.go:431)、paynotify 条件态翻转(paynotify.go:66-96)、refund paid→refunded(payrecon.go:210)、redeem 条件消耗(redeem.go:75)、applyGrant 乐观守卫 | Verification: TestEpusdtNotifyConcurrentSettle/TestOrderRefundAndDetail/TestRefundRevokesGrants/TestRedeemFailureModes/TestApplyGrantLostUpdateGuard | Commit: c79d570）
 -   [x] `F-0044` 所有批量操作支持部分失败结果，不得只返回笼统成功。
