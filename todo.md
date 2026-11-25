@@ -578,8 +578,8 @@
 
 ## 1.1 Ferry 负责的能力
 
--   [ ] `F-0101` 管理用户、套餐、订阅和设备。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0101 | 未满足原因：用户/订阅/设备已具备（models.go:6,68+user.go+sub.go+subdevice.go），但套餐/Plan 管理实体缺失：无 Plan 模型、无 AutoMigrate 表、无路由——留待补。）
+-   [x] `F-0101` 管理用户、套餐、订阅和设备。
+    - 备注（Task ID: F-0101 | Status: Done | Evidence: 套餐实体补齐——storage.Plan 模型（名称唯一+启停+quota/reset_cycle/expires_days/上下行带宽/设备·IP 上限，字段口径与 User 限值面一致）入 AutoMigrate；handler/plans.go 管理 CRUD（复用 validateUserBw/validateSubLimit/resetCycleOrDefault 校验，更新走 merged 回填语义：未传字段保旧值）+ POST /api/plans/:id/apply 批量套用到用户（逐行部分失败结果 {user_id,ok,error}，expires_days>0 时 ExpiresAt=now+N 天，停用套餐拒绝套用）；路由挂 admin api 组（入审计中间件）；用户/订阅/设备管理既有 | Verification: TestPlanCRUD/TestPlanApplyUsers；go test ./... 全绿+gofmt/vet clean | Commit: 4ba025d）
 -   [x] `F-0102` 管理节点注册、认证、元数据和状态。
     - 备注（Task ID: F-0102 | Status: Done | Evidence: enroll.go+agentws 认证+models.go:64；TestEnrollExchange/TestAgentWSHelloMeta | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0103` 管理云资源与物理节点的关联关系。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
