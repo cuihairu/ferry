@@ -15,19 +15,19 @@ import (
 
 const defaultBase = "https://api.cloudflare.com/client/v4"
 
-// Cloudflare 走 Cloudflare API（Bearer Token）：zone 从记录名逐级向上定位，
-// 记录 upsert。proxied 状态随既有记录保持（橙云不因切换被改写）。
-// Base 可注入（测试指到 httptest），默认官方 API。
+// Cloudflare goes through the Cloudflare API (Bearer Token): the zone is located by walking
+// up level by level from the record name, then the record is upserted. The proxied state is kept as the
+// existing record has it (the orange cloud is not rewritten by a switch).
 type Cloudflare struct {
 	Token string
 	Base  string
-	// HTTP 缺省 10s 超时：切换是恢复流水线 L1 的秒级动作，不拖扫表。
+	// HTTP defaults to a 10s timeout: switching is a second-scale action in recovery tier L1 and must not drag down the scan.
 	HTTP *http.Client
 }
 
 func (c *Cloudflare) Kind() string { return "cloudflare" }
 
-// cfResp 是 Cloudflare API 统一响应壳。
+// cfResp is the Cloudflare API's uniform response envelope.
 type cfResp struct {
 	Success bool `json:"success"`
 	Errors  []struct {
@@ -50,7 +50,7 @@ func (c *Cloudflare) base() string {
 	return defaultBase
 }
 
-// do 发一次 GET/PUT/POST 并解出 result；非 2xx/!success 报首条错误。
+// do issues one GET/PUT/POST and extracts result; non-2xx / !success reports the first error.
 func (c *Cloudflare) do(ctx context.Context, method, path string, body any) (json.RawMessage, error) {
 	var rd io.Reader
 	if body != nil {
@@ -91,7 +91,7 @@ func (c *Cloudflare) do(ctx context.Context, method, path string, body any) (jso
 	return out.Result, nil
 }
 
-// findZone 从记录名逐级向上定位托管 zone（a.b.example.com → example.com）。
+// findZone walks up level by level from the record name to locate the hosted zone (a.b.example.com -> example.com).
 func (c *Cloudflare) findZone(ctx context.Context, fqdn string) (string, error) {
 	name := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(fqdn)), ".")
 	if name == "" {
@@ -119,7 +119,7 @@ func (c *Cloudflare) findZone(ctx context.Context, fqdn string) (string, error) 
 	}
 }
 
-// Upsert 把 name 的 rtype 记录写为 value：命中则改（保持 proxied），未命中则建。
+// Upsert writes name's rtype record to value: on a hit it is changed (keeping proxied), otherwise created.
 func (c *Cloudflare) Upsert(ctx context.Context, name, rtype, value string) error {
 	zoneID, err := c.findZone(ctx, name)
 	if err != nil {
@@ -144,12 +144,12 @@ func (c *Cloudflare) Upsert(ctx context.Context, name, rtype, value string) erro
 			fmt.Sprintf("/zones/%s/dns_records/%s", zoneID, records[0].ID), payload)
 		return err
 	}
-	payload["ttl"] = 1 // 自动
+	payload["ttl"] = 1 // automatic
 	_, err = c.do(ctx, http.MethodPost, fmt.Sprintf("/zones/%s/dns_records", zoneID), payload)
 	return err
 }
 
-// Delete 删除 name 的全部 rtype 记录（E-27 全挂撤记录）；无记录直接成功。
+// Delete removes all rtype records for name (E-27 full-outage record withdrawal); no records means plain success.
 func (c *Cloudflare) Delete(ctx context.Context, name, rtype string) error {
 	zoneID, err := c.findZone(ctx, name)
 	if err != nil {
@@ -175,8 +175,8 @@ func (c *Cloudflare) Delete(ctx context.Context, name, rtype string) error {
 	return nil
 }
 
-// truncate 取错误摘要前缀并追加省略号：截点回退到 UTF-8 字符边界（错误
-// 文案可含中文，字节硬切会截半）。
+// truncate takes the prefix of an error summary and appends an ellipsis: the cut point is walked
+// back to a UTF-8 character boundary (error text may contain Chinese, a hard byte cut would split a rune).
 func truncate(s string, n int) string {
 	return safestr.HeadEllipsis(s, n)
 }

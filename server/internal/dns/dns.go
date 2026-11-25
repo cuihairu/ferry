@@ -1,8 +1,8 @@
-// Package dns 是 DNS 商 API 插件位（BR-2 域名前置：域名不换、IP 随换）。
-// 接口最小化到 upsert 单条记录：A 记录切换由恢复流水线 L1 驱动，
-// TXT 记录留给 BR-4 ACME DNS-01 复用同一凭证与通道。
-// 未知类型不冒称支持（口径同供给 provider）：录入经 KnownKind 校验，
-// 执行经 New 报错，横扩一家=在 New 里加一个 case。
+// Package dns is the DNS provider API plugin slot (BR-2 domain fronting: the domain does not change,
+// the IP does). The interface is minimized to upserting one record: A-record switching is driven by recovery tier
+// L1, while TXT records are reserved for BR-4 ACME DNS-01 to reuse the same credentials and channel.
+// Unknown kinds never claim support (same policy as the supply providers): entry is validated via KnownKind and
+// execution via New, which errors out; adding a vendor means adding one case in New.
 package dns
 
 import (
@@ -11,21 +11,21 @@ import (
 	"fmt"
 )
 
-// Provider 是一家 DNS 商的最小写通道。
+// Provider is the minimal write channel for one DNS vendor.
 type Provider interface {
-	// Kind 是插件位类型名（与录入的 Type 对应）。
+	// Kind is the plugin-slot type name (corresponding to the recorded Type).
 	Kind() string
-	// Upsert 幂等地把 name 的 rtype 记录写为 value（有则改、无则建）。
+	// Upsert idempotently writes name's rtype record to value (change if present, create if absent).
 	Upsert(ctx context.Context, name, rtype, value string) error
-	// Delete 删除 name 的全部 rtype 记录（无记录视同成功）——区域全挂
-	// 撤记录用（E-27），同名多条全删保撤干净。
+	// Delete removes all rtype records for name (no records counts as success) - used for
+	// record withdrawal when a whole region is down (E-27); all records of the same name are removed to keep the withdrawal clean.
 	Delete(ctx context.Context, name, rtype string) error
 }
 
-// kinds 是已接入的插件位类型（KnownKind/New 共用，加一家在此登记）。
+// kinds are the wired-in plugin-slot kinds (shared by KnownKind/New; register a new vendor here).
 var kinds = []string{"cloudflare"}
 
-// KnownKind 校验类型是否已接入（录入层防冒称）。
+// KnownKind validates whether a kind is wired in (guards the entry layer against false claims).
 func KnownKind(kind string) bool {
 	for _, k := range kinds {
 		if k == kind {
@@ -35,7 +35,7 @@ func KnownKind(kind string) bool {
 	return false
 }
 
-// New 按类型造写通道；token 为解密后的明文凭证，不出方法边界。
+// New builds the write channel by kind; token is the decrypted plaintext credential and does not cross the method boundary.
 func New(kind, token string) (Provider, error) {
 	if token == "" {
 		return nil, errors.New("dns: provider token not configured")

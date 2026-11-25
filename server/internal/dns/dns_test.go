@@ -9,13 +9,13 @@ import (
 	"testing"
 )
 
-// cfFake 是最小 Cloudflare API 替身：zone 按名返回、记录 upsert 留痕。
+// cfFake is a minimal Cloudflare API stand-in: zones returned by name, record upserts leaving a trail.
 type cfFake struct {
-	zone     string  // 托管 zone 名（如 example.com）
-	records  []cfRec // 既有记录
+	zone     string  // hosted zone name (e.g. example.com)
+	records  []cfRec // existing records
 	posts    []map[string]any
 	puts     []map[string]any
-	deletes  []string // 被删记录 ID
+	deletes  []string // deleted record IDs
 	zoneGets []string
 }
 
@@ -77,7 +77,7 @@ func newFake(t *testing.T) (*Cloudflare, *cfFake) {
 	return &Cloudflare{Token: "tok-test", Base: srv.URL, HTTP: srv.Client()}, f
 }
 
-// TestCloudflareUpsertCreate 未命中记录时 POST 创建，记录名整名写入。
+// TestCloudflareUpsertCreate: on a record miss, POST creates it, writing the full record name.
 func TestCloudflareUpsertCreate(t *testing.T) {
 	c, f := newFake(t)
 	if err := c.Upsert(context.Background(), "edge.example.com", "A", "1.2.3.4"); err != nil {
@@ -91,7 +91,7 @@ func TestCloudflareUpsertCreate(t *testing.T) {
 	}
 }
 
-// TestCloudflareUpsertUpdate 命中既有记录时 PUT 更新，并保持 proxied 状态。
+// TestCloudflareUpsertUpdate: on an existing-record hit, PUT updates it while keeping the proxied state.
 func TestCloudflareUpsertUpdate(t *testing.T) {
 	c, f := newFake(t)
 	f.records = []cfRec{{ID: "rid1", Type: "A", Name: "edge.example.com", Content: "9.9.9.9", Proxied: true}}
@@ -106,7 +106,7 @@ func TestCloudflareUpsertUpdate(t *testing.T) {
 	}
 }
 
-// TestCloudflareZoneWalk 子域逐级向上定位到 example.com 的 zone。
+// TestCloudflareZoneWalk: a subdomain walks up level by level to example.com's zone.
 func TestCloudflareZoneWalk(t *testing.T) {
 	c, f := newFake(t)
 	if err := c.Upsert(context.Background(), "a.b.example.com", "A", "1.1.1.1"); err != nil {
@@ -117,7 +117,7 @@ func TestCloudflareZoneWalk(t *testing.T) {
 	}
 }
 
-// TestCloudflareNoZone zone 一路向上找不到：报错不冒称成功。
+// TestCloudflareNoZone: if no zone is found walking all the way up, error out rather than claiming success.
 func TestCloudflareNoZone(t *testing.T) {
 	c, _ := newFake(t)
 	err := c.Upsert(context.Background(), "edge.other.net", "A", "1.1.1.1")
@@ -126,7 +126,7 @@ func TestCloudflareNoZone(t *testing.T) {
 	}
 }
 
-// TestNewKinds 插件位登记口径：已接入造实例，未知类型不冒称支持。
+// TestNewKinds: the plugin-slot registration policy - a wired kind builds an instance, an unknown kind does not claim support.
 func TestNewKinds(t *testing.T) {
 	if _, err := New("cloudflare", "tok"); err != nil {
 		t.Fatal(err)
@@ -142,8 +142,8 @@ func TestNewKinds(t *testing.T) {
 	}
 }
 
-// TestCloudflareDelete 覆盖全挂撤记录：命中 rtype 记录逐个删、无记录
-// 直接成功、zone 外名称报错；Kind 名固定 cloudflare。
+// TestCloudflareDelete covers record withdrawal on a full outage: matching rtype records are deleted
+// one by one, no records is an immediate success, names outside the zone error out; the Kind name is fixed at cloudflare.
 func TestCloudflareDelete(t *testing.T) {
 	c, f := newFake(t)
 	if got := c.Kind(); got != "cloudflare" {
@@ -158,7 +158,7 @@ func TestCloudflareDelete(t *testing.T) {
 		t.Fatalf("deletes = %v; want r1,r2", f.deletes)
 	}
 
-	// 无记录：直接成功，零删除调用
+	// No records: immediate success with zero delete calls
 	f.records, f.deletes = nil, nil
 	if err := c.Delete(context.Background(), "clean.example.com", "A"); err != nil {
 		t.Fatalf("delete with no records: %v", err)
@@ -167,13 +167,13 @@ func TestCloudflareDelete(t *testing.T) {
 		t.Fatalf("no-record delete issued %v", f.deletes)
 	}
 
-	// zone 外名称：findZone 找不到托管 zone
+	// A name outside the zone: findZone cannot locate a hosted zone
 	if err := c.Delete(context.Background(), "elsewhere.org", "A"); err == nil {
 		t.Fatal("delete outside zone should error")
 	}
 }
 
-// TestTruncate 截断超长错误摘要：短串原样、长串按字节截断加省略号。
+// TestTruncate: truncating an overlong error summary - a short string passes through, a long one is byte-truncated with an ellipsis.
 func TestTruncate(t *testing.T) {
 	if got := truncate("short", 10); got != "short" {
 		t.Fatalf("truncate short = %q; want unchanged", got)
@@ -184,7 +184,7 @@ func TestTruncate(t *testing.T) {
 	}
 }
 
-// TestCloudflareDefaults 未注入时的缺省：HTTP 客户端兜底非 nil、Base 回退官方 API。
+// TestCloudflareDefaults: defaults when nothing is injected - the HTTP client fallback is non-nil, Base falls back to the official API.
 func TestCloudflareDefaults(t *testing.T) {
 	c := &Cloudflare{Token: "tok"}
 	if c.client() == nil {
@@ -195,8 +195,8 @@ func TestCloudflareDefaults(t *testing.T) {
 	}
 }
 
-// TestCloudflareDoErrors do 的四类失败：非法方法构造即败、端点不可达、
-// 非 JSON 响应体走 http %d 口径、success=false 报首条错误消息。
+// TestCloudflareDoErrors: do's four failure classes - an invalid method fails at construction, an
+// unreachable endpoint, a non-JSON response body taking the http %d path, and success=false reporting the first error message.
 func TestCloudflareDoErrors(t *testing.T) {
 	c := &Cloudflare{Token: "tok"}
 	if _, err := c.do(context.Background(), "BAD METHOD", "/zones", nil); err == nil {

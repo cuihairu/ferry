@@ -10,8 +10,8 @@ import (
 	"testing"
 )
 
-// errFake 可编程 Cloudflare API 替身：override 命中即按其返回（状态码+体），
-// 未命中走最小正确路由（zone 恒 zid1、记录恒一条）。
+// errFake is a programmable Cloudflare API stand-in: on an override hit it returns as configured
+// (status code + body), otherwise it takes a minimal correct route (zone always zid1, records always one).
 func errFake(t *testing.T, override func(r *http.Request) (int, string)) *Cloudflare {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -35,7 +35,7 @@ func errFake(t *testing.T, override func(r *http.Request) (int, string)) *Cloudf
 	return &Cloudflare{Token: "tok", Base: srv.URL, HTTP: srv.Client()}
 }
 
-// TestCloudflareDoMarshalError 请求体不可序列化：组包即报错，不触网。
+// TestCloudflareDoMarshalError: an unserializable request body errors at packing time, without any network call.
 func TestCloudflareDoMarshalError(t *testing.T) {
 	c := &Cloudflare{Token: "tok", Base: "http://127.0.0.1:1", HTTP: &http.Client{}}
 	if _, err := c.do(context.Background(), http.MethodPost, "/zones",
@@ -53,7 +53,7 @@ type rtFunc func(*http.Request) (*http.Response, error)
 
 func (f rtFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-// TestCloudflareDoBodyReadError 响应体读一半断流：按读失败原样上抛。
+// TestCloudflareDoBodyReadError: the response body breaks mid-read; the read failure is surfaced as is.
 func TestCloudflareDoBodyReadError(t *testing.T) {
 	c := &Cloudflare{Token: "tok", Base: "http://127.0.0.1:1", HTTP: &http.Client{
 		Transport: rtFunc(func(*http.Request) (*http.Response, error) {
@@ -67,7 +67,7 @@ func TestCloudflareDoBodyReadError(t *testing.T) {
 	}
 }
 
-// TestCloudflareEmptyRecordName 空记录名：定位 zone 前即拒绝。
+// TestCloudflareEmptyRecordName: an empty record name is rejected before zone location.
 func TestCloudflareEmptyRecordName(t *testing.T) {
 	c, _ := newFake(t)
 	ctx := context.Background()
@@ -79,7 +79,7 @@ func TestCloudflareEmptyRecordName(t *testing.T) {
 	}
 }
 
-// TestCloudflareZoneQueryFailure zone 查询失败：逐级上抛，不冒称无 zone。
+// TestCloudflareZoneQueryFailure: a zone query failure is escalated level by level, never claiming no zone.
 func TestCloudflareZoneQueryFailure(t *testing.T) {
 	c := errFake(t, func(r *http.Request) (int, string) {
 		if r.URL.Path == "/zones" {
@@ -93,7 +93,7 @@ func TestCloudflareZoneQueryFailure(t *testing.T) {
 	}
 }
 
-// TestCloudflareZonesBadJSON zone 响应体不是数组：解包报错。
+// TestCloudflareZonesBadJSON: a zone response body that is not an array errors at unpacking.
 func TestCloudflareZonesBadJSON(t *testing.T) {
 	c := errFake(t, func(r *http.Request) (int, string) {
 		if r.URL.Path == "/zones" {
@@ -106,8 +106,8 @@ func TestCloudflareZonesBadJSON(t *testing.T) {
 	}
 }
 
-// TestCloudflareUpsertRecordsFailures upsert 的记录查询两档失败：HTTP 500
-// 与 result 非数组都报错，不走到写入。
+// TestCloudflareUpsertRecordsFailures: the two failure tiers of upsert's record query - an HTTP 500
+// and a non-array result both error out, without ever reaching the write.
 func TestCloudflareUpsertRecordsFailures(t *testing.T) {
 	ctx := context.Background()
 
@@ -133,8 +133,8 @@ func TestCloudflareUpsertRecordsFailures(t *testing.T) {
 	}
 }
 
-// TestCloudflareDeleteRecordsFailures delete 的记录查询两档失败与单条删除
-// 失败：都报错不冒称撤干净。
+// TestCloudflareDeleteRecordsFailures: the two failure tiers of delete's record query and a single
+// deletion failure - all error out rather than claiming a clean withdrawal.
 func TestCloudflareDeleteRecordsFailures(t *testing.T) {
 	ctx := context.Background()
 
