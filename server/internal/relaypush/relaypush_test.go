@@ -31,8 +31,8 @@ func newTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-// TestRenderOverride 覆盖落地覆盖 spec 渲染：地址=address:port，
-// ws-tls 透传插件名，其余走缺省（字段省略），空地址拒绝。
+// TestRenderOverride covers landing override spec rendering: address = address:port,
+// ws-tls passes the plugin name through, the rest take the default (the field is omitted), and an empty address is rejected.
 func TestRenderOverride(t *testing.T) {
 	ov, err := RenderOverride(storage.Node{Address: "hk.example.com", Port: 443, Transport: "tls"})
 	if err != nil {
@@ -53,11 +53,11 @@ func TestRenderOverride(t *testing.T) {
 	}
 }
 
-// TestRepoint 覆盖重指下发：offline 也留痕 failed（重试依据）；
-// manual 优先于 auto；无生效分配不动作。
+// TestRepoint covers re-pointing pushes: offline also leaves a failed trail (the retry basis);
+// manual wins over auto; with no effective assignment it does nothing.
 func TestRepoint(t *testing.T) {
 	db := newTestDB(t)
-	p := New(db, agenthub.New(), nil) // 空 hub：全部离线
+	p := New(db, agenthub.New(), nil) // empty hub: everything offline
 
 	entry := storage.Node{Name: "entry-x", Token: "t1", Role: "entry", Enabled: true}
 	landA := storage.Node{Name: "land-a", Token: "t2", Role: "landing", Enabled: true,
@@ -70,7 +70,7 @@ func TestRepoint(t *testing.T) {
 		}
 	}
 
-	// 无分配：不动作。
+	// No assignment: do nothing.
 	if err := p.Repoint(entry.ID); err != nil {
 		t.Fatalf("repoint without assignment: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestRepoint(t *testing.T) {
 		}
 	}
 
-	// auto 指向 land-a：offline 留痕 failed，payload 为渲染出的覆盖 spec。
+	// auto points at land-a: offline leaves a failed trail, and the payload is the rendered override spec.
 	seedAssign(landA.ID, alloc.PolicyCostFirst)
 	if err := p.Repoint(entry.ID); !errors.Is(err, agenthub.ErrOffline) {
 		t.Fatalf("repoint offline err = %v", err)
@@ -106,18 +106,18 @@ func TestRepoint(t *testing.T) {
 		t.Fatalf("payload = %s", row.Payload)
 	}
 
-	// 再挂一条更新的 auto 行指向 land-b：取最新 auto。
+	// Attach a newer auto row pointing at land-b: the newest auto is taken.
 	seedAssign(landB.ID, alloc.PolicyLeastConn)
 	if err := p.Repoint(entry.ID); !errors.Is(err, agenthub.ErrOffline) {
 		t.Fatalf("repoint offline err = %v", err)
 	}
-	row = storage.NodeConfig{} // 复用结构体带主键会变查询条件，先清零
+	row = storage.NodeConfig{} // reuse the struct: a primary key left in would turn it into a query condition, so zero it first
 	db.Where("node_id = ?", entry.ID).Order("id DESC").First(&row)
 	if row.Payload != `{"landing_addr":"b.example.com:8443","tunnel":"ws-tls"}` {
 		t.Fatalf("payload (latest auto) = %s", row.Payload)
 	}
 
-	// 更早的 manual 行优先于一切 auto：manual 指回 land-a。
+	// An earlier manual row wins over every auto: manual points back at land-a.
 	manual := storage.LandingAssignment{
 		EntryNodeID: &entry.ID, LandingNodeID: landA.ID, Strategy: alloc.PolicyManual,
 		Direction: "out", AssignedAt: time.Now().Add(-time.Hour),
@@ -135,7 +135,7 @@ func TestRepoint(t *testing.T) {
 	}
 }
 
-// TestOnSwitchDedup 覆盖换线回调：同一入口多事件只推一次。
+// TestOnSwitchDedup covers the line-switch callback: many events for the same entry push only once.
 func TestOnSwitchDedup(t *testing.T) {
 	db := newTestDB(t)
 	p := New(db, agenthub.New(), nil)
@@ -165,8 +165,8 @@ func TestOnSwitchDedup(t *testing.T) {
 	}
 }
 
-// ackWriter 冒充 agent 连接：收到 config.push 即按 reply 回一条同 ID 应答。
-// reply 传 nil 表示不回应（触发超时分支）。
+// ackWriter impersonates an agent connection: on receiving config.push it replies with a same-ID answer per reply.
+// A nil reply means no answer (triggering the timeout branch).
 type ackWriter struct {
 	mu       sync.Mutex
 	got      []agentproto.Envelope
@@ -208,7 +208,7 @@ func (w *ackWriter) last(t *testing.T) agentproto.Envelope {
 	return w.got[len(w.got)-1]
 }
 
-// onlineHub 起一条在线连接；reply 为 nil 时不回包。
+// onlineHub brings up one online connection; with a nil reply it does not answer.
 func onlineHub(t *testing.T, nodeID uint, reply func(id string) (agentproto.Envelope, bool)) (*agenthub.Hub, *ackWriter) {
 	t.Helper()
 	hub := agenthub.New()
@@ -236,7 +236,7 @@ func lastConfig(t *testing.T, db *gorm.DB, nodeID uint) storage.NodeConfig {
 	return row
 }
 
-// TestPushAckApplied 在线且 ack.OK：落库 applied、返回 0、载荷与摘要一致。
+// TestPushAckApplied online and ack.OK: applied is persisted, 0 is returned, and the payload matches the digest.
 func TestPushAckApplied(t *testing.T) {
 	db := newTestDB(t)
 	hub, w := onlineHub(t, 7, func(id string) (agentproto.Envelope, bool) {
@@ -264,7 +264,7 @@ func TestPushAckApplied(t *testing.T) {
 	}
 }
 
-// TestPushAckRejected ack.OK=false 属业务失败：留痕 failed 但按 nil err 返回。
+// TestPushAckRejected ack.OK=false is a business failure: a failed trail is left but a nil err is returned.
 func TestPushAckRejected(t *testing.T) {
 	db := newTestDB(t)
 	hub, _ := onlineHub(t, 7, func(id string) (agentproto.Envelope, bool) {
@@ -281,7 +281,7 @@ func TestPushAckRejected(t *testing.T) {
 	}
 }
 
-// TestPushBadAckDecode 应答载荷解不开：按 502 留痕。
+// TestPushBadAckDecode an undecodable answer payload: a 502 trail is left.
 func TestPushBadAckDecode(t *testing.T) {
 	db := newTestDB(t)
 	hub, _ := onlineHub(t, 7, func(id string) (agentproto.Envelope, bool) {
@@ -303,14 +303,14 @@ func TestPushBadAckDecode(t *testing.T) {
 	}
 }
 
-// TestPushTimeout 在线不回包：ErrTimeout → 504 留痕（缩短窗口跑）。
+// TestPushTimeout online but no answer: ErrTimeout -> a 504 trail (with the window shortened).
 func TestPushTimeout(t *testing.T) {
 	old := ackTimeout
 	ackTimeout = 50 * time.Millisecond
 	t.Cleanup(func() { ackTimeout = old })
 
 	db := newTestDB(t)
-	hub, _ := onlineHub(t, 7, nil) // reply=nil：不回应
+	hub, _ := onlineHub(t, 7, nil) // reply=nil: no answer
 	p := New(db, hub, nil)
 
 	row, code, err := p.Push(7, "relay", "relay", `{}`)
@@ -322,13 +322,13 @@ func TestPushTimeout(t *testing.T) {
 	}
 }
 
-// TestPushSendError 连接已关闭：写失败按 502 留痕。
+// TestPushSendError a closed connection: the write failure leaves a 502 trail.
 func TestPushSendError(t *testing.T) {
 	db := newTestDB(t)
 	hub, w := onlineHub(t, 7, nil)
 	conn := agenthub.NewConn(7, w)
 	hub.Register(conn)
-	conn.Close() // 底层已关：Send 直接 ErrOffline
+	conn.Close() // already closed underneath: Send gives ErrOffline directly
 	p := New(db, hub, nil)
 
 	row, code, err := p.Push(7, "relay", "relay", `{}`)
@@ -340,7 +340,7 @@ func TestPushSendError(t *testing.T) {
 	}
 }
 
-// TestRepointLandingErrors 覆盖重指的落地侧异常：落地节点缺失与地址为空都直接返回错误，不下发。
+// TestRepointLandingErrors covers landing-side anomalies of re-pointing: a missing landing node and an empty address both return an error directly, without pushing.
 func TestRepointLandingErrors(t *testing.T) {
 	db := newTestDB(t)
 	p := New(db, agenthub.New(), nil)
@@ -359,12 +359,12 @@ func TestRepointLandingErrors(t *testing.T) {
 		}
 	}
 
-	// 分配指向已不存在的落地：查库失败即返回。
+	// The assignment points at a landing that no longer exists: the DB lookup failure returns immediately.
 	seed(999)
 	if err := p.Repoint(entry.ID); !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("repoint missing landing = %v; want record not found", err)
 	}
-	// 落地地址为空：渲染失败即返回。
+	// The landing address is empty: the render failure returns immediately.
 	noAddr := storage.Node{Name: "land-y", Token: "t3", Role: "landing", Enabled: true, Port: 443}
 	if err := db.Create(&noAddr).Error; err != nil {
 		t.Fatal(err)
@@ -376,7 +376,7 @@ func TestRepointLandingErrors(t *testing.T) {
 	if err := p.Repoint(entry.ID); err == nil {
 		t.Fatal("repoint with empty landing address should fail")
 	}
-	// 两种失败都不应留下下发留痕。
+	// Neither failure should leave a push trail behind.
 	var n int64
 	db.Model(&storage.NodeConfig{}).Where("node_id = ?", entry.ID).Count(&n)
 	if n != 0 {

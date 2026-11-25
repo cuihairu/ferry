@@ -1,6 +1,6 @@
-// Package relaypush 把落地分配变更渲染成 relay 落地覆盖 spec 并经
-// config.push 下发到入口 agent（E-16b 摘挂热更新换线）：agent 侧 relay
-// 覆盖文件 SIGHUP 热重指，新连接走新落地、存量连接排空。
+// Package relaypush renders landing-assignment changes into a relay landing override spec and pushes it to
+// the entry agent via config.push (E-16b hot-update line switching on attach/detach): on the agent side the relay
+// override file is re-pointed by a SIGHUP hot reload, so new connections take the new landing while existing ones drain.
 package relaypush
 
 import (
@@ -19,18 +19,18 @@ import (
 	"gorm.io/gorm"
 )
 
-// ackTimeout 覆盖 agent 侧校验命令 + reload 的最坏耗时（与配置下发同口径）。
-// 声明为变量便于测试缩短窗口。
+// ackTimeout covers the worst-case time of the agent-side validation command plus reload (same policy as config push).
+// Declared as a variable so tests can shorten the window.
 var ackTimeout = 60 * time.Second
 
-// Pusher 持有库与 agent 连接枢纽，把落地指向变更推到入口。
+// Pusher holds the DB and the agent-connection hub and pushes landing re-pointings to entries.
 type Pusher struct {
 	db  *gorm.DB
 	hub *agenthub.Hub
 	log *log.Logger
 }
 
-// New 创建推送器；logger 空取标准日志。
+// New creates a pusher; a nil logger falls back to the standard logger.
 func New(db *gorm.DB, hub *agenthub.Hub, logger *log.Logger) *Pusher {
 	if logger == nil {
 		logger = log.Default()
@@ -38,15 +38,15 @@ func New(db *gorm.DB, hub *agenthub.Hub, logger *log.Logger) *Pusher {
 	return &Pusher{db: db, hub: hub, log: logger}
 }
 
-// Override 是 relay 落地覆盖 spec：只含面板权威的落地指向字段，
-// listen 等本机参数沿用节点上的 agent 配置（agent 侧按非空字段合并）。
+// Override is the relay landing override spec: it contains only the panel-authoritative landing fields;
+// local parameters such as listen keep the agent config on the node (the agent merges by non-empty fields).
 type Override struct {
 	LandingAddr string `json:"landing_addr"`
 	Tunnel      string `json:"tunnel,omitempty"`
 }
 
-// RenderOverride 由落地节点渲染覆盖 spec：地址=落地 address:port；
-// 传输映射 ws-tls→ws-tls，其余（tls/quic/ssh/空）走缺省 tls-camo。
+// RenderOverride renders the override spec from the landing node: address = the landing's address:port;
+// the transport maps ws-tls -> ws-tls, everything else (tls/quic/ssh/empty) takes the default tls-camo.
 func RenderOverride(landing storage.Node) (string, error) {
 	if landing.Address == "" {
 		return "", errors.New("landing address is empty")
@@ -62,10 +62,10 @@ func RenderOverride(landing storage.Node) (string, error) {
 	return string(b), nil
 }
 
-// Push 下发一份节点配置并按 ack 留痕（与 handler 的手动配置下发同链路）：
-// 落库 pending → agenthub 等待 config.ack → 按结果置 applied/failed。
-// 返回 err != nil 时 status 为对应 HTTP 语义码；agent ack 的 OK=false
-// 属业务失败，留痕后按 nil err 返回。
+// Push pushes a node config and leaves a trail by ack (the same path as the handler's manual config push):
+// pending is persisted -> agenthub waits for config.ack -> applied/failed is set by the result.
+// When err != nil, status is the corresponding HTTP semantic code; an agent ack with OK=false
+// is a business failure, left in the trail and returned as a nil err.
 func (p *Pusher) Push(nodeID uint, proc, kind, payload string) (storage.NodeConfig, int, error) {
 	sum := sha256.Sum256([]byte(payload))
 	digest := hex.EncodeToString(sum[:])
@@ -110,7 +110,7 @@ func (p *Pusher) Push(nodeID uint, proc, kind, payload string) (storage.NodeConf
 	return row, 0, nil
 }
 
-// finish 把下发结果写回留痕记录；失败仅记日志（记录本身已可追溯）。
+// finish writes the push result back into the trail record; a failure only logs (the record itself is already traceable).
 func (p *Pusher) Finish(row *storage.NodeConfig, status string, reverted, validated bool, errMsg string) {
 	updates := map[string]any{
 		"status": status, "reverted": reverted, "validated": validated, "error": errMsg,
@@ -122,8 +122,8 @@ func (p *Pusher) Finish(row *storage.NodeConfig, status string, reverted, valida
 	row.Status, row.Reverted, row.Validated, row.Error = status, reverted, validated, errMsg
 }
 
-// OnSwitch 是 alloc 换线回调（E-16b）：变更列表去重入口，逐个重指现行落地。
-// 单入口失败只记日志，不中断其余入口。
+// OnSwitch is the alloc line-switch callback (E-16b): it dedups the entries in the change list and re-points each
+// current landing. A single entry's failure only logs and does not interrupt the remaining entries.
 func (p *Pusher) OnSwitch(events []alloc.SwitchEvent) {
 	seen := map[uint]bool{}
 	for _, ev := range events {
@@ -137,15 +137,15 @@ func (p *Pusher) OnSwitch(events []alloc.SwitchEvent) {
 	}
 }
 
-// Repoint 把入口现行生效分配（manual 优先，其次最新 auto）渲染为 relay
-// 覆盖 spec 并下发；无生效分配不动作。agent 离线/超时留痕 failed 等重试。
+// Repoint renders the entry's currently effective assignment (manual first, then the newest auto) into a relay
+// override spec and pushes it; with no effective assignment it does nothing. An offline / timed-out agent leaves a failed trail to await a retry.
 func (p *Pusher) Repoint(entryID uint) error {
 	var row storage.LandingAssignment
 	err := p.db.Where("entry_node_id = ? AND released_at IS NULL", entryID).
 		Order("CASE WHEN strategy = 'manual' THEN 0 ELSE 1 END, id DESC").
 		First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil // 入口没挂分配，无需重指
+		return nil // the entry has no assignment, no re-pointing needed
 	}
 	if err != nil {
 		return err
