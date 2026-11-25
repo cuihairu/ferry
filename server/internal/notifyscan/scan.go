@@ -1,7 +1,7 @@
-// Package notifyscan 站内信自动触发（NT-2）：定时扫描到期与流量阈值两类，
-// 每档跑一次、按日去重（同一用户同一类型一天至多一条）；发放到账的事件
-// 触发在 handler.applyGrant 事务内直落，公告扇出在管理 API，都不经过本包。
-// 定时公告（P2-5）到点扇出经 announce.RunDue 在本包 Sweep 内执行。
+// Package notifyscan triggers in-app notifications automatically (NT-2): a timed
+// sweep over two kinds, expiry and traffic threshold, each tiered once and deduped
+// per day (at most one of the same type per user per day); the
+// grant-received event triggers land inside the handler.applyGrant transaction and the announcement fan-out sits in the admin API, neither going through this package;
 package notifyscan
 
 import (
@@ -19,11 +19,11 @@ import (
 	"gorm.io/gorm"
 )
 
-// expiryDaysWindow 到期提醒窗口：7 天内（含已到期）提醒。
+// expiryDaysWindow is the expiry reminder window: remind within 7 days (including already expired).
 const expiryDaysWindow = 7
 
-// Loop 定时扫描（对齐 recovery/cert 的 Loop 口径）：interval 由配置给，
-// 建议 1h 量级——去重按日，跑得再勤也不会多发。
+// Loop is the timed sweep (matching the Loop convention of recovery/cert): interval comes
+// from config; 1h order of magnitude is suggested - dedup is per day, so a tighter sweep can never over-send.
 func Loop(ctx context.Context, db *gorm.DB, interval time.Duration, logger *log.Logger) {
 	if logger == nil {
 		logger = log.Default()
@@ -42,19 +42,19 @@ func Loop(ctx context.Context, db *gorm.DB, interval time.Duration, logger *log.
 	}
 }
 
-// Sweep 跑一轮扫描；到期、流量、定时公告各自独立，互不阻断，错误合并返回。
+// Sweep runs one sweep round; expiry, traffic and scheduled announcements are each independent, never blocking each other, with errors joined and returned.
 func Sweep(db *gorm.DB, now time.Time) error {
 	return errors.Join(sweepExpiry(db, now), sweepTraffic(db, now), sweepAnnouncements(db, now))
 }
 
-// sweepAnnouncements 扇出到点的定时公告（P2-5，announce.RunDue）。
+// sweepAnnouncements fans out due scheduled announcements (P2-5, announce.RunDue).
 func sweepAnnouncements(db *gorm.DB, now time.Time) error {
 	_, err := announce.RunDue(db, now)
 	return err
 }
 
-// sweepExpiry 到期扫描：enabled + 未关掉偏好 + 7 天内到期（含已过期）的用户
-// 各提醒一条；今天已发过的不再发。
+// sweepExpiry is the expiry sweep: enabled + preference not turned off + expiring within 7 days
+// (including already expired) users each get one reminder; those already sent today are skipped.
 func sweepExpiry(db *gorm.DB, now time.Time) error {
 	var users []storage.User
 	horizon := now.AddDate(0, 0, expiryDaysWindow)
@@ -80,8 +80,8 @@ func sweepExpiry(db *gorm.DB, now time.Time) error {
 		}).Error; err != nil {
 			return err
 		}
-		// 站外投递走同一事件接口（HERALD-4）：站内信已落才发，去重随通知闸门。
-		// Emit 只在落库失败时返错（与站内信同一 DB），失败不阻断扫描。
+		// Out-of-site delivery goes through the same event interface (HERALD-4): it is sent only
+		// after the in-app notification is written; dedup rides on the notification gate. Emit returns an error only on write failure (same DB as the notification) and does not block the sweep.
 		_, _ = herald.Emit(db, herald.EmitInput{
 			Kind: herald.KindExpire, Severity: herald.SeverityInfo,
 			Title:    expiryText(*u.ExpiresAt, now),
@@ -93,7 +93,7 @@ func sweepExpiry(db *gorm.DB, now time.Time) error {
 	return nil
 }
 
-// expiryText 到期文案：差值按整天向上取整（不到一天也算 1 天）。
+// expiryText is the expiry wording: the difference is rounded up to whole days (under a day still counts as 1 day).
 func expiryText(exp, now time.Time) string {
 	days := int(math.Ceil(exp.Sub(now).Hours() / 24))
 	switch {
@@ -106,8 +106,8 @@ func expiryText(exp, now time.Time) string {
 	}
 }
 
-// sweepTraffic 流量扫描：enabled + 未关掉偏好 + 有配额的用户，按各自重置
-// 周期窗口算用量，达到个人阈值（未设/越界回落 80）才提醒；今天已发过的不再发。
+// sweepTraffic is the traffic sweep: enabled + preference not turned off + users with a quota, computing usage over each user's own reset-cycle window and reminding only when the
+// personal threshold is reached (unset/out-of-range falls back to 80); those already sent today are skipped.
 func sweepTraffic(db *gorm.DB, now time.Time) error {
 	var users []storage.User
 	if err := db.Where("enabled = ? AND notify_traffic = ? AND quota_bytes > 0",
@@ -145,7 +145,7 @@ func sweepTraffic(db *gorm.DB, now time.Time) error {
 		}).Error; err != nil {
 			return err
 		}
-		// 站外投递走同一事件接口（HERALD-4），口径同到期扫描。
+		// Out-of-site delivery goes through the same event interface (HERALD-4), with the same rules as the expiry sweep.
 		_, _ = herald.Emit(db, herald.EmitInput{
 			Kind: herald.KindQuota, Severity: herald.SeverityInfo,
 			Title:    title,
@@ -157,7 +157,7 @@ func sweepTraffic(db *gorm.DB, now time.Time) error {
 	return nil
 }
 
-// notifiedToday 返回今天已发过该类型通知的用户集合（按日去重，一天至多一条）。
+// notifiedToday returns the set of users already sent this notification type today (per-day dedup, at most one per day).
 func notifiedToday(db *gorm.DB, typ string, now time.Time) (map[int64]bool, error) {
 	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	var ids []int64

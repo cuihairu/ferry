@@ -12,8 +12,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// newTestDB 建内存库并迁移全部表。按测试名+时刻隔离：cache=shared 共库
-// 会跨测试残留行（-count=2 串场教训在案）。
+// newTestDB opens an in-memory DB and migrates every table. Isolated by test name + timestamp:
+// a shared cache DB would leak rows across tests (the -count=2 cross-talk lesson is on record).
 func newTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	dsn := fmt.Sprintf("file:notifyscan-%s-%d?mode=memory&cache=shared", t.Name(), time.Now().UnixNano())
@@ -32,8 +32,8 @@ func at(days int) *time.Time {
 	return &d
 }
 
-// seedUser 建用户并显式回写布尔偏好：GORM 对零值 bool 的 Create 跳过落
-// 默认值 true，且会用默认值回填 struct（故更新 map 必须在 Create 前取值）。
+// seedUser creates a user and writes back the boolean preferences explicitly: GORM skips
+// the default true on Create for a zero bool and back-fills the struct with the default (so the update map must be taken before Create).
 func seedUser(t *testing.T, db *gorm.DB, u storage.User) storage.User {
 	t.Helper()
 	want := map[string]any{
@@ -48,8 +48,8 @@ func seedUser(t *testing.T, db *gorm.DB, u storage.User) storage.User {
 	return u
 }
 
-// TestSweepExpiry 覆盖到期扫描：窗口内提醒、窗口外不提、关偏好不提、
-// 禁用不提、同日去重、跨日再发。
+// TestSweepExpiry covers the expiry sweep: inside the window reminds, outside does not,
+// preference off does not, disabled does not, same-day dedup, next-day re-sends.
 func TestSweepExpiry(t *testing.T) {
 	db := newTestDB(t)
 	users := []storage.User{
@@ -72,7 +72,7 @@ func TestSweepExpiry(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("expiry notifications = %d, want 1（仅窗口内启用且开偏好的 exp-3d）", len(rows))
 	}
-	// 站外事件（HERALD-4）：随站内信同落 expire 事件，target=user:<id>
+	// Out-of-site event (HERALD-4): lands an expire event alongside the in-app notification, target=user:<id>
 	var evs []storage.Event
 	if err := db.Where("kind = ?", "expire").Find(&evs).Error; err != nil {
 		t.Fatal(err)
@@ -82,7 +82,7 @@ func TestSweepExpiry(t *testing.T) {
 		t.Fatalf("expire events = %+v", evs)
 	}
 
-	// 同日再扫：去重不发
+	// Sweep again the same day: deduped, nothing sent
 	if err := Sweep(db, now); err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestSweepExpiry(t *testing.T) {
 		t.Fatalf("same-day expire events = %d, want 1", n)
 	}
 
-	// 跨日再扫：再发一条
+	// Sweep the next day: sends one more
 	if err := Sweep(db, now.Add(24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestSweepExpiry(t *testing.T) {
 		t.Fatalf("next-day expire events = %d, want 2", n)
 	}
 
-	// 已到期（差值为负）也提醒，文案带「已到期」
+	// Already expired (negative difference) also reminds, with "already expired" wording
 	past := now.AddDate(0, 0, -2)
 	users[0].ExpiresAt = &past
 	if err := db.Save(&users[0]).Error; err != nil {
@@ -131,8 +131,8 @@ func TestSweepExpiry(t *testing.T) {
 	}
 }
 
-// TestSweepTraffic 覆盖流量扫描：达阈值提醒、未达不提、关偏好不提、
-// 个人阈值生效、同日去重。
+// TestSweepTraffic covers the traffic sweep: reaching the threshold reminds, below it does not,
+// preference off does not, the personal threshold applies, same-day dedup.
 func TestSweepTraffic(t *testing.T) {
 	db := newTestDB(t)
 	gb := int64(1) << 30
@@ -145,7 +145,7 @@ func TestSweepTraffic(t *testing.T) {
 	for i := range users {
 		users[i] = seedUser(t, db, users[i])
 	}
-	// 用量：tr-90 90%（达默认 80）、tr-low 10%（不达）、tr-custom 90%（未达其 95）
+	// Usage: tr-90 90% (reaches the default 80), tr-low 10% (does not), tr-custom 90% (below its 95)
 	usage := map[string]int64{"tr-90": gb * 90 / 100, "tr-low": gb * 10 / 100, "tr-custom": gb * 90 / 100}
 	now := time.Now()
 	for name, used := range usage {
@@ -168,7 +168,7 @@ func TestSweepTraffic(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("traffic notifications = %d, want 1（仅 tr-90 达阈值）", len(rows))
 	}
-	// 站外事件（HERALD-4）：随站内信同落 quota 事件
+	// Out-of-site event (HERALD-4): lands a quota event alongside the in-app notification
 	var tr storage.User
 	if err := db.Where("username = ?", "tr-90").First(&tr).Error; err != nil {
 		t.Fatal(err)
@@ -181,7 +181,7 @@ func TestSweepTraffic(t *testing.T) {
 		t.Fatalf("quota events = %+v", evs)
 	}
 
-	// 同日去重
+	// Same-day dedup
 	if err := Sweep(db, now); err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestSweepTraffic(t *testing.T) {
 	}
 }
 
-// TestSweepEmpty 库里没有候选用户时扫描应安静通过。
+// TestSweepEmpty: with no candidate users in the DB the sweep should pass quietly.
 func TestSweepEmpty(t *testing.T) {
 	db := newTestDB(t)
 	if err := Sweep(db, time.Now()); err != nil {
@@ -206,7 +206,7 @@ func TestSweepEmpty(t *testing.T) {
 	}
 }
 
-// TestLoopSweepsAndStops 覆盖周期循环：到点扫描落库到期提醒，取消即返回。
+// TestLoopSweepsAndStops covers the periodic loop: the sweep at the tick writes the expiry reminder to the DB, and it returns on cancel.
 func TestLoopSweepsAndStops(t *testing.T) {
 	db := newTestDB(t)
 	u := seedUser(t, db, storage.User{Username: "loop-exp", SubToken: "tl", QuotaBytes: 1 << 30,
