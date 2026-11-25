@@ -19,12 +19,12 @@ func TestSlidingWindow(t *testing.T) {
 	if l.Allow("ip") {
 		t.Fatal("4th attempt in window should block")
 	}
-	// 窗口滑过后放行
+	// Once the window has slid past, requests are allowed again
 	l.now = func() time.Time { return base.Add(61 * time.Second) }
 	if !l.Allow("ip") {
 		t.Fatal("after window should pass")
 	}
-	// 不同 key 互不影响
+	// Different keys do not affect each other
 	l.now = func() time.Time { return base }
 	if !l.Allow("other") {
 		t.Fatal("other key should pass")
@@ -44,11 +44,11 @@ func TestFailLockout(t *testing.T) {
 	if !l.Allow("ip") {
 		t.Fatal("below fail threshold should still pass")
 	}
-	l.RecordFailure("ip") // 第 3 次失败 → 锁定
+	l.RecordFailure("ip") // the 3rd failure -> locked
 	if l.Allow("ip") {
 		t.Fatal("locked key should block")
 	}
-	// 锁定期间尝试不改变结局；锁定期满恢复
+	// Attempts during lockout do not change the outcome; the lock expires and the key recovers
 	l.now = func() time.Time { return base.Add(14 * time.Minute) }
 	if l.Allow("ip") {
 		t.Fatal("within lockout should block")
@@ -70,7 +70,7 @@ func TestReset(t *testing.T) {
 	if l.Allow("ip") {
 		t.Fatal("window exhausted")
 	}
-	l.RecordFailure("ip") // 触发锁定
+	l.RecordFailure("ip") // triggers the lockout
 	if l.Allow("ip") {
 		t.Fatal("locked")
 	}
@@ -80,31 +80,31 @@ func TestReset(t *testing.T) {
 	}
 }
 
-// TestSweepLockedDropsStaleKeys 键数越限触发懒清理：窗口外且未锁定的键被
-// 删，锁定中的键与新键保留。
+// TestSweepLockedDropsStaleKeys crossing the key-count limit triggers a lazy sweep: keys outside the window
+// and not locked are dropped, while locked keys and new keys are kept.
 func TestSweepLockedDropsStaleKeys(t *testing.T) {
 	base := time.Now()
 	var now time.Time = base
 	l := New(Options{Window: time.Minute, MaxAttempts: 10, FailLimit: 1, Lockout: time.Minute})
 	l.now = func() time.Time { return now }
 
-	// 灌满 4097 个键（各占一个窗口内名额）。
+	// Fill 4097 keys (each taking one slot inside a window).
 	for i := 0; i < 4097; i++ {
 		if !l.Allow(fmt.Sprintf("k%d", i)) {
 			t.Fatalf("key %d rejected", i)
 		}
 	}
-	// 推进时钟后锁一个键（锁定态不受窗口外清理影响）。
+	// Advance the clock and then lock one key (the locked state is not affected by out-of-window cleanup).
 	now = base.Add(2 * time.Minute)
 	l.RecordFailure("keep")
-	// 新键触发 sweep。
+	// A new key triggers the sweep.
 	if !l.Allow("newkey") {
 		t.Fatal("newkey should be allowed")
 	}
 	if got := len(l.keys); got != 2 {
 		t.Fatalf("keys after sweep = %d; want 2 (keep + newkey)", got)
 	}
-	// 锁定中的键仍拒绝。
+	// A locked key is still rejected.
 	if l.Allow("keep") {
 		t.Fatal("locked key should be rejected")
 	}

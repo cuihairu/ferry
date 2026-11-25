@@ -1,5 +1,5 @@
-// Package ratelimit 是内存滑动窗口限流器（PAY-5）：
-// 按 key（如客户端 IP）做窗口内次数上限 + 失败锁定，零外部依赖适配单机小内存。
+// Package ratelimit is an in-memory sliding-window rate limiter (PAY-5):
+// per-key (such as a client IP) attempt caps inside a window plus failure lockout, with zero external dependencies, suited to a single host with modest memory.
 package ratelimit
 
 import (
@@ -7,15 +7,15 @@ import (
 	"time"
 )
 
-// Options 是限流参数。
+// Options are the rate-limiting parameters.
 type Options struct {
-	// Window 是滑动窗口宽度。
+	// Window is the width of the sliding window.
 	Window time.Duration
-	// MaxAttempts 是窗口内允许的尝试次数。
+	// MaxAttempts is the number of attempts allowed inside the window.
 	MaxAttempts int
-	// FailLimit 是窗口内失败次数达到该值即进入锁定。
+	// FailLimit is the number of failures inside the window that triggers lockout.
 	FailLimit int
-	// Lockout 是锁定时长。
+	// Lockout is the lockout duration.
 	Lockout time.Duration
 }
 
@@ -25,7 +25,7 @@ type state struct {
 	lockedUntil time.Time
 }
 
-// Limiter 按 key 限流。所有方法并发安全。
+// Limiter rate-limits per key. All methods are concurrency-safe.
 type Limiter struct {
 	mu   sync.Mutex
 	opts Options
@@ -33,12 +33,12 @@ type Limiter struct {
 	keys map[string]*state
 }
 
-// New 创建限流器。
+// New creates a limiter.
 func New(o Options) *Limiter {
 	return &Limiter{opts: o, now: time.Now, keys: map[string]*state{}}
 }
 
-// Allow 判定一次尝试：窗口未满且未锁定则占一个额度并放行。
+// Allow decides one attempt: if the window is not full and the key is not locked, it takes a quota slot and allows it.
 func (l *Limiter) Allow(key string) bool {
 	now := l.now()
 	l.mu.Lock()
@@ -56,14 +56,14 @@ func (l *Limiter) Allow(key string) bool {
 		return false
 	}
 	st.attempts = append(st.attempts, now)
-	// 键数量膨胀时顺带清一遍（兑换入口流量低，懒清理足够）。
+	// When the number of keys grows, also sweep once (traffic at the redemption entry point is low, so lazy cleanup suffices).
 	if len(l.keys) > 4096 {
 		l.sweepLocked(now)
 	}
 	return true
 }
 
-// RecordFailure 记一次失败；窗口内失败达到 FailLimit 即锁定。
+// RecordFailure records one failure; once failures inside the window reach FailLimit the key is locked.
 func (l *Limiter) RecordFailure(key string) {
 	now := l.now()
 	l.mu.Lock()
@@ -81,7 +81,7 @@ func (l *Limiter) RecordFailure(key string) {
 	}
 }
 
-// Reset 清空 key 的全部状态（成功兑换后调用）。
+// Reset clears all state of the key (called after a successful redemption).
 func (l *Limiter) Reset(key string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -98,7 +98,7 @@ func (l *Limiter) sweepLocked(now time.Time) {
 	}
 }
 
-// prune 丢弃窗口外的旧时间点（输入按时间有序）。
+// prune discards stale timestamps outside the window (the input is time-ordered).
 func prune(ts []time.Time, cutoff time.Time) []time.Time {
 	i := 0
 	for i < len(ts) && ts[i].Before(cutoff) {
@@ -107,5 +107,5 @@ func prune(ts []time.Time, cutoff time.Time) []time.Time {
 	if i == 0 {
 		return ts
 	}
-	return append(ts[:0], ts[i:]...) // 原地压缩，容量复用
+	return append(ts[:0], ts[i:]...) // compact in place, reusing the capacity
 }
