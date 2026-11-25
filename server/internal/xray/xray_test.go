@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// NoopHandler 必须满足 Handler 接口（编译期断言）。
+// NoopHandler must satisfy the Handler interface (compile-time assertion).
 var _ Handler = NoopHandler{}
 
 func TestNoopHandler(t *testing.T) {
