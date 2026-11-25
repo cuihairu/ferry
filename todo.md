@@ -708,17 +708,26 @@ External Client
 
 -   [x] `F-0221` 审计现有节点能力声明方式。
     - 备注（Task ID: F-0221 | Status: Done | Evidence: 能力声明方式审计（结论：Capability 未实现）§3.1 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0222` 定义静态声明能力与动态运行能力。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0222 | 区级未满足原因：Capability 模型未实现：type Capability 全仓 0 命中，能力由 role/labels/LineType 隐式承载；Agent 无运行时能力上报（Hello/Heartbeat/ConfigPush 均无 capab 字段）；调度器仅按 role/direction/health 过滤（alloc.go:444-476）——本区 F-0222~F-0231 均未满足。）
--   [ ] `F-0223` 定义 `proxy_ingress` 能力。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0224` 定义 `relay_entry` 能力。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0225` 定义 `relay_landing` 能力。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0226` 定义 `probe` 能力。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0227` 定义 TCP/UDP 转发能力声明。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0228` 让 Agent 上报实际运行能力。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0229` 在组件异常时更新动态能力状态。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0230` 让调度器只选择具备所需能力的节点。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0231` 记录能力变化历史。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0222` 定义静态声明能力与动态运行能力。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0222 | Status: Done | Evidence: Node.Capabilities 静态声明 + Node.CapabilityState 动态状态（storage/models.go），能力常量与 ok/degraded/off 状态值收敛在 packages/agentproto/capability.go；storage.StaticCaps/HasCapability/DynamicState/MergeDynamic 测试 TestStaticCapsAndGate/TestMergeDynamic | Verification: go test ./... server/agent/packages 全绿 | Commit: d3220ab）
+-   [x] `F-0223` 定义 `proxy_ingress` 能力。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0223 | Status: Done | Evidence: CapProxyIngress 常量 + KnownCapabilities 校验集（agentproto/capability.go），Agent 侧由托管代理进程派生（app/caps.go staticCaps） | Verification: TestStaticCaps/TestParseCapsJSON | Commit: d3220ab）
+-   [x] `F-0224` 定义 `relay_entry` 能力。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0224 | Status: Done | Evidence: CapRelayEntry 常量；Agent 侧由 Relay.Listen 配置派生；调度入口门禁 HasCapability(entry, relay_entry)（alloc.go）测试 TestSweepEntryCapabilityGate | Verification: go test ./internal/alloc -count=1 绿 | Commit: d3220ab）
+-   [x] `F-0225` 定义 `relay_landing` 能力。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0225 | Status: Done | Evidence: CapRelayLanding 常量；landing/both 角色派生默认含之；调度落点门禁 HasCapability(landing, relay_landing)（alloc.go）测试 TestSweepCapabilityGate | Verification: go test ./internal/alloc -count=1 绿 | Commit: d3220ab）
+-   [x] `F-0226` 定义 `probe` 能力。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0226 | Status: Done | Evidence: CapProbe 常量；Agent 侧由 Probes 配置派生（staticCaps/dynamicCaps）；entry/both 角色默认含之 | Verification: TestStaticCaps/TestDynamicCaps | Commit: d3220ab）
+-   [x] `F-0227` 定义 TCP/UDP 转发能力声明。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0227 | Status: Done | Evidence: CapTCPForward/CapUDPForward 常量入 KnownCapabilities 校验集与 NodeInput.Capabilities API（未知名 400），Agent 暂无配置源、仅声明可用 | Verification: TestParseCapsJSON（六名全收） | Commit: d3220ab）
+-   [x] `F-0228` 让 Agent 上报实际运行能力。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0228 | Status: Done | Evidence: Hello.Caps 静态集（agentproto/messages.go + app.go OnConnected），按 cfg.Procs/Probes/Relay/Meta.Role 派生；面板 syncCaps 首报落库、面板自有列表优先、未知名丢弃 | Verification: TestStaticCaps/TestSyncCapsHelloAndHeartbeat | Commit: d3220ab）
+-   [x] `F-0229` 在组件异常时更新动态能力状态。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0229 | Status: Done | Evidence: Heartbeat.Caps 动态状态（app.go buildHeartbeat→dynamicCaps）：代理进程全停=off、有崩溃=degraded、全运行=ok；面板 mergeCaps 按 heartbeat 折叠合并（未知名/非法状态值丢弃） | Verification: TestDynamicCaps/TestSyncCapsHelloAndHeartbeat | Commit: d3220ab）
+-   [x] `F-0230` 让调度器只选择具备所需能力的节点。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0230 | Status: Done | Evidence: alloc.go 候选收集加 storage.HasCapability 门禁：entry 需 relay_entry、landing 需 relay_landing 且动态状态非 off；空列表按角色派生兜底，存量节点不受影响 | Verification: TestSweepCapabilityGate/TestSweepEntryCapabilityGate | Commit: d3220ab）
+-   [x] `F-0231` 记录能力变化历史。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0231 | Status: Done | Evidence: CapabilityChange 追加表（AutoMigrate 已注册）：面板编辑 static 行、agent hello 首报 static 行、heartbeat 动态变化逐能力 dynamic 行；不变状态零写入 | Verification: TestNodeCapabilitiesAPI/TestSyncCapsHelloAndHeartbeat | Commit: d3220ab）
 
 ## 2.3 Path 与 Tunnel
 
