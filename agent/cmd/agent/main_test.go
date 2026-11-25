@@ -19,15 +19,15 @@ func TestEnvOr(t *testing.T) {
 	if got := envOr(key, "fallback.json"); got != "/etc/ferry/agent.json" {
 		t.Errorf("envOr(set) = %q; want env value", got)
 	}
-	// 空值视作未设（envOr 口径：只有非空才覆盖）。
+	// An empty value counts as unset (envOr only overrides on non-empty).
 	t.Setenv(key, "")
 	if got := envOr(key, "fallback.json"); got != "fallback.json" {
 		t.Errorf("envOr(empty) = %q; want fallback.json", got)
 	}
 }
 
-// TestRunRoleDispatch 角色分发口径：未知角色拒、probe 对已取消 ctx 立即
-// 回收、relay 无配置/坏覆盖文件都冒配置错不冒称成功。
+// TestRunRoleDispatch covers role dispatch: unknown roles are rejected, probe on an already-cancelled
+// ctx is reclaimed immediately, and relay without config or with a corrupt override fails on config.
 func TestRunRoleDispatch(t *testing.T) {
 	if err := runRole(context.Background(), "bogus", config.Config{}, ""); err == nil {
 		t.Fatal("unknown role must fail")
@@ -43,7 +43,7 @@ func TestRunRoleDispatch(t *testing.T) {
 		t.Fatal("relay without spec must fail (listen required)")
 	}
 
-	// relay 覆盖文件存在但损坏：loadOverride 解析失败即启停，不静默落回。
+	// A corrupt relay override file: a loadOverride parse failure aborts startup, no silent fallback.
 	bad := filepath.Join(t.TempDir(), "bad.json")
 	if err := os.WriteFile(bad, []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
@@ -54,8 +54,8 @@ func TestRunRoleDispatch(t *testing.T) {
 	}
 }
 
-// TestRunCoreCancelledCtx 核心组件入口：ctx 已取消即立即回收连接循环，
-// 不发起网络、不悬挂。
+// TestRunCoreCancelledCtx covers the core entry point: an already-cancelled ctx
+// reclaims the connection loop immediately, without touching the network or hanging.
 func TestRunCoreCancelledCtx(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

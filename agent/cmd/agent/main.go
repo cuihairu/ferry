@@ -1,4 +1,4 @@
-// agent 命令是 ferry-agent 入口：加载配置后维持与面板的出站长连接。
+// The agent command is the ferry-agent entry point: load config, then keep an outbound long-lived connection to the panel.
 package main
 
 import (
@@ -19,7 +19,7 @@ import (
 	"github.com/cuihairu/ferry/agent/internal/upgrade"
 )
 
-// version 由构建注入，默认 dev。
+// version is injected by the build; defaults to dev.
 var version = "dev"
 
 func main() {
@@ -48,13 +48,13 @@ func main() {
 	}
 }
 
-// runCore 跑核心组件：装配 app 后维持与面板的出站长连接，含自升级
-// 验证（A-23）。返回错误交 main 统一退出（context.Canceled 是正常停机）。
+// runCore runs the core component: wire the app, then keep the outbound long-lived
+// connection to the panel, including self-upgrade verification (A-23). Errors go to main for a uniform exit (context.Canceled = normal stop).
 func runCore(ctx context.Context, cfg config.Config) error {
 	a := app.New(cfg, version)
 
-	// 自升级验证（A-23）：存在待验证标记说明上次升级后未完成启动验证，
-	// 起看门狗——超时未连上面板则回滚备份；hello 成功即提交。
+	// Self-upgrade verification (A-23): a pending marker means the post-upgrade startup
+	// check never completed, so start a watchdog -- roll back if the panel is not reached in time; hello commits.
 	if self, err := upgrade.Self(); err == nil {
 		if upgrade.Pending(self) {
 			log.Printf("pending upgrade verify, watchdog %s", upgrade.RollbackTimeout)
@@ -67,9 +67,9 @@ func runCore(ctx context.Context, cfg config.Config) error {
 	return a.Run(ctx)
 }
 
-// runRole 以独立进程跑角色组件（E-5/E-7）：与核心只经 spool/配置文件交互，
-// 不直连面板（同节点第二条面板连接会把核心踢下线）。返回错误交 main 统一
-// 退出（context.Canceled 是正常停机，不 Fatal）。
+// runRole runs a role component as a standalone process (E-5/E-7): it interacts with the core only via
+// spool/config files and never connects to the panel directly (a second panel connection on the same node
+// would kick the core offline). Errors go to main (a uniform exit: context.Canceled is a normal stop, not Fatal).
 func runRole(ctx context.Context, name string, cfg config.Config, relaySpecPath string) error {
 	if !roles.Standalone(name) {
 		return fmt.Errorf("unknown standalone role %q (known: probe, relay)", name)
@@ -87,7 +87,7 @@ func runRole(ctx context.Context, name string, cfg config.Config, relaySpecPath 
 		log.Printf("ferry-agent %s role=relay starting", version)
 		return relay.Run(ctx, cfg.Relay, logger)
 	}
-	return nil // 不可达：Standalone 只放行 probe/relay
+	return nil // unreachable: Standalone only allows probe/relay
 }
 
 func envOr(key, fallback string) string {
