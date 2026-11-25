@@ -1,6 +1,6 @@
-// Package secret 是机密加密统一入口（R24 加密面口径）：主密钥不入库
-// （部署环境变量/文件提供），机密一律 AES-256-GCM 加密落库，密文带
-// 版本号支持换钥。全项目机密加解密只走这里，禁止散落手写 crypto。
+// Package secret is the single entry point for secret encryption (R24 encryption-surface semantics): the master key is never stored in the DB
+// (it comes from a deployment env var/file); every secret is encrypted with AES-256-GCM before being persisted, and ciphertexts carry
+// a version number so keys can be rotated. All secret encryption/decryption in the project goes through here; hand-rolled crypto elsewhere is forbidden.
 package secret
 
 import (
@@ -17,16 +17,16 @@ import (
 	"strings"
 )
 
-// Version 是当前密文版本号；换钥时新增版本并用新钥加密，旧版本仅解密。
+// Version is the current ciphertext version number; on key rotation add a new version and encrypt with the new key, while older versions are decrypt-only.
 const Version = 1
 
-// Store 持有各版本主密钥（sha256 派生 AES-256 钥）。
+// Store holds the master key per version (a sha256-derived AES-256 key).
 type Store struct {
 	keys map[int][]byte
 }
 
-// NewStore 以主密钥建仓；空主密钥返回禁用仓（Encrypt/Decrypt 报错，
-// 不允许未加密明文落库）。支持 "v1:xxx" 形式的多钥输入（换钥过渡期）。
+// NewStore builds the store from the master key; an empty master key returns a disabled store (Encrypt/Decrypt error out,
+// no plaintext is allowed to be persisted unencrypted). Multi-key input of the form "v1:xxx" is supported (key-rotation transition).
 func NewStore(masterKey string) *Store {
 	s := &Store{keys: map[int][]byte{}}
 	if masterKey == "" {
@@ -36,17 +36,17 @@ func NewStore(masterKey string) *Store {
 	return s
 }
 
-// deriveKey 任意长度主密钥派生 AES-256 钥。
+// deriveKey derives an AES-256 key from a master key of any length.
 func deriveKey(master string) []byte {
 	k := sha256.Sum256([]byte(master))
 	return k[:]
 }
 
-// Enabled 报告是否已配置主密钥。
+// Enabled reports whether a master key has been configured.
 func (s *Store) Enabled() bool { return len(s.keys) > 0 }
 
-// Encrypt 把明文机密加密为带版本前缀的密文（"v1:nonce:ct"）。
-// 随机 nonce 保证同明文两次密文不同。
+// Encrypt encrypts a plaintext secret into a version-prefixed ciphertext ("v1:nonce:ct").
+// A random nonce guarantees two ciphertexts of the same plaintext differ.
 func (s *Store) Encrypt(plain string) (string, error) {
 	key, ok := s.keys[Version]
 	if !ok {
@@ -66,7 +66,7 @@ func (s *Store) Encrypt(plain string) (string, error) {
 		base64.RawStdEncoding.EncodeToString(sealed)), nil
 }
 
-// Decrypt 按版本头选钥解密；版本未置钥（已轮换掉）或认证失败报错。
+// Decrypt picks the key by the version header and decrypts; an unset version key (rotated away) or an authentication failure errors.
 func (s *Store) Decrypt(cipherText string) (string, error) {
 	ver, nonce, sealed, err := parse(cipherText)
 	if err != nil {
@@ -115,9 +115,9 @@ func newAEAD(key []byte) (cipher.AEAD, error) {
 	return cipher.NewGCM(block)
 }
 
-// EncryptBytes 以当前版本钥加密任意字节（文件级，如备份档）：
-// 输出格式 = 版本字节 + nonce + 密文（紧凑二进制，不走 v1:… 文本格式）。
-// DecryptBytes 是其逆运算；字符串机密仍走 Encrypt/Decrypt。
+// EncryptBytes encrypts arbitrary bytes with the current version key (file-level, e.g. backup archives):
+// output format = version byte + nonce + ciphertext (compact binary, not the v1:... text format).
+// DecryptBytes is its inverse; string secrets still go through Encrypt/Decrypt.
 func (s *Store) EncryptBytes(plain []byte) ([]byte, error) {
 	key, ok := s.keys[Version]
 	if !ok {
@@ -137,7 +137,7 @@ func (s *Store) EncryptBytes(plain []byte) ([]byte, error) {
 	return aead.Seal(out, nonce, plain, nil), nil
 }
 
-// DecryptBytes 解密 EncryptBytes 产物；版本未置钥或认证失败报错。
+// DecryptBytes decrypts EncryptBytes output; an unset version key or an authentication failure errors.
 func (s *Store) DecryptBytes(data []byte) ([]byte, error) {
 	if len(data) < 1 {
 		return nil, errors.New("secret: empty cipher")
@@ -162,11 +162,11 @@ func (s *Store) DecryptBytes(data []byte) ([]byte, error) {
 	return plain, nil
 }
 
-// EncryptBytesStream 以当前版本钥把输入流流式加密到输出流（文件级，如备份
-// 档）：输出格式与 EncryptBytes 逐字节一致（版本字节 + nonce + GCM 密文），
-// DecryptBytes 可直接解其产物；区别只在加密分块完成，不把整份明文载入内存
-// ——大文件（流量表增长的整库快照）不再翻倍占内存。密文仍是标准 AES-256-GCM
-// 单消息（CTR 数据 + GHASH 标签），仅把 Seal 拆为流式等价实现。
+// EncryptBytesStream streams-encrypts the input stream to the output stream with the current version key (file-level,
+// e.g. backup archives): the output format is byte-for-byte identical to EncryptBytes (version byte + nonce + GCM ciphertext),
+// and DecryptBytes can decode its output directly; the only difference is that encryption runs in chunks and never loads the whole
+// plaintext into memory——a large file (a full DB snapshot as the traffic table grows) no longer doubles memory. The ciphertext is still a
+// standard single-message AES-256-GCM (CTR data + GHASH tag); Seal is just split into an equivalent streaming implementation.
 func (s *Store) EncryptBytesStream(in io.Reader, out io.Writer) error {
 	key, ok := s.keys[Version]
 	if !ok {
@@ -193,18 +193,18 @@ func (s *Store) EncryptBytesStream(in io.Reader, out io.Writer) error {
 	return encryptStream(block, nonce, in, out)
 }
 
-// encryptStream 做 GCM 的流式加密体：CTR 密文写 out，GHASH 标签追加尾部。
-// 单消息 GCM（与 aead.Seal 等价）：J0=nonce||0^31||1，数据计数器自 J0+1 起，
-// 标签 = GHASH_H(密文) ⊕ E(K, J0)，H=E(K, 0^128)，AAD 为空。
+// encryptStream performs the GCM streaming ciphertext body: the CTR ciphertext goes to out, and the GHASH tag is appended at the end.
+// Single-message GCM (equivalent to aead.Seal): J0=nonce||0^31||1, the data counter starts at J0+1,
+// tag = GHASH_H(ciphertext) XOR E(K, J0), H=E(K, 0^128), and AAD is empty.
 func encryptStream(block cipher.Block, nonce []byte, in io.Reader, out io.Writer) error {
 	var j0, mask, h [16]byte
 	copy(j0[:], nonce)
 	j0[15] = 1
-	block.Encrypt(mask[:], j0[:])         // E(K, J0)：标签掩码
+	block.Encrypt(mask[:], j0[:])         // E(K, J0): the tag mask
 	block.Encrypt(h[:], make([]byte, 16)) // H = E(K, 0^128)
 	var ctrIV [16]byte
 	copy(ctrIV[:], j0[:])
-	inc32(ctrIV[:]) // 数据首块 = J0+1
+	inc32(ctrIV[:]) // first data block = J0+1
 	stream := cipher.NewCTR(block, ctrIV[:])
 	g := ghashState{h: h}
 	buf := make([]byte, 1<<20)
@@ -212,7 +212,7 @@ func encryptStream(block cipher.Block, nonce []byte, in io.Reader, out io.Writer
 		n, rerr := in.Read(buf)
 		if n > 0 {
 			chunk := buf[:n]
-			stream.XORKeyStream(chunk, chunk) // CTR 原地加密
+			stream.XORKeyStream(chunk, chunk) // CTR in-place encryption
 			g.Write(chunk)
 			if _, err := out.Write(chunk); err != nil {
 				return err
@@ -233,7 +233,7 @@ func encryptStream(block cipher.Block, nonce []byte, in io.Reader, out io.Writer
 	return err
 }
 
-// inc32 把 128 位计数器低 32 位 +1（GCM 计数器进位语义）。
+// inc32 adds 1 to the low 32 bits of the 128-bit counter (GCM counter carry semantics).
 func inc32(b []byte) {
 	for i := len(b) - 1; i >= len(b)-4; i-- {
 		b[i]++
@@ -243,15 +243,15 @@ func inc32(b []byte) {
 	}
 }
 
-// ghashState 增量 GHASH_H（AAD 为空）：按 16 字节块喂入密文，尾部不足一块
-// 的零填充与 GCM 长度块在 Sum 处理（SP 800-38D：GHASH 输入总是以
-// len(A)||len(C) 长度块收尾，空密文也不例外）。
+// ghashState is incremental GHASH_H (AAD empty): feed the ciphertext in 16-byte blocks, and handle the
+// trailing zero padding and the GCM length block in Sum (SP 800-38D: GHASH input always ends with a
+// len(A)||len(C) length block, an empty ciphertext included).
 type ghashState struct {
 	h        [16]byte
 	y        [16]byte
 	pend     [16]byte
 	pendLen  int
-	totalLen int64 // 累计密文字节数（长度块以位计）
+	totalLen int64 // cumulative ciphertext bytes (the length block counts bits)
 }
 
 func (g *ghashState) Write(p []byte) {
@@ -277,20 +277,20 @@ func (g *ghashState) mulBlock(blk *[16]byte) {
 func (g *ghashState) Sum() [16]byte {
 	if g.pendLen > 0 {
 		var blk [16]byte
-		copy(blk[:], g.pend[:g.pendLen]) // 不足一块零填充
+		copy(blk[:], g.pend[:g.pendLen]) // zero-pad a short final block
 		g.mulBlock(&blk)
 		g.pendLen = 0
 	}
-	// GCM 长度块：len(A)=0（64 位）|| len(C)=totalLen*8 位（64 位，大端）。
+	// GCM length block: len(A)=0 (64 bits) || len(C)=totalLen*8 bits (64 bits, big-endian).
 	var lenBlock [16]byte
 	binary.BigEndian.PutUint64(lenBlock[8:], uint64(g.totalLen)*8)
 	g.mulBlock(&lenBlock)
 	return g.y
 }
 
-// gcmMul 计算 a*b（GF(2^128)，GCM 位序：字节内 MSB 优先，约化多项式
-// x^128+x^7+x^2+x+1）。实现自 SP 800-38D 算法 1；正确性由 DecryptBytes
-// （标准库 GCM 认证）往返验证。
+// gcmMul computes a*b (GF(2^128), GCM bit order: MSB-first within a byte, reduction polynomial
+// x^128+x^7+x^2+x+1). Implemented from SP 800-38D Algorithm 1; correctness is round-trip verified by DecryptBytes
+// (standard-library GCM authentication).
 func gcmMul(a, b *[16]byte) [16]byte {
 	var z, v [16]byte
 	copy(v[:], a[:])
