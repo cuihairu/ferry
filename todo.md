@@ -1023,29 +1023,50 @@ External Client
 
 ## 3.6 Dash 云资源管理页面
 
--   [ ] `F-0411` 增加 Cloud Providers 页面。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0411 | 区级未满足原因：Dash 云资源/云操作页面未实现（无 CloudResource 模型即无页面，审计 §3.11 F-9211/9212 未实现）；仅 Providers 列表存在——本区 F-0411~F-0432 未满足。）
--   [ ] `F-0412` 增加 Cloud Accounts 列表。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0413` 增加 Cloud Account 创建页面。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0414` 增加 Cloud Account 连接测试入口。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0415` 增加 Cloud Resources 列表。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0416` 支持按 Provider 筛选资源。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0417` 支持按账号筛选资源。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0418` 支持按区域筛选资源。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0419` 支持按实例状态筛选资源。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0420` 增加云资源详情页面。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0421` 展示实例规格、区域、IP、带宽和计费信息。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0422` 展示资源与 Ferry Node 的绑定关系。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0423` 提供开机操作入口。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0424` 提供关机操作入口。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0425` 提供重启操作入口。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0426` 对高风险操作展示明确警告和二次确认。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0427` 增加云操作任务列表。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0428` 展示操作执行进度和最终结果。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0429` 支持批量操作结果查看。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0430` 支持从云资源创建或关联 Ferry Node。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0431` 支持从 Node 详情跳转到关联云资源。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0432` 对 Provider API 故障显示数据最后更新时间。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0411` 增加 Cloud Providers 页面。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0411 | Status: Done | Evidence: CloudView /cloud 页面与侧边栏「云资源」入口，含云账号、资源、任务三区 | Verification: dash vue-tsc --noEmit 绿；vite build 成功（CloudView chunk 23.19 kB）；server/agent/packages 全绿 | Commit: 7f78101）
+-   [x] `F-0412` 增加 Cloud Accounts 列表。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0412 | Status: Done | Evidence: CloudView 云账号表格（名称/类型/区域/凭据/启用）+ getProviders 刷新 | Verification: dash vue-tsc --noEmit 绿；vite build 成功（CloudView chunk 23.19 kB）；server/agent/packages 全绿 | Commit: 7f78101）
+-   [x] `F-0413` 增加 Cloud Account 创建页面。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0413 | Status: Done | Evidence: 录入/编辑账号弹窗，createProvider/updateProvider；空凭据保持原值 | Verification: dash vue-tsc --noEmit 绿；vite build 成功（CloudView chunk 23.19 kB）；server/agent/packages 全绿 | Commit: 7f78101）
+-   [x] `F-0414` 增加 Cloud Account 连接测试入口。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0414 | Status: Done | Evidence: 账号行「测试连接」调用 POST /api/providers/:id/test，显示 ok/mode/error | Verification: dash vue-tsc --noEmit 绿；vite build 成功（CloudView chunk 23.19 kB）；server/agent/packages 全绿 | Commit: 7f78101）
+-   [x] `F-0415` 增加 Cloud Resources 列表。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0415 | Status: Done | Evidence: 云资源表格（实例/账号/区域/状态/IP/规格/带宽/绑定/最后同步），getCloudResources | Verification: dash vue-tsc --noEmit 绿；vite build 成功（CloudView chunk 23.19 kB）；server/agent/packages 全绿 | Commit: 7f78101）
+-   [x] `F-0416` 支持按 Provider 筛选资源。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0416 | Status: Done | Evidence: Provider 类型筛选（provider_id 查询参数） | Verification: dash vue-tsc --noEmit 绿；vite build 成功（CloudView chunk 23.19 kB）；server/agent/packages 全绿 | Commit: 7f78101）
+-   [x] `F-0417` 支持按账号筛选资源。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0417 | Status: Done | Evidence: 账号名筛选（accountFilter 客户端过滤） | Verification: dash vue-tsc --noEmit 绿；vite build 成功（CloudView chunk 23.19 kB）；server/agent/packages 全绿 | Commit: 7f78101）
+-   [x] `F-0418` 支持按区域筛选资源。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0418 | Status: Done | Evidence: 区域筛选（region 查询参数） | Verification: dash vue-tsc --noEmit 绿；vite build 成功（CloudView chunk 23.19 kB）；server/agent/packages 全绿 | Commit: 7f78101）
+-   [x] `F-0419` 支持按实例状态筛选资源。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0419 | Status: Done | Evidence: 实例状态筛选（state 查询参数） | Verification: dash vue-tsc --noEmit 绿；vite build 成功（CloudView chunk 23.19 kB）；server/agent/packages 全绿 | Commit: 7f78101）
+-   [x] `F-0420` 增加云资源详情页面。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0420 | Status: Done | Evidence: 实例详情弹窗 getCloudResource + el-descriptions | Verification: dash vue-tsc --noEmit 绿；vite build 成功（CloudView chunk 23.19 kB）；server/agent/packages 全绿 | Commit: 7f78101）
+-   [x] `F-0421` 展示实例规格、区域、IP、带宽和计费信息。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0421 | Status: Done | Evidence: 详情展示规格、区域、公网 IP、带宽、标签计费信息 | Verification: dash vue-tsc --noEmit 绿；vite build 成功（CloudView chunk 23.19 kB）；server/agent/packages 全绿 | Commit: 7f78101）
+-   [x] `F-0422` 展示资源与 Ferry Node 的绑定关系。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0422 | Status: Done | Evidence: 详情与列表展示资源 ↔ Ferry Node 绑定关系 | Verification: dash vue-tsc --noEmit 绿；vite build 成功（CloudView chunk 23.19 kB）；server/agent/packages 全绿 | Commit: 7f78101）
+-   [x] `F-0423` 提供开机操作入口。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0423 | Status: Done | Evidence: 资源行开机入口 POST /api/cloud-operations | Verification: dash vue-tsc --noEmit 绿；vite build 成功（CloudView chunk 23.19 kB）；server/agent/packages 全绿 | Commit: 7f78101）
+-   [x] `F-0424` 提供关机操作入口。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0424 | Status: Done | Evidence: 资源行关机入口 + 高风险二次确认 | Verification: dash vue-tsc --noEmit 绿；vite build 成功（CloudView chunk 23.19 kB）；server/agent/packages 全绿 | Commit: 7f78101）
+-   [x] `F-0425` 提供重启操作入口。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0425 | Status: Done | Evidence: 资源行重启入口，批量开机/关机/重启入口 | Verification: dash vue-tsc --noEmit 绿；vite build 成功（CloudView chunk 23.19 kB）；server/agent/packages 全绿 | Commit: 7f78101）
+-   [x] `F-0426` 对高风险操作展示明确警告和二次确认。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0426 | Status: Done | Evidence: 高风险 op 弹窗勾选确认 + ElMessageBox.confirm 二次确认 | Verification: dash vue-tsc --noEmit 绿；vite build 成功（CloudView chunk 23.19 kB）；server/agent/packages 全绿 | Commit: 7f78101）
+-   [x] `F-0427` 增加云操作任务列表。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0427 | Status: Done | Evidence: 操作任务列表标签页 getCloudOperations（批次/状态/操作者/结果） | Verification: dash vue-tsc --noEmit 绿；vite build 成功（CloudView chunk 23.19 kB）；server/agent/packages 全绿 | Commit: 7f78101）
+-   [x] `F-0428` 展示操作执行进度和最终结果。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0428 | Status: Done | Evidence: 任务详情弹窗 getCloudOperation 状态/结果/错误 + 逐步日志 | Verification: dash vue-tsc --noEmit 绿；vite build 成功（CloudView chunk 23.19 kB）；server/agent/packages 全绿 | Commit: 7f78101）
+-   [x] `F-0429` 支持批量操作结果查看。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0429 | Status: Done | Evidence: 批次号列 + 批量提交响应 out.count，逐任务结果在列表中可见 | Verification: dash vue-tsc --noEmit 绿；vite build 成功（CloudView chunk 23.19 kB）；server/agent/packages 全绿 | Commit: 7f78101）
+-   [x] `F-0430` 支持从云资源创建或关联 Ferry Node。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0430 | Status: Done | Evidence: 从云资源创建 Ferry Node（公网 IP 作地址）并绑定；绑定/解绑弹窗 | Verification: dash vue-tsc --noEmit 绿；vite build 成功（CloudView chunk 23.19 kB）；server/agent/packages 全绿 | Commit: 7f78101）
+-   [x] `F-0431` 支持从 Node 详情跳转到关联云资源。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0431 | Status: Done | Evidence: NodesView 行「关联云资源」跳 /cloud?node_id=，CloudView 自动打开绑定资源详情 | Verification: dash vue-tsc --noEmit 绿；vite build 成功（CloudView chunk 23.19 kB）；server/agent/packages 全绿 | Commit: 7f78101）
+-   [x] `F-0432` 对 Provider API 故障显示数据最后更新时间。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0432 | Status: Done | Evidence: 列表/详情展示 last_sync_at（缺省 last_seen_at）并对 10 分钟前数据降色提示 | Verification: dash vue-tsc --noEmit 绿；vite build 成功（CloudView chunk 23.19 kB）；server/agent/packages 全绿 | Commit: 7f78101）
 
 ------------------------------------------------------------------------
 
