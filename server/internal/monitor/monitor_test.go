@@ -64,7 +64,7 @@ func TestApplyVerdictTransitions(t *testing.T) {
 		Dimension: aggregate.DimensionRegion, Scope: "华东",
 		Sick: 2, Total: 4, SickNodes: []uint64{2, 3}, Failed: true,
 	}
-	// 首次 failed：建状态灯记录并发一条合并告警
+	// First failed: creates the status-lamp record and sends one merged alert
 	if err := applyVerdict(db, logger, failed); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestApplyVerdictTransitions(t *testing.T) {
 	if !strings.Contains(buf.String(), "alarm") || !strings.Contains(buf.String(), "华东") {
 		t.Fatalf("merged alarm missing: %q", buf.String())
 	}
-	// 故障迁移落事件 outbox（HERALD-3）：region_fault critical 一条
+	// Fault transition lands in the event outbox (HERALD-3): one critical region_fault
 	var ev storage.Event
 	if err := db.Where("kind = ?", "region_fault").First(&ev).Error; err != nil {
 		t.Fatalf("region_fault event missing: %v", err)
@@ -87,7 +87,7 @@ func TestApplyVerdictTransitions(t *testing.T) {
 		t.Fatalf("event = %+v", ev)
 	}
 
-	// 重复 failed：状态未迁移，不重复告警不重复落事件
+	// Repeated failed: no state transition, no repeated alert, no repeated event
 	buf.Reset()
 	if err := applyVerdict(db, logger, failed); err != nil {
 		t.Fatalf("apply: %v", err)
@@ -101,7 +101,7 @@ func TestApplyVerdictTransitions(t *testing.T) {
 		t.Fatalf("region_fault events = %d, want 1", n)
 	}
 
-	// 恢复 healthy：状态迁移并记恢复日志
+	// Recovering to healthy: state transition and a recovery log line
 	healthy := aggregate.Verdict{
 		Dimension: aggregate.DimensionRegion, Scope: "华东",
 		Sick: 0, Total: 4, Failed: false,
@@ -141,7 +141,7 @@ func TestApplyVerdictDegraded(t *testing.T) {
 	if !strings.Contains(buf.String(), "degraded") {
 		t.Fatalf("degraded log missing: %q", buf.String())
 	}
-	// 降级不在告警三类清单：不落事件
+	// Degraded is not among the three alert kinds: no event is stored
 	var n int64
 	db.Model(&storage.Event{}).Count(&n)
 	if n != 0 {
@@ -154,7 +154,7 @@ func TestSweepPersistsDimensions(t *testing.T) {
 	logger, _ := newLogger()
 	now := time.Now()
 
-	// 华东 4 节点 2 sick → 区域故障；电信 5 节点 2 sick → 运营商故障
+	// 4 nodes / 2 sick → region fault; 5 nodes / 2 sick → ISP fault
 	n1, n2, n3, n4, n5, n6, n7 := uint(1), uint(2), uint(3), uint(4), uint(5), uint(6), uint(7)
 	seed(t, db, &n1, agentproto.ProbeTargetTunnel, "华东", "电信", agentproto.ProbeVerdictHealthy, now.Add(-1*time.Minute))
 	seed(t, db, &n2, agentproto.ProbeTargetTunnel, "华东", "电信", agentproto.ProbeVerdictSick, now.Add(-1*time.Minute))
@@ -176,10 +176,10 @@ func TestSweepPersistsDimensions(t *testing.T) {
 		got[r.Scope+"/"+r.Key] = r.State
 	}
 	want := map[string]string{
-		"region/华东": StateFailed,   // 2/4 sick 达故障口径
-		"region/华北": StateDegraded, // 1/3 sick 未达故障口径但确有异常
-		"isp/电信":    StateFailed,   // 2/5 sick 达故障口径
-		"isp/联通":    StateFailed,   // 1/2 占比达 50%
+		"region/华东": StateFailed,   // 2/4 sick meets the fault criteria
+		"region/华北": StateDegraded, // 1/3 sick falls short of the fault criteria but is clearly abnormal
+		"isp/电信":    StateFailed,   // 2/5 sick meets the fault criteria
+		"isp/联通":    StateFailed,   // 1/2 ratio reaches 50%
 	}
 	if len(got) != len(want) {
 		t.Fatalf("statuses = %v, want %v", got, want)
@@ -191,7 +191,7 @@ func TestSweepPersistsDimensions(t *testing.T) {
 	}
 }
 
-// TestRunStops 验证 Run 随 ctx 取消退出，不泄漏 goroutine。
+// TestRunStops verifies Run exits on ctx cancel without leaking a goroutine.
 func TestRunStops(t *testing.T) {
 	db := openTestDB(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -209,11 +209,11 @@ func TestRunStops(t *testing.T) {
 	}
 }
 
-// TestApplyVerdictNotifies 配置 webhook 后状态迁移三档都外发：failed /
-// degraded / recovered 各一条，Send 失败只记日志不阻断。
+// TestApplyVerdictNotifies covers all three transition tiers being sent outbound once a webhook is configured:
+// failed / degraded / recovered, one each; Send failures only log and never block.
 func TestApplyVerdictNotifies(t *testing.T) {
 	db := openTestDB(t)
-	// 已关闭的服务地址：连接即刻被拒，错误走日志分支。
+	// Already-closed server address: connections are refused immediately, the error takes the log branch.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	u := srv.URL
 	srv.Close()
@@ -243,8 +243,8 @@ func TestApplyVerdictNotifies(t *testing.T) {
 	}
 }
 
-// TestSweepUnmigratedDB 未迁移库上 Judge 查表失败：sweep 冒错；Run 周期
-// 记日志不 panic、cancel 后退出。
+// TestSweepUnmigratedDB covers Judge's table lookup failing on an unmigrated DB: sweep surfaces the
+// error; Run logs periodically without panicking and exits after cancel.
 func TestSweepUnmigratedDB(t *testing.T) {
 	dsn := fmt.Sprintf("file:monitor-raw-%d?mode=memory&cache=shared", time.Now().UnixNano())
 	raw, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})

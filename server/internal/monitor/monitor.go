@@ -1,5 +1,5 @@
-// Package monitor 周期聚合探测结论：判定区域/运营商故障，
-// 落状态灯数据并合并告警——一个维度一条告警，不逐节点告警。
+// Package monitor periodically aggregates probe verdicts: it decides region/ISP faults,
+// stores status-lamp data and merges alerts — one alert per dimension, never per node.
 package monitor
 
 import (
@@ -18,14 +18,14 @@ import (
 	"gorm.io/gorm"
 )
 
-// 状态灯取值。
+// Status-lamp values.
 const (
 	StateHealthy  = "healthy"
 	StateDegraded = "degraded"
 	StateFailed   = "failed"
 )
 
-// Run 周期执行聚合判定直到 ctx 取消；仅状态迁移时告警。
+// Run executes the aggregation verdict periodically until ctx is cancelled; alerts only on state transitions.
 func Run(ctx context.Context, db *gorm.DB, interval time.Duration, logger *log.Logger) {
 	if logger == nil {
 		logger = log.Default()
@@ -33,7 +33,7 @@ func Run(ctx context.Context, db *gorm.DB, interval time.Duration, logger *log.L
 	if interval <= 0 {
 		interval = 30 * time.Second
 	}
-	t := time.NewTimer(0) // 启动即跑一轮
+	t := time.NewTimer(0) // run one round immediately on start
 	defer t.Stop()
 	for {
 		select {
@@ -48,7 +48,7 @@ func Run(ctx context.Context, db *gorm.DB, interval time.Duration, logger *log.L
 	}
 }
 
-// sweep 执行一轮聚合判定并逐维度落库。
+// sweep runs one round of the aggregation verdict and stores it per dimension.
 func sweep(db *gorm.DB, logger *log.Logger) error {
 	verdicts, err := aggregate.Judge(db, aggregate.Options{})
 	if err != nil {
@@ -62,7 +62,7 @@ func sweep(db *gorm.DB, logger *log.Logger) error {
 	return nil
 }
 
-// applyVerdict 落一条维度状态；状态迁移时发合并告警或恢复日志。
+// applyVerdict stores one dimension state; on a state transition it sends a merged alert or a recovery log line.
 func applyVerdict(db *gorm.DB, logger *log.Logger, v aggregate.Verdict) error {
 	state := StateHealthy
 	switch {
@@ -76,7 +76,7 @@ func applyVerdict(db *gorm.DB, logger *log.Logger, v aggregate.Verdict) error {
 		reason += "（" + joinNodes(v.SickNodes) + "）"
 	}
 
-	old := "" // 新记录无旧状态
+	old := "" // a new record has no previous state
 	var row storage.DimensionStatus
 	err := db.Where("scope = ? AND key = ?", string(v.Dimension), v.Scope).First(&row).Error
 	switch {
@@ -95,7 +95,7 @@ func applyVerdict(db *gorm.DB, logger *log.Logger, v aggregate.Verdict) error {
 		if row.State == state {
 			row.UpdatedAt = time.Now()
 			row.Reason = reason
-			return db.Save(&row).Error // 状态未迁移，不重复告警
+			return db.Save(&row).Error // no state transition; do not re-alert
 		}
 		old = row.State
 		row.State = state
@@ -107,7 +107,7 @@ func applyVerdict(db *gorm.DB, logger *log.Logger, v aggregate.Verdict) error {
 		}
 	}
 
-	// 状态迁移：一个维度一条合并告警，不逐节点告警。
+	// State transition: one merged alert per dimension, never per node.
 	switch {
 	case state == StateFailed:
 		logger.Printf("alarm: %s %s 整体不可达: %s，同维度一起切走",
@@ -118,8 +118,8 @@ func applyVerdict(db *gorm.DB, logger *log.Logger, v aggregate.Verdict) error {
 		logger.Printf("recovered: %s %s 恢复正常", v.Dimension, v.Scope)
 	}
 
-	// 事件外发（HERALD-3）：整体故障迁移落事件 outbox（区域→region_fault、
-	// 运营商→isp_fault），通道分发由 Herald 管；失败只记日志不阻断聚合。
+	// Event outbound (HERALD-3): a full-fault transition lands in the event outbox (region → region_fault,
+	// ISP → isp_fault); channel dispatch is Herald's job; failures only log and never block aggregation.
 	if state == StateFailed {
 		kind, dim := herald.KindRegionFault, "区域"
 		if v.Dimension == aggregate.DimensionISP {
@@ -137,7 +137,7 @@ func applyVerdict(db *gorm.DB, logger *log.Logger, v aggregate.Verdict) error {
 		}
 	}
 
-	// 事件外发（P1-10）：与日志同条件推送；失败只记日志不阻断聚合。
+	// Event outbound (P1-10): pushed under the same conditions as the log; failures only log and never block aggregation.
 	if notifier := notify.FromDB(db); notifier.Enabled() {
 		var ev notify.Event
 		switch {
