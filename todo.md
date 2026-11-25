@@ -783,28 +783,42 @@ External Client
 -   [x] `F-0269` 支持 Group 可用性统计。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0269 | Status: Done | Evidence: pathhealth.Availability 按成员落点节点 24h 窗口内探测 verdict 的 healthy 占比（无探测数据返回 null），随 group health 接口同出 | Verification: TestGroupHealthAndAvailability（50%/null 断言）/TestPathHealthEndpoints（100%） | Commit: c40c735）
 -   [ ] `F-0270` 支持 Group 与订阅策略关联。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0270 | 未满足原因：Group 与订阅策略关联尚未实现，依赖 F-0282 Policy 模型。）
+    - 待补（F-0270 | 未满足原因：Group 维度尚未接入 Policy（Policy 仅 system/plan/user 三 scope，无 group 关联字段/接口）；依赖的 F-0282 Policy 模型已落地（c74c69c），本项可实现。）
 
 ## 2.5 Policy
 
 -   [x] `F-0281` 审计现有策略和分配规则。
     - 备注（Task ID: F-0281 | Status: Done | Evidence: 策略与分配规则审计 §3.1+§3.5 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0282` 定义全局安全约束。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0282 | 区级未满足原因：Policy 模型未实现：无 type Policy；仅 alloc.go:57 PolicySetting+ScoreWeights（调度权重，非 Policy 模型）；区域/运营商/线路/健康/容量/成本/故障回退约束与版本审计/模拟接口均无——本区 F-0282~F-0296 未满足。）
--   [ ] `F-0283` 定义系统级 Policy。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0284` 定义套餐级 Policy。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0285` 定义用户级 Policy。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0286` 定义订阅输出策略。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0287` 定义策略优先级和冲突解决规则。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0288` 支持区域约束。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0289` 支持运营商约束。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0290` 支持线路类型约束。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0291` 支持健康阈值约束。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0292` 支持容量约束。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0293` 支持成本约束。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0294` 支持故障回退规则。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0295` 支持 Policy 版本和变更审计。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0296` 提供 Policy 模拟和解释接口。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0282` 定义全局安全约束。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0282 | Status: Done | Evidence: storage.Policy 模型（scope+subject_id 唯一索引，Constraints JSON+Enabled+Version+UpdatedBy）+storage.PolicyConstraints 载荷（regions/isps/line_types/min_health/min_capacity_mbps/max_traffic_price_cents/max_monthly_cost_cents/failover/output），ParsePolicyConstraints 严格校验，AutoMigrate 含 Policy | Verification: TestPolicyAPI/TestResolveMergePrecedence/TestApplyConstraints 等 server 全绿 2026-11-26 | Commit: c74c69c）
+-   [x] `F-0283` 定义系统级 Policy。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0283 | Status: Done | Evidence: scope=system（subject_id=0）全局行，POST/PUT/DELETE /api/policies 管理，Resolve 链含 system 层，alloc SweepAt 读 system 冻结 failover | Verification: TestPolicyAPI（system 行创建+resolve 含 system）/TestSweepFailoverFreeze | Commit: c74c69c）
+-   [x] `F-0284` 定义套餐级 Policy。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0284 | Status: Done | Evidence: scope=plan（subject_id=plan id）行可建可管，Resolve 链 plan 层按 subject_id 匹配，字段级覆盖 | Verification: TestResolveMergePrecedence（plan7 regions/cost 覆盖 system） | Commit: c74c69c）
+-   [x] `F-0285` 定义用户级 Policy。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0285 | Status: Done | Evidence: scope=user（subject_id=user id）行可建可管，sub 交付按 Resolve(db,u.ID,0) 过滤 | Verification: TestSubscriptionPolicyFilter（user 策略过滤订阅）/TestResolveMergePrecedence（user42 健康覆盖） | Commit: c74c69c）
+-   [x] `F-0286` 定义订阅输出策略。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0286 | Status: Done | Evidence: constraints.output=compact 时 CapOutput 按 rtt 升序取最优 10 个（CompactOutputLimit=10，无 rtt 的排尾），sub.go 交付侧过滤 | Verification: TestCapOutput/TestSubscriptionPolicyFilter | Commit: c74c69c）
+-   [x] `F-0287` 定义策略优先级和冲突解决规则。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0287 | Status: Done | Evidence: policy.Resolve 按 system→plan→user 链合并 enabled 行，字段级 override（深层 wins，缺省继承），/api/policies/resolve 返回 effective constraints+贡献行 | Verification: TestResolveMergePrecedence（3 行链合并+disabled 排除）/TestPolicyAPI resolve 视图 | Commit: c74c69c）
+-   [x] `F-0288` 支持区域约束。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0288 | Status: Done | Evidence: constraints.regions 白名单（空=不限），ApplyConstraints 按 Node.Region 过滤，drop 原因 "region not allowed" | Verification: TestApplyConstraints（region-miss）/TestSubscriptionPolicyFilter | Commit: c74c69c）
+-   [x] `F-0289` 支持运营商约束。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0289 | Status: Done | Evidence: constraints.isps 白名单，ApplyConstraints 按 Node.ISP 过滤，drop 原因 "isp not allowed" | Verification: TestApplyConstraints（isp-miss） | Commit: c74c69c）
+-   [x] `F-0290` 支持线路类型约束。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0290 | Status: Done | Evidence: constraints.line_types 白名单，ApplyConstraints 按 Node.LineType 过滤，drop 原因 "line type not allowed" | Verification: TestApplyConstraints（line-miss） | Commit: c74c69c）
+-   [x] `F-0291` 支持健康阈值约束。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0291 | Status: Done | Evidence: constraints.min_health=healthy 拒 offline/suspended、=degraded 仅拒 suspended，drop 原因 "below min health" | Verification: TestApplyConstraints（offline/suspended/degraded 层级） | Commit: c74c69c）
+-   [x] `F-0292` 支持容量约束。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0292 | Status: Done | Evidence: constraints.min_capacity_mbps 按 Node.BwDownMbps 过滤，drop 原因 "below min capacity" | Verification: TestApplyConstraints（thin 10Mbps<50） | Commit: c74c69c）
+-   [x] `F-0293` 支持成本约束。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0293 | Status: Done | Evidence: max_traffic_price_cents 按 Node.TrafficPriceCents（计量）、max_monthly_cost_cents 按 Node.MonthlyCostCents（包月）过滤，drop 原因 "above traffic price cap"/"above monthly cost cap" | Verification: TestApplyConstraints（pricey/fixed-pricey） | Commit: c74c69c）
+-   [x] `F-0294` 支持故障回退规则。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0294 | Status: Done | Evidence: constraints.failover=manual 时 alloc.SweepAt 头部 FreezeFailover 短路（返回 nil，本轮不动现有落点），auto/空照常扫 | Verification: TestSweepFailoverFreeze（manual=0 事件 0 分配，auto/无策略正常分配）/TestFreezeFailover | Commit: c74c69c）
+-   [x] `F-0295` 支持 Policy 版本和变更审计。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0295 | Status: Done | Evidence: Policy.Version 每次更新 +1、UpdatedBy 记录最后编辑者（actorFrom），全部 /api/policies 写操作经 auditMiddleware 快照 | Verification: TestPolicyAPI（version=2+updated_by 非空） | Commit: c74c69c）
+-   [x] `F-0296` 提供 Policy 模拟和解释接口。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0296 | Status: Done | Evidence: GET /api/policies/simulate?user_id=&plan_id= 解析链→对当前入口池 ApplyConstraints→返回 kept/dropped（含 per-node reason）+failover_free | Verification: TestPolicyAPI（pol-hk 保留/pol-us "region not allowed"/failover_free） | Commit: c74c69c）
 
 ------------------------------------------------------------------------
 
