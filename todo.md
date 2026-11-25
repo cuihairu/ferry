@@ -875,10 +875,10 @@ External Client
     - 备注（Task ID: F-0321 | Status: Done | Evidence: Provider models.go:462（Name/Type/密钥/Enabled=云账号）；TestProviderAPI | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0322` 支持添加云服务商账号。
     - 备注（Task ID: F-0322 | Status: Done | Evidence: POST /api/providers→createProvider(router.go:147+providerapi.go:50-85) | Verification: TestProviderAPI(POST create) | Commit: acb0810）
--   [ ] `F-0323` 支持配置账号名称和备注。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0323 | 未满足原因：未满足：Provider.Name(models.go:482) 可配，但无 Note/Remark 字段（model/input/view 均无备注）。）
--   [ ] `F-0324` 支持配置账号所属区域或租户范围。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0324 | 未满足原因：未满足：Provider 无 Region/Tenant/Scope 字段（Region 仅属 ProvisionTemplate:497）。）
+-   [x] `F-0323` 支持配置账号名称和备注。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0323 | Status: Done | Evidence: Provider.Note(size 255) 字段，providerInput.Note 可空指针（创建设置/更新非空替换/缺省保持），providerView 回显，create+update 全链路 | Verification: TestProviderNoteRegion（创建回显+更新替换+列表含 note） | Commit: d30742e）
+-   [x] `F-0324` 支持配置账号所属区域或租户范围。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0324 | Status: Done | Evidence: Provider.Region(size 64) 账号级区域/租户作用域（空=整账号），providerInput.Region 与 providerView 同 F-0323 语义 | Verification: TestProviderNoteRegion（region 设置/替换/回显） | Commit: d30742e）
 -   [x] `F-0325` 将 Access Key/Secret 等凭据加密存储。
     - 备注（Task ID: F-0325 | Status: Done | Evidence: providerapi sealSecret→secret.Store AES-GCM；TestProviderAPI+TestStoreRoundtrip | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0326` 凭据读取仅允许 Provider Adapter 内部使用。
