@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// TestDisabled 覆盖占位 Provider：名称可达、下单/验签均报「未启用」并带原因。
+// TestDisabled covers the placeholder Provider: name reachable, order/verify both error with "not enabled" plus a reason.
 func TestDisabled(t *testing.T) {
 	p := NewDisabled("wechat", "等商户资质")
 	if p.Name() != "wechat" {

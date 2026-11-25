@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// stubProvider 是满足契约的最小实现，编译期校验接口形状。
+// stubProvider is a minimal contract-satisfying implementation, checking the interface shape at compile time.
 type stubProvider struct{ name string }
 
 func (s stubProvider) Name() string { return s.name }
@@ -22,7 +22,7 @@ var _ Provider = stubProvider{}
 func TestRegistry(t *testing.T) {
 	Register(stubProvider{name: "card"})
 	Register(stubProvider{name: "epusdt"})
-	// 同名覆盖不报错
+	// Registering over the same name doesn't error
 	Register(stubProvider{name: "card"})
 
 	p, err := Get("card")
@@ -38,8 +38,8 @@ func TestRegistry(t *testing.T) {
 	}
 }
 
-// TestChannels 覆盖渠道注册态枚举（SHOP-1）：真实现记 enabled，
-// 占位渠道记 disabled，且按名称字典序返回。
+// TestChannels covers channel registration-state listing (SHOP-1): real implementations report enabled,
+// placeholder channels disabled, returned in lexicographic name order.
 func TestChannels(t *testing.T) {
 	Register(NewDisabled("wx", "等商户资质"))
 	Register(stubProvider{name: "real"})
@@ -54,7 +54,7 @@ func TestChannels(t *testing.T) {
 	if _, ok := byName["real"]; ok && !byName["real"].Enabled {
 		t.Fatalf("real provider should be enabled: %+v", states)
 	}
-	// 字典序
+	// lexicographic order
 	for i := 1; i < len(states); i++ {
 		if states[i-1].Name > states[i].Name {
 			t.Fatalf("channels not sorted: %+v", states)

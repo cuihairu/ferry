@@ -5,9 +5,10 @@ import (
 	"fmt"
 )
 
-// NewDisabled 返回占位 Provider：渠道已规划、资质未到位时注册它，
-// 使 Get 命中、下单与验签得到明确的「未启用」文案而非「未注册」，
-// 渠道枚举（Names）也能列出完整规划面。资质到位后由真实现覆盖注册。
+// NewDisabled returns a placeholder Provider: register it while a channel is planned
+// but its credentials are not in place, so Get hits and ordering/verification get a clear
+// "not enabled" message instead of "not registered", and the channel listing (Names) shows
+// the full planned surface. Once credentials are ready, the real implementation registers over it.
 func NewDisabled(name, reason string) Provider {
 	return disabled{name: name, reason: reason}
 }
