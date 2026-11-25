@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// fakeChan 记录每次 upsert/delete（name|value 与 name），可注入失败。
+// fakeChan records every upsert/delete (name|value and name), injectable for failures.
 type fakeChan struct {
 	upserts []string
 	deletes []string
@@ -36,7 +36,7 @@ func (f *fakeChan) Delete(_ context.Context, name, rtype string) error {
 	return nil
 }
 
-// newTestDB 建内存库（storage.Open + AutoMigrate，口径同 recovery 测试）。
+// newTestDB builds an in-memory DB (storage.Open + AutoMigrate, same policy as the recovery tests).
 func newTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := storage.Open("sqlite", ":memory:")
@@ -54,7 +54,7 @@ func newTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-// newSyncer 建内存库 Syncer（带假通道注入）：启用 DNS 商 + 前置域名。
+// newSyncer builds an in-memory-DB Syncer (with a fake channel injected): enabled DNS vendor + front domain.
 func newSyncer(t *testing.T, fake *fakeChan) (*Syncer, *fakeChan) {
 	t.Helper()
 	db := newTestDB(t)
@@ -81,7 +81,7 @@ func newSyncer(t *testing.T, fake *fakeChan) (*Syncer, *fakeChan) {
 	return s, fake
 }
 
-// addNode 入库一个在池入口节点；region 空=未知区。
+// addNode inserts one in-pool entry node; an empty region means the unknown region.
 func addNode(t *testing.T, s *Syncer, name, region string, rttMs int) storage.Node {
 	t.Helper()
 	n := storage.Node{Name: name, Region: region, Port: 443, Protocol: "vless",
@@ -102,7 +102,7 @@ func addNode(t *testing.T, s *Syncer, name, region string, rttMs int) storage.No
 
 func ipOf(name string) string { return "10.1.0." + name[len(name)-1:] }
 
-// records 取已同步面全部行。
+// records takes all rows of the synchronized face.
 func records(t *testing.T, s *Syncer) []storage.GeoDNSRecord {
 	t.Helper()
 	rows := []storage.GeoDNSRecord{}
@@ -112,7 +112,7 @@ func records(t *testing.T, s *Syncer) []storage.GeoDNSRecord {
 	return rows
 }
 
-// TestSlug 区域词表归一：大小写/下划线/空白/非法字符，纯中文归一为空。
+// TestSlug region-vocabulary normalization: case/underscore/whitespace/illegal chars; purely Chinese normalizes to empty.
 func TestSlug(t *testing.T) {
 	cases := map[string]string{
 		"US-East":    "us-east",
@@ -120,7 +120,7 @@ func TestSlug(t *testing.T) {
 		"hk_01":      "hk-01",
 		"欧 洲":        "",
 		"--de--":     "de",
-		"SG@a b":     "sga-b", // 非法字符剔除不补分隔，仅保证字符集合法
+		"SG@a b":     "sga-b", // illegal chars stripped without inserting separators, only the charset is guaranteed legal
 	}
 	for in, want := range cases {
 		if got := Slug(in); got != want {
@@ -129,14 +129,14 @@ func TestSlug(t *testing.T) {
 	}
 }
 
-// TestRegionReps 每区域 RTT 升序取首位、无数据殿后；不在池/非入口不出参。
+// TestRegionReps takes the first of each region in ascending RTT, no-data trailing; out-of-pool / non-entry nodes do not appear.
 func TestRegionReps(t *testing.T) {
 	s, _ := newSyncer(t, &fakeChan{})
 	slow := addNode(t, s, "us-slow", "US", 300)
 	fast := addNode(t, s, "us-fast", "US", 80)
 	nodata := addNode(t, s, "us-nodata", "US", 0)
 	addNode(t, s, "jp-entry", "JP", 50)
-	// 摘除态/停用节点不出参。
+	// Removed/disabled nodes do not appear.
 	addNode(t, s, "hk-out", "HK", 10)
 	if err := s.DB.Model(&storage.Node{}).Where("name = ?", "hk-out").
 		Update("pool_state", "suspended").Error; err != nil {
@@ -144,7 +144,7 @@ func TestRegionReps(t *testing.T) {
 	}
 	addNode(t, s, "sg-off", "SG", 10)
 	if err := s.DB.Model(&storage.Node{}).Where("name = ?", "sg-off").
-		UpdateColumn("enabled", false).Error; err != nil { // 停用节点不出参
+		UpdateColumn("enabled", false).Error; err != nil { // disabled nodes do not appear
 		t.Fatal(err)
 	}
 
@@ -163,7 +163,7 @@ func TestRegionReps(t *testing.T) {
 	}
 }
 
-// TestSyncNewThenIdempotent 首轮落新记录，二轮幂等零变更。
+// TestSyncNewThenIdempotent the first round lands new records, the second round is idempotent with zero changes.
 func TestSyncNewThenIdempotent(t *testing.T) {
 	fake := &fakeChan{}
 	s, fake := newSyncer(t, fake)
@@ -185,7 +185,7 @@ func TestSyncNewThenIdempotent(t *testing.T) {
 		t.Fatalf("records = %+v", rows)
 	}
 
-	// 二轮：无变化零 upsert。
+	// second round: no change, zero upserts.
 	n, err = s.Sync(context.Background())
 	if err != nil || n != 0 {
 		t.Fatalf("second sync = %d, %v; want 0, nil", n, err)
@@ -195,7 +195,7 @@ func TestSyncNewThenIdempotent(t *testing.T) {
 	}
 }
 
-// TestSyncRttFlipRewrites RTT 翻转代表易主：Upsert 同一行（ID 不变）。
+// TestSyncRttFlipRewrites when the representative flips on an RTT flip: Upsert the same row (ID unchanged).
 func TestSyncRttFlipRewrites(t *testing.T) {
 	fake := &fakeChan{}
 	s, fake := newSyncer(t, fake)
@@ -210,7 +210,7 @@ func TestSyncRttFlipRewrites(t *testing.T) {
 	}
 	firstID := rows[0].ID
 
-	// us-b 变快：代表换人，原行重写。
+	// us-b gets fast: the representative changes, the original row is rewritten.
 	if err := s.DB.Model(&storage.ProbeReport{}).Where("node_id = ?", a.ID).
 		Update("rtt_ms", 500.0).Error; err != nil {
 		t.Fatal(err)
@@ -227,7 +227,7 @@ func TestSyncRttFlipRewrites(t *testing.T) {
 	}
 }
 
-// TestSyncRegionGoneDeletes 区域全挂撤记录：通道 Delete + 本地行删除。
+// TestSyncRegionGoneDeletes full-outage record withdrawal: channel Delete plus local row deletion.
 func TestSyncRegionGoneDeletes(t *testing.T) {
 	fake := &fakeChan{}
 	s, fake := newSyncer(t, fake)
@@ -240,7 +240,7 @@ func TestSyncRegionGoneDeletes(t *testing.T) {
 		t.Fatal("expected 2 records")
 	}
 
-	// US 区域唯一入口摘除：该区域 slug 记录撤销。
+	// the US region's only entry is removed: its slug record is withdrawn.
 	if err := s.DB.Model(&storage.Node{}).Where("id = ?", a.ID).
 		Update("pool_state", "suspended").Error; err != nil {
 		t.Fatal(err)
@@ -258,7 +258,7 @@ func TestSyncRegionGoneDeletes(t *testing.T) {
 	}
 }
 
-// TestSyncChineseRegionSkipped 纯中文区域名归一为空不产记录。
+// TestSyncChineseRegionSkipped a purely Chinese region name normalizes to empty and produces no record.
 func TestSyncChineseRegionSkipped(t *testing.T) {
 	fake := &fakeChan{}
 	s, fake := newSyncer(t, fake)
@@ -272,7 +272,7 @@ func TestSyncChineseRegionSkipped(t *testing.T) {
 	}
 }
 
-// TestSyncNoProvider 未配置启用 DNS 商：no-op（功能未启用）。
+// TestSyncNoProvider with no enabled DNS vendor configured: a no-op (the feature is not enabled).
 func TestSyncNoProvider(t *testing.T) {
 	fake := &fakeChan{}
 	s, _ := newSyncer(t, fake)
@@ -286,8 +286,8 @@ func TestSyncNoProvider(t *testing.T) {
 	}
 }
 
-// TestSyncFailureAlerts 通道失败：回错误且按日 dedup 只发一条告警；
-// 其余记录继续处理（部分失败不整体中断）。
+// TestSyncFailureAlerts on channel failure: the error surfaces and only one alert goes out with per-day dedup;
+// the remaining records keep processing (partial failure does not interrupt everything).
 func TestSyncFailureAlerts(t *testing.T) {
 	fake := &fakeChan{}
 	s, fake := newSyncer(t, fake)
@@ -310,7 +310,7 @@ func TestSyncFailureAlerts(t *testing.T) {
 		t.Fatalf("alerts = %d, want 1 (dedup per day)", alerts)
 	}
 
-	// 同日重试再失败：告警不重复。
+	// retry and fail again on the same day: the alert is not duplicated.
 	if _, err := s.Sync(context.Background()); err == nil {
 		t.Fatal("must still fail")
 	}
@@ -321,34 +321,34 @@ func TestSyncFailureAlerts(t *testing.T) {
 		t.Fatalf("alerts after retry = %d, want 1", alerts)
 	}
 
-	// 恢复后成功落记录。
+	// succeeds and lands a record after recovery.
 	fake.err = nil
 	if n, err := s.Sync(context.Background()); err != nil || n != 2 {
 		t.Fatalf("recovered sync = %d, %v", n, err)
 	}
 }
 
-// TestFactoryDefault 未注入工厂时缺省 dns.New 插件位。
+// TestFactoryDefault a default dns.New plugin slot when no factory is injected.
 func TestFactoryDefault(t *testing.T) {
 	if f := (&Syncer{}).factory(); f == nil {
 		t.Fatal("default factory must resolve to dns.New")
 	}
 }
 
-// TestSyncCredentialFailures 凭证链路失败：未配主密钥/凭证解不开都冒错
-// 不冒称对账成功。
+// TestSyncCredentialFailures credential-chain failure: an unconfigured master key / undecryptable
+// credentials both error out rather than claiming reconciliation success.
 func TestSyncCredentialFailures(t *testing.T) {
 	fake := &fakeChan{}
 	s, _ := newSyncer(t, fake)
 	addNode(t, s, "us-1", "US", 100)
 
-	// 未配主密钥。
+	// master key not configured.
 	noStore := &Syncer{DB: s.DB, New: s.New}
 	if _, err := noStore.Sync(context.Background()); err == nil ||
 		!strings.Contains(err.Error(), "master key not configured") {
 		t.Fatalf("err = %v; want master key not configured", err)
 	}
-	// 凭证密文损坏。
+	// credential ciphertext corrupt.
 	if err := s.DB.Model(&storage.DNSProvider{}).Where("id = ?", 1).
 		Update("api_key", "not-sealed").Error; err != nil {
 		t.Fatal(err)
@@ -359,11 +359,11 @@ func TestSyncCredentialFailures(t *testing.T) {
 	}
 }
 
-// TestEmitSyncFailedToleratesDBError 事件表不可写：告警辅助只记日志不炸。
+// TestEmitSyncFailedToleratesDBError the event table is unwritable: the alert helper only logs and does not crash.
 func TestEmitSyncFailedToleratesDBError(t *testing.T) {
 	db := newTestDB(t)
 	if err := db.Migrator().DropTable(&storage.Event{}); err != nil {
 		t.Fatal(err)
 	}
-	emitSyncFailed(db, errors.New("boom")) // 只是不能落事件，不 panic 即通过
+	emitSyncFailed(db, errors.New("boom")) // the event cannot be persisted, but not panicking passes
 }

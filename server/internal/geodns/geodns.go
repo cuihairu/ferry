@@ -1,10 +1,10 @@
-// Package geodns 实现智能 DNS 分地域（E-27，入口与负载均衡设计 §C.8）：
-// ferry 不自建权威 DNS、不做解析来源地域判定（判定在 GeoDNS 提供商线路
-// 库）——本包只做区域代表入口选取（与 E-26 orderByProbe 同源口径）与
-// {区域slug}.{前置域名} A 记录的事件驱动对账同步（幂等 Upsert、全挂撤
-// 记录，挂池摘挂钩子位不建轮询），凭证复用 DNSProvider 通道（R24 加密面）。
-// 同步子域不回写 entry_domains 人工清单：分地域是增益不是依赖，拿不到
-// 就近域名时订阅列表内自选优兜底。
+// Package geodns implements smart-DNS per-region routing (E-27, entries and load balancing design §C.8):
+// ferry does not run an authoritative DNS of its own or do geographic resolution (that lives in the GeoDNS
+// provider's line library) - this package only picks a region's representative entry (same policy as E-26
+// orderByProbe) and reconciles {region-slug}.{front-domain} A records event-driven (idempotent Upsert,
+// full-outage record withdrawal; no polling loop is built, and the pool attach/detach hooks are the
+// slot for it), reusing the DNSProvider credential channel (R24 encrypted surface).
+// A synchronized subdomain is never written back to the manual entry_domains list: per-region routing is an addition, not a dependency, and when no nearby domain is available the subscription list self-selects a fallback.
 package geodns
 
 import (
@@ -25,11 +25,11 @@ import (
 	"gorm.io/gorm"
 )
 
-// rttWindow 与订阅侧 E-19 口径一致（sub.go entryRttMs）：窗口内可达
-// 隧道探测的平均 RTT 参与代表入口选取。
+// rttWindow matches the subscription-side E-19 policy (sub.go entryRttMs): the mean RTT of reachable tunnel
+// probes within the window participates in representative-entry selection.
 const rttWindow = 30 * time.Minute
 
-// Syncer 是一次分地域对账的执行体；New 可注入假通道（测试）。
+// Syncer is the executor of one per-region reconciliation; New can inject a fake channel (for tests).
 type Syncer struct {
 	DB    *gorm.DB
 	Store *secret.Store
@@ -43,11 +43,11 @@ func (s *Syncer) factory() func(kind, token string) (dns.Provider, error) {
 	return dns.New
 }
 
-// RegionReps 每区域选代表入口（§C.8.2）：nodes(entry/both)+池内 active+
-// 非 provisioning（sick 已由摘挂出局），30min 可达隧道 RTT 聚合，区域归组
-// 组内 RTT 升序、无数据殿后、同值稳定序（id 升序）——与 E-26 orderByProbe
-// 同源口径但只取各组首位。区域键为 nodes.region 原值；无入口的区域不出
-// 现在结果里（全挂撤记录由 Sync 的 Delete 分支处理）。
+// RegionReps picks a representative entry per region (§C.8.2): nodes(entry/both)+active in the pool+
+// non-provisioning (sick is already out via removal), 30min reachable-tunnel RTT aggregation, group RTTs in
+// ascending order with no data trailing last, and stable ordering for ties (id ascending) - the same
+// policy as E-26 orderByProbe but only taking each group's first entry. The region key is nodes.region's
+// original value; regions with no entry do not appear in the current results (full-outage record
 func (s *Syncer) RegionReps(now time.Time) (map[string]storage.Node, error) {
 	var nodes []storage.Node
 	if err := s.DB.Where("enabled = ? AND role IN (?, ?) AND pool_state = ? AND status != ?",
@@ -72,17 +72,17 @@ func (s *Syncer) RegionReps(now time.Time) (map[string]storage.Node, error) {
 			if ti != tj {
 				return ti < tj
 			}
-			if ti == 0 && ri != rj { // 有数据档按 RTT 升序
+			if ti == 0 && ri != rj { // data tiers ascending by RTT
 				return ri < rj
 			}
-			return ns[i].ID < ns[j].ID // 同档稳定：id 升序
+			return ns[i].ID < ns[j].ID // stable within a tier: by id
 		})
 		reps[region] = ns[0]
 	}
 	return reps, nil
 }
 
-// tierOf 0=有探测数据（已知 RTT），1=无数据殿后（E-26 probeTier 同口径）。
+// tierOf 0=has probe data (known RTT), 1=no data, trailing (same policy as E-26 probeTier).
 func tierOf(rtt int) int {
 	if rtt > 0 {
 		return 0
@@ -90,7 +90,7 @@ func tierOf(rtt int) int {
 	return 1
 }
 
-// entryRttMs 聚合窗口内可达隧道探测的平均 RTT（与 sub.go 同款查询）。
+// entryRttMs aggregates the mean RTT of reachable tunnel probes within the window (same query as sub.go).
 func (s *Syncer) entryRttMs(now time.Time) map[uint]int {
 	out := map[uint]int{}
 	var rows []struct {
@@ -109,9 +109,9 @@ func (s *Syncer) entryRttMs(now time.Time) map[uint]int {
 	return out
 }
 
-// Slug 区域词表归一（§C.8.3）：小写、空白与下划线转连字符，只保留
-// [a-z0-9-]；归一后为空（如纯中文区域名）不产记录——区域词表建议
-// ASCII slug（与 entry_domains.region 人工清单同源）。
+// Slug normalizes the region vocabulary (§C.8.3): lowercase, whitespace and underscores to hyphens,
+// keeping only [a-z0-9-]; when normalization leaves it empty (e.g. a purely Chinese region name) no
+// record is produced - the region vocabulary is recommended to be ASCII slugs (same source as the manual entry_domains.region list).
 func Slug(region string) string {
 	s := strings.ToLower(strings.TrimSpace(region))
 	s = strings.ReplaceAll(s, "_", "-")
@@ -125,11 +125,11 @@ func Slug(region string) string {
 	return strings.Trim(b.String(), "-")
 }
 
-// Sync 对账同步（§C.8.4）：对每条启用 DNS 商名下的前置域名，把
-// {slug}.{domain} A 记录对齐代表入口集——新增/变更 Upsert、消失 Delete
-// （区域全挂撤记录）；已同步面落 GeoDNSRecord 作下轮 diff 基准。变化
-// 留痕 admin 日志，单条失败经 herald 告警（按日 dedup）后继续其余记录。
-// 未配置启用 DNS 商或前置域名时 no-op（功能未启用）。返回变更记录数。
+// Sync reconciles (§C.8.4): under each enabled DNS vendor's front domain, it aligns the
+// {slug}.{domain} A record to the representative-entry set - Upsert on add/change, Delete on
+// disappearance (full-outage record withdrawal); the synchronized face lands in GeoDNSRecord as the
+// baseline for the next round's diff. Changes leave a trail in the admin log, and a single failure
+// alerts via herald (per-day dedup) then continues with the remaining records.
 func (s *Syncer) Sync(ctx context.Context) (int, error) {
 	var provs []storage.DNSProvider
 	if err := s.DB.Where("enabled = ?", true).Find(&provs).Error; err != nil {
@@ -192,14 +192,14 @@ func (s *Syncer) Sync(ctx context.Context) (int, error) {
 		for region, n := range reps {
 			sl := Slug(region)
 			if sl == "" {
-				continue // 区域词表非 ASCII slug，不产记录
+				continue // region vocabulary is not an ASCII slug, no record produced
 			}
 			want[sl] = n.Address
 		}
 		for sl, val := range want {
 			key := fmt.Sprintf("%d/%s", f.ID, sl)
 			if rec, ok := exByKey[key]; ok && rec.Value == val {
-				continue // 无变化，幂等跳过
+				continue // no change, idempotently skip
 			}
 			name := sl + "." + f.Domain
 			if err := ch.Upsert(ctx, name, "A", val); err != nil {
@@ -216,7 +216,7 @@ func (s *Syncer) Sync(ctx context.Context) (int, error) {
 			}
 			changes++
 		}
-		// 撤记录：已同步面里该前置域名下不再存在代表入口的区域。
+		// Record withdrawal: regions under this front domain in the synchronized face with no representative entry any more.
 		for _, r := range existing {
 			if r.FrontID != f.ID {
 				continue
@@ -241,8 +241,8 @@ func (s *Syncer) Sync(ctx context.Context) (int, error) {
 	return changes, firstErr
 }
 
-// emitSyncFailed 对账失败告警：本地同日至多一条（dedup 兜底，口径同
-// price_alert）；未配 Herald 落本地 outbox 站内可见。
+// emitSyncFailed is a reconciliation failure alert: at most one per local day (dedup fallback, same policy as
+// price_alert); when Herald is unconfigured it lands in the local outbox, visible in-app.
 func emitSyncFailed(db *gorm.DB, cause error) {
 	key := fmt.Sprintf("geodns_sync:%s", time.Now().Format("2006-01-02"))
 	var n int64

@@ -11,11 +11,11 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestRegionRepsEmptyRegionAndTieBreak 空区域归「未知」；无探测数据时同组
-// 按 id 升序取代表（稳定序兜底）。
+// TestRegionRepsEmptyRegionAndTieBreak an empty region falls to "unknown"; with no probe data,
+// the same group takes its representative by id ascending (stable-order fallback).
 func TestRegionRepsEmptyRegionAndTieBreak(t *testing.T) {
 	s, _ := newSyncer(t, &fakeChan{})
-	first := addNode(t, s, "unknown-1", "", 0) // 无 RTT 数据
+	first := addNode(t, s, "unknown-1", "", 0) // no RTT data
 	addNode(t, s, "unknown-2", "", 0)
 	reps, err := s.RegionReps(time.Now())
 	if err != nil {
@@ -27,8 +27,8 @@ func TestRegionRepsEmptyRegionAndTieBreak(t *testing.T) {
 	}
 }
 
-// TestSyncNoFrontsNoop 有启用 DNS 商但未配前置域名：对账 no-op（还没走到
-// 凭证环节，未配主密钥也不报错）。
+// TestSyncNoFrontsNoop with an enabled DNS vendor but no front domain configured: reconciliation is a no-op (it has not
+// reached the credential stage yet, and an unconfigured master key does not error either).
 func TestSyncNoFrontsNoop(t *testing.T) {
 	s, _ := newSyncer(t, &fakeChan{})
 	if err := s.DB.Where("1=1").Delete(&storage.DNSFront{}).Error; err != nil {
@@ -40,8 +40,8 @@ func TestSyncNoFrontsNoop(t *testing.T) {
 	}
 }
 
-// TestSyncDecryptError DNS 商密文解不开（换钥后旧密文/被篡改）：对账报错
-// 且指明是哪家。
+// TestSyncDecryptError a vendor's ciphertext cannot be decrypted (old ciphertext after a key rotation / tampered): reconciliation
+// errors out and names the vendor.
 func TestSyncDecryptError(t *testing.T) {
 	s, _ := newSyncer(t, &fakeChan{})
 	if err := s.DB.Model(&storage.DNSProvider{}).Where("1=1").
@@ -54,7 +54,7 @@ func TestSyncDecryptError(t *testing.T) {
 	}
 }
 
-// TestSyncFactoryError 通道工厂失败（未知 DNS 商类型等）：对账报错。
+// TestSyncFactoryError channel-factory failure (unknown DNS vendor type etc.): reconciliation errors out.
 func TestSyncFactoryError(t *testing.T) {
 	s, _ := newSyncer(t, &fakeChan{})
 	s.New = func(string, string) (dns.Provider, error) {
