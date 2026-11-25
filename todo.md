@@ -1309,7 +1309,7 @@ External Client
 -   [x] `F-0721` 审计现有 agentproto 消息定义。
     - 备注（Task ID: F-0721 | Status: Done | Evidence: agentproto 消息定义审计 §3.2（Msg* 信封+Version） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0722` 为现有消息补充协议文档。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0722 | 未满足原因：部分：契约经 Go 注释+docs/design/agent架构设计.md §8 记录；无独立协议参考文档枚举全部消息类型。）
+    - 备注（Task ID: F-0722 | Status: Done | Evidence: 独立协议参考文档 docs/design/agent协议参考.md：信封/版本守卫/帧限/超时 + 全部 23 个消息类型表（方向/载荷/语义/应答与幂等）+ FERRY-004 摘要与兼容规则，与 TestMessageTypesStable 互为锚点 | Verification: 文档-only，代码树与 2026-11-26 全绿运行一致 | Commit: ef9cb07）
 -   [x] `F-0723` 为消息定义版本兼容规则。
     - 备注（Task ID: F-0723 | Status: Done | Evidence: Envelope.V+ProtocolVersion(envelope.go:7-8,36-41)+Valid() 拒绝未知版本(envelope.go:70)+link readLoop 丢弃(link.go:160-163) | Verification: TestEnvelopeVersionGuard+TestReadLoopDropsBadMessages | Commit: 172dad4）
 -   [x] `F-0724` 为有副作用消息定义幂等键。
