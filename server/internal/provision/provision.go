@@ -1,9 +1,9 @@
-// Package provision 是供给执行层（OS-2）：机型模板渲染 HCL、调 tofu CLI
-// 受控执行 plan/apply。底座 = OpenTofu（不自研供给引擎、不逐家封 SDK）；
-// ferry 只做模板渲染与执行编排。P1 先通 vultr 一家，多 provider 横向扩。
+// Package provision is the supply execution layer (OS-2): it renders machine templates to HCL
+// and drives the tofu CLI for controlled plan/apply. The foundation is OpenTofu (no home-grown supply
+// engine, no per-vendor SDK wrappers); ferry only does template rendering and execution orchestration. P1 gets one vendor (vultr) through first, then scales out to more providers.
 //
-// 凭证安全（R24）：云 API 密钥经 TF_VAR 环境变量传入，不写进 HCL、
-// 不进日志、不进 state 快照之外的面板留痕；state 集中存面板侧工作目录。
+// Credential security (R24): cloud API keys are passed in as TF_VAR environment variables, never written
+// into HCL, never logged, never left in panel traces beyond the state snapshot; state is stored centrally in the panel-side working directory.
 package provision
 
 import (
@@ -23,24 +23,24 @@ import (
 	"gorm.io/gorm"
 )
 
-// logTail 是 job 留痕保留的日志尾部上限。
+// logTail is the upper bound of log tail kept for job tracing.
 const logTail = 8 * 1024
 
-// Runner 是一次 tofu 命令执行：cwd 工作目录、args 命令行、env 附加环境变量，
-// 返回合并输出。可注入替代实现供测试。
+// Runner is one tofu command execution: dir is the working directory, args the command line, env the
+// extra environment variables; it returns the combined output. An alternative implementation can be injected for tests.
 type Runner func(ctx context.Context, dir string, args []string, env map[string]string) (string, error)
 
-// Manager 编排供给执行：工作目录管理、HCL 渲染落盘、tofu 受控执行与留痕。
-// 全局串行（单实例不并发 apply）。
+// Manager orchestrates supply execution: working-directory management, rendering HCL to disk,
+// controlled tofu execution and tracing. Globally serial (a single instance never applies concurrently).
 type Manager struct {
 	db   *gorm.DB
-	bin  string // tofu 可执行文件路径
-	root string // 工作目录根，每模板一目录（state 集中在目录内）
+	bin  string // path to the tofu executable
+	root string // root of the working directories, one directory per template (state kept inside that directory)
 	mu   sync.Mutex
 	run  Runner
 }
 
-// New 创建管理器；run 空=真实 exec tofu。
+// New creates the manager; an empty run means really exec tofu.
 func New(db *gorm.DB, bin, root string, run Runner) *Manager {
 	if bin == "" {
 		bin = "tofu"
@@ -51,10 +51,10 @@ func New(db *gorm.DB, bin, root string, run Runner) *Manager {
 	return &Manager{db: db, bin: bin, root: root, run: run}
 }
 
-// sharedManagers 按 (db, bin, root) 登记 Manager 单例。Execute 靠 m.mu
-// 承诺「单实例不并发」，但此前 HTTP 手动触发与恢复/补充循环各自 New，
-// 锁互不相干——同 workdir 并发 init/apply 会踩烂 terraform state。
-// Shared 让同库同 tofu 同根目录全进程共用一个 Manager，串行以进程为界。
+// sharedManagers registers Manager singletons by (db, bin, root). Execute relies on m.mu for its
+// "single instance never concurrent" promise, but previously the HTTP manual trigger and the recovery/
+// replenishment loop each called New, so their locks were unrelated -- concurrent init/apply in the same
+// workdir would trample the terraform state. Shared makes the whole process share one Manager for the same db, tofu and root, serializing at process granularity.
 var (
 	sharedMu       sync.Mutex
 	sharedManagers = map[sharedKey]*Manager{}
@@ -66,7 +66,7 @@ type sharedKey struct {
 	root string
 }
 
-// Shared 返回 (db, bin, root) 对应的共享管理器，参数口径与 New 一致。
+// Shared returns the shared manager for (db, bin, root), with the same parameter conventions as New.
 func Shared(db *gorm.DB, bin, root string, run Runner) *Manager {
 	if bin == "" {
 		bin = "tofu"
@@ -82,7 +82,7 @@ func Shared(db *gorm.DB, bin, root string, run Runner) *Manager {
 	return m
 }
 
-// DB 暴露底层库连接，供编排方（如恢复流水线 L3）做开服前置查询。
+// DB exposes the underlying database connection for the orchestrator (such as recovery pipeline L3) to run pre-launch queries.
 func (m *Manager) DB() *gorm.DB { return m.db }
 
 func realRunner(ctx context.Context, dir string, args []string, env map[string]string) (string, error) {
@@ -95,21 +95,21 @@ func realRunner(ctx context.Context, dir string, args []string, env map[string]s
 	return string(out), err
 }
 
-// ExecParams 是一次供给执行的全部输入（OS-3 起 apply 携带 cloud-init）。
+// ExecParams is the full input for one supply execution (apply carries cloud-init from OS-3 on).
 type ExecParams struct {
 	Template     storage.ProvisionTemplate
 	ProviderType string
 	APIKey       string
 	InstanceName string
 	Action       string
-	// UserData 是 cloud-init user_data（CloudInit 渲染）；空=不注入（plan 无需）。
+	// UserData is the cloud-init user_data (rendered by CloudInit); empty means inject nothing (not needed by plan).
 	UserData string
 }
 
-// RenderHCL 由模板渲染工作目录的 main.tf。P1 先通 vultr 一家；密钥
-// 不入 HCL（走 TF_VAR_api_key）。未知 provider 类型报错，不冒称支持。
-// userData 非空时经 heredoc 注入 vultr_instance.user_data（provider 侧
-// 自行 base64 后交 Vultr API）；内容顶格写，避开转义 heredoc 的缩进剥离。
+// RenderHCL renders main.tf in the working directory from the template. P1 gets one vendor (vultr) through
+// first; keys do not enter HCL (they go via TF_VAR_api_key). An unknown provider type errors out rather than
+// claiming support. When userData is non-empty it is injected into vultr_instance.user_data via a heredoc
+// (the provider base64-encodes it itself before handing it to the Vultr API); the content is written flush left to avoid the indentation stripping of an escaped heredoc.
 func RenderHCL(providerType string, tpl storage.ProvisionTemplate, instanceName, userData string) (string, error) {
 	switch providerType {
 	case "vultr":
@@ -144,12 +144,12 @@ resource "vultr_instance" "node" {
 
 func imageLineVultr(image string) string {
 	if image == "" {
-		return "" // 走 provider 缺省镜像
+		return "" // use the provider's default image
 	}
 	return fmt.Sprintf("image_id = %q", image)
 }
 
-// Apply 留痕执行：建 running job → Execute → 回填终态。
+// Apply executes with tracing: create a running job -> Execute -> write back the terminal state.
 func (m *Manager) Apply(ctx context.Context, p ExecParams) (*storage.ProvisionJob, error) {
 	job := storage.ProvisionJob{
 		TemplateID: p.Template.ID, TemplateName: p.Template.Name, Action: p.Action, Status: "running",
@@ -165,8 +165,8 @@ func (m *Manager) Apply(ctx context.Context, p ExecParams) (*storage.ProvisionJo
 	return &job, nil
 }
 
-// Execute 同步执行一轮供给（渲染 → init → plan/apply），返回终态与日志尾部，
-// 不留痕（留痕由调用方负责，便于复用已有 job 行）。
+// Execute synchronously runs one round of supply (render -> init -> plan/apply) and returns the terminal state
+// plus the log tail, without tracing (the caller handles tracing, so an existing job row can be reused).
 func (m *Manager) Execute(ctx context.Context, p ExecParams) (string, string) {
 	action := p.Action
 	if action != "plan" && action != "apply" {
@@ -174,9 +174,9 @@ func (m *Manager) Execute(ctx context.Context, p ExecParams) (string, string) {
 	}
 	failed := func(log string) (string, string) { return "failed", tailLog(log) }
 
-	// 单实例不并发：整轮串行（含 main.tf 渲染落盘，plan 也排队）。锁必须
-	// 罩住 HCL 写——否则同模板并发 apply+plan 时后写者覆盖前者 main.tf，
-	// 先获锁者会跑错 HCL（apply 拿到 plan 模板=丢 cloud-init）。
+	// Single instance never concurrent: the whole round is serial (including rendering main.tf to disk; plan queues too).
+	// The lock must cover the HCL write -- otherwise a concurrent apply+plan on the same template lets the later
+	// writer overwrite the earlier one's main.tf, and whoever got the lock first runs the wrong HCL (apply picks up the plan template = cloud-init lost).
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -210,7 +210,7 @@ func (m *Manager) Execute(ctx context.Context, p ExecParams) (string, string) {
 	return "ok", tailLog(out)
 }
 
-// DecryptKey 由提供商记录解出 API 密钥（仅 server 执行供给时使用，不落日志）。
+// DecryptKey extracts the API key from the provider record (used only when the server executes supply; never logged).
 func DecryptKey(p storage.Provider, store *secret.Store) (string, error) {
 	if p.AccessKey == "" {
 		return "", errors.New("provision: provider has no access key")
@@ -225,8 +225,8 @@ func errString(err error) string {
 	return "\n" + err.Error()
 }
 
-// tailLog 取执行日志尾段留痕：起点前移到 UTF-8 字符边界（tofu 输出可含
-// 中文，按字节硬切会截半字符）。
+// tailLog takes the trailing segment of the execution log for tracing: the start point is pulled back to a UTF-8
+// character boundary (tofu output can contain Chinese; a hard byte cut would split a character).
 func tailLog(s string) string {
 	return safestr.Tail(s, logTail)
 }

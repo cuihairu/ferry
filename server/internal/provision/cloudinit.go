@@ -1,8 +1,8 @@
-// cloud-init 初始化（OS-3）：apply 创建的实例经 user_data 注入预签发的
-// agent 配置与 systemd 服务，开机自动安装 ferry-agent 并首连面板注册
-// （hello 校验节点 token，无需新注册协议）。口径与 deploy/agent-install.sh
-// 保持一致：配置路径 /etc/ferry/agent.json、安装路径 /usr/local/bin/ferry-agent、
-// 下载地址 $BASE/v$VER/ferry-agent_${VER}_linux_${ARCH}.tar.gz（amd64/arm64）。
+// cloud-init bootstrap (OS-3): the instance created by apply gets the pre-issued
+// agent config and systemd unit injected via user_data, so ferry-agent is installed at boot
+// and registers with the panel on first contact (hello validates the node token, no new
+// registration protocol needed). Keeps the same conventions as deploy/agent-install.sh:
+// config path /etc/ferry/agent.json, install path /usr/local/bin/ferry-agent,
 package provision
 
 import (
@@ -11,14 +11,14 @@ import (
 	"strings"
 )
 
-// AgentConfigFile 是写入节点 /etc/ferry/agent.json 的配置（agent 出站连接用）。
+// AgentConfigFile is the config written to /etc/ferry/agent.json on the node (used for the agent's outbound connection).
 type AgentConfigFile struct {
 	PanelURL string `json:"panel_url"` // ws(s)://host/agent/ws
 	AgentID  string `json:"agent_id"`
-	Token    string `json:"token"` // 预签发节点令牌
+	Token    string `json:"token"` // pre-issued node token
 }
 
-// AgentConfigJSON 渲染节点配置 JSON（经 base64 进 cloud-init，不落明文于 HCL）。
+// AgentConfigJSON renders the node config JSON (base64-encoded into cloud-init, never plaintext in HCL).
 func AgentConfigJSON(cfg AgentConfigFile) (string, error) {
 	b, err := json.Marshal(cfg)
 	if err != nil {
@@ -27,7 +27,7 @@ func AgentConfigJSON(cfg AgentConfigFile) (string, error) {
 	return string(b), nil
 }
 
-// PanelWSURL 把面板基址转成 agent ws 地址：http→ws、https→wss，统一拼 /agent/ws。
+// PanelWSURL converts the panel base URL to the agent ws address: http->ws, https->wss, appending /agent/ws.
 func PanelWSURL(baseURL string) string {
 	base := strings.TrimRight(baseURL, "/")
 	var ws string
@@ -44,7 +44,7 @@ func PanelWSURL(baseURL string) string {
 	return ws + "/agent/ws"
 }
 
-// agentSystemdUnit 与 agent-install.sh 同口径：断线自动拉起。
+// agentSystemdUnit matches agent-install.sh: restart automatically on disconnect.
 const agentSystemdUnit = `[Unit]
 Description=ferry agent
 After=network-online.target
@@ -59,8 +59,8 @@ RestartSec=5
 WantedBy=multi-user.target
 `
 
-// agentInstallScript 按 uname -m 分支下载安装 ferry-agent 并启动服务；
-// 伴随 .sha256 有则校验（与 agent-install.sh 同口径），无则跳过不阻断。
+// agentInstallScript downloads and installs ferry-agent and starts the service, branching on uname -m;
+// verifies the accompanying .sha256 when present (same convention as agent-install.sh), skips without blocking when absent.
 const agentInstallScript = `set -eu
 case "$(uname -m)" in
   x86_64) arch=amd64 ;;
@@ -81,15 +81,15 @@ systemctl enable ferry-agent >/dev/null
 systemctl restart ferry-agent
 `
 
-// CloudInit 渲染 #cloud-config user_data：预置 agent 配置与 systemd unit
-// （write_files，先于 runcmd），runcmd 下载安装并启动。cloud-init 字符串
-// 拼接而非 YAML 库序列化：内容全部由本包产出，转义点收敛在 base64 的
-// agent.json（token 所在处）。
+// CloudInit renders the #cloud-config user_data: the agent config and systemd unit are
+// pre-provisioned (write_files, before runcmd), and runcmd downloads, installs and starts. The cloud-init
+// document is string concatenation rather than YAML serialization: all content comes from this package, and
+// escaping is confined to agent.json (where the token lives) via base64.
 func CloudInit(configJSON, agentBase, version string) string {
 	cfgB64 := base64.StdEncoding.EncodeToString([]byte(configJSON))
 	script := strings.NewReplacer("__BASE__", strings.TrimRight(agentBase, "/"), "__VER__", version).
 		Replace(agentInstallScript)
-	// 块标量整体缩进：除首行由前缀带出，其余行在换行处补齐空格。
+	// Indent the block scalar as a whole: the prefix carries the first line, the rest is padded at each newline.
 	unit := strings.ReplaceAll(strings.TrimSuffix(agentSystemdUnit, "\n"), "\n", "\n      ")
 	body := strings.ReplaceAll(strings.TrimSuffix(script, "\n"), "\n", "\n    ")
 	return "#cloud-config\n" +

@@ -34,8 +34,8 @@ func newTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-// TestRenderHCL 覆盖 vultr 渲染：plan/region/label 落 HCL、镜像可选、
-// 密钥绝不出现；userData 注入 heredoc；未知类型报错不冒称支持。
+// TestRenderHCL covers vultr rendering: plan/region/label land in the HCL, the image is optional,
+// keys never appear; userData is injected as a heredoc; an unknown type errors rather than claiming support.
 func TestRenderHCL(t *testing.T) {
 	tpl := storage.ProvisionTemplate{Name: "hk-3t", Plan: "vc2-1c-1gb", Region: "hkg", Image: "docker"}
 	hcl, err := RenderHCL("vultr", tpl, "ferry-hk-3t", "")
@@ -47,7 +47,7 @@ func TestRenderHCL(t *testing.T) {
 			t.Fatalf("hcl missing %q:\n%s", want, hcl)
 		}
 	}
-	// 密钥只经变量引用（TF_VAR_api_key 注入），绝不出现字面量。
+	// Keys only appear as a variable reference (injected as TF_VAR_api_key), never as a literal.
 	if !strings.Contains(hcl, "api_key = var.api_key") || strings.Contains(hcl, "sk-") {
 		t.Fatalf("hcl must reference var only, no literal key:\n%s", hcl)
 	}
@@ -58,7 +58,7 @@ func TestRenderHCL(t *testing.T) {
 		t.Fatal("unknown provider must fail")
 	}
 
-	// userData（OS-3）：heredoc 顶格注入，#cloud-config 首行原样保留。
+	// userData (OS-3): the heredoc is injected flush left, and the #cloud-config first line is preserved as-is.
 	hcl2, err := RenderHCL("vultr", tpl, "ferry-hk-3t", "#cloud-config\nwrite_files: []\n")
 	if err != nil {
 		t.Fatal(err)
@@ -68,9 +68,9 @@ func TestRenderHCL(t *testing.T) {
 	}
 }
 
-// TestCloudInit 覆盖 cloud-init 渲染（OS-3）：#cloud-config 首行、agent.json
-// 经 base64 携带 token/panel_url、systemd unit 与安装脚本落位、下载地址按
-// 参数拼装；token 不以明文出现在渲染结果里。
+// TestCloudInit covers cloud-init rendering (OS-3): the #cloud-config first line, agent.json
+// carrying token/panel_url via base64, the systemd unit and install script in place, and the download
+// URL assembled from the parameters; the token does not appear in plaintext in the rendered output.
 func TestCloudInit(t *testing.T) {
 	cfg, err := AgentConfigJSON(AgentConfigFile{PanelURL: "wss://panel.example.com/agent/ws", AgentID: "hk-1", Token: "tok_abc"})
 	if err != nil {
@@ -80,7 +80,7 @@ func TestCloudInit(t *testing.T) {
 	if !strings.HasPrefix(ud, "#cloud-config\n") {
 		t.Fatalf("missing #cloud-config header:\n%s", ud)
 	}
-	// agent.json 经 base64 注入（token 不落明文），可解回且字段齐全。
+	// agent.json is injected base64-encoded (the token is never plaintext) and can be decoded back with all fields intact.
 	if strings.Contains(ud, "tok_abc") {
 		t.Fatalf("token must not appear in plain text:\n%s", ud)
 	}
@@ -105,13 +105,13 @@ func TestCloudInit(t *testing.T) {
 			t.Fatalf("cloud-init missing %q:\n%s", want, ud)
 		}
 	}
-	// 基址尾斜杠归一：不出双斜杠版本号。
+	// A trailing slash on the base URL is normalized: no double-slash version numbers.
 	if strings.Contains(ud, "//v1.") {
 		t.Fatalf("base trailing slash not trimmed:\n%s", ud)
 	}
 }
 
-// TestPanelWSURL 覆盖面板基址到 agent ws 地址的口径（与 agent-install.sh 一致）。
+// TestPanelWSURL covers the convention from panel base URL to agent ws address (consistent with agent-install.sh).
 func TestPanelWSURL(t *testing.T) {
 	cases := map[string]string{
 		"http://localhost:8080":      "ws://localhost:8080/agent/ws",
@@ -127,8 +127,8 @@ func TestPanelWSURL(t *testing.T) {
 	}
 }
 
-// TestApplyLifecycle 覆盖执行编排（注入 fake runner）：init→action 顺序、
-// 密钥只经 TF_VAR 环境变量、main.tf 内容不变不重写、终态留痕 ok/failed。
+// TestApplyLifecycle covers execution orchestration (with a fake runner injected): the init->action order,
+// keys only via the TF_VAR environment variable, main.tf not rewritten when its content is unchanged, terminal state traced as ok/failed.
 func TestApplyLifecycle(t *testing.T) {
 	db := newTestDB(t)
 	tpl := storage.ProvisionTemplate{Name: "hk-3t", Plan: "vc2-1c-1gb", Region: "hkg", Image: "docker"}
@@ -162,7 +162,7 @@ func TestApplyLifecycle(t *testing.T) {
 		t.Fatal("job log must not contain api key")
 	}
 
-	// main.tf 落盘且与渲染一致；复跑内容不变不重写（mtime 不变）。
+	// main.tf is written and matches the render; re-running with unchanged content does not rewrite it (mtime unchanged).
 	tfPath := filepath.Join(root, "tpl-"+strconv.Itoa(int(tpl.ID)), "main.tf")
 	first, err := os.ReadFile(tfPath)
 	if err != nil {
@@ -178,7 +178,7 @@ func TestApplyLifecycle(t *testing.T) {
 	}
 	_ = first
 
-	// runner 失败 → failed 留痕。
+	// runner fails -> traced as failed.
 	m2 := New(db, "tofu", t.TempDir(), func(ctx context.Context, dir string, args []string, env map[string]string) (string, error) {
 		if args[0] == "apply" {
 			return "boom", context.DeadlineExceeded
@@ -193,14 +193,14 @@ func TestApplyLifecycle(t *testing.T) {
 		t.Fatalf("job2 = %+v", job2)
 	}
 
-	// 非法 action：留痕 failed 不中断（与执行失败同口径）。
+	// An illegal action: traced as failed without aborting (same convention as an execution failure).
 	job3, err := m.Apply(context.Background(), execParams(tpl, "vultr", "k", "x", "destroy"))
 	if err != nil || job3.Status != "failed" {
 		t.Fatalf("invalid action job = %+v err=%v", job3, err)
 	}
 }
 
-// TestDecryptKey 覆盖机密解密口径：无密文与错钥报错。
+// TestDecryptKey covers the secret-decryption convention: no ciphertext and a wrong key both error.
 func TestDecryptKey(t *testing.T) {
 	store := secret.NewStore("k1")
 	sealed, err := store.Encrypt("sk-x")
@@ -218,14 +218,14 @@ func TestDecryptKey(t *testing.T) {
 	}
 }
 
-// execParams 测试便捷构造。
+// execParams is a convenience constructor for tests.
 func execParams(tpl storage.ProvisionTemplate, providerType, apiKey, instanceName, action string) ExecParams {
 	return ExecParams{Template: tpl, ProviderType: providerType, APIKey: apiKey, InstanceName: instanceName, Action: action}
 }
 
-// TestSharedManagerSingleton：同 (db,bin,root) 全进程一个实例——HTTP 手动
-// 触发与恢复/补充循环共用同一把锁，串行承诺才以进程为界（此前各自 New
-// 锁互不相干，同 workdir 并发 init/apply 会踩烂 terraform state）。
+// TestSharedManagerSingleton: one instance per (db,bin,root) across the whole process -- the HTTP manual
+// trigger and the recovery/replenishment loop share one lock, so the serialization promise is bounded by
+// the process (previously each called New with unrelated locks, and concurrent init/apply in the same workdir would trample the terraform state).
 func TestSharedManagerSingleton(t *testing.T) {
 	db := newTestDB(t)
 	root := t.TempDir()
@@ -239,14 +239,14 @@ func TestSharedManagerSingleton(t *testing.T) {
 	if d := Shared(newTestDB(t), "tofu", root, nil); d == a {
 		t.Fatal("different db must not share")
 	}
-	// 空 bin 归一 tofu 后同键共享（与 New 口径一致）。
+	// An empty bin is normalized to tofu and then shares under the same key (consistent with New).
 	if e := Shared(db, "", root, nil); e != a {
 		t.Fatal("empty bin normalizes to tofu and shares")
 	}
 }
 
-// TestSharedManagerSerializes：多 goroutine 经 Shared 同一实例并发 Execute，
-// runner 内并发峰值必须为 1（process 级串行）。
+// TestSharedManagerSerializes: many goroutines call Execute on the same instance via Shared,
+// and the peak concurrency inside the runner must be 1 (process-level serialization).
 func TestSharedManagerSerializes(t *testing.T) {
 	db := newTestDB(t)
 	tpl := storage.ProvisionTemplate{Name: "hk-3t", Plan: "vc2-1c-1gb", Region: "hkg", Image: "docker"}
@@ -283,10 +283,10 @@ func TestSharedManagerSerializes(t *testing.T) {
 	}
 }
 
-// TestExecuteHCLIsolation：同模板并发 apply+plan，每次 tofu 运行读到的
-// main.tf 必须是对应 action 渲染的版本（apply 带 user_data、plan 不带）。
-// 回归背景：HCL 渲染落盘原先在锁外，后写者覆盖前者 main.tf，先获锁者
-// 会跑错 HCL（apply 拿到 plan 模板=丢 cloud-init）。
+// TestExecuteHCLIsolation: concurrent apply+plan on the same template, and the main.tf read by each tofu
+// run must be the version rendered for that action (apply carries user_data, plan does not).
+// Regression background: the HCL render-to-disk used to happen outside the lock, so a later writer overwrote
+// the earlier one's main.tf and whoever took the lock first ran the wrong HCL (apply picked up the plan template = cloud-init lost).
 func TestExecuteHCLIsolation(t *testing.T) {
 	db := newTestDB(t)
 	tpl := storage.ProvisionTemplate{Name: "hk-3t", Plan: "vc2-1c-1gb", Region: "hkg", Image: "docker"}
@@ -304,7 +304,7 @@ func TestExecuteHCLIsolation(t *testing.T) {
 			mu.Lock()
 			seen[args[0]] = string(b)
 			mu.Unlock()
-			time.Sleep(20 * time.Millisecond) // 放大交叉窗口
+			time.Sleep(20 * time.Millisecond) // widen the interleaving window
 		}
 		return "ok", nil
 	})
@@ -331,8 +331,8 @@ func TestExecuteHCLIsolation(t *testing.T) {
 	}
 }
 
-// TestRealRunnerCancelledCtx 真实 runner 用已取消的 ctx：起进程即失败，
-// 不依赖机器上是否装了 tofu。
+// TestRealRunnerCancelledCtx the real runner with an already-cancelled ctx: it fails as soon as it starts the
+// process, without depending on whether tofu is installed on the machine.
 func TestRealRunnerCancelledCtx(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

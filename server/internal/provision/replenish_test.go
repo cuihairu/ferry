@@ -11,7 +11,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// replenishFix 建模板/凭证/注入假 runner 的 Replenisher。
+// replenishFix builds a Replenisher with a template, credentials and an injected fake runner.
 func replenishFix(t *testing.T, providerEnabled bool) (*Replenisher, *storage.ProvisionTemplate) {
 	t.Helper()
 	db := newTestDB(t)
@@ -25,7 +25,7 @@ func replenishFix(t *testing.T, providerEnabled bool) (*Replenisher, *storage.Pr
 		t.Fatal(err)
 	}
 	if !providerEnabled {
-		// GORM 对带 default 的布尔零值跳过写入，禁用需显式更新。
+		// GORM skips writing the zero value of a boolean that has a default, so disabling needs an explicit update.
 		if err := db.Model(&prov).Update("enabled", false).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -55,24 +55,24 @@ func countProvisioning(t *testing.T, r *Replenisher) int64 {
 	return n
 }
 
-// TestReplenishSweep 覆盖池空保底：池空且无在途 → 自动开机（节点行
-// provisioning、job 留痕）；池未空或在途不开；未配置模板不开。
+// TestReplenishSweep covers the empty-pool safety net: an empty pool with nothing in flight -> the machine is
+// launched automatically (node row provisioning, job traced); it does not launch when the pool is not empty or something is in flight; and no template configured means no launch.
 func TestReplenishSweep(t *testing.T) {
 	r, _ := replenishFix(t, true)
 	logger := log.Default()
 
-	// 未配置模板：永不触发。
+	// No template configured: never triggers.
 	r.TemplateID = 0
 	if fired, err := r.Sweep(context.Background(), logger); err != nil || fired {
 		t.Fatalf("disabled fired=%v err=%v", fired, err)
 	}
-	r.TemplateID = 999 // 不存在的模板同口径不开
+	r.TemplateID = 999 // a nonexistent template is treated the same way: no launch
 	if fired, err := r.Sweep(context.Background(), logger); err == nil || fired {
 		t.Fatalf("missing template fired=%v err=%v", fired, err)
 	}
 	r.TemplateID = 1
 
-	// 池里有 active 入口：不开。
+	// The pool has an active entry: no launch.
 	db := r.Manager.DB()
 	if err := db.Create(&storage.Node{Name: "in-pool", Token: "t1", Role: "entry",
 		Enabled: true, Status: "online", PoolState: "active"}).Error; err != nil {
@@ -82,7 +82,7 @@ func TestReplenishSweep(t *testing.T) {
 		t.Fatalf("non-empty pool fired=%v err=%v", fired, err)
 	}
 
-	// 池空：开机（节点行 provisioning，OS-4 流水线接管入池）。
+	// The pool is empty: launch (the node row goes to provisioning, and the OS-4 pipeline takes over admission into the pool).
 	if err := db.Where("name = ?", "in-pool").Delete(&storage.Node{}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -90,8 +90,8 @@ func TestReplenishSweep(t *testing.T) {
 	if err != nil || !fired {
 		t.Fatalf("empty pool fired=%v err=%v", fired, err)
 	}
-	// 执行在后台 goroutine：轮询等节点行出现（带休眠，无休眠的紧密轮询在
-	// CI 负载下会抢在 goroutine 调度之前耗尽次数）。
+	// Execution happens in a background goroutine: poll for the node row to appear (with a sleep; a tight
+	// poll without sleeping would exhaust its attempts before the goroutine gets scheduled under CI load).
 	deadline := 100
 	for countProvisioning(t, r) == 0 && deadline > 0 {
 		time.Sleep(20 * time.Millisecond)
@@ -100,7 +100,7 @@ func TestReplenishSweep(t *testing.T) {
 	if countProvisioning(t, r) == 0 {
 		t.Fatal("no provisioning node created")
 	}
-	// 轮询等 job 回填终态（同上带休眠）。
+	// Poll for the job to be written back with its terminal state (with a sleep, as above).
 	var job storage.ProvisionJob
 	ok := false
 	for i := 0; i < 100; i++ {
@@ -117,14 +117,14 @@ func TestReplenishSweep(t *testing.T) {
 		t.Fatalf("job never finished: %+v", job)
 	}
 
-	// 在途防重：provisioning 入口存在（上一轮刚开的）且池空 → 不再开。
+	// Re-entrancy guard: a provisioning entry exists (launched in the previous round) and the pool is empty -> no further launch.
 	fired, err = r.Sweep(context.Background(), logger)
 	if err != nil || fired {
 		t.Fatalf("in-flight must block, fired=%v err=%v", fired, err)
 	}
 }
 
-// TestReplenishProviderDisabled 模板提供商停用：报错不开机不冒称触发。
+// TestReplenishProviderDisabled the template's provider is disabled: it errors and does not launch, without claiming a trigger.
 func TestReplenishProviderDisabled(t *testing.T) {
 	r, _ := replenishFix(t, false)
 	_, err := r.Sweep(context.Background(), log.Default())
@@ -133,11 +133,11 @@ func TestReplenishProviderDisabled(t *testing.T) {
 	}
 }
 
-// TestReplenishLoop 覆盖保底循环：首轮立即扫（interval<=0 回退 5m），
-// 池空时开新机；ctx 取消后返回。
+// TestReplenishLoop covers the safety-net loop: the first round sweeps immediately (interval<=0 falls back to 5m),
+// a new machine is launched when the pool is empty, and it returns once ctx is cancelled.
 func TestReplenishLoop(t *testing.T) {
 	r, _ := replenishFix(t, true)
-	r.TemplateID = 1 // replenishFix 建的模板即 1
+	r.TemplateID = 1 // the template created by replenishFix is 1
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

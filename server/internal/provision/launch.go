@@ -1,7 +1,7 @@
-// 开服编排（OS-3/OS-4/BR-1 共用）：节点预签发 + cloud-init 准备 + job 留痕
-// 的同一条路径——dash 一键开服与被封恢复 L3 开新机走同一套 PrepareLaunch。
-// 拆分口径：PrepareLaunch 只做准备（同步、秒级），Execute 执行（分钟级）
-// 由调用方放后台，FinishJob 回填终态。
+// Server-launch orchestration (shared by OS-3/OS-4/BR-1): node pre-issuance + cloud-init
+// preparation + job tracing on one path -- the one-click launch from the dash and the L3
+// recovery launch of a new machine when blocked share PrepareLaunch. Split: PrepareLaunch
+// only prepares (synchronous, seconds); Execute runs (minutes) and is backgrounded by the caller; FinishJob writes back the terminal state.
 package provision
 
 import (
@@ -16,32 +16,32 @@ import (
 	"gorm.io/gorm"
 )
 
-// LaunchParams 是一次开服的全部输入。
+// LaunchParams is the full input for one server launch.
 type LaunchParams struct {
 	Template storage.ProvisionTemplate
-	Provider storage.Provider // 原始行，AccessKey 密文在 PrepareLaunch 内解密
-	Store    *secret.Store    // 机密入口（R24），空/未启用直接报错
-	// InstanceName 是实例名（label）兼节点名与 agent_id。
+	Provider storage.Provider // raw row; the AccessKey ciphertext is decrypted inside PrepareLaunch
+	Store    *secret.Store    // secret entry point (R24); error out directly if empty/disabled
+	// InstanceName is the instance name (label), doubling as node name and agent_id.
 	InstanceName string
-	// PanelWSURL 是 agent 接入地址（provision.PanelWSURL 拼装），
-	// AgentBase/AgentVersion 是 cloud-init 下载口径。
+	// PanelWSURL is the agent ingress address (assembled by provision.PanelWSURL);
+	// AgentBase/AgentVersion set the cloud-init download conventions.
 	PanelWSURL   string
 	AgentBase    string
 	AgentVersion string
-	// NewToken 签发节点令牌（面板侧 randomToken 注入，provision 不自造令牌）。
+	// NewToken issues a node token (the panel's randomToken is injected; provision never mints tokens itself).
 	NewToken func() (string, error)
 }
 
-// Prepared 是开服准备结果：job 行已建（running）、节点行已预签发
-// （status=provisioning，首连注册由入池流水线收尾），执行参数齐备。
+// Prepared is the result of launch preparation: the job row is created (running), the node row
+// pre-issued (status=provisioning, first-contact registration is closed out by the intake pipeline),
 type Prepared struct {
 	Job    *storage.ProvisionJob
 	Node   storage.Node
 	Params ExecParams
 }
 
-// PrepareLaunch 预备一次开服：解密凭证 → 预签发/复用节点行（OS-3 同名复用
-// token 不抖动）→ 渲染 cloud-init → 建 running job。同步秒级，不执行 tofu。
+// PrepareLaunch prepares a server launch: decrypt credentials -> pre-issue/reuse the node row
+// (OS-3 reuses by name so the token does not churn) -> render cloud-init -> create a running job.
 func (m *Manager) PrepareLaunch(p LaunchParams) (*Prepared, error) {
 	if p.Store == nil || !p.Store.Enabled() {
 		return nil, errors.New("provision: secret master key not configured (set FERRY_SECRET_KEY)")
@@ -80,17 +80,17 @@ func (m *Manager) PrepareLaunch(p LaunchParams) (*Prepared, error) {
 	}, nil
 }
 
-// FinishJob 回填供给执行终态（Execute 之后调用，与 Apply 同口径）。
+// FinishJob writes back the terminal state of supply execution (called after Execute, same convention as Apply).
 func (m *Manager) FinishJob(jobID uint, status, logTail string) {
 	m.db.Model(&storage.ProvisionJob{}).Where("id = ?", jobID).
 		Updates(map[string]any{"status": status, "log": logTail, "finished_at": time.Now()})
 }
 
-// prepareNode 预签发/复用供给节点行：同名节点已存在则复用（token 不变，
-// 重放开服不重复建行、main.tf 不因新 token 抖动）；否则建行，元数据取自
-// 模板并置 meta_init（面板接管，注册上报不覆盖）。status=provisioning
-// 表示供给中：不入订阅、不参与分配（sub/alloc 查询排除），首连注册后
-// 经入池流水线转 online；开服失败遗留的孤儿行由后续状态机收编。
+// prepareNode pre-issues/reuses the supply node row: if a node with the same name exists it is reused (token unchanged,
+// re-launching creates no duplicate row and main.tf does not churn over a new token); otherwise a row is created
+// with metadata from the template and marked meta_init (the panel takes over, registration reports do not overwrite).
+// status=provisioning means supplying: excluded from subscriptions and allocation (sub/alloc queries filter it out),
+// turned online by the intake pipeline after first contact; orphan rows from a failed launch are adopted by the state machine.
 func (m *Manager) prepareNode(name string, tpl storage.ProvisionTemplate, newToken func() (string, error)) (storage.Node, error) {
 	var node storage.Node
 	err := m.db.Where("name = ?", name).First(&node).Error
@@ -104,7 +104,7 @@ func (m *Manager) prepareNode(name string, tpl storage.ProvisionTemplate, newTok
 	if err != nil {
 		return node, err
 	}
-	// Enabled 必须为真：authNode 只认启用节点，首连注册依赖它。
+	// Enabled must be true: authNode only accepts enabled nodes, and first-contact registration depends on it.
 	node = storage.Node{
 		Name:              name,
 		Port:              443,
@@ -120,7 +120,7 @@ func (m *Manager) prepareNode(name string, tpl storage.ProvisionTemplate, newTok
 		BillingType:       tpl.BillingType,
 		MonthlyCostCents:  tpl.MonthlyCostCents,
 		TrafficPriceCents: tpl.TrafficPriceCents,
-		Config:            compactJSON(tpl.Config), // OS-4：配置模板随开服落到节点行
+		Config:            compactJSON(tpl.Config), // OS-4: the config template lands on the node row with the launch
 		MetaInit:          true,
 	}
 	if err := m.db.Create(&node).Error; err != nil {
@@ -129,7 +129,7 @@ func (m *Manager) prepareNode(name string, tpl storage.ProvisionTemplate, newTok
 	return node, nil
 }
 
-// compactJSON 把配置模板规整成紧凑 JSON 文本；空串回 {}（与节点页同口径）。
+// compactJSON normalizes the config template into compact JSON text; an empty string falls back to {} (same convention as the node page).
 func compactJSON(cfg string) string {
 	trimmed := strings.TrimSpace(cfg)
 	if trimmed == "" {

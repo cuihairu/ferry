@@ -12,23 +12,23 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// Replenisher 是池空保底（BR-3）：入口池一个可用节点都没有时，按模板
-// 自动开新机（同 PrepareLaunch 开服路径，OS-4 流水线自动入池）。
-// 与恢复流水线的 L3 互补：L3 是「某节点被封的替换」，这里是「池整体
-// 空掉的兜底」。防重：有供给中的入口（provisioning）或在途 apply job
-// 就不动手，避免连环开机。模板 0=关闭。
+// Replenisher is the safety net for an empty pool (BR-3): when the entry pool has no usable node at all,
+// a new machine is launched automatically from the template (the same launch path as PrepareLaunch, with the
+// OS-4 pipeline admitting it into the pool). It complements L3 of the recovery pipeline: L3 is "replacing one
+// blocked node", this is "the last resort when the pool empties out". Re-entrancy guard: if there is an entry being
+// supplied (provisioning) or an in-flight apply job it stands down, avoiding a chain of launches. Template 0 = off.
 type Replenisher struct {
 	Manager    *Manager
 	Store      *secret.Store
 	TemplateID uint
-	// Launch 是面板注入的开服参数装配（同恢复 L3，复用面板地址/下载口径）。
+	// Launch assembles the launch parameters injected by the panel (same as recovery L3, reusing the panel address/download conventions).
 	Launch func(name string) LaunchParams
 }
 
-// Enabled 未配置模板时保底不开。
+// Enabled: when no template is configured the safety net stays off.
 func (r *Replenisher) Enabled() bool { return r != nil && r.TemplateID > 0 && r.Launch != nil }
 
-// Sweep 执行一轮：池空且无在途供给 → 后台开一台替换机。返回是否触发。
+// Sweep runs one round: the pool is empty and nothing is being supplied -> launch one replacement machine in the background. It reports whether it triggered.
 func (r *Replenisher) Sweep(ctx context.Context, logger *log.Logger) (bool, error) {
 	if !r.Enabled() {
 		return false, nil
@@ -44,9 +44,9 @@ func (r *Replenisher) Sweep(ctx context.Context, logger *log.Logger) (bool, erro
 		return false, err
 	}
 	if n > 0 {
-		return false, nil // 池未空
+		return false, nil // the pool is not empty
 	}
-	// 防重：供给中的入口或在途 apply 都算在途。
+	// Re-entrancy guard: an entry being supplied or an in-flight apply both count as in flight.
 	if err := db.Model(&storage.Node{}).
 		Where("enabled = ? AND role IN (?, ?) AND status = ?",
 			true, "entry", "both", "provisioning").Count(&n).Error; err != nil {
@@ -91,7 +91,7 @@ func (r *Replenisher) Sweep(ctx context.Context, logger *log.Logger) (bool, erro
 	return true, nil
 }
 
-// ReplenishLoop 周期执行池空保底直到 ctx 取消。
+// ReplenishLoop runs the empty-pool safety net periodically until ctx is cancelled.
 func ReplenishLoop(ctx context.Context, r *Replenisher, interval time.Duration, logger *log.Logger) {
 	if logger == nil {
 		logger = log.Default()

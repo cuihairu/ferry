@@ -16,7 +16,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestPrepareLaunchValidation 凭证入口/供应商密文/令牌签发三档缺一即拒绝。
+// TestPrepareLaunchValidation rejects on any one of the three gaps: credential entry, provider ciphertext, token issuance.
 func TestPrepareLaunchValidation(t *testing.T) {
 	db := newTestDB(t)
 	m := New(db, "tofu", t.TempDir(), func(ctx context.Context, dir string, args []string, env map[string]string) (string, error) {
@@ -24,20 +24,20 @@ func TestPrepareLaunchValidation(t *testing.T) {
 	})
 	store := secret.NewStore("l-master")
 
-	// 凭证入口未配。
+	// Credential entry not configured.
 	_, err := m.PrepareLaunch(LaunchParams{InstanceName: "x"})
 	if err == nil || !strings.Contains(err.Error(), "secret master key not configured") {
 		t.Fatalf("no store err = %v", err)
 	}
 
-	// 供应商没有密文。
+	// Provider has no ciphertext.
 	_, err = m.PrepareLaunch(LaunchParams{InstanceName: "x", Store: store,
 		Provider: storage.Provider{Name: "vultr"}})
 	if err == nil || !strings.Contains(err.Error(), "no access key") {
 		t.Fatalf("no access key err = %v", err)
 	}
 
-	// 令牌签发器未注入。
+	// Token issuer not injected.
 	sealed, err := store.Encrypt("sk-live")
 	if err != nil {
 		t.Fatal(err)
@@ -49,7 +49,7 @@ func TestPrepareLaunchValidation(t *testing.T) {
 	}
 }
 
-// TestPrepareLaunchTokenError 令牌签发失败：预签发中止并留原因。
+// TestPrepareLaunchTokenError token issuance fails: pre-issuance aborts and keeps the reason.
 func TestPrepareLaunchTokenError(t *testing.T) {
 	db := newTestDB(t)
 	m := New(db, "tofu", t.TempDir(), func(ctx context.Context, dir string, args []string, env map[string]string) (string, error) {
@@ -69,7 +69,7 @@ func TestPrepareLaunchTokenError(t *testing.T) {
 	}
 }
 
-// TestPrepareLaunchReusesNode 同名节点复用：token 不抖动、不重复建行。
+// TestPrepareLaunchReusesNode reuse of a same-named node: the token does not churn and no duplicate row is created.
 func TestPrepareLaunchReusesNode(t *testing.T) {
 	db := newTestDB(t)
 	m := New(db, "tofu", t.TempDir(), func(ctx context.Context, dir string, args []string, env map[string]string) (string, error) {
@@ -106,7 +106,7 @@ func TestPrepareLaunchReusesNode(t *testing.T) {
 	}
 }
 
-// TestCompactJSON 配置模板规整：空回落 {}、非 JSON 原样、合法 JSON 压紧。
+// TestCompactJSON normalizes config templates: empty falls back to {}, non-JSON passes through, valid JSON is compacted.
 func TestCompactJSON(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"", "{}"},
@@ -121,8 +121,8 @@ func TestCompactJSON(t *testing.T) {
 	}
 }
 
-// TestExecuteFailureBranches 工作目录建不了、HCL 渲染失败、main.tf 写不进：
-// 三档都以 failed 留痕收场。
+// TestExecuteFailureBranches the working directory cannot be created, HCL rendering fails, main.tf cannot be written:
+// all three branches end up traced as failed.
 func TestExecuteFailureBranches(t *testing.T) {
 	db := newTestDB(t)
 	tpl := storage.ProvisionTemplate{Name: "hk", Plan: "vc2-1c-1gb", Region: "hkg"}
@@ -133,7 +133,7 @@ func TestExecuteFailureBranches(t *testing.T) {
 		return "ok", nil
 	}
 
-	// 根路径被文件占住：目录建不了。
+	// The root path is occupied by a file: the directory cannot be created.
 	blocker := filepath.Join(t.TempDir(), "file")
 	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
@@ -144,14 +144,14 @@ func TestExecuteFailureBranches(t *testing.T) {
 		t.Fatalf("mkdir = %s %q", status, log)
 	}
 
-	// 未知供应商类型：渲染即败。
+	// Unknown provider type: it fails right at rendering.
 	m = New(db, "tofu", t.TempDir(), okRunner)
 	status, log = m.Execute(context.Background(), execParams(tpl, "aliyun", "k", "x", "plan"))
 	if status != "failed" || !strings.Contains(log, "not supported yet") {
 		t.Fatalf("render = %s %q", status, log)
 	}
 
-	// main.tf 位置被目录占住：写不进。
+	// The main.tf path is occupied by a directory: it cannot be written.
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, fmt.Sprintf("tpl-%d", tpl.ID), "main.tf"), 0o755); err != nil {
 		t.Fatal(err)
@@ -163,22 +163,22 @@ func TestExecuteFailureBranches(t *testing.T) {
 	}
 }
 
-// TestNewDefaultsBinAndInitFailure bin 未给回落 tofu：init 跑不起来时以
-// failed 留痕并带 init 前缀。
+// TestNewDefaultsBinAndInitFailure an unset bin falls back to tofu: when init cannot run it is
+// traced as failed with an init prefix.
 func TestNewDefaultsBinAndInitFailure(t *testing.T) {
 	db := newTestDB(t)
 	tpl := storage.ProvisionTemplate{Name: "hk", Plan: "p", Region: "r"}
 	if err := db.Create(&tpl).Error; err != nil {
 		t.Fatal(err)
 	}
-	m := New(db, "", t.TempDir(), nil) // run 空=真实 exec
+	m := New(db, "", t.TempDir(), nil) // run empty = a real exec
 	status, log := m.Execute(context.Background(), execParams(tpl, "vultr", "k", "x", "plan"))
 	if status != "failed" || !strings.Contains(log, "init:") {
 		t.Fatalf("init failure = %s %q", status, log)
 	}
 }
 
-// TestErrStringAndTailLog 错误前缀与日志尾段截断口径。
+// TestErrStringAndTailLog conventions for the error prefix and the log-tail truncation.
 func TestErrStringAndTailLog(t *testing.T) {
 	if errString(nil) != "" {
 		t.Fatalf("errString(nil) = %q", errString(nil))
@@ -195,12 +195,12 @@ func TestErrStringAndTailLog(t *testing.T) {
 	}
 }
 
-// TestReplenishLoggerDefaultAndInFlight 池未空时不动手（顺带覆盖 logger
-// 缺省）；在途 apply job 同样阻止开新机。
+// TestReplenishLoggerDefaultAndInFlight the sweep stands down while the pool is not empty (which also covers the
+// logger default); an in-flight apply job likewise prevents launching a new machine.
 func TestReplenishLoggerDefaultAndInFlight(t *testing.T) {
 	r, _ := replenishFix(t, true)
 	db := r.Manager.DB()
-	// 池有一台可用入口：不触发，logger nil 走缺省。
+	// The pool has one usable entry: no trigger, and a nil logger uses the default.
 	seed := storage.Node{Name: "pool-seed", Port: 443, Protocol: "vless", Enabled: true,
 		Token: "t-seed", Status: "online", Role: "entry", PoolState: pool.StateActive}
 	if err := db.Create(&seed).Error; err != nil {
@@ -211,7 +211,7 @@ func TestReplenishLoggerDefaultAndInFlight(t *testing.T) {
 		t.Fatalf("sweep with non-empty pool = %v, %v; want false nil", fired, err)
 	}
 
-	// 池空但有在途 apply job：不动手。
+	// The pool is empty but there is an in-flight apply job: no action.
 	if err := db.Where("1=1").Delete(&storage.Node{}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +225,7 @@ func TestReplenishLoggerDefaultAndInFlight(t *testing.T) {
 	}
 }
 
-// TestReplenishTemplateProviderMissing 模板指向不存在的供应商：报错不冒称。
+// TestReplenishTemplateProviderMissing the template points at a nonexistent provider: it errors rather than claiming success.
 func TestReplenishTemplateProviderMissing(t *testing.T) {
 	r, tpl := replenishFix(t, true)
 	db := r.Manager.DB()
@@ -238,7 +238,7 @@ func TestReplenishTemplateProviderMissing(t *testing.T) {
 	}
 }
 
-// TestReplenishPrepareLaunchError 凭证入口未配：PrepareLaunch 失败原样上抛。
+// TestReplenishPrepareLaunchError the credential entry is not configured: the PrepareLaunch failure is propagated as-is.
 func TestReplenishPrepareLaunchError(t *testing.T) {
 	r, _ := replenishFix(t, true)
 	r.Store = nil
@@ -248,15 +248,15 @@ func TestReplenishPrepareLaunchError(t *testing.T) {
 	}
 }
 
-// TestReplenishLoopDefaultsAndErrorLog loop 的 logger/interval 缺省与
-// 轮内失败只记日志继续。
+// TestReplenishLoopDefaultsAndErrorLog the loop's logger/interval defaults and the fact that
+// an in-round failure is only logged and does not stop the loop.
 func TestReplenishLoopDefaultsAndErrorLog(t *testing.T) {
-	// 未配置模板的 Replenisher：每轮空转，ctx 到点退出（logger/interval 缺省）。
+	// A Replenisher with no template configured: each round spins idle and exits when ctx fires (logger/interval defaults).
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
 	defer cancel()
 	ReplenishLoop(ctx, &Replenisher{}, 0, nil)
 
-	// 模板供应商缺失：每轮报错，只记日志不中断。
+	// Template provider missing: each round errors, only logged, not fatal.
 	r, tpl := replenishFix(t, true)
 	if err := r.Manager.DB().Model(tpl).Update("provider_id", 99999).Error; err != nil {
 		t.Fatal(err)
