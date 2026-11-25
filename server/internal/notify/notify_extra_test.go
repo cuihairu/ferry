@@ -8,7 +8,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestSendBadURL 覆盖 Send 的 NewRequest 失败分支（非法 URL）。
+// TestSendBadURL covers Send's NewRequest failure branch (an invalid URL).
 func TestSendBadURL(t *testing.T) {
 	n := &Notifier{url: "://bad-url", client: http.DefaultClient}
 	if !n.Enabled() {
@@ -19,7 +19,7 @@ func TestSendBadURL(t *testing.T) {
 	}
 }
 
-// TestSendNon2xx 覆盖非 2xx 状态返回错误。
+// TestSendNon2xx covers a non-2xx status returning an error.
 func TestSendNon2xx(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -31,7 +31,7 @@ func TestSendNon2xx(t *testing.T) {
 	}
 }
 
-// TestSendConnectionError 覆盖 client.Do 网络错误。
+// TestSendConnectionError covers a client.Do network error.
 func TestSendConnectionError(t *testing.T) {
 	n := &Notifier{url: "http://127.0.0.1:1", client: http.DefaultClient}
 	if err := n.Send(Event{Event: "x"}); err == nil {
@@ -39,7 +39,7 @@ func TestSendConnectionError(t *testing.T) {
 	}
 }
 
-// TestSendMarshalError 事件含不可序列化字段：组包即报错，不触网。
+// TestSendMarshalError an event with an unserializable field: packing errors out, without any network call.
 func TestSendMarshalError(t *testing.T) {
 	n := &Notifier{url: "http://127.0.0.1:1/hook", client: &http.Client{}}
 	err := n.Send(Event{Event: "cost.high", Fields: map[string]any{"bad": make(chan int)}})
@@ -48,7 +48,7 @@ func TestSendMarshalError(t *testing.T) {
 	}
 }
 
-// TestFromDBBadURL 覆盖 FromDB 读设置出错（空 url 返回禁用）。
+// TestFromDBBadURL covers FromDB erroring while reading settings (an empty url returns disabled).
 func TestFromDBBadURL(t *testing.T) {
 	db, err := storage.Open(storage.DriverSQLite, ":memory:")
 	if err != nil {

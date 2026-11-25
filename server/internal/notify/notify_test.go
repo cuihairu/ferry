@@ -27,7 +27,7 @@ func testDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-// TestFromDBUnconfigured 未配置渠道时为空操作。
+// TestFromDBUnconfigured is a no-op when the channel is unconfigured.
 func TestFromDBUnconfigured(t *testing.T) {
 	db := testDB(t)
 	n := FromDB(db)
@@ -39,7 +39,7 @@ func TestFromDBUnconfigured(t *testing.T) {
 	}
 }
 
-// TestSendWebhook 配置后外发：JSON 载荷与密钥头齐全，接收端 500 报错。
+// TestSendWebhook outbound after configuration: the JSON payload and the secret header are complete; a 500 from the receiver errors.
 func TestSendWebhook(t *testing.T) {
 	db := testDB(t)
 	var gotHeader http.Header
@@ -93,7 +93,7 @@ func TestSendWebhook(t *testing.T) {
 		t.Fatal("webhook not hit")
 	}
 
-	// 接收端报错 → Send 返回错误
+	// The receiver errors -> Send returns an error
 	errSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))

@@ -1,6 +1,6 @@
-// Package notify 事件外发 Webhook（P1-10，来源：Marzban Telegram Bot、
-// 3x-ui discord_notify_job 的告警外发口径）：设置里配置 Webhook 地址后，
-// 关键事件以 JSON POST 外发；未配置为空操作。Telegram 等渠道可由接收端转发适配。
+// Package notify is outbound webhooks for events (P1-10, source: Marzban's Telegram Bot and
+// 3x-ui's discord_notify_job alerting policy): once a webhook address is configured in settings, key events are
+// POSTed out as JSON; unconfigured is a no-op. Channels such as Telegram can be adapted by forwarding on the receiving end.
 package notify
 
 import (
@@ -15,16 +15,16 @@ import (
 	"gorm.io/gorm"
 )
 
-// settings 键：Webhook 地址与签名用共享密钥（密钥作请求头外发，空=不带）。
+// settings keys: the webhook address and the signing shared secret (the secret is sent as a request header; empty means none).
 const (
 	KeyURL    = "notify_webhook_url"
 	KeySecret = "notify_webhook_secret"
 
-	// sendTimeout 限制单次外发时长，避免拖慢周期扫表。
+	// sendTimeout bounds a single outbound duration, avoiding dragging down the periodic scan.
 	sendTimeout = 5 * time.Second
 )
 
-// Event 是外发事件载荷：text 为一行人类可读摘要，fields 为结构化补充。
+// Event is the outbound event payload: text is a one-line human-readable summary, fields is structured supplement.
 type Event struct {
 	Event  string         `json:"event"`
 	Text   string         `json:"text"`
@@ -32,15 +32,15 @@ type Event struct {
 	Fields map[string]any `json:"fields,omitempty"`
 }
 
-// Notifier 是 Webhook 通知器；零值实例为空操作。
+// Notifier is the webhook notifier; the zero value is a no-op.
 type Notifier struct {
 	url    string
 	secret string
 	client *http.Client
 }
 
-// FromDB 从设置读取当前通知渠道；未配置返回空操作 Notifier（每次现读，
-// 渠道改动即时生效，无需重启）。
+// FromDB reads the current notification channel from settings; unconfigured returns a no-op Notifier (read fresh each time,
+// so a channel change takes effect immediately without a restart).
 func FromDB(db *gorm.DB) *Notifier {
 	url, ok, err := storage.GetSetting(db, KeyURL)
 	if err != nil || !ok || url == "" {
@@ -50,10 +50,10 @@ func FromDB(db *gorm.DB) *Notifier {
 	return &Notifier{url: url, secret: secret, client: &http.Client{Timeout: sendTimeout}}
 }
 
-// Enabled 表示渠道是否已配置。
+// Enabled reports whether the channel is configured.
 func (n *Notifier) Enabled() bool { return n != nil && n.url != "" }
 
-// Send 外发一条事件；未配置直接返回 nil；失败返回错误由调用方记日志。
+// Send pushes one event out; unconfigured returns nil directly; a failure returns the error for the caller to log.
 func (n *Notifier) Send(e Event) error {
 	if !n.Enabled() {
 		return nil
