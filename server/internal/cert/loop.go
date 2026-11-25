@@ -16,9 +16,9 @@ import (
 	"gorm.io/gorm"
 )
 
-// Loop 周期扫证书任务直到 ctx 取消：待签（pending）、临期（ok 且进入
-// 续期窗口）、失败到退避点（failed 且距上次尝试满 FailBackoff）逐个驱动。
-// store 是机密入口（dns-01 凭证解密用，master key 走装配注入）。
+// Loop sweeps certificate tasks periodically until ctx is canceled: pending, expiring soon (ok and inside the
+// renewal window), and failed at its backoff point (failed and FailBackoff elapsed since the last attempt) are
+// each driven in turn. store is the secret entry point (for dns-01 credential decryption; the master key comes via wiring injection).
 func Loop(ctx context.Context, db *gorm.DB, m *Manager, store *secret.Store, interval time.Duration, logger *log.Logger) {
 	if logger == nil {
 		logger = log.Default()
@@ -41,8 +41,8 @@ func Loop(ctx context.Context, db *gorm.DB, m *Manager, store *secret.Store, int
 	}
 }
 
-// Sweep 执行一轮编排：签发/续期在扫表内串行执行（任务量小，acme.sh
-// 单次秒到分钟级）；状态翻转失败发通知，翻转内不重复发。
+// Sweep runs one orchestration round: issuance/renewal run serially inside the table sweep (few tasks, acme.sh
+// takes seconds to minutes per call); a state flip to failed sends a notice, never repeated within one flip.
 func Sweep(ctx context.Context, db *gorm.DB, m *Manager, store *secret.Store, now time.Time, logger *log.Logger) error {
 	if logger == nil {
 		logger = log.Default()
@@ -68,13 +68,13 @@ func Sweep(ctx context.Context, db *gorm.DB, m *Manager, store *secret.Store, no
 	return nil
 }
 
-// dueForRetry 失败退避：距上次尝试满 FailBackoff 才再试。
+// dueForRetry is the failure backoff: retry only once FailBackoff has elapsed since the last attempt.
 func dueForRetry(task storage.CertTask, now time.Time) bool {
 	return task.LastAttempt == nil || now.Sub(*task.LastAttempt) >= FailBackoff
 }
 
-// runIssue 驱动一次签发：dns-01 现查 DNS 商凭证（BR-2 通道）解密进环境；
-// 成功回填到期与 ok，失败记 failed 并在状态翻转时发通知。
+// runIssue drives one issuance: dns-01 looks up the DNS provider credential on the fly (BR-2 channel) and decrypts it
+// into the environment; success backfills expiry and ok, failure records failed and sends a notice on the state flip.
 func runIssue(ctx context.Context, db *gorm.DB, m *Manager, store *secret.Store, n *notify.Notifier, task storage.CertTask, now time.Time, logger *log.Logger) error {
 	env := map[string]string{}
 	providerType := ""
@@ -97,7 +97,7 @@ func runIssue(ctx context.Context, db *gorm.DB, m *Manager, store *secret.Store,
 			return finishIssue(db, task, now, StateFailed, "dns token decrypt failed", n, logger)
 		}
 		providerType = prov.Type
-		// acme.sh 的 cloudflare 插件认 CF_Token（API Token 口径）。
+		// The acme.sh cloudflare plugin expects CF_Token (API Token model).
 		env["CF_Token"] = token
 	}
 	out, err := m.Issue(ctx, domains(task), task.Method, providerType, env)
@@ -106,7 +106,7 @@ func runIssue(ctx context.Context, db *gorm.DB, m *Manager, store *secret.Store,
 		return finishIssue(db, task, now, StateFailed, tail(out, 400), n, logger)
 	}
 	logger.Printf("cert issued: task=%d %s", task.ID, task.Domain)
-	// 到期读不出不回滚签发：保留空值，下轮续期窗口判定跳过。
+	// Do not roll back an issuance when the expiry cannot be read: keep the empty value, the next round's renewal window check skips it.
 	if notAfter, err := m.Expiry(task.Domain); err == nil {
 		task.NotAfter = &notAfter
 	} else {
@@ -115,7 +115,7 @@ func runIssue(ctx context.Context, db *gorm.DB, m *Manager, store *secret.Store,
 	return finishIssue(db, task, now, StateOK, "", n, logger)
 }
 
-// finishIssue 回填任务终态；翻转到 failed 发一次通知。
+// finishIssue backfills the task terminal state; a flip to failed sends one notice.
 func finishIssue(db *gorm.DB, task storage.CertTask, now time.Time, state, lastErr string, n *notify.Notifier, logger *log.Logger) error {
 	flip := state == StateFailed && task.State != StateFailed
 	updates := map[string]any{"state": state, "last_error": lastErr, "last_attempt": now, "updated_at": now}
@@ -132,7 +132,7 @@ func finishIssue(db *gorm.DB, task storage.CertTask, now time.Time, state, lastE
 	return nil
 }
 
-// runRenew 驱动一次续期：成功刷新到期，失败翻 failed 并通知。
+// runRenew drives one renewal: success refreshes the expiry, failure flips to failed and notifies.
 func runRenew(ctx context.Context, db *gorm.DB, m *Manager, n *notify.Notifier, task storage.CertTask, now time.Time, logger *log.Logger) error {
 	out, err := m.Renew(ctx, task.Domain)
 	updates := map[string]any{"last_attempt": now, "updated_at": now}
@@ -155,9 +155,9 @@ func runRenew(ctx context.Context, db *gorm.DB, m *Manager, n *notify.Notifier, 
 	return db.Model(&storage.CertTask{}).Where("id = ?", task.ID).Updates(updates).Error
 }
 
-// emitExpiring 临期告警（HERALD-3）：进续期窗口即落事件 outbox，同域名
-// 同日只发一条（dedup_key 带日，ferry 侧查重），续期成功窗口退出自然停发；
-// 失败只记日志不阻断编排。
+// emitExpiring emits the expiring alert (HERALD-3): entering the renewal window drops an event into the outbox, one per
+// domain per day (dedup_key carries the date, checked on the ferry side); a successful renewal leaves the window and stops
+// naturally; failures only log and do not block the orchestration.
 func emitExpiring(db *gorm.DB, task storage.CertTask, now time.Time, logger *log.Logger) {
 	key := fmt.Sprintf("cert:%s:cert_expiring:%s", task.Domain, now.Format("20060102"))
 	var n int64
@@ -185,7 +185,7 @@ func emitExpiring(db *gorm.DB, task storage.CertTask, now time.Time, logger *log
 	}
 }
 
-// domains 主域名 + 附加域名（逗号分隔）展开成 -d 序列。
+// domains expands the main domain plus additional domains (comma separated) into a -d sequence.
 func domains(task storage.CertTask) []string {
 	out := []string{task.Domain}
 	for _, s := range strings.Split(task.Sans, ",") {
@@ -209,14 +209,14 @@ func sendAlert(n *notify.Notifier, event string, task storage.CertTask, detail s
 	})
 }
 
-// tail 取输出尾段作错误摘要（完整输出在执行日志）：起点前移到 UTF-8
-// 字符边界（签发/续期失败输出可含中文证书路径，按字节硬切会截半）。
+// tail takes the tail segment of the output as an error summary (full output lives in the execution log): the start is moved
+// forward to a UTF-8 character boundary (failed issuance/renewal output can contain Chinese certificate paths; a hard byte cut would slice a rune in half).
 func tail(s string, n int) string {
 	return safestr.Tail(strings.TrimSpace(s), n)
 }
 
-// IssueNow 手动触发一次签发（管理端）：置 issuing 防重后异步执行，
-// 终态与到期照常回填任务行。
+// IssueNow manually triggers one issuance (admin side): set issuing to prevent duplicates, then run asynchronously;
+// terminal state and expiry are backfilled into the task row as usual.
 func IssueNow(ctx context.Context, db *gorm.DB, m *Manager, store *secret.Store, taskID uint, logger *log.Logger) error {
 	if logger == nil {
 		logger = log.Default()

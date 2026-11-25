@@ -18,7 +18,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// recRunner 记录每次执行（args 与 env），按序返回预设结果。
+// recRunner records every execution (args and env) and returns the preset results in order.
 type recRunner struct {
 	calls   []string
 	envs    []map[string]string
@@ -76,7 +76,7 @@ func mkTask(t *testing.T, db *gorm.DB, mutate func(*storage.CertTask)) storage.C
 	return task
 }
 
-// dnsFix 入库一条启用的 Cloudflare 凭证，返回 ID。
+// dnsFix stores one enabled Cloudflare credential and returns its ID.
 func dnsFix(t *testing.T, db *gorm.DB) uint {
 	t.Helper()
 	store := secret.NewStore("cert-master")
@@ -91,8 +91,8 @@ func dnsFix(t *testing.T, db *gorm.DB) uint {
 	return prov.ID
 }
 
-// TestIssueCommand 覆盖命令构造：dns-01 映射 dns_cf 插件、http-01 带
-// webroot、附加域名逐个 -d、未知方式/插件不冒称支持。
+// TestIssueCommand covers command construction: dns-01 maps to the dns_cf plugin, http-01 carries a
+// webroot, additional domains become one -d each, unknown methods/plugins must not be claimed as supported.
 func TestIssueCommand(t *testing.T) {
 	rr := &recRunner{}
 	m := newMgr(rr, time.Now())
@@ -118,7 +118,7 @@ func TestIssueCommand(t *testing.T) {
 		t.Fatalf("http-01 args = %q", rr.calls[len(rr.calls)-1])
 	}
 
-	// 不冒称支持：未知 DNS 插件、未知方式、缺 webroot。
+	// Do not claim support: unknown DNS plugin, unknown method, missing webroot.
 	if _, err := m.Issue(context.Background(), []string{"x.example.com"}, MethodDNS01, "alidns", nil); err == nil {
 		t.Fatal("unknown dns plugin must fail")
 	}
@@ -130,8 +130,8 @@ func TestIssueCommand(t *testing.T) {
 	}
 }
 
-// TestSweepIssuesPending 待签任务自动首签：凭证走环境变量、到期回填、
-// 状态转 ok；dns-01 未配凭证失败留原因。
+// TestSweepIssuesPending a pending task is auto-issued: the credential goes through env vars, the expiry is
+// backfilled, and the state turns ok; a dns-01 failure without a configured credential leaves the reason behind.
 func TestSweepIssuesPending(t *testing.T) {
 	db := newDB(t)
 	now := time.Now()
@@ -155,7 +155,7 @@ func TestSweepIssuesPending(t *testing.T) {
 		t.Fatalf("env = %v", rr.envs)
 	}
 
-	// 未配凭证的任务：失败留原因不冒称。
+	// Task without a configured credential: failure records the reason without claiming support.
 	mkTask(t, db, nil)
 	if err := Sweep(context.Background(), db, m, secret.NewStore("cert-master"), now, nil); err != nil {
 		t.Fatal(err)
@@ -169,15 +169,15 @@ func TestSweepIssuesPending(t *testing.T) {
 	}
 }
 
-// TestSweepRenewsDue 临期任务自动续：进 30 天窗口才续、续后刷新到期；
-// 未临期不动。
+// TestSweepRenewsDue due tasks auto-renew: renew only inside the 30-day window, refresh the expiry afterwards;
+// not yet due stays untouched.
 func TestSweepRenewsDue(t *testing.T) {
 	db := newDB(t)
 	now := time.Now()
 	rr := &recRunner{}
 	m := newMgr(rr, now.Add(90*24*time.Hour))
 
-	due := now.Add(10 * 24 * time.Hour) // 进 30 天续期窗口且未过期
+	due := now.Add(10 * 24 * time.Hour) // inside the 30-day renewal window and not expired
 	mkTask(t, db, func(tk *storage.CertTask) {
 		tk.State, tk.NotAfter = StateOK, &due
 	})
@@ -200,8 +200,8 @@ func TestSweepRenewsDue(t *testing.T) {
 		t.Fatalf("after renew = %+v", first)
 	}
 
-	// 临期事件（HERALD-3）：进窗口的任务落 cert_expiring，未临期不落；
-	// 同日第二轮不重复。
+	// Expiring event (HERALD-3): tasks inside the window drop cert_expiring, not-yet-due ones do not;
+	// a same-day second round does not duplicate.
 	var evs []storage.Event
 	if err := db.Where("kind = ?", "cert_expiring").Find(&evs).Error; err != nil {
 		t.Fatal(err)
@@ -223,8 +223,8 @@ func TestSweepRenewsDue(t *testing.T) {
 	}
 }
 
-// TestSweepFailedBackoff 失败退避：刚失败不重试，退避点过后再签；
-// 签发报错落 failed 留原因。
+// TestSweepFailedBackoff failure backoff: a fresh failure does not retry, issuance retries after the backoff point;
+// an issuance error lands as failed with the reason kept.
 func TestSweepFailedBackoff(t *testing.T) {
 	db := newDB(t)
 	now := time.Now()
@@ -236,7 +236,7 @@ func TestSweepFailedBackoff(t *testing.T) {
 
 	rr := &recRunner{}
 	m := newMgr(rr, now)
-	// 退避窗口内：不动。
+	// Inside the backoff window: leave untouched.
 	if err := Sweep(context.Background(), db, m, secret.NewStore("cert-master"), now, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +244,7 @@ func TestSweepFailedBackoff(t *testing.T) {
 		t.Fatalf("must back off, calls = %v", rr.calls)
 	}
 
-	// 退避点过后：重签，这次 runner 报错 → failed 留尾段原因。
+	// After the backoff point: reissue, this time the runner errors → failed with the tail reason.
 	rr.results = []error{errors.New("acme fail")}
 	if err := Sweep(context.Background(), db, m, secret.NewStore("cert-master"), now.Add(FailBackoff+time.Minute), nil); err != nil {
 		t.Fatal(err)
@@ -258,8 +258,8 @@ func TestSweepFailedBackoff(t *testing.T) {
 	}
 }
 
-// TestLoopSweepsAndStopsOnCancel 覆盖 Loop 启停：启动即跑一轮（pending
-// 被签发转 ok），ctx 取消后退出；nil logger 走默认 logger 兜底。
+// TestLoopSweepsAndStopsOnCancel covers Loop start/stop: one round on start (pending gets issued and
+// turns ok), exits after ctx is canceled; a nil logger falls back to the default logger.
 func TestLoopSweepsAndStopsOnCancel(t *testing.T) {
 	db := newDB(t)
 	provID := dnsFix(t, db)
@@ -295,8 +295,8 @@ func TestLoopSweepsAndStopsOnCancel(t *testing.T) {
 	}
 }
 
-// TestIssueNowIssuesAsync 覆盖手动签发：置 issuing 后异步执行，终态与
-// 到期回填；未知任务 ID 报错。
+// TestIssueNowIssuesAsync covers manual issuance: set issuing then run asynchronously, terminal state and
+// expiry backfilled; an unknown task ID errors.
 func TestIssueNowIssuesAsync(t *testing.T) {
 	db := newDB(t)
 	provID := dnsFix(t, db)
@@ -325,8 +325,8 @@ func TestIssueNowIssuesAsync(t *testing.T) {
 	}
 }
 
-// TestRealRunExec 覆盖真实执行位：合并输出、附加 env 进环境、工作目录
-// 生效；Bin 缺省回退 acme.sh（本环境未装，应报找不到而非挂死）。
+// TestRealRunExec covers the real execution slot: combined output, extra env merged into the environment, working
+// directory effective; Bin defaults back to acme.sh (not installed here, so it must report not-found instead of hanging).
 func TestRealRunExec(t *testing.T) {
 	m := &Manager{Bin: "sh"}
 	ctx := context.Background()
@@ -354,8 +354,8 @@ func TestRealRunExec(t *testing.T) {
 	}
 }
 
-// testCertPEM 自签测试证书（ecdsa P-256，notAfter 2027-01-12），供 Expiry
-// 真实 openssl 解析路径使用。
+// testCertPEM is a self-signed test certificate (ecdsa P-256, notAfter 2027-01-12) for the real openssl
+// parsing path of Expiry.
 const testCertPEM = `-----BEGIN CERTIFICATE-----
 MIIBizCCATGgAwIBAgIUB/Q1fjIl3XQ8L5471PCxXdT3ckQwCgYIKoZIzj0EAwIw
 GzEZMBcGA1UEAwwQZWRnZS5leGFtcGxlLmNvbTAeFw0yNjEwMTQxMDU5MjdaFw0y
@@ -369,8 +369,8 @@ g0+wOSS8PYVT5WVmhJbL
 -----END CERTIFICATE-----
 `
 
-// TestExpiryReadsRealCert 覆盖 Expiry 缺省 openssl 路径：真证书解出
-// notAfter，缺文件报错。
+// TestExpiryReadsRealCert covers Expiry's default openssl path: a real certificate parses notAfter,
+// a missing file errors.
 func TestExpiryReadsRealCert(t *testing.T) {
 	home := t.TempDir()
 	dir := filepath.Join(home, "edge.example.com_ecc")
@@ -393,8 +393,8 @@ func TestExpiryReadsRealCert(t *testing.T) {
 	}
 }
 
-// TestSweepRenewFailureAlerts 续期失败路径：翻 failed 留原因、webhook
-// 告警外发（通道已配置）；已过期证书临期标题走「已到期」文案。
+// TestSweepRenewFailureAlerts the renewal failure path: flips to failed with the reason kept, the webhook
+// alert goes out (channel configured); an expired certificate's expiring title uses the "expired" text.
 func TestSweepRenewFailureAlerts(t *testing.T) {
 	db := newDB(t)
 	now := time.Now()
@@ -428,12 +428,12 @@ func TestSweepRenewFailureAlerts(t *testing.T) {
 	}
 }
 
-// TestSweepIssueCredentialFailures dns-01 凭证四类失败分支：商缺失、
-// 商停用、master key 未配置、解密失败——runner 一律不被调用。
+// TestSweepIssueCredentialFailures the four dns-01 credential failure branches: provider missing,
+// provider disabled, master key unconfigured, decrypt failure — the runner is never called.
 func TestSweepIssueCredentialFailures(t *testing.T) {
 	db := newDB(t)
 	now := time.Now()
-	// 停用的商（GORM default:true 吞零值：建后显式改）。
+	// Disabled provider (GORM default:true swallows zero values: change it explicitly after creating).
 	disabled := storage.DNSProvider{Name: "cf-off", Type: "cloudflare", APIKey: "x", Enabled: true}
 	if err := db.Create(&disabled).Error; err != nil {
 		t.Fatal(err)
@@ -441,7 +441,7 @@ func TestSweepIssueCredentialFailures(t *testing.T) {
 	if err := db.Model(&storage.DNSProvider{}).Where("id = ?", disabled.ID).Update("enabled", false).Error; err != nil {
 		t.Fatal(err)
 	}
-	// 启用但用 k1 密封凭证。
+	// Enabled but sealed with the k1 key.
 	sealed, err := secret.NewStore("k1").Encrypt("tok-secret")
 	if err != nil {
 		t.Fatal(err)
@@ -458,9 +458,9 @@ func TestSweepIssueCredentialFailures(t *testing.T) {
 
 	rr := &recRunner{}
 	m := newMgr(rr, now)
-	// noKey 一轮 store=nil；badKey 用错误 master 解密（失败任务须越过
-	// 退避点才会重试，第二轮取 now+FailBackoff；该轮会连带重刷前三者，
-	// 故断言按轮拆开）。
+	// noKey runs one round with store=nil; badKey decrypts with the wrong master (a failed task must pass the
+	// backoff point before retrying, so the second round takes now+FailBackoff; that round also re-sweeps
+	// the first three, hence assertions split per round).
 	if err := Sweep(context.Background(), db, m, nil, now, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -494,8 +494,8 @@ func TestSweepIssueCredentialFailures(t *testing.T) {
 	}
 }
 
-// TestIssueAndRenewEdgeArgs 参数边界：空域名拒绝、自定义 CA 进命令行、
-// Run 未注入时走真实 exec（acme.sh 缺失即报错）。
+// TestIssueAndRenewEdgeArgs argument boundaries: empty domains rejected, a custom CA reaches the command line,
+// with Run not injected it falls back to real exec (acme.sh missing errors out).
 func TestIssueAndRenewEdgeArgs(t *testing.T) {
 	rr := &recRunner{}
 	m := newMgr(rr, time.Now())
@@ -516,7 +516,7 @@ func TestIssueAndRenewEdgeArgs(t *testing.T) {
 	if !strings.Contains(rr.calls[len(rr.calls)-1], "--server custom-ca") {
 		t.Fatalf("ca args = %q", rr.calls[len(rr.calls)-1])
 	}
-	// Run 未注入：runner() 回退 realRun，acme.sh 不存在即执行报错。
+	// Run not injected: runner() falls back to realRun, and acme.sh being absent makes exec error out.
 	if _, err := (&Manager{}).Renew(context.Background(), "d.example.com"); err == nil {
 		t.Fatal("default runner must exec and fail")
 	}

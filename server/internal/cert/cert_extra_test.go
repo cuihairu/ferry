@@ -15,8 +15,8 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestLoopDefaultsIntervalAndSweepError interval<=0 回落缺省；库不可用时
-// Sweep 原样上抛，Loop 记日志继续下一轮。
+// TestLoopDefaultsIntervalAndSweepError interval<=0 falls back to the default; when the DB is unavailable
+// Sweep propagates as-is and Loop logs the error and continues with the next round.
 func TestLoopDefaultsIntervalAndSweepError(t *testing.T) {
 	db := newDB(t)
 	sqlDB, err := db.DB()
@@ -35,15 +35,15 @@ func TestLoopDefaultsIntervalAndSweepError(t *testing.T) {
 	}
 }
 
-// TestSweepExpiryReadErrors 签发/续期成功但到期读不出：不回滚签发，记日志
-// 保留空到期，下轮续期窗口判定跳过。
+// TestSweepExpiryReadErrors issuance/renewal succeeded but the expiry cannot be read: no rollback of the
+// issuance, an error is logged, the empty expiry is kept, and the next round's renewal window check skips it.
 func TestSweepExpiryReadErrors(t *testing.T) {
 	db := newDB(t)
 	rr := &recRunner{}
 	m := &Manager{Home: "/tmp/acme", Webroot: "/tmp/www", Run: rr.run,
 		ReadExpiry: func(string) (time.Time, error) { return time.Time{}, errors.New("no cert") }}
 	mkTask(t, db, func(x *storage.CertTask) { x.Method = MethodHTTP01 })
-	na := time.Now().Add(3 * 24 * time.Hour) // 已进 30 天续期窗口
+	na := time.Now().Add(3 * 24 * time.Hour) // already inside the 30-day renewal window
 	mkTask(t, db, func(x *storage.CertTask) {
 		x.Method = MethodHTTP01
 		x.State = StateOK
@@ -59,7 +59,7 @@ func TestSweepExpiryReadErrors(t *testing.T) {
 	}
 }
 
-// TestSweepExpiringDedupHit 临期事件当日已发过：跳过不再落第二条。
+// TestSweepExpiringDedupHit the expiring notice already went out today: skip, no second row.
 func TestSweepExpiringDedupHit(t *testing.T) {
 	db := newDB(t)
 	rr := &recRunner{}
@@ -89,7 +89,7 @@ func TestSweepExpiringDedupHit(t *testing.T) {
 	}
 }
 
-// TestSweepDomainsSans 签发命令带附加域名：空白逐个剥掉，空的跳过。
+// TestSweepDomainsSans the issuance command carries additional domains: blanks are trimmed one by one, empties skipped.
 func TestSweepDomainsSans(t *testing.T) {
 	db := newDB(t)
 	rr := &recRunner{}
@@ -107,7 +107,7 @@ func TestSweepDomainsSans(t *testing.T) {
 	}
 }
 
-// TestTailTruncates 尾段截断：长串取尾部 n 字节，短串原样。
+// TestTailTruncates tail truncation: a long string takes the last n bytes, a short string is kept as-is.
 func TestTailTruncates(t *testing.T) {
 	if got := tail("short", 200); got != "short" {
 		t.Fatalf("tail short = %q", got)
