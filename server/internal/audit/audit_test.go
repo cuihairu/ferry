@@ -34,9 +34,9 @@ func seed(t *testing.T, db *gorm.DB, createdAt time.Time) {
 func TestPruneRemovesOnlyOutOfWindow(t *testing.T) {
 	db := newDB(t)
 	now := time.Now()
-	seed(t, db, now.AddDate(0, 0, -91)) // 窗外
-	seed(t, db, now.AddDate(0, 0, -90)) // 恰在窗口边界（< 截点为删，等点保留）
-	seed(t, db, now.AddDate(0, 0, -1))  // 窗内
+	seed(t, db, now.AddDate(0, 0, -91)) // outside the window
+	seed(t, db, now.AddDate(0, 0, -90)) // exactly on the window boundary (younger than the cutoff is deleted, the equal point is kept)
+	seed(t, db, now.AddDate(0, 0, -1))  // inside the window
 	n, err := Prune(db, 90, now)
 	if err != nil {
 		t.Fatalf("prune: %v", err)
@@ -66,8 +66,8 @@ func TestPruneZeroRetentionNoop(t *testing.T) {
 }
 
 func TestLoopSweepsAndStops(t *testing.T) {
-	// sweepInterval 小时级不便测试：直接验证 Loop 对 retention<=0 不启动、
-	// ctx 取消即退出（清扫语义由 Prune 用例覆盖）。
+	// An hourly sweepInterval is inconvenient for tests: verify directly that Loop does not start for retention<=0 and
+	// exits on ctx cancel (the sweep semantics are covered by the Prune case).
 	db := newDB(t)
 	done := make(chan struct{})
 	go func() {
@@ -84,8 +84,8 @@ func TestLoopSweepsAndStops(t *testing.T) {
 	cancel()
 }
 
-// TestLoopNilLoggerDefaults 覆盖 nil logger 兜底：缺省 logger 起协程，
-// ctx 取消即退（retention>0 才能走到兜底分支）。
+// TestLoopNilLoggerDefaults covers the nil-logger fallback: the default logger starts the goroutine and
+// exits on ctx cancel (retention>0 is needed to reach the fallback branch).
 func TestLoopNilLoggerDefaults(t *testing.T) {
 	db := newDB(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -102,12 +102,12 @@ func TestLoopNilLoggerDefaults(t *testing.T) {
 	}
 }
 
-// TestLoopTickSweepsAndStops 覆盖 tick 清扫主路径：到点删除超窗行，
-// ctx 取消即退出（窗口天数由 retention 传，tick 临时缩短）。
+// TestLoopTickSweepsAndStops covers the tick sweep main path: out-of-window rows are deleted when due and it
+// exits on ctx cancel (the window days come from retention, and the tick is shortened temporarily).
 func TestLoopTickSweepsAndStops(t *testing.T) {
 	db := newDB(t)
-	seed(t, db, time.Now().AddDate(0, 0, -31)) // 窗外（retention=30 天）
-	seed(t, db, time.Now().AddDate(0, 0, -1))  // 窗内
+	seed(t, db, time.Now().AddDate(0, 0, -31)) // outside the window (retention=30 days)
+	seed(t, db, time.Now().AddDate(0, 0, -1))  // inside the window
 
 	old := sweepInterval
 	sweepInterval = 10 * time.Millisecond
