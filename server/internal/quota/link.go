@@ -1,8 +1,8 @@
-// Package quota 的配额联动（SAVE-6，《流量节省设计》§5）：用户流量/费用
-// 超阈值 → 订阅自动降档——该用户订阅只出低成本档入口（包月零边际成本或
-// 单价不超档线的节点），新连接自然落到低成本落地，存量连接不动。
-// 降速动作不落：节点共享凭据无按用户身份，带宽整形无从挂靠（P2-3 口径），
-// 联动动作收敛为「订阅降档」一种，触发与释放都留痕（quota_actions）。
+// Quota linkage for the quota package (SAVE-6, "Traffic Saving Design" §5): when a user's traffic or cost exceeds
+// a threshold, the subscription is downgraded automatically and its entries narrow to the low-cost tier (monthly =
+// zero marginal cost, or metered nodes priced within the tier line), so new connections land there while existing
+// connections stay put. No throttling action: nodes share credentials with no per-user identity, so shaping has
+// nothing to attach to (P2-3); the only linkage action is "subscription downgrade", with trigger and release trailed (quota_actions).
 package quota
 
 import (
@@ -17,38 +17,38 @@ import (
 	"gorm.io/gorm"
 )
 
-// settingKey 联动配置的持久化键（panel KV）。
+// settingKey is the persistence key of the linkage setting (panel KV).
 const settingKey = "quota_link"
 
-// 触发器取值（QuotaAction.Trigger）。
+// Trigger values (QuotaAction.Trigger).
 const (
-	LinkTriggerTraffic = "traffic" // 流量档：窗口用量达个人配额百分比
-	LinkTriggerCost    = "cost"    // 费用档：窗口折算费用达绝对阈值
+	LinkTriggerTraffic = "traffic" // traffic tier: window usage reaches a percentage of the personal quota
+	LinkTriggerCost    = "cost"    // cost tier: window converted cost reaches an absolute threshold
 )
 
-// 缺省档：流量档 90%（预警 80% 之后留一段缓冲再降档）。
+// Default tier: traffic at 90% (leaves a buffer after the 80% warning before downgrading).
 const DefaultTrafficPercent = 90
 
-// LinkSetting 联动配置（dash 可配，默认关）。两档触发都关时不可启用。
+// LinkSetting is the linkage setting (dash-editable, off by default). Cannot be enabled when both tier triggers are off.
 type LinkSetting struct {
 	Enabled bool `json:"enabled"`
-	// TrafficPercent 流量档阈值（1-100）：窗口用量达个人配额的 N% 触发；
-	// 0=不按流量档触发。仅对配额 >0 的用户生效。
+	// TrafficPercent is the traffic-tier threshold (1-100): triggers when window usage reaches N% of the personal quota;
+	// 0 = no traffic-tier trigger. Only applies to users with quota > 0.
 	TrafficPercent int `json:"traffic_percent"`
-	// CostCents 费用档阈值（分）：窗口折算费用（按流量节点逐条记账乘单价）
-	// 达 N 分触发；0=不按费用档触发。配额 0（不限量）用户的唯一触发档。
+	// CostCents is the cost-tier threshold (cents): triggers when the window converted cost (per-log metered nodes times unit price)
+	// reaches N cents; 0 = no cost-tier trigger. The only trigger tier for users with quota 0 (unlimited).
 	CostCents int64 `json:"cost_cents"`
-	// MaxPriceCents 降档成本档线（分/GB）：包月（零边际成本）或单价不超线
-	// 的按流量节点视为低成本档。0=只有包月节点算低成本档。
+	// MaxPriceCents is the downgrade cost tier line (cents/GB): monthly (zero marginal cost) or metered nodes
+	// priced within the line count as the low-cost tier. 0 = only monthly nodes count as the low-cost tier.
 	MaxPriceCents int64 `json:"max_price_cents"`
 }
 
-// DefaultLinkSetting 缺省配置：关。启用时流量档给 90% 作起点。
+// DefaultLinkSetting is the default setting: off. When enabled, the traffic tier starts at 90%.
 func DefaultLinkSetting() LinkSetting {
 	return LinkSetting{Enabled: false, TrafficPercent: DefaultTrafficPercent}
 }
 
-// LoadLinkSetting 读取联动配置；未设置回缺省，脏数据按缺省走不阻断。
+// LoadLinkSetting reads the linkage setting; unset falls back to the default, corrupt data follows the default without blocking.
 func LoadLinkSetting(db *gorm.DB) (LinkSetting, error) {
 	setting := DefaultLinkSetting()
 	raw, ok, err := storage.GetSetting(db, settingKey)
@@ -62,7 +62,7 @@ func LoadLinkSetting(db *gorm.DB) (LinkSetting, error) {
 	return setting, nil
 }
 
-// normalize 越界字段归位：阈值负数或超界按缺省/关闭处理。
+// normalize pulls out-of-range fields back in line: negative or out-of-bounds thresholds follow the default/off.
 func (s *LinkSetting) normalize() {
 	if s.TrafficPercent < 0 || s.TrafficPercent > 100 {
 		s.TrafficPercent = DefaultTrafficPercent
@@ -75,8 +75,8 @@ func (s *LinkSetting) normalize() {
 	}
 }
 
-// SaveLinkSetting 校验并持久化联动配置：启用时至少要有一档触发阈值，
-// 否则联动形同虚设还占着「已启用」的语义，直接拒绝。
+// SaveLinkSetting validates and persists the linkage setting: when enabled, at least one tier must have a trigger threshold,
+// otherwise the linkage is a no-op while still occupying the "enabled" semantics, so reject outright.
 func SaveLinkSetting(db *gorm.DB, setting LinkSetting) error {
 	setting.normalize()
 	if setting.Enabled && setting.TrafficPercent == 0 && setting.CostCents == 0 {
@@ -89,8 +89,8 @@ func SaveLinkSetting(db *gorm.DB, setting LinkSetting) error {
 	return storage.SetSetting(db, settingKey, string(raw))
 }
 
-// Trigger 判定用户是否触发联动，返回命中的触发器（都未命中返回空串，
-// 流量档优先）。used 为窗口用量，costCents 为窗口折算费用。
+// Trigger decides whether the user triggers the linkage and returns the matched trigger (empty string when none
+// matches, traffic tier first). used is the window usage, costCents the window converted cost.
 func (s LinkSetting) Trigger(used, quotaBytes, costCents int64) string {
 	if !s.Enabled {
 		return ""
@@ -104,9 +104,9 @@ func (s LinkSetting) Trigger(used, quotaBytes, costCents int64) string {
 	return ""
 }
 
-// LowCost 节点是否属低成本档（降档订阅可见）：包月/固定带宽零边际成本，
-// 按流量节点单价不超档线。口径对齐 alloc.Candidate.CostPerGB——只有
-// 「按流量」计费有边际成本。
+// LowCost reports whether a node belongs to the low-cost tier (visible to a downgraded subscription): monthly/fixed bandwidth
+// have zero marginal cost, and metered nodes must be priced within the tier line. Aligned with alloc.Candidate.CostPerGB —
+// only metered billing carries marginal cost.
 func (s LinkSetting) LowCost(n storage.Node) bool {
 	if n.BillingType != "按流量" {
 		return true
@@ -114,8 +114,8 @@ func (s LinkSetting) LowCost(n storage.Node) bool {
 	return n.TrafficPriceCents <= s.MaxPriceCents
 }
 
-// ActiveAction 取用户生效中的联动降档行（订阅出口按其快照档线过滤）；
-// 无生效行返回 nil。
+// ActiveAction returns the user's effective linkage downgrade row (subscription egress filters by its snapshot tier line);
+// returns nil when no row is effective.
 func ActiveAction(db *gorm.DB, userID uint) (*storage.QuotaAction, error) {
 	var row storage.QuotaAction
 	err := db.Where("user_id = ? AND released_at IS NULL", userID).First(&row).Error
@@ -128,9 +128,9 @@ func ActiveAction(db *gorm.DB, userID uint) (*storage.QuotaAction, error) {
 	return &row, nil
 }
 
-// WindowCostCents 折算用户窗口流量费用（分）：逐条记账乘所在按流量节点
-// 单价（分/GB）后按 GB 整除求和；包月/固定带宽零边际成本不计（对齐
-// alloc 成本口径）。单价乘在字节上、最后整除 2^30，小流量零头向下取整。
+// WindowCostCents converts the user's window traffic cost (cents): each accounting entry times the unit price (cents/GB) of its
+// metered node, then integer-divided per GB and summed; monthly/fixed bandwidth with zero marginal cost is not counted (aligned
+// with the alloc cost model). The unit price multiplies bytes and is divided by 2^30 at the end, rounding small-traffic remainders down.
 func WindowCostCents(db *gorm.DB, userID uint, cycle string, now time.Time) (int64, error) {
 	q := db.Model(&storage.TrafficLog{}).
 		Select("COALESCE(SUM((traffic_logs.rx_bytes + traffic_logs.tx_bytes) * nodes.traffic_price_cents), 0)").
@@ -146,9 +146,9 @@ func WindowCostCents(db *gorm.DB, userID uint, cycle string, now time.Time) (int
 	return raw / (1 << 30), nil
 }
 
-// Sweep 执行一轮联动判定：触发者建降档留痕并发站内信（已有生效中行不重复
-// 建不重复发）；不再触发（用量回落/窗口滚动/阈值放宽）或联动被关的释放
-// 留痕。返回本轮新建的降档行数。
+// Sweep runs one round of linkage evaluation: a trigger creates a downgrade trail and sends an in-app message (an already
+// effective row is neither re-created nor re-notified); a user who no longer triggers (usage recedes/window rolls/
+// threshold relaxed) or a disabled linkage releases the trail. Returns the number of downgrade rows created this round.
 func Sweep(db *gorm.DB, now time.Time) (int, error) {
 	setting, err := LoadLinkSetting(db)
 	if err != nil {
@@ -192,8 +192,8 @@ func Sweep(db *gorm.DB, now time.Time) (int, error) {
 	return created, nil
 }
 
-// apply 落一条降档留痕并发站内信。reason 带触发口径（百分比/金额），
-// 对齐 landing_assignments.reason 的留痕习惯。
+// apply records one downgrade trail and sends an in-app message. reason carries the trigger model (percent/amount),
+// aligned with the landing_assignments.reason trail convention.
 func apply(db *gorm.DB, now time.Time, u storage.User, setting LinkSetting, trigger string, used, cost int64) error {
 	reason := fmt.Sprintf("费用达阈值 ¥%.2f", float64(cost)/100)
 	if trigger == LinkTriggerTraffic {
@@ -208,7 +208,7 @@ func apply(db *gorm.DB, now time.Time, u storage.User, setting LinkSetting, trig
 	if err := db.Create(&row).Error; err != nil {
 		return err
 	}
-	// 站内信（NT 体系 system 类，单用户直落）：告知降档与恢复口径。
+	// In-app message (NT system type, delivered straight to the single user): tells about the downgrade and the recovery model.
 	return db.Create(&storage.Notification{
 		UserID: int64(u.ID), Type: storage.NotifSystem,
 		Title:     "已达用量阈值，订阅已切换低成本线路",
@@ -217,7 +217,7 @@ func apply(db *gorm.DB, now time.Time, u storage.User, setting LinkSetting, trig
 	}).Error
 }
 
-// humanMB 字节的人类可读量级（MB/GB 向上取整），只用于留痕文案。
+// humanMB renders a human-readable magnitude of bytes (MB/GB rounded up), used only in trail text.
 func humanMB(b int64) string {
 	switch {
 	case b >= 1<<30:
@@ -229,14 +229,14 @@ func humanMB(b int64) string {
 	}
 }
 
-// releaseAll 释放全部生效中的降档行（联动被关时兜底清场）。
+// releaseAll releases all effective downgrade rows (fallback cleanup when the linkage is turned off).
 func releaseAll(db *gorm.DB, now time.Time, reason string) error {
 	return db.Model(&storage.QuotaAction{}).Where("released_at IS NULL").
 		Updates(map[string]any{"released_at": now, "release_reason": reason}).Error
 }
 
-// LinkLoop 周期执行联动判定直到 ctx 取消（对齐 alloc.Loop：启动即跑一轮，
-// 联动状态在订阅出口即时生效，loop 只负责状态迁移与通知）。
+// LinkLoop runs linkage evaluation periodically until ctx is canceled (aligned with alloc.Loop: one round on start;
+// the linkage state takes effect at subscription egress immediately, the loop only handles state transitions and notices).
 func LinkLoop(ctx context.Context, db *gorm.DB, interval time.Duration, logger *log.Logger) {
 	if logger == nil {
 		logger = log.Default()

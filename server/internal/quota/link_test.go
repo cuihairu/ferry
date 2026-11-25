@@ -15,8 +15,8 @@ import (
 
 func newLinkDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	// 按测试名+时刻隔离内存库：file::memory:?cache=shared 全包共库会跨测试
-	// 残留用户/流水造成联动判定串场，-count=2 重跑也会撞旧数据。
+	// Isolate in-memory DBs by test name + timestamp: file::memory:?cache=shared shares one DB across the
+	// package, so leftover users/logs would cross-contaminate linkage evaluation, and -count=2 reruns would hit stale data.
 	dsn := fmt.Sprintf("file:link-%s-%d?mode=memory&cache=shared", t.Name(), time.Now().UnixNano())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
@@ -29,8 +29,8 @@ func newLinkDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-// seedLinkUser 注意：want map 必须先于 Create 构造——GORM default 标签字段
-// Create 后经 RETURNING 回填 struct，之后取到的值不一定是想要的。
+// seedLinkUser note: the want map must be built before Create — fields with GORM default tags are
+// backfilled into the struct via RETURNING after Create, so values read afterwards may not be the intended ones.
 func seedLinkUser(t *testing.T, db *gorm.DB, name string, quotaBytes int64) storage.User {
 	t.Helper()
 	u := storage.User{Username: name, SubToken: "tok-" + name, QuotaBytes: quotaBytes, Enabled: true}
@@ -43,13 +43,13 @@ func seedLinkUser(t *testing.T, db *gorm.DB, name string, quotaBytes int64) stor
 func TestLinkSetting(t *testing.T) {
 	db := newLinkDB(t)
 
-	// 未设置回缺省：关、流量档 90%
+	// Unset falls back to default: off, traffic tier 90%
 	got, err := LoadLinkSetting(db)
 	if err != nil || got.Enabled || got.TrafficPercent != DefaultTrafficPercent {
 		t.Fatalf("default setting = %+v err=%v", got, err)
 	}
 
-	// 保存回读
+	// Save and read back
 	want := LinkSetting{Enabled: true, TrafficPercent: 95, CostCents: 2000, MaxPriceCents: 500}
 	if err := SaveLinkSetting(db, want); err != nil {
 		t.Fatalf("save: %v", err)
@@ -59,11 +59,11 @@ func TestLinkSetting(t *testing.T) {
 		t.Fatalf("roundtrip = %+v err=%v, want %+v", got, err, want)
 	}
 
-	// 启用但两档触发全关：拒绝
+	// Enabled with both tier triggers off: reject
 	if err := SaveLinkSetting(db, LinkSetting{Enabled: true}); err == nil {
 		t.Fatal("enabled with no trigger should fail")
 	}
-	// 越界归位：percent 300 → 90，负值归 0
+	// Out-of-range normalized: percent 300 → 90, negatives to 0
 	if err := SaveLinkSetting(db, LinkSetting{Enabled: true, TrafficPercent: 300, CostCents: -1, MaxPriceCents: -5}); err != nil {
 		t.Fatalf("save out-of-range: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestLinkSetting(t *testing.T) {
 		t.Fatalf("normalize = %+v", got)
 	}
 
-	// 脏数据按缺省走
+	// Corrupt data follows the default
 	if err := db.Save(&storage.Setting{Key: settingKey, Value: "{oops"}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -91,18 +91,18 @@ func TestLinkTrigger(t *testing.T) {
 	if got := s.Trigger(900, 1000, 0); got != LinkTriggerTraffic {
 		t.Fatalf("90%% should trigger traffic, got %q", got)
 	}
-	// 配额 0（不限量）不按流量档触发，但费用档可以
+	// Quota 0 (unlimited) never triggers the traffic tier, but the cost tier can
 	if got := s.Trigger(1<<40, 0, 500); got != "" {
 		t.Fatalf("quota=0 should skip traffic tier, got %q", got)
 	}
 	if got := s.Trigger(1<<40, 0, 1000); got != LinkTriggerCost {
 		t.Fatalf("cost tier should trigger, got %q", got)
 	}
-	// 两档都命中报流量档
+	// Both tiers matched reports the traffic tier
 	if got := s.Trigger(900, 1000, 2000); got != LinkTriggerTraffic {
 		t.Fatalf("traffic tier wins, got %q", got)
 	}
-	// 关闭全不触发
+	// Disabled never triggers
 	off := s
 	off.Enabled = false
 	if got := off.Trigger(1<<40, 1000, 1<<40); got != "" {
@@ -122,7 +122,7 @@ func TestLinkLowCost(t *testing.T) {
 	if s.LowCost(pricey) {
 		t.Fatal("超档线按流量节点不应算低成本档")
 	}
-	// 档线 0：只有包月算低成本档
+	// Tier line 0: only monthly counts as low-cost tier
 	if (LinkSetting{}).LowCost(cheap) {
 		t.Fatal("档线 0 时按流量节点不应算低成本档")
 	}
@@ -147,10 +147,10 @@ func TestWindowCostCents(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	// pricey 节点 2GB（rx+tx）×300 分/GB = 600 分；包月节点不计
+	// pricey node 2GB (rx+tx) × 300 cents/GB = 600 cents; monthly node not counted
 	seedTraffic(t, db, u.ID, &pricey.ID, 1<<30, 1<<30, now)
 	seedTraffic(t, db, u.ID, &flat.ID, 1<<30, 1<<30, now)
-	// 上月同量：month 窗口外不计
+	// Same volume last month: outside the month window, not counted
 	seedTraffic(t, db, u.ID, &pricey.ID, 1<<30, 1<<30, now.AddDate(0, -1, 0))
 
 	cost, err := WindowCostCents(db, u.ID, CycleMonth, now)
@@ -160,7 +160,7 @@ func TestWindowCostCents(t *testing.T) {
 	if cost != 600 {
 		t.Fatalf("window cost = %d, want 600", cost)
 	}
-	// none 全量累计：600+600
+	// none accumulates everything: 600+600
 	cost, err = WindowCostCents(db, u.ID, CycleNone, now)
 	if err != nil || cost != 1200 {
 		t.Fatalf("none-window cost = %d err=%v, want 1200", cost, err)
@@ -175,7 +175,7 @@ func TestLinkSweepTrafficTier(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	seedTraffic(t, db, u.ID, nil, 900, 0, now) // 90% 达阈值
+	seedTraffic(t, db, u.ID, nil, 900, 0, now) // 90% reaches the threshold
 
 	created, err := Sweep(db, now)
 	if err != nil || created != 1 {
@@ -188,11 +188,11 @@ func TestLinkSweepTrafficTier(t *testing.T) {
 	if act.Trigger != LinkTriggerTraffic || act.UsedBytes != 900 || act.QuotaBytes != 1000 || act.MaxPriceCents != 500 {
 		t.Fatalf("action snapshot = %+v", act)
 	}
-	// 留痕带触发口径文案
+	// Trail carries the trigger model text
 	if act.Reason == "" {
 		t.Fatal("reason should be recorded")
 	}
-	// 站内信只发一条
+	// Only one in-app message is sent
 	var notes []storage.Notification
 	if err := db.Where("user_id = ?", u.ID).Find(&notes).Error; err != nil {
 		t.Fatal(err)
@@ -201,7 +201,7 @@ func TestLinkSweepTrafficTier(t *testing.T) {
 		t.Fatalf("notifications = %+v", notes)
 	}
 
-	// 二轮不重复建不重复发
+	// Second round neither re-creates nor re-notifies
 	if created, err := Sweep(db, now.Add(time.Minute)); err != nil || created != 0 {
 		t.Fatalf("second sweep created=%d err=%v, want 0", created, err)
 	}
@@ -211,7 +211,7 @@ func TestLinkSweepTrafficTier(t *testing.T) {
 		t.Fatalf("notification dup: %d", n)
 	}
 
-	// 用量回落 → 释放留痕
+	// Usage recedes → release the trail
 	if err := db.Where("user_id = ?", u.ID).Delete(&storage.TrafficLog{}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +226,7 @@ func TestLinkSweepTrafficTier(t *testing.T) {
 	if err := db.First(&released).Error; err != nil || released.ReleasedAt == nil || released.ReleaseReason != "阈值回落" {
 		t.Fatalf("release trail = %+v err=%v", released, err)
 	}
-	// 回落后再触发：新行新通知
+	// Re-trigger after release: new row, new notification
 	seedTraffic(t, db, u.ID, nil, 950, 0, now.Add(3*time.Minute))
 	if created, err := Sweep(db, now.Add(3*time.Minute)); err != nil || created != 1 {
 		t.Fatalf("re-trigger created=%d err=%v", created, err)
@@ -235,25 +235,25 @@ func TestLinkSweepTrafficTier(t *testing.T) {
 
 func TestLinkSweepCostTierAndDisable(t *testing.T) {
 	db := newLinkDB(t)
-	// 不限量用户走费用档
+	// Unlimited user goes through the cost tier
 	u := seedLinkUser(t, db, "unlimited", 0)
 	setting := LinkSetting{Enabled: true, CostCents: 1000, MaxPriceCents: 0}
 	if err := SaveLinkSetting(db, setting); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	seedTraffic(t, db, u.ID, nil, 1<<30, 0, now) // 1GB 无节点归属：单价 0，费用 0 不触发
+	seedTraffic(t, db, u.ID, nil, 1<<30, 0, now) // 1GB with no node attached: unit price 0, cost 0, no trigger
 
 	if created, err := Sweep(db, now); err != nil || created != 0 {
 		t.Fatalf("no-price traffic should not trigger: created=%d err=%v", created, err)
 	}
 
-	// 计价流量达阈值 → 费用档触发
+	// Priced traffic reaches the threshold → cost tier triggers
 	expensive := storage.Node{Name: "exp", Token: "tok-exp", BillingType: "按流量", TrafficPriceCents: 2000}
 	if err := db.Create(&expensive).Error; err != nil {
 		t.Fatal(err)
 	}
-	seedTraffic(t, db, u.ID, &expensive.ID, 1<<30, 0, now) // 1GB × 2000 = 2000 分 ≥ 1000
+	seedTraffic(t, db, u.ID, &expensive.ID, 1<<30, 0, now) // 1GB × 2000 = 2000 cents ≥ 1000
 	if created, err := Sweep(db, now); err != nil || created != 1 {
 		t.Fatalf("cost tier should trigger: created=%d err=%v", created, err)
 	}
@@ -261,11 +261,11 @@ func TestLinkSweepCostTierAndDisable(t *testing.T) {
 	if err != nil || act == nil || act.Trigger != LinkTriggerCost {
 		t.Fatalf("cost action = %+v err=%v", act, err)
 	}
-	// 费用档快照
+	// Cost tier snapshot
 	if act.CostCents != 2000 {
 		t.Fatalf("cost snapshot = %d, want 2000", act.CostCents)
 	}
-	// 关闭联动释放
+	// Turning off the linkage releases
 	if err := SaveLinkSetting(db, LinkSetting{Enabled: false}); err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +275,7 @@ func TestLinkSweepCostTierAndDisable(t *testing.T) {
 	if act, _ := ActiveAction(db, u.ID); act != nil {
 		t.Fatalf("disable should release all, got %+v", act)
 	}
-	// 禁用用户不参与联动判定（配额超限会触发，但禁用即跳过）
+	// Disabled users are skipped by linkage evaluation (quota overrun would trigger, but disabled skips)
 	u2 := seedLinkUser(t, db, "ghost", 100)
 	if err := db.Model(&storage.User{}).Where("id = ?", u2.ID).Update("enabled", false).Error; err != nil {
 		t.Fatal(err)
@@ -295,12 +295,12 @@ func TestLinkSweepCostTierAndDisable(t *testing.T) {
 	}
 }
 
-// TestLinkLoopSweepsAndStops LinkLoop 启停：启动即跑一轮（超额用户被降档
-// 留痕），cancel 后返回。
+// TestLinkLoopSweepsAndStops LinkLoop start/stop: runs one round on start (over-quota user gets a downgrade
+// trail), returns after cancel.
 func TestLinkLoopSweepsAndStops(t *testing.T) {
 	db := newLinkDB(t)
 	u := seedLinkUser(t, db, "loop-u", 1000)
-	seedTraffic(t, db, u.ID, nil, 900, 0, time.Now()) // 90% 触发
+	seedTraffic(t, db, u.ID, nil, 900, 0, time.Now()) // 90% triggers
 	if err := SaveLinkSetting(db, LinkSetting{Enabled: true, TrafficPercent: 90}); err != nil {
 		t.Fatal(err)
 	}
@@ -332,7 +332,7 @@ func TestLinkLoopSweepsAndStops(t *testing.T) {
 	}
 }
 
-// TestHumanMB 字节量人读口径：B/MB/GB 三档向上取整。
+// TestHumanMB byte-magnitude human-readable model: B/MB/GB tiers, rounded up.
 func TestHumanMB(t *testing.T) {
 	for b, want := range map[int64]string{
 		512: "512B", 1 << 20: "1MB", (1 << 20) + 1: "2MB",

@@ -1,6 +1,6 @@
-// Package quota 流量重置周期口径（P1-4，对齐 Marzban data_limit_reset_strategy）：
-// none=全量累计，day/week/month=按日历窗口只算窗口内用量，窗口滚动即"重置"。
-// 记账明细（traffic_logs）不删不改，重置只体现在判定与展示的窗口过滤上。
+// Package quota traffic reset cycle model (P1-4, aligned with Marzban data_limit_reset_strategy):
+// none = cumulative total; day/week/month = calendar-window usage only, a rolling window acts as the "reset".
+// Accounting details (traffic_logs) are never deleted or modified; resetting only shows up as window filtering in evaluation and display.
 package quota
 
 import (
@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// 支持的重置周期。
+// Supported reset cycles.
 const (
 	CycleNone  = "none"
 	CycleDay   = "day"
@@ -18,7 +18,7 @@ const (
 	CycleMonth = "month"
 )
 
-// ValidCycle 判断周期取值是否在 none/day/week/month 内。
+// ValidCycle reports whether the cycle value is one of none/day/week/month.
 func ValidCycle(c string) bool {
 	switch c {
 	case CycleNone, CycleDay, CycleWeek, CycleMonth:
@@ -27,9 +27,9 @@ func ValidCycle(c string) bool {
 	return false
 }
 
-// WindowStart 返回当前计费窗口的起点（含该时刻）；none 或未知周期返回
-// 零值表示全量累计。窗口按服务器本地时区的日历边界：day=当日 00:00，
-// week=本周一 00:00，month=本月 1 日 00:00。
+// WindowStart returns the start of the current billing window (inclusive); none or an unknown cycle
+// returns the zero value meaning cumulative total. Windows follow local server timezone calendar boundaries: day = midnight today,
+// week = Monday 00:00 this week, month = the 1st of this month 00:00.
 func WindowStart(cycle string, now time.Time) time.Time {
 	loc := now.Location()
 	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
@@ -37,7 +37,7 @@ func WindowStart(cycle string, now time.Time) time.Time {
 	case CycleDay:
 		return dayStart
 	case CycleWeek:
-		// Go weekday：Sunday=0；周一为界，周日归本周（回退 6 天）。
+		// Go weekday: Sunday=0; Monday is the boundary and Sunday belongs to this week (step back 6 days).
 		wd := int(dayStart.Weekday())
 		if wd == 0 {
 			wd = 7
@@ -50,7 +50,7 @@ func WindowStart(cycle string, now time.Time) time.Time {
 	}
 }
 
-// UsedBytes 返回用户在当前计费窗口内的已用字节（rx+tx 合计）。
+// UsedBytes returns the user's bytes used within the current billing window (rx+tx combined).
 func UsedBytes(db *gorm.DB, userID uint, cycle string, now time.Time) (int64, error) {
 	q := db.Model(&storage.TrafficLog{}).
 		Select("COALESCE(SUM(rx_bytes + tx_bytes), 0)").

@@ -8,7 +8,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
-// TestUsedBytes 覆盖 UsedBytes 无窗/有窗/扫描错误分支。
+// TestUsedBytes covers UsedBytes' no-window/window/scan-error branches.
 func TestUsedBytes(t *testing.T) {
 	db, err := storage.Open(storage.DriverSQLite, filepath.Join(t.TempDir(), "q.db"))
 	if err != nil {
@@ -20,16 +20,16 @@ func TestUsedBytes(t *testing.T) {
 		}
 	})
 	now := time.Now()
-	// 建一个用户，保证外键约束。
+	// Create a user to satisfy the foreign key constraint.
 	u := storage.User{Username: "quota-used"}
 	if err := db.Create(&u).Error; err != nil {
 		t.Fatal(err)
 	}
-	// 无流量：返回 0。
+	// No traffic: returns 0.
 	if got, err := UsedBytes(db, u.ID, CycleNone, now); err != nil || got != 0 {
 		t.Fatalf("empty: %d %v", got, err)
 	}
-	// 落一行流量（无窗 cycle）。
+	// Insert one traffic row (no-window cycle).
 	uid := u.ID
 	if err := db.Create(&storage.TrafficLog{UserID: &uid, RxBytes: 30, TxBytes: 20, RecordedAt: now}).Error; err != nil {
 		t.Fatal(err)
@@ -37,11 +37,11 @@ func TestUsedBytes(t *testing.T) {
 	if got, err := UsedBytes(db, u.ID, CycleNone, now); err != nil || got != 50 {
 		t.Fatalf("no window: %d %v", got, err)
 	}
-	// 有窗（day）命中。
+	// Windowed (day) hit.
 	if got, err := UsedBytes(db, u.ID, CycleDay, now); err != nil || got != 50 {
 		t.Fatalf("day window: %d %v", got, err)
 	}
-	// 扫描错误：关闭库。
+	// Scan error: close the DB.
 	s, _ := db.DB()
 	_ = s.Close()
 	if _, err := UsedBytes(db, u.ID, CycleNone, now); err == nil {

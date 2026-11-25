@@ -20,7 +20,7 @@ func TestWindowStart(t *testing.T) {
 		want  time.Time
 	}{
 		{"当日零点", CycleDay, at(2026, time.October, 7, 15, 34), at(2026, time.October, 7, 0, 0)},
-		{"周中归周一", CycleWeek, at(2026, time.October, 7, 15, 34), at(2026, time.October, 5, 0, 0)}, // 10-07 周三
+		{"周中归周一", CycleWeek, at(2026, time.October, 7, 15, 34), at(2026, time.October, 5, 0, 0)}, // 10-07 is a Wednesday
 		{"周日归本周一", CycleWeek, at(2026, time.October, 11, 23, 0), at(2026, time.October, 5, 0, 0)},
 		{"月初零点", CycleMonth, at(2026, time.October, 7, 15, 34), at(2026, time.October, 1, 0, 0)},
 		{"跨月", CycleMonth, at(2026, time.November, 2, 8, 0), at(2026, time.November, 1, 0, 0)},
@@ -64,27 +64,27 @@ func TestUsedBytesWindowFilter(t *testing.T) {
 	now := at(2026, time.October, 7, 12, 0)
 	uid := u.ID
 	logs := []storage.TrafficLog{
-		{UserID: &uid, RxBytes: 100, TxBytes: 10, RecordedAt: now.Add(-40 * 24 * time.Hour)}, // 上月
-		{UserID: &uid, RxBytes: 30, TxBytes: 3, RecordedAt: now.Add(-3 * 24 * time.Hour)},    // 本周一前？10-04 周日
-		{UserID: &uid, RxBytes: 5, TxBytes: 1, RecordedAt: now.Add(-time.Hour)},              // 今天
+		{UserID: &uid, RxBytes: 100, TxBytes: 10, RecordedAt: now.Add(-40 * 24 * time.Hour)}, // last month
+		{UserID: &uid, RxBytes: 30, TxBytes: 3, RecordedAt: now.Add(-3 * 24 * time.Hour)},    // before this Monday? 10-04 is a Sunday
+		{UserID: &uid, RxBytes: 5, TxBytes: 1, RecordedAt: now.Add(-time.Hour)},              // today
 	}
 	if err := db.Create(&logs).Error; err != nil {
 		t.Fatal(err)
 	}
 
-	// none：全量 149
+	// none: cumulative 149
 	if got, err := UsedBytes(db, u.ID, CycleNone, now); err != nil || got != 149 {
 		t.Fatalf("none used = %d err=%v, want 149", got, err)
 	}
-	// day：只今天 6
+	// day: today only, 6
 	if got, _ := UsedBytes(db, u.ID, CycleDay, now); got != 6 {
 		t.Fatalf("day used = %d, want 6", got)
 	}
-	// week：10-05 周一起 → 只有今天的 6（10-04 的 33 在上周）
+	// week: from Monday 10-05 → only today's 6 (10-04's 33 is last week)
 	if got, _ := UsedBytes(db, u.ID, CycleWeek, now); got != 6 {
 		t.Fatalf("week used = %d, want 6", got)
 	}
-	// month：10-01 起 → 33 + 6 = 39
+	// month: from 10-01 → 33 + 6 = 39
 	if got, _ := UsedBytes(db, u.ID, CycleMonth, now); got != 39 {
 		t.Fatalf("month used = %d, want 39", got)
 	}
