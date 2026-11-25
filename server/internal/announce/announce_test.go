@@ -39,7 +39,8 @@ func mkUser(db *gorm.DB, id uint, enabled bool, expOffset *time.Duration) storag
 	if err := db.Create(&u).Error; err != nil {
 		panic(err)
 	}
-	// GORM default 标签吞 Create 零值（TOUCH-1 注记），停用走 Update 显式落库
+	// GORM default tags swallow the Create zero value (TOUCH-1 note), so
+	// disabling is persisted explicitly through Update
 	if !enabled {
 		if err := db.Model(&storage.User{}).Where("id = ?", u.ID).Update("enabled", false).Error; err != nil {
 			panic(err)
@@ -187,10 +188,10 @@ func TestFanoutScheduled(t *testing.T) {
 
 func TestFanoutExpiring(t *testing.T) {
 	db := testDB(t)
-	mkUser(db, 1, true, expIn(3))  // 3 天内到期：命中
-	mkUser(db, 2, true, expIn(30)) // 超出窗口
-	mkUser(db, 3, true, nil)       // 未设到期
-	mkUser(db, 4, false, expIn(3)) // 已停用
+	mkUser(db, 1, true, expIn(3))  // expires within 3 days: match
+	mkUser(db, 2, true, expIn(30)) // outside the window
+	mkUser(db, 3, true, nil)       // no expiry set
+	mkUser(db, 4, false, expIn(3)) // already disabled
 	expired := time.Now().Add(-24 * time.Hour)
 
 	cnt, err := Fanout(db, Input{Title: "t", Audience: "expiring:7"})
@@ -212,7 +213,7 @@ func TestFanoutExpiring(t *testing.T) {
 		Enabled: true, ExpiresAt: &expired}).Error; err != nil {
 		t.Fatalf("create expired user: %v", err)
 	}
-	// 已过期（expires_at <= now）不属 expiring 名单
+	// Already expired (expires_at <= now) is not on the expiring list
 	cnt2, err := Fanout(db, Input{Title: "t2", Audience: "expiring:7"})
 	if err != nil {
 		t.Fatalf("Fanout2 = %v", err)
@@ -262,7 +263,7 @@ func TestRunDue(t *testing.T) {
 		t.Errorf("user rows = %d; want 2", userRows)
 	}
 
-	// 已扇出锚点不重复扇出
+	// Anchors already fanned out are not fanned out again
 	n2, err := RunDue(db, time.Now())
 	if err != nil {
 		t.Fatalf("RunDue2 = %v", err)
@@ -308,12 +309,12 @@ func TestResend(t *testing.T) {
 		t.Errorf("dedup key = %q; want %q", ev.DedupKey, resendDedupKey(anchor.ID, now))
 	}
 
-	// 限频窗口内拒绝
+	// Rejected inside the cooldown window
 	if _, err := Resend(db, anchor.ID, now.Add(time.Minute)); !errors.Is(err, ErrCooldown) {
 		t.Fatalf("second Resend err = %v; want ErrCooldown", err)
 	}
 
-	// 超过窗口可再发
+	// Past the window, resending is allowed
 	cnt2, err := Resend(db, anchor.ID, now.Add(7*time.Hour))
 	if err != nil {
 		t.Fatalf("Resend after cooldown = %v", err)
@@ -363,12 +364,12 @@ func TestAudienceScope(t *testing.T) {
 		aud  string
 		want []int64
 	}{
-		{"", []int64{1, 3}},           // 缺省=全员启用
-		{"all", []int64{1, 3}},        // 全员
-		{"expiring:7", []int64{3}},    // 命中窗口
-		{"expiring:90", []int64{3}},   // 大窗口同名单
-		{"expiring:0", []int64{1, 3}}, // 越界=非法，兜底全员
-		{"garbage", []int64{1, 3}},    // 脏数据兜底全员不阻塞
+		{"", []int64{1, 3}},           // default = all enabled users
+		{"all", []int64{1, 3}},        // all users
+		{"expiring:7", []int64{3}},    // matches the window
+		{"expiring:90", []int64{3}},   // larger window, same list
+		{"expiring:0", []int64{1, 3}}, // out of range = invalid, falls back to all
+		{"garbage", []int64{1, 3}},    // dirty data falls back to all without blocking
 		{"EXP", []int64{1, 3}},
 	}
 	for _, c := range cases {

@@ -9,10 +9,10 @@ import (
 	"gorm.io/gorm"
 )
 
-// 二十二批补口：announce 各错误返回口径——拆表定向破坏首查/次查，gorm 回调
-// 注入破坏中间语句（插入第 N 条与更新）。
+// Batch 22 error-path coverage: announce error return semantics——split tables to break the first/second query, gorm callbacks
+// to break intermediate statements (inserting the Nth row and updates).
 
-// failUpdates 让后续所有 Update 失败（gorm 更新回调注错）。
+// failUpdates makes all subsequent Updates fail (gorm update callback error injection).
 func failUpdates(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	db.Callback().Update().Before("gorm:update").Register("test:fail_update", func(tx *gorm.DB) {
@@ -20,7 +20,7 @@ func failUpdates(t *testing.T, db *gorm.DB) {
 	})
 }
 
-// isNotification 判断语句目标是否为通知表（锚点单行与用户行批量都是它）。
+// isNotification reports whether the statement targets the notification table (both the single anchor row and the batch user rows use it).
 func isNotification(v any) bool {
 	switch v.(type) {
 	case *storage.Notification, []storage.Notification, *[]storage.Notification:
@@ -29,7 +29,7 @@ func isNotification(v any) bool {
 	return false
 }
 
-// seedAnchor 造一条已扇出的公告锚点行（重发端点的前置）。
+// seedAnchor creates an already fanned-out announcement anchor row (prerequisite for the resend endpoint).
 func seedAnchor(t *testing.T, db *gorm.DB) storage.Notification {
 	t.Helper()
 	a := storage.Notification{
@@ -42,11 +42,11 @@ func seedAnchor(t *testing.T, db *gorm.DB) storage.Notification {
 	return a
 }
 
-// TestFanoutAnchorCreateError 定时锚点与立即锚点落库失败即冒错。
+// TestFanoutAnchorCreateError scheduled-anchor and immediate-anchor persistence failures surface errors.
 func TestFanoutAnchorCreateError(t *testing.T) {
 	future := time.Now().Add(time.Hour)
 
-	// 定时发布：只落锚点行，落库失败。
+	// Scheduled publish: only the anchor row is written, and that write fails.
 	db := testDB(t)
 	if err := db.Migrator().DropTable(&storage.Notification{}); err != nil {
 		t.Fatalf("drop notifications: %v", err)
@@ -55,7 +55,7 @@ func TestFanoutAnchorCreateError(t *testing.T) {
 		t.Fatal("want scheduled anchor create error")
 	}
 
-	// 立即扇出：新建路径落锚点行失败。
+	// Immediate fan-out: the create path fails to write the anchor row.
 	db = testDB(t)
 	mkUser(db, 1, true, nil)
 	if err := db.Migrator().DropTable(&storage.Notification{}); err != nil {
@@ -66,10 +66,10 @@ func TestFanoutAnchorCreateError(t *testing.T) {
 	}
 }
 
-// TestFanoutWriteFailures 用户行批量落库失败、事件批量落库失败、扇出时间
-// 回写失败——三种写入故障各自的错误返回。
+// TestFanoutWriteFailures batch user-row persistence failure, batch event persistence failure, and fan-out time
+// write-back failure——each of the three write faults has its own error return.
 func TestFanoutWriteFailures(t *testing.T) {
-	// 用户行批量插入失败：锚点已落，第二条插入语句失败。
+	// Batch user-row insert failure: the anchor is already written, and the second insert statement fails.
 	{
 		db := testDB(t)
 		mkUser(db, 1, true, nil)
@@ -87,7 +87,7 @@ func TestFanoutWriteFailures(t *testing.T) {
 		}
 	}
 
-	// 事件批量插入失败：站内信行已落，事件批量写失败。
+	// Batch event insert failure: the in-site message rows are written, and the batch event write fails.
 	{
 		db := testDB(t)
 		mkUser(db, 1, true, nil)
@@ -99,7 +99,7 @@ func TestFanoutWriteFailures(t *testing.T) {
 		}
 	}
 
-	// 扇出时间回写失败：站内信与事件已落。
+	// Fan-out time write-back failure: the in-site message and the events are already written.
 	{
 		db := testDB(t)
 		mkUser(db, 1, true, nil)
@@ -110,9 +110,9 @@ func TestFanoutWriteFailures(t *testing.T) {
 	}
 }
 
-// TestRunDueErrors 定时锚点查询失败、以及到点锚点扇出失败。
+// TestRunDueErrors scheduled-anchor query failure, and fan-out failure of a due anchor.
 func TestRunDueErrors(t *testing.T) {
-	// 通知表缺失：锚点查询即失败。
+	// The notification table is missing: the anchor query fails outright.
 	db := testDB(t)
 	if err := db.Migrator().DropTable(&storage.Notification{}); err != nil {
 		t.Fatalf("drop notifications: %v", err)
@@ -121,7 +121,7 @@ func TestRunDueErrors(t *testing.T) {
 		t.Fatal("want due query error")
 	}
 
-	// 到点锚点存在，但受众名单查询失败（拆用户表）。
+	// A due anchor exists, but the audience roster query fails (split the user table).
 	db = testDB(t)
 	past := time.Now().Add(-time.Hour)
 	anchor := storage.Notification{
@@ -139,9 +139,9 @@ func TestRunDueErrors(t *testing.T) {
 	}
 }
 
-// TestResendWriteFailures 重发的事件批量落库失败与重发时间回写失败。
+// TestResendWriteFailures resend batch event persistence failure and resend time write-back failure.
 func TestResendWriteFailures(t *testing.T) {
-	// 事件批量插入失败：名单已取到，事件写失败。
+	// Batch event insert failure: the roster is obtained, and the event write fails.
 	{
 		db := testDB(t)
 		mkUser(db, 1, true, nil)
@@ -154,7 +154,7 @@ func TestResendWriteFailures(t *testing.T) {
 		}
 	}
 
-	// 重发时间回写失败：事件已落。
+	// Resend time write-back failure: the events are already written.
 	{
 		db := testDB(t)
 		mkUser(db, 1, true, nil)
