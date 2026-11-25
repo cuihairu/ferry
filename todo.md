@@ -563,8 +563,8 @@
     - 备注（Task ID: F-0045 | Status: Done | Evidence: 两处脱管敏感操作补齐——distributor 登录用 defer auditSensitive 记录提交用户名/成功状态（正/误密码/未知用户/停用账户均留痕），面板 redeem 记录订阅用户+卡码+成功状态，均在 handler 内显式写 AuditLog（开放组无 auditMiddleware）；新增 actor_kind=distributor|panel；审计写失败只记日志不阻断业务，密码不入审计正文 | Verification: TestDistributorLoginAuditRows/TestPanelRedeemAuditRows；go test ./... 全绿+gofmt/vet clean | Commit: ac0afcc）
 -   [x] `F-0046` 所有配置下发具备版本、校验、确认和失败处理。
     - 备注（Task ID: F-0046 | Status: Done | Evidence: 版本/校验/确认/失败——relaypush.go:69-88（sha256 版本+ack 阻塞 60s）、configd.go:60-117（sha256 校验+validate+原子替换+回滚）、agenthub 错误映射 502/504 | Verification: TestPushAckApplied/TestPushTimeout/TestAgentWSConfigPush/TestApplyValidateFailsKeepsOld/TestApplyReloadFailRollsBack | Commit: c79d570）
--   [ ] `F-0047` 所有外部 API 调用具备超时、限流和错误分类。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0047 | 未满足原因：外部 API 超时与错误分类具备（cloudflare 10s/epusdt 10s/servify 5s 等+typed 错误），但出站限流缺失：ratelimit/limiter.go 仅用于入站节流，出站无 x/time/rate、无熔断器——留待补。）
+-   [x] `F-0047` 所有外部 API 调用具备超时、限流和错误分类。
+    - 备注（Task ID: F-0047 | Status: Done | Evidence: 出站限流补齐——ratelimit 新增 Outbound 按远端 host 的滑动窗口 pacer（默认 60 次/分钟/host，零依赖、与入站 Limiter 同习语，Wait 阻塞式适配后台 worker，ctx 取消即退出，等待上界=窗口），五个出站面全部接线：notify webhook、herald HTTPSender、dns/cloudflare、support(servify)、idp(oidc token+userinfo)；超时与 typed 错误分类既有（cloudflare 10s/servify 5s/oidc 10s/HTTPError 等），本批不改 | Verification: TestOutboundPacesPerHost/TestOutboundWaitCancel/TestOutboundWaitURL + 5 个被接线包全绿；go test ./... 全绿+gofmt/vet clean | Commit: 69583c9）
 -   [x] `F-0048` 所有外部依赖故障不得阻塞 Server 核心 API。
     - 备注（Task ID: F-0048 | Status: Done | Evidence: 外部依赖故障不阻塞核心 API——health 仅本地 DB+hub 数(router.go:400)、外部循环均后台 goroutine(main.go:142-280)、servify 不可达降级 enabled=false(support.go:44,77) | Verification: TestHealth/TestEventResultHeraldCallback | Commit: c79d570）
 -   [x] `F-0049` 所有新增指标必须有真实采集来源。
