@@ -118,6 +118,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&Campaign{},
 		&NodeTokenRevocation{},
 		&EnrollmentToken{},
+		&CapabilityChange{},
 	)
 }
 

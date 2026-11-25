@@ -57,6 +57,10 @@ type NodeInput struct {
 	// the current value, 0 clears the link, >0 must reference an existing row.
 	ProviderID *uint  `json:"provider_id,omitempty"`
 	Transport  string `json:"transport,omitempty"` // tls/quic/ws-tls/ssh
+	// Capabilities sets the statically declared capability list (F-0222): nil
+	// keeps the current value, a non-nil list replaces it (an empty list falls
+	// back to the role-derived default).
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
 // EnrollmentTokenInput is the request payload for issuing a one-time enrollment credential (FERRY-001).

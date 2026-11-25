@@ -200,10 +200,16 @@ type Node struct {
 	PoolChangedAt *time.Time `json:"pool_changed_at"`
 	// Supply-into-pool pipeline (OS-4): a note of provisioning nodes' progress / failure reasons, cleared
 	// when they turn online; online/offline transitions do not write this column.
-	ProvisionNote string    `gorm:"size:255" json:"provision_note"`
-	PoolReason    string    `gorm:"size:64" json:"pool_reason"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ProvisionNote string `gorm:"size:255" json:"provision_note"`
+	PoolReason    string `gorm:"size:64" json:"pool_reason"`
+	// Capabilities is the JSON array of statically declared capabilities
+	// (F-0222): panel-set, derived from role/transport/labels, one of
+	// proxy_ingress/relay_entry/relay_landing/probe/tcp/udp. The dynamic
+	// counterparts live in CapabilityState.
+	Capabilities    string    `gorm:"type:text" json:"capabilities"`
+	CapabilityState string    `gorm:"type:text" json:"capability_state"` // JSON object: dynamic runtime capability -> ok/degraded/off
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 // TrafficLog is one traffic accounting record (aggregated per user per node per cycle).

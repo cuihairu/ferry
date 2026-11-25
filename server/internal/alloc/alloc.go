@@ -486,7 +486,19 @@ func SweepAt(db *gorm.DB, now time.Time) ([]SwitchEvent, error) {
 			if l.Direction != direction && l.Direction != agentproto.DirectionBoth {
 				continue
 			}
+			// Capability gate (F-0230): the landing must declare relay_landing
+			// and must not report it off; the entry must carry relay_entry.
+			// Nodes without any stored list fall back to the role-derived set,
+			// so legacy registrations stay eligible.
+			if !storage.HasCapability(l, storage.CapRelayLanding) {
+				continue
+			}
 			cands = append(cands, Candidate{Node: l, Conns: conns[l.ID], Healthy: !sick[l.ID]})
+		}
+		// The entry itself must be able to run the relay data plane toward the
+		// landing it is picking; otherwise the tunnel cannot come up.
+		if !storage.HasCapability(entry, storage.CapRelayEntry) {
+			continue
 		}
 		// Current auto row (latest effective one for the same entry and direction).
 		current, err := currentAuto(db, entry.ID, direction)

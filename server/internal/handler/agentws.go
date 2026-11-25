@@ -142,6 +142,10 @@ func (h *Handler) agentWS(c *gin.Context) {
 	// authoritative values back so the agent can calibrate itself.
 	meta := h.syncNodeMeta(nodeID, hello.Meta)
 
+	// statically declared capabilities: the first agent report fills the stored
+	// list (F-0228); the panel's own list wins afterwards.
+	h.syncCaps(nodeID, hello.Caps)
+
 	// the agent version is written to the DB with every hello (an A-23 self-upgrade result is a version change).
 	if hello.Version != "" {
 		if err := h.db.Model(&storage.Node{}).Where("id=?", nodeID).
@@ -481,6 +485,9 @@ func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID 
 				continue
 			}
 			h.setNodeStatus(nodeID, "online", true)
+			// Runtime capability state rides each heartbeat (F-0229); an empty
+			// payload (old agent) is a no-op.
+			h.mergeCaps(nodeID, hb.Caps)
 			// Persist the process snapshot (SAVE-3): metrics (cache hit statistics, etc.) are updated
 			// with it, and a failure only logs -- it never blocks the heartbeat reply.
 			if procs, over := capBatch(hb.Procs, maxBatchItems); over {

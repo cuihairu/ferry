@@ -51,6 +51,10 @@ type Hello struct {
 	Hostname  string    `json:"hostname"`   // hostname, display only
 	StartedAt time.Time `json:"started_at"` // agent process start time
 	Meta      NodeMeta  `json:"meta"`       // node registration metadata
+	// Caps is the agent's statically declared capability set (F-0228), derived
+	// from its own runtime config (managed procs / probe tasks / relay spec).
+	// The panel records it on first registration; its own stored list wins after.
+	Caps []string `json:"caps,omitempty"`
 }
 
 // HelloAck is the panel's handshake reply; the agent calibrates its heartbeat period from it.
@@ -109,7 +113,11 @@ type Heartbeat struct {
 	Conns         int          `json:"conns"`        // local ESTABLISHED connection count
 	Certs         []CertStatus `json:"certs,omitempty"`
 	Procs         []ProcStatus `json:"procs,omitempty"`
-	At            time.Time    `json:"at"`
+	// Caps is the dynamic runtime capability state (F-0229): capability name ->
+	// ok/degraded/off, derived from the live component states each heartbeat.
+	// Absent keys mean "unknown" and never disqualify a node.
+	Caps map[string]string `json:"caps,omitempty"`
+	At   time.Time         `json:"at"`
 }
 
 // HeartbeatAck lets the panel adjust the next heartbeat interval.

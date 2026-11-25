@@ -225,6 +225,7 @@ func (a *App) OnConnected(ctx context.Context, send func(agentproto.Envelope) er
 		Hostname:  hostname,
 		StartedAt: time.Now(),
 		Meta:      a.cfg.Meta,
+		Caps:      staticCaps(a.cfg),
 	})
 	if err != nil {
 		return err
@@ -463,6 +464,9 @@ func (a *App) buildHeartbeat() agentproto.Heartbeat {
 	if a.Procs != nil {
 		hb.Procs = a.Procs()
 	}
+	// Runtime capability state rides every heartbeat (F-0229): derived from the
+	// same component snapshot the panel persists as proc statuses.
+	hb.Caps = dynamicCaps(a.cfg, hb.Procs)
 	a.watchAlarms(hb)
 	return hb
 }

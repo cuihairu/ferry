@@ -90,6 +90,14 @@ func newPersistedNode(db *gorm.DB, in *model.NodeInput) (*storage.Node, error) {
 	// metadata: non-empty values override the DB defaults, and any one present
 	// sets MetaInit (panel takeover, registration no longer overrides).
 	applyMetaInput(&n, in)
+	// static capabilities: validated up front, so the marshal cannot fail here.
+	if in.Capabilities != nil {
+		raw, err := storage.ParseCapsJSON(in.Capabilities)
+		if err != nil {
+			return nil, err
+		}
+		n.Capabilities = raw
+	}
 	if err := db.Create(&n).Error; err != nil {
 		return nil, err
 	}
@@ -166,9 +174,26 @@ func (h *Handler) updateNode(c *gin.Context) {
 	if pid, provided := h.resolveProviderID(c, &in); provided {
 		updates["provider_id"] = pid
 	}
+	// static capabilities (F-0222): nil keeps the current value; a provided list
+	// replaces it, and an actual change appends a history row (F-0231).
+	capChanged := ""
+	if in.Capabilities != nil {
+		raw, err := storage.ParseCapsJSON(in.Capabilities)
+		if err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		if raw != n.Capabilities {
+			updates["capabilities"] = raw
+			capChanged = raw
+		}
+	}
 	if err := h.db.Model(&storage.Node{}).Where("id=?", n.ID).Updates(updates).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
+	}
+	if capChanged != "" {
+		h.recordCapabilityChange(n.ID, "static", beforeCapsJSON(n.Capabilities), capChanged, "panel update")
 	}
 	updated, err := h.findNode(strconv.FormatUint(uint64(n.ID), 10))
 	if err != nil {
@@ -337,6 +362,15 @@ func normalizeConfig(cfg string) string {
 	return string(compact)
 }
 
+// beforeCapsJSON normalizes the stored capability list into the JSON form the
+// history rows compare against (an unset list reads as an empty array).
+func beforeCapsJSON(raw string) string {
+	if raw == "" {
+		return "[]"
+	}
+	return raw
+}
+
 // nodeConfigFields holds the shared fields the panel reads out of the protocol
 // config template (same shape as nodeConfig in the sub package on the
 // subscription side, restricted to the subset validation needs).
@@ -470,6 +504,11 @@ func validateNodeInput(in *model.NodeInput, creating bool) error {
 	case "", "tls", "quic", "ws-tls", "ssh":
 	default:
 		return errors.New("transport must be tls/quic/ws-tls/ssh")
+	}
+	if in.Capabilities != nil {
+		if _, err := storage.ParseCapsJSON(in.Capabilities); err != nil {
+			return err
+		}
 	}
 	return nil
 }
