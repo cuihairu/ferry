@@ -834,24 +834,40 @@ External Client
 
 -   [x] `F-0301` 审计现有云厂商 API、Provision 和 OpenTofu 集成。
     - 备注（Task ID: F-0301 | Status: Done | Evidence: 云厂商 API/Provision/OpenTofu 审计 §3.9 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0302` 定义统一 Cloud Provider Adapter 接口。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0302 | 区级未满足原因：无云资源 Provider Adapter——type .*Provider.*interface 仅 dns.go:15(DNS 写通道)与 payment/provider.go:14(支付契约)，非云资源；Adapter/ListResources/PowerOn/PowerOff/Reboot/DescribeResource 均 0；provision 仅 tofu CLI(provision.go:89 exec tofu)——本区 F-0302~F-0318 未满足。）
--   [ ] `F-0303` 定义 Provider 能力声明接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0304` 定义资源列表查询接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0305` 定义资源详情查询接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0306` 定义资源状态刷新接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0307` 定义开机操作接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0308` 定义关机操作接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0309` 定义重启操作接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0310` 定义强制停止操作接口，并明确高危权限。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0311` 定义重装/重建操作接口，仅对服务商明确支持的资源开放。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0312` 定义公网 IP 查询接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0313` 定义带宽和规格查询接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0314` 定义账单和价格数据导入接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0315` 定义 Provider 错误码到 Ferry 错误类型的映射。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0316` 定义 Provider API 超时、限流和重试策略。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0317` 定义 Provider API 版本和能力兼容信息。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0318` 为 Provider Adapter 建立契约测试。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0302` 定义统一 Cloud Provider Adapter 接口。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0302 | Status: Done | Evidence: 新包 server/internal/cloudprov：cloudprov.Adapter 统一接口（Capabilities/ListResources/DescribeResource/RefreshStatus/PowerOn/PowerOff/Reboot/ForceStop/Rebuild/ImportBilling），Resource/Filter/BillingWindow/BillingRecord 类型，全部失败以 *Error 分型返回；fake.go 参考实现；Client 装饰器实现同一接口 | Verification: TestFakeContract/TestClientRetryPolicy 等 cloudprov 全绿 2026-11-26（server+agent go test 全绿） | Commit: 1ee762d）
+-   [x] `F-0303` 定义 Provider 能力声明接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0303 | Status: Done | Evidence: Capabilities{Power/ForceStop/Rebuild/Billing/Regions} 能力声明；fail-closed：未声明能力调用返回 ErrUnsupportedOp 且状态不动（fake.transition 按 gate 拒绝） | Verification: TestUnsupportedGate（6 操作全拒+状态未变） | Commit: 1ee762d）
+-   [x] `F-0304` 定义资源列表查询接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0304 | Status: Done | Evidence: ListResources(ctx, Filter{Region,Tags})→[]Resource，Filter 空字段=不限 | Verification: TestFakeContract/list_and_filter（region+tag 过滤） | Commit: 1ee762d）
+-   [x] `F-0305` 定义资源详情查询接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0305 | Status: Done | Evidence: DescribeResource(ctx,id)→*Resource 全视图，不存在 id 返回 ErrNotFound 分型错误（绝不 nil 资源） | Verification: TestFakeContract/describe_facts（missing→ErrNotFound） | Commit: 1ee762d）
+-   [x] `F-0306` 定义资源状态刷新接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0306 | Status: Done | Evidence: RefreshStatus(ctx,id)→State 常量集（running/stopped/starting/stopping/rebuilding/provisioning/error，ValidState 校验），每次电源操作后经 refresh 可见 | Verification: TestFakeContract/refresh_status+power_lifecycle/TestValidState | Commit: 1ee762d）
+-   [x] `F-0307` 定义开机操作接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0307 | Status: Done | Evidence: PowerOn(ctx,id)（Power 能力门禁）→State starting，受 Client 超时/限流/重试策略包裹 | Verification: TestFakeContract/power_lifecycle | Commit: 1ee762d）
+-   [x] `F-0308` 定义关机操作接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0308 | Status: Done | Evidence: PowerOff(ctx,id) 优雅关机（Power 门禁）→State stopping | Verification: TestFakeContract/power_lifecycle | Commit: 1ee762d）
+-   [x] `F-0309` 定义重启操作接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0309 | Status: Done | Evidence: Reboot(ctx,id) 优雅重启（Power 门禁） | Verification: TestFakeContract/power_lifecycle | Commit: 1ee762d）
+-   [x] `F-0310` 定义强制停止操作接口，并明确高危权限。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0310 | Status: Done | Evidence: ForceStop(ctx,id) 独立 ForceStop 能力门禁；HighRiskForceStop="force_stop" 常量供 handler 层提权/二次确认接线；接口注释明确高危语义 | Verification: TestUnsupportedGate（HighRiskForceStop 键断言）/TestFakeContract（force stop→stopped） | Commit: 1ee762d）
+-   [x] `F-0311` 定义重装/重建操作接口，仅对服务商明确支持的资源开放。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0311 | Status: Done | Evidence: Rebuild(ctx,id,image)（Rebuild 门禁——仅声明 rebuild 的厂商开放）→State rebuilding | Verification: TestFakeContract/power_lifecycle+TestUnsupportedGate | Commit: 1ee762d）
+-   [x] `F-0312` 定义公网 IP 查询接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0312 | Status: Done | Evidence: Resource.PublicIP 字段（F-0305 详情/列表携带；空=无/未分配），契约测试断言 r-1 IP 往返 | Verification: TestFakeContract/describe_facts | Commit: 1ee762d）
+-   [x] `F-0313` 定义带宽和规格查询接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0313 | Status: Done | Evidence: Resource.BwMbps+Spec 字段（0/空=未知，账单导入跳过未知带宽资源） | Verification: TestFakeContract/describe_facts+billing_import（仅 r-1 有账单） | Commit: 1ee762d）
+-   [x] `F-0314` 定义账单和价格数据导入接口。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0314 | Status: Done | Evidence: ImportBilling(ctx,BillingWindow{From,To})→[]BillingRecord{ResourceID,CostCents,Currency,From,To}（Billing 能力门禁） | Verification: TestFakeContract/billing_import | Commit: 1ee762d）
+-   [x] `F-0315` 定义 Provider 错误码到 Ferry 错误类型的映射。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0315 | Status: Done | Evidence: errors.go：ErrorType 八类（auth/rate_limited/not_found/unsupported/unavailable/bad_request/compat/internal）+Error{Type,Op,ResourceID,ProviderCode,Message}+Retryable() 分类+AsError 提取+Op 常量；vendor 原始码保留在 ProviderCode | Verification: TestErrorShape（消息格式/类型提取/可重试分类） | Commit: 1ee762d）
+-   [x] `F-0316` 定义 Provider API 超时、限流和重试策略。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0316 | Status: Done | Evidence: Client 装饰器（实现同一 Adapter）：per-call 超时（deadline 切断→ErrUnavailable 可重试）、令牌桶限流（超限→client rate_limited，不穿透）、可重试类型指数退避重试（MaxRetries 上限，非可重试立即返回） | Verification: TestClientRetryPolicy/TestClientTimeout/TestClientRateLimit | Commit: 1ee762d）
+-   [x] `F-0317` 定义 Provider API 版本和能力兼容信息。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0317 | Status: Done | Evidence: Capabilities.APIVersion + VersionAtLeast 点分版本比较（数值段比较、畸形 fail-closed）+ ClientOptions.MinAPIVersion 下限（首次调用 sync.Once 检查，低于下限全部调用 ErrCompat 且不触达 adapter） | Verification: TestVersionCompat（9 组比较+floor 拒绝/放行） | Commit: 1ee762d）
+-   [x] `F-0318` 为 Provider Adapter 建立契约测试。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0318 | Status: Done | Evidence: contract_test.go ContractSuite(t,factory) 可复用契约套件（capabilities/list-filter/describe/refresh/power lifecycle/billing 六子测试），任何 Adapter 实现传入 factory 即测；TestFakeContract 以参考实现跑通 | Verification: TestFakeContract 全子测试绿 2026-11-26 | Commit: 1ee762d）
 
 ## 3.2 Provider 账号与凭据
 
