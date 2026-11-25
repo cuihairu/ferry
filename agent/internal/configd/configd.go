@@ -1,5 +1,5 @@
-// Package configd 落实配置下发：sha256 校验 → 临时文件 → 校验命令 → 原子替换 → reload，
-// 校验或 reload 失败即回滚旧配置（A-16/A-17）。
+// Package configd carries out config pushes: sha256 verification -> temp file -> validation command -> atomic replacement -> reload,
+// rolling back the old configuration when validation or reload fails (A-16/A-17).
 package configd
 
 import (
@@ -22,14 +22,14 @@ import (
 
 const validateTimeout = 30 * time.Second
 
-// Deployer 执行配置下发，同一时间只执行一份（串行化避免半新半旧）。
+// Deployer applies config pushes, running only one at a time (serialization avoids a half-new half-old state).
 type Deployer struct {
 	log *log.Logger
 
 	mu sync.Mutex
 }
 
-// New 创建下发器。
+// New creates a deployer.
 func New(logger *log.Logger) *Deployer {
 	if logger == nil {
 		logger = log.Default()
@@ -37,14 +37,14 @@ func New(logger *log.Logger) *Deployer {
 	return &Deployer{log: logger}
 }
 
-// Apply 执行一次配置下发并返回 ack。reload 由调用方注入（procs.Manager 的 reload 指令）。
+// Apply performs one config push and returns the ack. The reload function is injected by the caller (the reload command of procs.Manager).
 func (d *Deployer) Apply(spec config.ProcSpec, push agentproto.ConfigPush, reload func() error) agentproto.ConfigAck {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	ack := agentproto.ConfigAck{Proc: push.Proc, Version: push.Version}
-	// 规则库数据文件（SAVE-1）：kind=rulelib:<name>，落资产目录而非主配置路径，
-	// 免 validate（二进制数据），reload 照常；绝不落回主配置路径。
+	// Rule library data files (SAVE-1): kind=rulelib:<name>, written to the asset directory rather than the main config path,
+	// exempt from validate (binary data) with reload as usual; never written back to the main config path.
 	if strings.HasPrefix(push.Kind, "rulelib:") {
 		name := strings.TrimPrefix(push.Kind, "rulelib:")
 		if !validRuleLibName(name) {
@@ -80,7 +80,7 @@ func (d *Deployer) Apply(spec config.ProcSpec, push agentproto.ConfigPush, reloa
 		return ack
 	}
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath) // 命中 rename 成功时文件已不存在，无害
+	defer os.Remove(tmpPath) // if the rename already succeeded the file is gone, which is harmless
 	if _, err := tmp.WriteString(push.Payload); err != nil {
 		tmp.Close()
 		ack.Error = fmt.Sprintf("write temp config: %v", err)
@@ -95,7 +95,7 @@ func (d *Deployer) Apply(spec config.ProcSpec, push agentproto.ConfigPush, reloa
 		return ack
 	}
 
-	// 校验命令在临时文件上执行，失败不动正式配置。
+	// the validation command runs against the temp file; on failure the official config is left untouched.
 	if spec.Validate != "" {
 		if err := runValidate(spec.Validate, tmpPath); err != nil {
 			ack.Error = fmt.Sprintf("validate: %v", err)
@@ -110,7 +110,7 @@ func (d *Deployer) Apply(spec config.ProcSpec, push agentproto.ConfigPush, reloa
 	}
 
 	if err := reload(); err != nil {
-		// reload 失败：回滚旧配置并再拉一次，让进程回到旧配置状态。
+		// reload failed: roll back the old config and pull it once more, returning the process to the old config state.
 		rbErr := d.rollback(spec.ConfigPath, old, hadOld, reload, ".ferry-config-*")
 		ack.Reverted = true
 		if rbErr != nil {
@@ -125,8 +125,8 @@ func (d *Deployer) Apply(spec config.ProcSpec, push agentproto.ConfigPush, reloa
 	return ack
 }
 
-// applyRuleLib 把规则库数据文件原子落到资产目录并触发 reload；失败回滚旧文件。
-// 目录取 spec.AssetDir，未配置时回退主配置同级的 assets/（与内核 XRAY_LOCATION_ASSET 对齐由部署侧负责）。
+// applyRuleLib atomically lands a rule library data file in the asset directory and triggers reload; on failure the old file is rolled back.
+// the directory comes from spec.AssetDir, falling back to assets/ alongside the main config when unset (aligning it with the kernel's XRAY_LOCATION_ASSET is the deploy side's job).
 func (d *Deployer) applyRuleLib(spec config.ProcSpec, push agentproto.ConfigPush, name string, reload func() error) agentproto.ConfigAck {
 	ack := agentproto.ConfigAck{Proc: push.Proc, Version: push.Version}
 	if spec.AssetDir == "" && spec.ConfigPath == "" {
@@ -159,7 +159,7 @@ func (d *Deployer) applyRuleLib(spec config.ProcSpec, push agentproto.ConfigPush
 		return ack
 	}
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath) // rename 成功后已不存在，无害
+	defer os.Remove(tmpPath) // gone after a successful rename, harmless
 	if _, err := tmp.WriteString(push.Payload); err != nil {
 		tmp.Close()
 		ack.Error = fmt.Sprintf("write rulelib temp: %v", err)
@@ -193,7 +193,7 @@ func (d *Deployer) applyRuleLib(spec config.ProcSpec, push agentproto.ConfigPush
 	return ack
 }
 
-// validRuleLibName 只允许单个普通文件名：防路径穿越。
+// validRuleLibName allows only a single plain file name, preventing path traversal.
 func validRuleLibName(name string) bool {
 	if name == "" || len(name) > 64 || strings.ContainsAny(name, `/\`) || strings.Contains(name, "..") {
 		return false
@@ -201,7 +201,7 @@ func validRuleLibName(name string) bool {
 	return name[0] != '.' && name[0] != '-'
 }
 
-// rollback 恢复旧文件内容并重试 reload。
+// rollback restores the old file content and retries reload.
 func (d *Deployer) rollback(path string, old []byte, hadOld bool, reload func() error, tempPattern string) error {
 	if !hadOld {
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
@@ -248,7 +248,7 @@ func readIfExists(path string) ([]byte, bool, error) {
 	return raw, true, nil
 }
 
-// runValidate 以 sh -c 执行校验命令模板，{config} 替换为临时文件路径。
+// runValidate runs the validation command template via sh -c, with {config} replaced by the temp file path.
 func runValidate(tmpl, configPath string) error {
 	cmdStr := strings.ReplaceAll(tmpl, "{config}", configPath)
 	ctx, cancel := context.WithTimeout(context.Background(), validateTimeout)

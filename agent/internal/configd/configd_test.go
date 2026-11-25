@@ -45,7 +45,7 @@ func readFile(t *testing.T, path string) string {
 	return string(raw)
 }
 
-// reloadOK/reloadFail 是注入的 reload 桩，记录调用次数。
+// reloadOK/reloadFail are injected reload stubs that record the call count.
 func reloadOK(n *int) func() error {
 	return func() error {
 		*n++
@@ -120,7 +120,7 @@ func TestApplyValidateFailsKeepsOld(t *testing.T) {
 	if got := readFile(t, spec.ConfigPath); got != "old" {
 		t.Fatalf("config = %q, want untouched old", got)
 	}
-	// 临时文件必须被清理。
+	// the temp file must be cleaned up.
 	entries, err := os.ReadDir(filepath.Dir(spec.ConfigPath))
 	if err != nil {
 		t.Fatal(err)
@@ -204,7 +204,7 @@ func TestApplyRuleLibFallbackAssetDir(t *testing.T) {
 	if calls != 1 {
 		t.Fatalf("reload calls = %d, want 1", calls)
 	}
-	// 未配置 AssetDir：回退主配置同级 assets/
+	// AssetDir unset: fall back to assets/ alongside the main config
 	want := filepath.Join(filepath.Dir(spec.ConfigPath), "assets", "geoip.dat")
 	if got := readFile(t, want); got != "geo-data-v1" {
 		t.Fatalf("rulelib = %q, want payload", got)
@@ -256,7 +256,7 @@ func TestApplyRuleLibBadNames(t *testing.T) {
 			t.Fatalf("name %q: want rejection, got %+v", name, ack)
 		}
 	}
-	// 非法名绝不落盘
+	// illegal names are never written to disk
 	if _, err := os.Stat(filepath.Join(filepath.Dir(spec.ConfigPath), "assets")); !os.IsNotExist(err) {
 		t.Fatalf("rejected name should not touch disk, stat err = %v", err)
 	}
@@ -274,8 +274,8 @@ func TestApplyRuleLibShaMismatch(t *testing.T) {
 	}
 }
 
-// TestRollbackRestoresOldContent 回滚口径：有旧文件时内容还原后重试 reload；
-// reload 仍失败则冒错（不回滚成功）。
+// TestRollbackRestoresOldContent covers rollback semantics: with an old file, restore its content and retry reload;
+// if reload still fails, an error surfaces (no pretend success).
 func TestRollbackRestoresOldContent(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "config.json")
@@ -284,7 +284,7 @@ func TestRollbackRestoresOldContent(t *testing.T) {
 	}
 	d := &Deployer{}
 
-	// 旧内容还原 + reload 成功
+	// old content restored and reload succeeds
 	loads := 0
 	if err := d.rollback(target, []byte("old"), true, func() error { loads++; return nil }, ".tmp-*"); err != nil {
 		t.Fatalf("rollback = %v", err)
@@ -296,13 +296,13 @@ func TestRollbackRestoresOldContent(t *testing.T) {
 	if err != nil || string(got) != "old" {
 		t.Fatalf("content = %q, %v; want old", got, err)
 	}
-	// 临时文件不留残留
+	// no temp file residue left behind
 	entries, _ := os.ReadDir(dir)
 	if len(entries) != 1 {
 		t.Fatalf("dir has %d entries; want only target", len(entries))
 	}
 
-	// reload 仍失败：冒错不改内容
+	// reload still fails: an error surfaces and the content is unchanged
 	wantErr := errors.New("reload boom")
 	if err := d.rollback(target, []byte("older"), true, func() error { return wantErr }, ".tmp-*"); !errors.Is(err, wantErr) {
 		t.Fatalf("rollback err = %v; want %v", err, wantErr)
@@ -312,8 +312,8 @@ func TestRollbackRestoresOldContent(t *testing.T) {
 	}
 }
 
-// TestRollbackWithoutOldFile 无旧文件时删掉新文件；文件已不在（IsNotExist）
-// 视为回滚到位，reload 仍照跑。
+// TestRollbackWithoutOldFile covers no old file: the new file is removed; when the file is already gone (IsNotExist)
+// it counts as the rollback being done, and reload still runs.
 func TestRollbackWithoutOldFile(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "config.json")
@@ -329,12 +329,12 @@ func TestRollbackWithoutOldFile(t *testing.T) {
 		t.Fatalf("loads=%d, file removed=%v; want 1, true", loads, !os.IsNotExist(mustStatErr(t, target)))
 	}
 
-	// 文件已不存在：容忍 IsNotExist
+	// the file is already gone: tolerate IsNotExist
 	if err := d.rollback(target, nil, false, func() error { return nil }, ".tmp-*"); err != nil {
 		t.Fatalf("rollback on absent file = %v", err)
 	}
 
-	// 目录不可写无法稳定构造，跳过；reload 失败口径在此覆盖：
+	// an unwritable directory cannot be constructed reliably here, so it is skipped; reload failure semantics are covered here:
 	wantErr := errors.New("reload boom")
 	if err := d.rollback(filepath.Join(dir, "absent.json"), nil, false, func() error { return wantErr }, ".tmp-*"); !errors.Is(err, wantErr) {
 		t.Fatalf("rollback err = %v; want %v", err, wantErr)
@@ -353,7 +353,7 @@ func TestNewNilLogger(t *testing.T) {
 	}
 }
 
-// TestReadIfExists 目录读法报错；不存在按「无旧内容」口径返回。
+// TestReadIfExists covers a directory read error; a missing file is returned per the "no old content" rule.
 func TestReadIfExists(t *testing.T) {
 	dir := t.TempDir()
 	raw, had, err := readIfExists(dir)
@@ -366,7 +366,7 @@ func TestReadIfExists(t *testing.T) {
 	}
 }
 
-// TestApplyReadCurrentConfigError 配置路径指向目录：读旧内容即失败，不落盘。
+// TestApplyReadCurrentConfigError covers the config path pointing at a directory: reading the old content fails, nothing is written.
 func TestApplyReadCurrentConfigError(t *testing.T) {
 	spec := testSpec(t, "")
 	if err := os.MkdirAll(spec.ConfigPath, 0o755); err != nil {
@@ -378,7 +378,7 @@ func TestApplyReadCurrentConfigError(t *testing.T) {
 	}
 }
 
-// TestApplyRuleLibNoPaths 规则库既无 asset_dir 也无 config_path：不落盘。
+// TestApplyRuleLibNoPaths covers the rule library with neither asset_dir nor config_path: nothing is written.
 func TestApplyRuleLibNoPaths(t *testing.T) {
 	spec := config.ProcSpec{Name: "xray", Kind: "xray"}
 	ack := New(nil).Apply(spec, rulelibPush("geoip.dat", "data"), func() error { return nil })
@@ -387,7 +387,7 @@ func TestApplyRuleLibNoPaths(t *testing.T) {
 	}
 }
 
-// TestApplyRuleLibMkdirFails asset_dir 指向普通文件：建目录失败即中止。
+// TestApplyRuleLibMkdirFails covers asset_dir pointing at a plain file: mkdir failing aborts the push.
 func TestApplyRuleLibMkdirFails(t *testing.T) {
 	blocker := filepath.Join(t.TempDir(), "blocker")
 	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
@@ -401,7 +401,7 @@ func TestApplyRuleLibMkdirFails(t *testing.T) {
 	}
 }
 
-// TestApplyRuleLibRollbackAlsoFails 回滚后 reload 仍失败：两个错误都冒出来。
+// TestApplyRuleLibRollbackAlsoFails covers rollback still failing after reload failed: both errors surface.
 func TestApplyRuleLibRollbackAlsoFails(t *testing.T) {
 	spec := testSpec(t, "")
 	target := filepath.Join(filepath.Dir(spec.ConfigPath), "assets", "geoip.dat")
@@ -424,17 +424,17 @@ func TestApplyRuleLibRollbackAlsoFails(t *testing.T) {
 	}
 }
 
-// TestValidRuleLibNameEdge 补长度上限与前导 '-' 两处未覆盖分支。
+// TestValidRuleLibNameEdge covers the length limit and the leading '-' branches that were untested.
 func TestValidRuleLibNameEdge(t *testing.T) {
 	cases := []struct {
 		name string
 		want bool
 	}{
-		{"-geoip.dat", false}, // 前导 '-' 拒绝
-		{"geoip.dat", true},   // 正常名
-		{"a..b", false},       // 含 .. 拒绝
+		{"-geoip.dat", false}, // leading '-' rejected
+		{"geoip.dat", true},   // a normal name
+		{"a..b", false},       // containing .. rejected
 		{strings.Repeat("a", 64), true},
-		{strings.Repeat("a", 65), false}, // 超 64 拒绝
+		{strings.Repeat("a", 65), false}, // over 64 rejected
 	}
 	for _, c := range cases {
 		if got := validRuleLibName(c.name); got != c.want {
@@ -443,8 +443,8 @@ func TestValidRuleLibNameEdge(t *testing.T) {
 	}
 }
 
-// TestApplyRuleLibReadCurrentError asset 目标被同名目录占位：读现状即失败，
-// 不落盘不 reload。
+// TestApplyRuleLibReadCurrentError covers the asset target blocked by a same-named directory: reading the current state fails,
+// and neither a write nor a reload happens.
 func TestApplyRuleLibReadCurrentError(t *testing.T) {
 	spec := testSpec(t, "")
 	dir := filepath.Join(filepath.Dir(spec.ConfigPath), "assets")
@@ -457,8 +457,8 @@ func TestApplyRuleLibReadCurrentError(t *testing.T) {
 	}
 }
 
-// TestRollbackTempCreateFails 回滚临时文件落在文件占位目录：冒
-// 「write rollback temp」而非静默丢旧内容。
+// TestRollbackTempCreateFails covers the rollback temp file landing in a directory-blocked path: it surfaces
+// "write rollback temp" rather than silently losing the old content.
 func TestRollbackTempCreateFails(t *testing.T) {
 	blocker := filepath.Join(t.TempDir(), "blocker")
 	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
@@ -471,7 +471,7 @@ func TestRollbackTempCreateFails(t *testing.T) {
 	}
 }
 
-// reloadFailOnce 首次失败其后成功：模拟 reload 失败但回滚 reload 恢复。
+// reloadFailOnce fails the first call and succeeds after: simulating a reload failure recovered by the rollback reload.
 func reloadFailOnce(n *int) func() error {
 	return func() error {
 		*n++
@@ -482,8 +482,8 @@ func reloadFailOnce(n *int) func() error {
 	}
 }
 
-// TestApplyReloadRecoversViaRollback 主配置 reload 失败但回滚成功：旧配置
-// 恢复、ack 标 Reverted 且报错走 rolled back 口径。
+// TestApplyReloadRecoversViaRollback covers the main config reload failing but the rollback succeeding: the old config
+// is restored, the ack is marked Reverted and the error uses the rolled-back wording.
 func TestApplyReloadRecoversViaRollback(t *testing.T) {
 	spec := testSpec(t, "")
 	d := New(log.New(io.Discard, "", 0))
@@ -507,8 +507,8 @@ func TestApplyReloadRecoversViaRollback(t *testing.T) {
 	}
 }
 
-// TestApplyRuleLibReloadRecoversViaRollback 规则库 reload 失败但回滚成功：
-// 无旧文件时新文件撤除，报错同样走 rolled back 口径。
+// TestApplyRuleLibReloadRecoversViaRollback covers the rule library reload failing but the rollback succeeding:
+// the new file is removed when there is no old file, and the error uses the rolled-back wording as well.
 func TestApplyRuleLibReloadRecoversViaRollback(t *testing.T) {
 	spec := testSpec(t, "")
 	spec.AssetDir = filepath.Join(t.TempDir(), "xray-assets")
@@ -532,7 +532,7 @@ func TestApplyRuleLibReloadRecoversViaRollback(t *testing.T) {
 	}
 }
 
-// roDir 建只读目录（写路径失败注入位），测试结束恢复权限供 t.TempDir 清理。
+// roDir creates a read-only directory (injection point for write failures) and restores permissions at test end so t.TempDir can clean up.
 func roDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -543,19 +543,19 @@ func roDir(t *testing.T) string {
 	return dir
 }
 
-// TestApplyWriteFailures 配置写入链路的失败口径：目录建不出/临时文件写
-// 不出/替换目标为目录，都明确报错不冒称成功（reload 不被触发）。
+// TestApplyWriteFailures covers config write-chain failure semantics: a directory that cannot be created/
+// a temp file that cannot be written / a replacement target that is a directory all raise explicit errors rather than claiming success (reload is never triggered).
 func TestApplyWriteFailures(t *testing.T) {
 	d := New(log.New(io.Discard, "", 0))
 	calls := 0
-	// 目录建不出：父目录只读，子目录 MkdirAll 失败。
+	// the directory cannot be created: the parent is read-only, so the child MkdirAll fails.
 	spec := config.ProcSpec{Name: "xray", Kind: "xray",
 		ConfigPath: filepath.Join(roDir(t), "sub", "xray.json")}
 	if ack := d.Apply(spec, pushFor("{}"), reloadOK(&calls)); ack.OK ||
 		!strings.Contains(ack.Error, "prepare config dir") {
 		t.Fatalf("ack = %+v; want prepare config dir failure", ack)
 	}
-	// 临时文件写不出：配置目录只读。
+	// the temp file cannot be written: the config directory is read-only.
 	spec.ConfigPath = filepath.Join(t.TempDir(), "ro", "xray.json")
 	ro := filepath.Dir(spec.ConfigPath)
 	if err := os.Mkdir(ro, 0o755); err != nil {
@@ -569,20 +569,20 @@ func TestApplyWriteFailures(t *testing.T) {
 		!strings.Contains(ack.Error, "write temp config") {
 		t.Fatalf("ack = %+v; want write temp config failure", ack)
 	}
-	// （rename 失败分支在 Linux 不可达：目标为目录会先在 readIfExists
-	// 处报 EISDIR，见十二批复核记录，不硬凑。）
+	// (the rename failure branch is unreachable on Linux: a directory target already fails first at readIfExists
+	// with EISDIR, see the twelfth-batch review record, so it is not contrived here.)
 	if calls != 0 {
 		t.Fatalf("reload calls = %d; want 0 (failures must not reload)", calls)
 	}
 }
 
-// TestApplyRuleLibFailures 规则库写入链路的失败口径：资产目录建不出/
-// 临时文件写不出/目标为目录，都明确报错不冒称成功。
+// TestApplyRuleLibFailures covers rule library write-chain failure semantics: the asset directory cannot be created/
+// the temp file cannot be written / the target is a directory: all raise explicit errors rather than claiming success.
 func TestApplyRuleLibFailures(t *testing.T) {
 	d := New(log.New(io.Discard, "", 0))
 	calls := 0
 	push := rulelibPush("geoip.dat", "geo-data")
-	// 资产目录建不出：父目录只读。
+	// the asset directory cannot be created: the parent is read-only.
 	spec := config.ProcSpec{Name: "xray", Kind: "xray",
 		ConfigPath: filepath.Join(t.TempDir(), "xray.json"),
 		AssetDir:   filepath.Join(roDir(t), "assets")}
@@ -590,21 +590,21 @@ func TestApplyRuleLibFailures(t *testing.T) {
 		!strings.Contains(ack.Error, "prepare asset dir") {
 		t.Fatalf("ack = %+v; want prepare asset dir failure", ack)
 	}
-	// 临时文件写不出：资产目录只读（已存在时 MkdirAll 放行，CreateTemp 拒）。
+	// the temp file cannot be written: the asset directory is read-only (MkdirAll passes when it exists, CreateTemp refuses).
 	spec.AssetDir = roDir(t)
 	if ack := d.Apply(spec, push, reloadOK(&calls)); ack.OK ||
 		!strings.Contains(ack.Error, "write rulelib temp") {
 		t.Fatalf("ack = %+v; want write rulelib temp failure", ack)
 	}
-	// （rename 失败分支同 TestApplyWriteFailures：readIfExists 先报 EISDIR，
-	// Linux 不可达，不硬凑。）
+	// (the rename failure branch is the same as TestApplyWriteFailures: readIfExists already reports EISDIR,
+	// unreachable on Linux, so it is not contrived.)
 	if calls != 0 {
 		t.Fatalf("reload calls = %d; want 0 (failures must not reload)", calls)
 	}
 }
 
-// TestRollbackPermissionFailures 回滚自身的失败口径：删不掉新文件/临时
-// 文件写不出，错误明确冒出。
+// TestRollbackPermissionFailures covers rollback failure semantics: the new file cannot be removed / the temp
+// file cannot be written: the error is raised explicitly.
 func TestRollbackPermissionFailures(t *testing.T) {
 	d := &Deployer{}
 	ro := t.TempDir()
@@ -617,20 +617,20 @@ func TestRollbackPermissionFailures(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(ro, 0o700) })
 
-	// 无旧文件：目录只读删不掉新文件。
+	// no old file: the read-only directory prevents removing the new file.
 	if err := d.rollback(target, nil, false, func() error { return nil }, ".tmp-*"); err == nil ||
 		!strings.Contains(err.Error(), "remove new file") {
 		t.Fatalf("err = %v; want remove new file failure", err)
 	}
-	// 有旧文件：目录只读写不出回滚临时文件。
+	// with an old file: the read-only directory prevents writing the rollback temp file.
 	if err := d.rollback(target, []byte("old"), true, func() error { return nil }, ".tmp-*"); err == nil ||
 		!strings.Contains(err.Error(), "write rollback temp") {
 		t.Fatalf("err = %v; want write rollback temp failure", err)
 	}
 }
 
-// TestRollbackRenameFails 旧内容还原时 rename 覆盖不了目标（目标为目录）：
-// 错误冒出且临时残留已清理。
+// TestRollbackRenameFails covers rename unable to overwrite the target when restoring the old content (target is a directory):
+// the error surfaces and the temp residue is cleaned up.
 func TestRollbackRenameFails(t *testing.T) {
 	d := &Deployer{}
 	dir := t.TempDir()
