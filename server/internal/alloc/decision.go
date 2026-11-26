@@ -49,6 +49,9 @@ type Request struct {
 	// Sick maps node -> its latest verdict within ProbeFresh is sick; absent
 	// means healthy or no verdict (cold start counts as healthy).
 	Sick map[uint]bool
+	// Quality maps node -> its fresh probe quality (F-1028); absent means no
+	// fresh sample, which scores neutral.
+	Quality map[uint]Quality
 	// Manual marks entries with an effective manual assignment row; they are
 	// excluded from auto entirely.
 	Manual map[uint]bool
@@ -68,9 +71,10 @@ type Exclusion struct {
 // CandidateEval is one candidate's answer inside a Decision: the scoring
 // input plus why it is not eligible (an eligible candidate carries no reason).
 type CandidateEval struct {
-	Candidate Candidate
-	Eligible  bool
-	Reason    string
+	Candidate    Candidate
+	Eligible     bool
+	Reason       string
+	QualityScore float64 // the candidate's probe quality folded to [0,1] (F-1028)
 }
 
 // Decision (F-1023) is one entry's scheduling answer: the candidates it
@@ -126,6 +130,7 @@ func BuildRequest(db *gorm.DB, now time.Time) (*Request, error) {
 		Now: now, Policy: policy, Entries: entries, Landings: landings,
 		Conns:   LatestConns(db),
 		Sick:    LatestSick(db),
+		Quality: LatestQuality(db),
 		Manual:  map[uint]bool{},
 		Current: map[uint]*storage.LandingAssignment{},
 	}
@@ -268,7 +273,7 @@ func collectCandidates(req *Request, entry storage.Node, direction string, d *De
 			continue
 		}
 		cands = append(cands, Candidate{Node: l, Conns: req.Conns[l.ID], Healthy: !req.Sick[l.ID],
-			CostKnown: known, CostFresh: fresh})
+			CostKnown: known, CostFresh: fresh, Quality: req.Quality[l.ID]})
 	}
 	return cands
 }
@@ -280,7 +285,7 @@ func collectCandidates(req *Request, entry storage.Node, direction string, d *De
 func rankCandidates(cands []Candidate, policy, direction, missingRule string, w ScoreWeights) []CandidateEval {
 	evals := make([]CandidateEval, len(cands))
 	for i, c := range cands {
-		evals[i] = CandidateEval{Candidate: c, Eligible: c.Healthy}
+		evals[i] = CandidateEval{Candidate: c, Eligible: c.Healthy, QualityScore: QualityScore(c.Quality)}
 		if !c.Healthy {
 			evals[i].Reason = "probe window reports sick"
 		}

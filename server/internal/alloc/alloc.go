@@ -228,10 +228,11 @@ func InOffPeak(now time.Time, s PolicySetting) bool {
 // Candidate is the scoring input for one landing candidate.
 type Candidate struct {
 	Node      storage.Node
-	Conns     int  // latest connection count (no sample = 0)
-	Healthy   bool // latest probe verdict within the window is not sick (no verdict counts as healthy)
-	CostKnown bool // metered price present (fixed billing is always known: marginal 0 is exact by design)
-	CostFresh bool // price row fresh within billing.PriceFreshWindow (node updated_at is the price as-of marker)
+	Conns     int     // latest connection count (no sample = 0)
+	Healthy   bool    // latest probe verdict within the window is not sick (no verdict counts as healthy)
+	CostKnown bool    // metered price present (fixed billing is always known: marginal 0 is exact by design)
+	CostFresh bool    // price row fresh within billing.PriceFreshWindow (node updated_at is the price as-of marker)
+	Quality   Quality // fresh probe quality toward the landing (zero value = no fresh sample, score neutral)
 }
 
 // costMissing reports whether the marginal price is unknown or stale under the

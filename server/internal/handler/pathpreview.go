@@ -34,6 +34,7 @@ type previewCandidate struct {
 	CapacityMbps int     `json:"capacity_mbps"`
 	Conns        int     `json:"conns"`
 	CostPerGB    int64   `json:"cost_per_gb"`
+	Quality      float64 `json:"quality"` // fresh probe quality folded to [0,1] (F-1028); 0.5 = no fresh sample
 	Healthy      bool    `json:"healthy"`
 	Health       string  `json:"health"`
 	Score        float64 `json:"score"`
@@ -102,6 +103,7 @@ func (h *Handler) previewPathCandidates(c *gin.Context) {
 	now := time.Now()
 	conns := alloc.LatestConns(h.db)
 	sick := alloc.LatestSick(h.db)
+	quality := alloc.LatestQuality(h.db)
 
 	cands := make([]alloc.Candidate, 0, len(landings))
 	for _, l := range landings {
@@ -121,7 +123,7 @@ func (h *Handler) previewPathCandidates(c *gin.Context) {
 		fresh := now.Sub(l.UpdatedAt) < billing.PriceFreshWindow
 		cands = append(cands, alloc.Candidate{
 			Node: l, Conns: conns[l.ID], Healthy: !sick[l.ID],
-			CostKnown: known, CostFresh: fresh,
+			CostKnown: known, CostFresh: fresh, Quality: quality[l.ID],
 		})
 	}
 
@@ -155,6 +157,7 @@ func (h *Handler) previewPathCandidates(c *gin.Context) {
 			CapacityMbps: cd.CapacityMbps(),
 			Conns:        cd.Conns,
 			CostPerGB:    cd.CostPerGB(),
+			Quality:      alloc.QualityScore(cd.Quality),
 			Healthy:      cd.Healthy,
 			Health:       h,
 			Eligible:     eligible,
