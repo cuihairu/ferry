@@ -201,6 +201,7 @@ func (h *Handler) createUser(c *gin.Context) {
 		BwDownMbps:  derefInt(in.BwDownMbps),
 		DeviceLimit: derefInt(in.DeviceLimit),
 		IPLimit:     derefInt(in.IPLimit),
+		PlanID:      derefUint(in.PlanID),
 	}
 	if err := h.db.Create(&u).Error; err != nil {
 		if isDup(err) {
@@ -294,6 +295,10 @@ func (h *Handler) updateUser(c *gin.Context) {
 		if in.IPLimit != nil {
 			updates["ip_limit"] = *in.IPLimit
 		}
+	}
+	// Plan binding (F-1142): panel-set; 0 clears it back to plan-less.
+	if in.PlanID != nil {
+		updates["plan_id"] = *in.PlanID
 	}
 	if in.ResetCycle != nil {
 		cycle, err := resetCycleOrDefault(in.ResetCycle)
@@ -474,4 +479,12 @@ func isDup(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "unique") || strings.Contains(msg, "duplicate")
+}
+
+// derefUint dereferences, with nil mapping to 0.
+func derefUint(v *uint) uint {
+	if v == nil {
+		return 0
+	}
+	return *v
 }

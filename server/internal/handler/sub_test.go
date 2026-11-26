@@ -531,3 +531,57 @@ func TestSubscriptionVersionAndTime(t *testing.T) {
 		t.Fatalf("custom sub metadata must match: %q vs %q", got, v)
 	}
 }
+
+// TestSubscriptionPlanFilter covers the plan-permission filter (F-1142): a
+// plan-bound node delivers only to that plan's subscribers; plan-less nodes
+// serve everyone; a plan-less user never sees a bound node. The custom
+// subscription surface shares the same WHERE.
+func TestSubscriptionPlanFilter(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	freeTok := panelUserOf(t, r, "plan-free", nil)
+	goldTok := panelUserOf(t, r, "plan-gold", map[string]any{"plan_id": 7})
+
+	mk := func(name, addr string, plan uint) {
+		t.Helper()
+		if err := db.Create(&storage.Node{Name: name, Address: addr, Port: 443,
+			Protocol: "vless", Config: `{"uuid":"u"}`, Enabled: true,
+			Token: "tok-" + name, Role: "entry", Status: "online", PlanID: plan}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("free-hk", "f.example.com", 0)
+	mk("gold-hk", "g.example.com", 7)
+
+	names := func(rec *httptest.ResponseRecorder) string {
+		t.Helper()
+		raw, err := base64.StdEncoding.DecodeString(rec.Body.String())
+		if err != nil {
+			t.Fatalf("body not base64: %v", err)
+		}
+		return string(raw)
+	}
+
+	// plan-less user: only the plan-less node
+	raw := names(getSub(t, r, "/sub/"+freeTok, "v2rayNG/1.8"))
+	if !strings.Contains(raw, "f.example.com") || strings.Contains(raw, "g.example.com") {
+		t.Fatalf("plan-less user leak: %q", raw)
+	}
+	// plan subscriber: both the plan-less node and the plan's node
+	raw = names(getSub(t, r, "/sub/"+goldTok, "v2rayNG/1.8"))
+	if !strings.Contains(raw, "f.example.com") || !strings.Contains(raw, "g.example.com") {
+		t.Fatalf("plan subscriber missing nodes: %q", raw)
+	}
+	// clearing the binding drops the plan node again
+	var gold storage.User
+	if err := db.Where("username = ?", "plan-gold").First(&gold).Error; err != nil {
+		t.Fatal(err)
+	}
+	if rec := doJSON(t, r, "PUT", "/api/users/"+fmt.Sprint(gold.ID), map[string]any{"plan_id": 0}); rec.Code != http.StatusOK {
+		t.Fatalf("clear plan: %d %s", rec.Code, rec.Body)
+	}
+	raw = names(getSub(t, r, "/sub/"+goldTok, "v2rayNG/1.8"))
+	if strings.Contains(raw, "g.example.com") {
+		t.Fatalf("cleared plan still delivers bound node: %q", raw)
+	}
+}

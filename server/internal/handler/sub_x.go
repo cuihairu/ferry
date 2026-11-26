@@ -90,9 +90,11 @@ func (h *Handler) subscriptionFiltered(c *gin.Context) {
 	if sub.UserActive(&u, usage.Rx+usage.Tx, time.Now()) {
 		// The candidate set uses the same conditions as the main subscription; landing
 		// nodes are not delivered, and provisioning nodes stay out of the subscription.
+		// Plan permission (F-1142) rides the same WHERE: plan-bound nodes only for
+		// that plan's subscribers, plan-less nodes for everyone.
 		var nodes []storage.Node
-		if err := h.db.Where("enabled = ? AND maintenance = ? AND role IN (?, ?) AND pool_state = ? AND status != ?",
-			true, false, "entry", "both", pool.StateActive, "provisioning").
+		if err := h.db.Where("enabled = ? AND maintenance = ? AND role IN (?, ?) AND pool_state = ? AND status != ? AND (plan_id = 0 OR plan_id = ?)",
+			true, false, "entry", "both", pool.StateActive, "provisioning", u.PlanID).
 			Order("id").Find(&nodes).Error; err != nil {
 			fail(c, http.StatusInternalServerError, err)
 			return

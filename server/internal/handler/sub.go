@@ -104,10 +104,12 @@ func (h *Handler) subscription(c *gin.Context) {
 		// Entry list delivered by the subscription (E-19): only entry/both-role nodes not
 		// yet removed (E-16 pool state active); landing nodes are not delivered.
 		// Nodes still provisioning (OS-3) stay out of the subscription until they turn
-		// online, at which point they enter the list automatically.
+		// online, at which point they enter the list automatically. Plan permission
+		// (F-1142): a plan-bound node (Node.PlanID) delivers only to that plan's
+		// subscribers; a plan-less node serves everyone.
 		var nodes []storage.Node
-		if err := h.db.Where("enabled = ? AND maintenance = ? AND role IN (?, ?) AND pool_state = ? AND status != ?",
-			true, false, "entry", "both", pool.StateActive, "provisioning").
+		if err := h.db.Where("enabled = ? AND maintenance = ? AND role IN (?, ?) AND pool_state = ? AND status != ? AND (plan_id = 0 OR plan_id = ?)",
+			true, false, "entry", "both", pool.StateActive, "provisioning", u.PlanID).
 			Order("id").Find(&nodes).Error; err != nil {
 			fail(c, http.StatusInternalServerError, err)
 			return

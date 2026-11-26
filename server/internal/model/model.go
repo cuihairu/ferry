@@ -131,6 +131,10 @@ type UserInput struct {
 	// client does not send it, that surface is not enforced).
 	DeviceLimit *int `json:"device_limit,omitempty"`
 	IPLimit     *int `json:"ip_limit,omitempty"`
+	// PlanID binds the user to one plan (F-1142): the subscription delivers
+	// plan-bound nodes (Node.PlanID) only to that plan's subscribers; 0 =
+	// plan-less (sees only plan-less nodes). nil keeps the current value.
+	PlanID *uint `json:"plan_id,omitempty"`
 	// UseTemplate true applies the default user template at create time (P1-5) to fill absent fields (only effective on create).
 	UseTemplate *bool `json:"use_template,omitempty"`
 	// ClearExpires true clears the expiry (JSON null and an absent field cannot be told apart, hence the explicit semantics).

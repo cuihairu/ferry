@@ -28,10 +28,15 @@ type User struct {
 	// Device count / IP count caps (P2-4, 0=unlimited): device_limit counts devices by the
 	// hwid the subscription end reports (it depends on the client sending X-Client-Hwid; that face is inert when unreported);
 	// ip_limit counts by the subscription end's independent IPs (no client dependency, always effective).
-	DeviceLimit int    `gorm:"default:0" json:"device_limit"`
-	IPLimit     int    `gorm:"default:0" json:"ip_limit"`
-	Password    string `gorm:"size:128" json:"-"`
-	ApiToken    string `gorm:"size:64" json:"api_token"`
+	DeviceLimit int `gorm:"default:0" json:"device_limit"`
+	IPLimit     int `gorm:"default:0" json:"ip_limit"`
+	// PlanID is the plan this user subscribes to (F-1142): plan-bound nodes
+	// (Node.PlanID, F-1047) deliver only to that plan's subscribers; a
+	// plan-less user (0) sees only plan-less nodes; plan-less nodes serve
+	// everyone either way.
+	PlanID   uint   `gorm:"default:0" json:"plan_id"`
+	Password string `gorm:"size:128" json:"-"`
+	ApiToken string `gorm:"size:64" json:"api_token"`
 	// Two-factor authentication (security design §1, P1): the TOTP secret is encrypted via secret_store into the DB
 	// (v1:nonce:ct ciphertext, the master key never enters the DB）; after binding, login requires a 6-digit TOTP or a one-time
 	// recovery code, and unbound login behavior is unchanged.
