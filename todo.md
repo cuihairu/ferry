@@ -1869,8 +1869,10 @@ External Client
     - 备注（Task ID: F-1305 | Status: Done | Evidence: epusdt.go:139 Verify/:168 sign；TestVerify+TestSign | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1306` 保证支付回调幂等。
     - 备注（Task ID: F-1306 | Status: Done | Evidence: idx_provider_external models.go:413-414 唯一+事务；TestEpusdtNotify | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1307` 建立支付结果补偿机制。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1307 | 未满足原因：部分：仅检测无补救——payrecon.go:93-135 标记缺流水/缺发放/孤儿，但无重发 Grant/重查回调；Provider 接口(provider.go:14-20)无 query/pull 方法，且回调即永久 pending。）
+-   [x] `F-1307` 建立支付结果补偿机制。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 证据（F-1307 | 已落地：POST /api/payments/compensate（paycomp.go）：paid 且带发放规格但零 Grant 行的「缺发放」订单重发权益，事务内 grant 计数守卫保证至多补一次；refunded 单绝不选（退款已回收权益）；逐单结果报告（granted/skipped/failed），单失败不断其余。机制边界注释钉死：到账未结算（expired/pending 带流水）按 F-1303 规则保持人工复核标记，不自动结算；Provider 侧 pull 查询需接口扩展、现有渠道均未实现，不在本机制射程。
+    - 验证：TestCompensateGrants（两类发放重发到位、quota/expiry 实际变更、已发放/已退款/无规格单不被选中、二次运行幂等零发放）；全量 51 ok / FAIL=0 / exit=0。
+    - Commit: ade5478
 -   [ ] `F-1308` 建立支付对账任务。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1308 | 未满足原因：未满足：对账仅为查询接口(router.go:260 GET /api/payments/reconcile→payrecon.go:43)；main.go 约 17 个后台循环无一为支付对账。）
 -   [x] `F-1309` 对未接通的支付渠道明确标记不可用。
