@@ -509,6 +509,7 @@ func TestAgentWSTrafficReport(t *testing.T) {
 
 	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
 		"name": "traf-1", "address": "jp.example.com", "port": 443, "protocol": "vless",
+		"role": "entry",
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create node: %d %s", rec.Code, rec.Body)
@@ -601,6 +602,7 @@ func TestAgentWSUserTraffic(t *testing.T) {
 
 	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
 		"name": "ut-1", "address": "us.example.com", "port": 443, "protocol": "vless",
+		"role": "entry",
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create node: %d %s", rec.Code, rec.Body)

@@ -375,7 +375,17 @@ func (h *Handler) saveNodeTraffic(nodeID int64, items []agentproto.ProcTraffic) 
 // saveUserTraffic writes per-user deltas to traffic_logs (P1-3 per-user mapping):
 // the xray email is matched against users.username, and unregistered emails are logged and
 // dropped rather than silently creating users.
+//
+// Metering scope (F-1242): user traffic is metered single-ended -- on the node
+// serving the user's inbound (role entry or both, i.e. the nodes the
+// subscription hands out). A node whose row cannot be resolved never bills:
+// attribution needs a role verdict (F-1243 then extends this to landing).
 func (h *Handler) saveUserTraffic(nodeID int64, items []agentproto.ProcTraffic) error {
+	var nrow storage.Node
+	if err := h.db.Select("id, role").First(&nrow, nodeID).Error; err != nil {
+		log.Printf("user traffic node=%d: node row unresolved, report dropped: %v", nodeID, err)
+		return nil
+	}
 	emails := map[string]bool{}
 	for _, it := range items {
 		for _, u := range it.Users {
