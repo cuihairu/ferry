@@ -1864,6 +1864,8 @@ export interface Path {
   enabled: boolean
   probe_importance: string
   version: number
+  note: string
+  updated_at: string
 }
 
 export function getPaths(): Promise<{ paths: Path[] }> {
@@ -1879,6 +1881,7 @@ export interface PathGroup {
   purpose: string
   default_path_id: number | null
   enabled: boolean
+  note: string
 }
 
 export function getPathGroups(): Promise<{ path_groups: PathGroup[] }> {
@@ -1900,4 +1903,59 @@ export function getPathGroupHealth(id: number): Promise<PathGroupHealth> {
 /** getNodeConfigs reads one node's config push history (GET /api/nodes/:id/configs, newest first). */
 export function getNodeConfigs(id: number): Promise<NodeConfigRow[]> {
   return get(`/api/nodes/${id}/configs`)
+}
+
+/** PathGroupMemberRow is one ordered candidate entry of a path group (position drives fallback order, excluded keeps the row but rules it out). */
+export interface PathGroupMemberRow {
+  id: number
+  group_id: number
+  path_id: number
+  position: number
+  excluded: boolean
+}
+
+export function getPathGroup(id: number): Promise<{ path_group: PathGroup; members: PathGroupMemberRow[] }> {
+  return get(`/api/path-groups/${id}`)
+}
+
+export interface PathGroupInput {
+  name: string
+  direction: string
+  region?: string
+  purpose?: string
+  default_path_id?: number
+  enabled?: boolean
+  note?: string
+}
+
+export function createPathGroup(input: PathGroupInput): Promise<PathGroup> {
+  return post('/api/path-groups', input)
+}
+
+export function updatePathGroup(id: number, patch: PathGroupInput): Promise<PathGroup> {
+  return put(`/api/path-groups/${id}`, patch)
+}
+
+export function deletePathGroup(id: number): Promise<unknown> {
+  return del(`/api/path-groups/${id}`)
+}
+
+export function addPathGroupMember(groupId: number, pathId: number): Promise<unknown> {
+  return post(`/api/path-groups/${groupId}/members`, { path_id: pathId })
+}
+
+export function updatePathGroupMember(groupId: number, pathId: number, body: { position?: number; excluded?: boolean }): Promise<unknown> {
+  return patch(`/api/path-groups/${groupId}/members/${pathId}`, body)
+}
+
+export function removePathGroupMember(groupId: number, pathId: number): Promise<unknown> {
+  return del(`/api/path-groups/${groupId}/members/${pathId}`)
+}
+
+export function getPathDetail(id: number): Promise<Path> {
+  return get(`/api/paths/${id}`)
+}
+
+export function getPathHealth(id: number): Promise<{ path_id: number; health: string }> {
+  return get(`/api/paths/${id}/health`)
 }

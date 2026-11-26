@@ -25,6 +25,8 @@ export const router = createRouter({
     { path: '/recoveries', component: () => import('./views/RecoveryView.vue') },
     { path: '/notifications', component: () => import('./views/NotificationsView.vue') },
     { path: '/landings', component: () => import('./views/LandingsView.vue') },
+    // Path plane (F-1427~F-1429): path list/detail and path group management.
+    { path: '/paths', component: () => import('./views/PathsView.vue') },
     { path: '/settings', component: () => import('./views/SettingsView.vue') },
     { path: '/audit', component: () => import('./views/AuditView.vue') },
     // Cloud resource management (F-0411~F-0432): accounts, resources and operations.
