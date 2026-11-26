@@ -7,11 +7,13 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/storage"
+	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
@@ -505,5 +507,91 @@ func TestDistributorSettlement(t *testing.T) {
 	// Unknown distributor 404s.
 	if rec := doJSON(t, r, "GET", "/api/distributors/424242/settlement", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown: %d", rec.Code)
+	}
+}
+
+// TestRedeemReplayNoDoubleCommission pins commission uniqueness at the ledger
+// level (F-1326): replaying a spent card cannot re-enter the write-off, so the
+// order keeps exactly one sale + one commission; two concurrent redeemTx calls
+// racing the same card leave a single commission row behind the single winner.
+func TestRedeemReplayNoDoubleCommission(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	userID, _ := redeemCreate(t, r, "replay-user", map[string]any{"grant_type": "add_quota", "grant_value": 1000}, 2)
+
+	rec := doJSON(t, r, "POST", "/api/distributors", map[string]any{
+		"username": "replay-d", "password": "secret123", "discount_percent": 30})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create dist: %d %s", rec.Code, rec.Body)
+	}
+	distID := uint(mustJSON(t, rec)["distributor"].(map[string]any)["id"].(float64))
+	rec = doJSON(t, r, "POST", "/api/card-batches", map[string]any{
+		"name": "回放批次", "grant_type": "add_quota", "grant_value": 5000,
+		"total": 1, "price_cents": 1000, "distributor_id": distID,
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("batch: %d %s", rec.Code, rec.Body)
+	}
+	code := mustJSON(t, rec)["codes"].([]any)[0].(string)
+
+	// First redemption books the commission once.
+	rec = doJSON(t, r, "POST", "/api/redeem", map[string]any{"code": code, "user_id": userID})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("redeem: %d %s", rec.Code, rec.Body)
+	}
+	orderNo := mustJSON(t, rec)["order_no"].(string)
+	// Replay: the write-off refuses the spent card.
+	if rec := doJSON(t, r, "POST", "/api/redeem", map[string]any{"code": code, "user_id": userID}); rec.Code == http.StatusOK {
+		t.Fatalf("replay should fail, got %d", rec.Code)
+	}
+	var led []storage.DistributorLedger
+	if err := db.Where("order_no = ?", orderNo).Order("id").Find(&led).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(led) != 2 || led[0].Kind != "sale" || led[1].Kind != "commission" {
+		t.Fatalf("ledger rows = %+v, want exactly one sale + one commission", led)
+	}
+
+	// Concurrent race on a fresh card: only one redeemTx wins the write-off.
+	rec = doJSON(t, r, "POST", "/api/card-batches", map[string]any{
+		"name": "并发批次", "grant_type": "add_quota", "grant_value": 5000,
+		"total": 1, "price_cents": 1000, "distributor_id": distID,
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("race batch: %d %s", rec.Code, rec.Body)
+	}
+	raceCode := mustJSON(t, rec)["codes"].([]any)[0].(string)
+	h := &Handler{db: db}
+	var (
+		wg   sync.WaitGroup
+		outs [2]gin.H
+		errs [2]error
+	)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			outs[i], errs[i] = h.redeemTx(raceCode, userID, time.Now())
+		}(i)
+	}
+	wg.Wait()
+	winners := 0
+	orderNos := []string{}
+	for i := 0; i < 2; i++ {
+		if errs[i] == nil {
+			winners++
+			orderNos = append(orderNos, outs[i]["order_no"].(string))
+		}
+	}
+	if winners != 1 {
+		t.Fatalf("concurrent winners = %d, want 1", winners)
+	}
+	var cnt int64
+	if err := db.Model(&storage.DistributorLedger{}).
+		Where("kind = ? AND order_no IN ?", "commission", orderNos).
+		Count(&cnt).Error; err != nil {
+		t.Fatal(err)
+	}
+	if cnt != 1 {
+		t.Fatalf("commission rows after race = %d, want 1", cnt)
 	}
 }
