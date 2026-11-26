@@ -1773,7 +1773,8 @@ External Client
 -   [x] `F-1206` 明确套餐线路权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1206 | Status: Done | Evidence: 套餐线路权限=PlanID 绑定轴（F-1047 Node.PlanID×F-1142 User.PlanID，0=对全体开放）；配额联动降档（低成本档过滤）为独立机制继续存在 | Verification: TestSubXPlanBinding（自建订阅面：套餐节点只给套餐订阅者、无套餐用户看不到；主面已由 TestSubscriptionPlanFilter 钉住）| Commit: ca8bffd）
     - 待补（F-1206 | 部分：无套餐线路权限字段；仅配额联动降档（超阈值只出低成本档入口 sub.go:88-102+quota/link.go:119-129），非套餐线路权限。）
--   [ ] `F-1207` 明确套餐区域权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1207` 明确套餐区域权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1207 | Status: Done | Evidence: 套餐区域权限=plan 域 policy 的 regions 白名单（storage.Policy Scope=plan+SubjectID）；修复两订阅面 Resolve 传 u.PlanID（原硬编码 0 致 plan 域策略从不生效，与其注释矛盾）；叠加机制：自建订阅 filter.regions（用户自助）+PlanID 节点绑定（F-1206）| Verification: TestSubscriptionPlanRegionPolicy（套餐订阅者主面+自建面均只见白名单区域；无套餐用户不受影响）| Commit: 9ee6a13）
     - 待补（F-1207 | 未满足：Region 仅节点元数据/故障聚合维度（models.go:98），订阅无条件下发全部 entry/both 节点（sub.go:73-84），无按用户/套餐的区域权限。）
 -   [x] `F-1208` 明确套餐设备数量限制。
     - 备注（Task ID: F-1208 | Status: Done | Evidence: DeviceLimit/IPLimit；TestSubscriptionDeviceLimit+TestSubscriptionIPLimit | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
