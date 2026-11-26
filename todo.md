@@ -1575,10 +1575,14 @@ External Client
     - 备注（Task ID: F-1014 | Status: Done | Evidence: Healthy=!sick 门；TestPickHealthGate | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1015` 支持候选 Path 预览。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1015 | Status: Done | Evidence: GET /api/paths/preview?entry_node_id=&direction= 复用 alloc 策略比较器/连接与探针信号，列出 sweep 会考虑的 landing 候选、排名、健康与资格与 winner，只读不写；TestPathCandidatePreview | Verification: go build/vet + server 全套件 green exit=0（51 ok，handler 765s，cmd/ferry 1.489s）2026-11-26 | Commit: 5c84357）
--   [ ] `F-1016` 支持人工确认后创建 Path。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-1017` 支持自动创建 Path。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-1018` 自动创建后执行连通性验证。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-1019` 创建失败时清理本次创建的部分资源。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1016` 支持人工确认后创建 Path。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1016 | Status: Done | Evidence: PendingPath 草稿表 + POST/GET /api/paths/drafts + POST /api/paths/drafts/:id/confirm，确认时事务内建 Path 并标记 confirmed 带 path_id，拒绝/重复名/节点已删均回滚留 pending，终态不可复活；TestPathDraftLifecycle | Verification: go build/vet + server 全套件 green exit=0（51 ok）2026-11-26 | Commit: 7c2ff1b）
+-   [x] `F-1017` 支持自动创建 Path。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1017 | Status: Done | Evidence: POST /api/paths/provision 自动创建 Path（复用 validatePathInput 拓扑校验，note=auto-provision），供调度器直接调用；TestAutoProvisionVerify | Verification: go build/vet + server 全套件 green exit=0（51 ok）2026-11-26 | Commit: 7c2ff1b）
+-   [x] `F-1018` 自动创建后执行连通性验证。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1018 | Status: Done | Evidence: verifyNewPath 查 entry→landing 最近 30min 内 tunnel 探针判词，healthy+reachable 才放行；无判词/过期/ verdict=sick 均 422；TestAutoProvisionVerify（无探针/过期/病态/健康四分支） | Verification: go build/vet + server 全套件 green exit=0（51 ok）2026-11-26 | Commit: 7c2ff1b）
+-   [x] `F-1019` 创建失败时清理本次创建的部分资源。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1019 | Status: Done | Evidence: 验证失败/查询出错均删除本次创建的 Path 行（rolled_back_path_id 返回），确认流走事务天然回滚，无半成品资源残留（测试断言 path count==0）；TestAutoProvisionVerify + TestPathDraftLifecycle | Verification: go build/vet + server 全套件 green exit=0（51 ok）2026-11-26 | Commit: 7c2ff1b）
 
 ## 8.2 调度器
 
