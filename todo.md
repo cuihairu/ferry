@@ -1762,7 +1762,8 @@ External Client
     - 备注（Task ID: F-1201 | Status: Done | Evidence: User/Plan/Subscription/Device 模型审计 §3.1+§3.7（结论：Plan/Subscription 表未建） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1202` 明确用户状态机。
     - 备注（Task ID: F-1202 | Status: Done | Evidence: sub/availability.go:11-22 UserActive 四态（启用/到期/超配额/不限）+sub.go:48-52 禁用 404+review.go DisableInactive 周期停用 | Verification: TestUserActive（sub/availability_test.go:11）+TestSubscriptionAvailability（sub_test.go:128）+TestDisableInactiveRespectsResetCycle（review_test.go:88） | Commit: ad8f965）
--   [ ] `F-1203` 明确套餐生效和过期规则。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1203` 明确套餐生效和过期规则。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1203 | Status: Done | Evidence: 规则落 Plan 模型注释（models.go）：apply 直拷用户行即生效（无套餐侧状态）；有效期=ExpiresAt（apply 时 now+expires_days 改写，0=不动）；到期仅由 UserActive 判（空订阅），续期恢复交付且已套限额保留无需重套；与 PlanID 节点下发轴正交 | Verification: TestPlanExpiryRules（expires_days=0 保到期+限额已拷；过期无节点；续期恢复+限额仍在）+TestPlanApplyUsers（~7天容差+停用 409）| Commit: dbe3a36）
     - 待补（F-1203 | 部分：到期规则明确（User.ExpiresAt models.go:12+UserActive 到期分支+模板默认 usertemplate.go:128-130）；无套餐实体/生效窗口——套餐=单套 user_template KV+每用户 ExpiresAt，无结构化生效窗口。）
 -   [x] `F-1204` 明确套餐流量周期。
     - 备注（Task ID: F-1204 | Status: Done | Evidence: models.go:11 ResetCycle+review 尊重周期；TestDisableInactiveRespectsResetCycle | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
