@@ -1661,7 +1661,8 @@ External Client
     - 备注（Task ID: F-1063 | Status: Done | Evidence: SpeedMeasuredMbps/SpeedCalibratedAt(models.go:114-115)+measured>down>up>100(alloc.go:189-197) | Verification: TestCapacityMbpsFallbacks | Commit: fbcb525）
 -   [x] `F-1064` 统一带宽利用率计算。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1064 | Status: Done | Evidence: storage.Node.CapacityMbps()（F-1061/1062/1063 回退链实测>下行>上行>100 提为 storage 单源，capacity.go）+storage.UtilizationPct(mbps, capacity, active)（唯一公式：吞吐/容量百分比，无样本 active=false 报 -1 不造假 0%）；双内联点收敛：alloc.Candidate.CapacityMbps 委托 storage（调度容量权重同源）、loadapi 删 inline switch 改 n.CapacityMbps()+UtilizationPct（dash 80% 预警读同一口径）；TestNodeCapacityMbps（回退链四态）+TestUtilizationPct（55/100=55、零流量活跃=0、非活跃=-1）+loadapi 端点测试回归绿 | Verification: go vet + server 全套件 green exit=0（51 ok）2026-11-27 | Commit: 9ad8a74）
--   [ ] `F-1065` 支持连接数限制。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1065` 支持连接数限制。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1065 | Status: Done | Evidence: Node.MaxConns（0=不限，panel-set：newPersistedNode+updateNode 指针 nil 保留/0 清除，agent 注册不触碰，同 PlanID 通道）；collectCandidates 收集阶段超限排除（l.MaxConns>0 && req.Conns>=MaxConns → exclusion「连接数 X 达上限 Y」，走 F-1033 结构排除通道进 AllocExclusion 1h 去重+F-1032 快照 replay）；TestSweepMaxConnsCap（满限 cheap 让位 open+trail 带数，降到限下恢复 cost_first 胜出）+TestNodeMaxConns（create 设/缺省保/显式 0 清） | Verification: go vet + server 全套件 green exit=0（51 ok）2026-11-27 | Commit: fe27510）
 -   [ ] `F-1066` 支持并发流限制。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [ ] `F-1067` 支持节点超载预警。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [ ] `F-1068` 支持 Path 容量估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
