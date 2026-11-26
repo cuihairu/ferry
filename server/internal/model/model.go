@@ -61,6 +61,17 @@ type NodeInput struct {
 	// keeps the current value, a non-nil list replaces it (an empty list falls
 	// back to the role-derived default).
 	Capabilities []string `json:"capabilities,omitempty"`
+	// Business metadata (F-0743): Labels is a custom label list (nil keeps the
+	// current value, non-nil replaces); Group is a free business grouping tag.
+	Labels []string `json:"labels,omitempty"`
+	Group  string   `json:"group,omitempty"`
+	// Cost fields (F-0743): editable by the admin, feeding the estimate engine
+	// (billing.EstimateNode); pointers distinguish "absent" from "explicitly 0".
+	BillingType       string `json:"billing_type,omitempty"`
+	TrafficPriceCents *int64 `json:"traffic_price_cents,omitempty"`
+	MonthlyCostCents  *int64 `json:"monthly_cost_cents,omitempty"`
+	Currency          string `json:"currency,omitempty"`
+	CostNote          string `json:"cost_note,omitempty"`
 }
 
 // EnrollmentTokenInput is the request payload for issuing a one-time enrollment credential (FERRY-001).

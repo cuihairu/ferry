@@ -179,6 +179,7 @@ type Node struct {
 	ASN                      string     `gorm:"size:32" json:"asn"`                     // autonomous system number of the upstream network (F-0207)
 	ProviderID               *uint      `gorm:"index" json:"provider_id"`               // owning cloud Provider row, panel-set (F-0207)
 	Labels                   string     `gorm:"type:text" json:"labels"`                // JSON array
+	Group                    string     `gorm:"size:64;default:''" json:"group"`        // free business grouping tag (F-0743)
 	Transport                string     `gorm:"size:16;default:tls" json:"transport"`   // tls/quic/ws-tls/ssh
 	BillingType              string     `gorm:"size:16;default:包月" json:"billing_type"` // traffic/monthly/fixed bandwidth
 	TrafficPriceCents        int64      `gorm:"default:0" json:"traffic_price_cents"`   // per-traffic unit price (cents/GB)

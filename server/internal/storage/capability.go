@@ -2,6 +2,7 @@ package storage
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/cuihairu/ferry/packages/agentproto"
@@ -86,6 +87,26 @@ func MustJSON(in []string) string {
 		return "[]"
 	}
 	return string(raw)
+}
+
+// MarshalLabelsJSON marshals the node's custom label list (F-0743) into the
+// stored JSON-array form: trimmed, deduplicated, order preserved.
+func MarshalLabelsJSON(in []string) (string, error) {
+	clean := make([]string, 0, len(in))
+	seen := map[string]bool{}
+	for _, l := range in {
+		l = strings.TrimSpace(l)
+		if l == "" || seen[l] {
+			continue
+		}
+		seen[l] = true
+		clean = append(clean, l)
+	}
+	raw, err := json.Marshal(clean)
+	if err != nil {
+		return "", err
+	}
+	return string(raw), nil
 }
 
 // MergeDynamic folds agent-reported runtime states into the current state map

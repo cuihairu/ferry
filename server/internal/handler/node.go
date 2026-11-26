@@ -90,6 +90,22 @@ func newPersistedNode(db *gorm.DB, in *model.NodeInput) (*storage.Node, error) {
 	// metadata: non-empty values override the DB defaults, and any one present
 	// sets MetaInit (panel takeover, registration no longer overrides).
 	applyMetaInput(&n, in)
+	// cost fields (F-0743): pointers distinguish "absent" from "explicitly 0".
+	if in.BillingType != "" {
+		n.BillingType = in.BillingType
+	}
+	if in.TrafficPriceCents != nil {
+		n.TrafficPriceCents = *in.TrafficPriceCents
+	}
+	if in.MonthlyCostCents != nil {
+		n.MonthlyCostCents = *in.MonthlyCostCents
+	}
+	if in.Currency != "" {
+		n.Currency = strings.TrimSpace(in.Currency)
+	}
+	if in.CostNote != "" {
+		n.CostNote = strings.TrimSpace(in.CostNote)
+	}
 	// static capabilities: validated up front, so the marshal cannot fail here.
 	if in.Capabilities != nil {
 		raw, err := storage.ParseCapsJSON(in.Capabilities)
@@ -167,12 +183,44 @@ func (h *Handler) updateNode(c *gin.Context) {
 		updates[k] = v
 		metaProvided = true
 	}
+	// Business metadata (F-0743): labels/group and the cost fields follow the
+	// same keep-on-absent rule; label validation already ran in validateNodeInput.
+	if in.Labels != nil {
+		raw, err := storage.MarshalLabelsJSON(in.Labels)
+		if err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		if raw != n.Labels {
+			updates["labels"] = raw
+			metaProvided = true
+		}
+	}
+	if in.Group != "" {
+		updates["group"] = strings.TrimSpace(in.Group)
+		metaProvided = true
+	}
 	if metaProvided {
 		// once the panel has edited metadata, registration reports no longer override it.
 		updates["meta_init"] = true
 	}
 	if pid, provided := h.resolveProviderID(c, &in); provided {
 		updates["provider_id"] = pid
+	}
+	if in.BillingType != "" {
+		updates["billing_type"] = in.BillingType
+	}
+	if in.TrafficPriceCents != nil {
+		updates["traffic_price_cents"] = *in.TrafficPriceCents
+	}
+	if in.MonthlyCostCents != nil {
+		updates["monthly_cost_cents"] = *in.MonthlyCostCents
+	}
+	if in.Currency != "" {
+		updates["currency"] = strings.TrimSpace(in.Currency)
+	}
+	if in.CostNote != "" {
+		updates["cost_note"] = strings.TrimSpace(in.CostNote)
 	}
 	// static capabilities (F-0222): nil keeps the current value; a provided list
 	// replaces it, and an actual change appends a history row (F-0231).
@@ -464,6 +512,13 @@ func applyMetaInput(n *storage.Node, in *model.NodeInput) {
 	set(&n.ISP, in.ISP)
 	set(&n.ASN, in.ASN)
 	set(&n.Transport, in.Transport)
+	if in.Group != "" {
+		n.Group = strings.TrimSpace(in.Group)
+	}
+	if in.Labels != nil {
+		// validated in validateNodeInput, so the marshal cannot fail here
+		n.Labels, _ = storage.MarshalLabelsJSON(in.Labels)
+	}
 	if provided {
 		n.MetaInit = true
 	}
@@ -509,6 +564,30 @@ func validateNodeInput(in *model.NodeInput, creating bool) error {
 		if _, err := storage.ParseCapsJSON(in.Capabilities); err != nil {
 			return err
 		}
+	}
+	// Business metadata (F-0743): billing type vocabulary, non-negative prices,
+	// label hygiene.
+	switch in.BillingType {
+	case "", "traffic", "按流量", "monthly", "包月", "fixed-bandwidth", "固定带宽":
+	default:
+		return errors.New("billing_type must be traffic/monthly/fixed-bandwidth")
+	}
+	if in.TrafficPriceCents != nil && *in.TrafficPriceCents < 0 {
+		return errors.New("traffic_price_cents must be >= 0")
+	}
+	if in.MonthlyCostCents != nil && *in.MonthlyCostCents < 0 {
+		return errors.New("monthly_cost_cents must be >= 0")
+	}
+	if in.Currency != "" && len(strings.TrimSpace(in.Currency)) > 8 {
+		return errors.New("currency must be at most 8 characters")
+	}
+	for _, l := range in.Labels {
+		if strings.TrimSpace(l) == "" {
+			return errors.New("labels must not contain empty entries")
+		}
+	}
+	if len(in.Labels) > 64 {
+		return errors.New("labels must hold at most 64 entries")
 	}
 	return nil
 }
