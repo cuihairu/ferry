@@ -1715,7 +1715,8 @@ External Client
     - 备注（Task ID: F-1127 | Status: Done | Evidence: sub/capability.go ClientCaps 五 target 一行一声明(Notes/UDP/PacketEncoding/LazyGroups/RegionGroups/JSON)+CapsFor 单点查询；mihomo 为 clash 超集，xray/singbox 为纯 JSON 无注释位 | Verification: TestClientCapsMatrix(行齐/未知 miss/超集关系)+TestCapsMatchAdapters(矩阵声明与适配器实际输出互证：udp:/“# note”/无 // 注释)+go vet+server 全套件 green exit=0（51 ok）2026-11-27 | Commit: 2e2535b）
 -   [x] `F-1128` 为每个 Adapter 建立配置语法测试。
     - 备注（Task ID: F-1128 | Status: Done | Evidence: 测试内 yaml/json 严格解析断言；clash_test+singbox_test | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1129` 使用真实客户端版本执行解析测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1129` 使用真实客户端版本执行解析测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1129 | Status: Done | Evidence: TestSubscriptionUARealClients(subformat_test.go)：9 个真实版本 UA(v2rayNG/1.8.23、SFA sing-box/1.9.3、ClashMetaForAndroid/2.10.3.Meta、clash-verge/v2.0.0、FlClash/0.8.0、ClashforWindows/0.20.39、Shadowrocket/1985、Xray/24.9.30、Hiddify/1.4.5)→按客户端自身解析方式消费响应(v2ray base64 链接行/clash 家族 KnownFields 严格 YAML/JSON targets outbounds 形状)+Content-Type 断言 | Verification: 9 子用例全绿+go vet+server 全套件 green exit=0（51 ok）2026-11-27 | Commit: 5c80be0）
 -   [ ] `F-1130` 对不支持的字段提供明确错误或安全降级。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-1131` 不向客户端输出其不支持的配置字段。
     - 备注（Task ID: F-1131 | Status: Done | Evidence: 各适配器仅输出自身 schema 键(clash omitempty clash.go:17-44/sing-box 仅写 set 键 singbox.go:33-86) | Verification: TestPackSingBox(无 sni/insecure/obfs)、TestSingBoxOutboundVless(无 tls/transport/flow)、TestPackClashHysteria2 | Commit: 842a7dd）
