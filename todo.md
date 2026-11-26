@@ -1606,7 +1606,8 @@ External Client
     - 备注（Task ID: F-1029 | Status: Done | Evidence: Node.SchedPriority 优先级档位（小值优先，0=标准档），LessFor 档位分区包裹全部策略比较器（档位压倒策略指标，同档内策略+缺价分区照旧），shouldSwitch 峰时升档直切/降档等闲时；NodeInput.sched_priority（nil 保留/显式 0 重置/负值 400），preview 输出 sched_priority；TestPickPriorityTier/TestShouldSwitchPriorityTier/TestSweepRespectsPriorityTier/TestNodeSchedPriority | Verification: go vet + server 全套件 green exit=0（51 ok）2026-11-26 | Commit: 879643b）
 -   [x] `F-1030` 实现候选排序。
     - 备注（Task ID: F-1030 | Status: Done | Evidence: lessFor alloc.go:255-318+Pick 217-238+平局确定性 260 | Verification: TestPickTieBreaks | Commit: fbcb525）
--   [ ] `F-1031` 实现故障回退。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1031` 实现故障回退。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1031 | Status: Done | Evidence: RebindSickPaths Path 重绑执行器：enabled Path 的 landing 探针病态/掉出可调度池时，按方向策略从健康候选重选替代 landing，version 乐观守卫（面板并发改动胜出），failover=manual 冻结整趟（复用 F-0294 门）；接入 sweepOnce 每轮执行，rebind 事件进日志/通知/E-16b 钩子；TestRebindSickPaths（冻结/重绑/无路可退/二次空转）+TestRebindLandingLeftPool | Verification: go vet + server 全套件 green exit=0（51 ok）2026-11-26 | Commit: 6d0a5ab）
 -   [ ] `F-1032` 实现调度决策记录。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [ ] `F-1033` 实现候选排除原因。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [ ] `F-1034` 实现调度结果解释。（依赖：无；完成条件：需求落地+测试绿+证据行）
