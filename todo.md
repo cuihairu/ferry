@@ -1733,7 +1733,8 @@ External Client
     - 待补（F-1142 | 区级未满足原因：区级现状：全部未满足或部分——套餐权限过滤部分(无 Plan 模型，按 enabled/role/pool_state+SAVE-6 cost-tier 过滤非套餐权限)、Path Group 过滤未满足(无 PathGroup 模型)、Policy 过滤未满足(无 Policy)、ETag/Last-Modified 未满足(无条件请求，每次全量渲染)、缓存失效部分(无缓存、新鲜度靠每次重查)、访问审计部分(仅 device/IP 观察 upsert 非 per-request 审计行)。）
 -   [x] `F-1143` 根据 Path Group 过滤订阅。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1143 | Status: Done | Evidence: 主订阅面早经 F-0270 落地(sub.go policy.Resolve→eff.PathGroupID→pathhealth.ResolveGroupPath 只留 resolved path 的 entry，健康感知 default 先/候选按 Position)；本轮补齐自建订阅面同链(sub_x.go 同一 eff+group pin 块，与主面零漂移) | Verification: TestSubscriptionGroupDelivery(主面) + TestSubXPolicyAndGroupParity(自建面 pin 生效/移除恢复)+go vet+server 全套件 green exit=0（51 ok）2026-11-27 | Commit: 2f506f8）
--   [ ] `F-1144` 根据 Policy 过滤订阅。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1144` 根据 Policy 过滤订阅。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1144 | Status: Done | Evidence: 主订阅面早经 F-0282~F-0293 落地(sub.go policy.Resolve→ApplyConstraints: regions/min_health 等约束先于输出整形)；本轮钉死自建订阅面同一约束链(sub_x.go eff+ApplyConstraints 同块)+组钉(F-1143 同 commit) | Verification: TestSubscriptionPolicyFilter(主面区域+健康约束)+TestSubXPolicyConstraintParity(自建面区域约束生效/移除恢复)+go vet+server 全套件 green exit=0（51 ok）2026-11-27 | Commit: e6c2f1d）
 -   [x] `F-1145` 过滤禁用节点和不符合策略的线路。
     - 备注（Task ID: F-1145 | Status: Done | Evidence: sub.go:74 enabled/pool_state/status；TestSubscription | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1146` 支持订阅令牌重置。
