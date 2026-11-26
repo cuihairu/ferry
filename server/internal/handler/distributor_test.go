@@ -437,3 +437,73 @@ func TestPayoutAtomicGuard(t *testing.T) {
 		t.Fatalf("balance = %v, want 100", led.BalanceCents)
 	}
 }
+
+// TestDistributorSettlement pins the unified settlement status (F-1325):
+// the ledger derives the state -- pending with open commission, settled once
+// the payout empties the balance, overpaid defensively on a negative adjust;
+// unknown ids 404.
+func TestDistributorSettlement(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	if rec := doJSON(t, r, "POST", "/api/distributors", map[string]any{
+		"username": "settle-d", "password": "x12345", "discount_percent": 20,
+	}); rec.Code != http.StatusCreated {
+		t.Fatalf("create distributor: %d %s", rec.Code, rec.Body)
+	}
+	var d storage.Distributor
+	if err := db.Where("username = ?", "settle-d").First(&d).Error; err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := db.Create(&storage.DistributorLedger{DistributorID: d.ID, OrderNo: "st-o1",
+		Kind: "commission", AmountCents: 200, CreatedAt: now}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	get := func() (string, int64, int64, int64, []map[string]any) {
+		rec := doJSON(t, r, "GET", "/api/distributors/"+strconv.FormatUint(uint64(d.ID), 10)+"/settlement", nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("settlement: %d %s", rec.Code, rec.Body)
+		}
+		var out struct {
+			Status  string           `json:"status"`
+			Earned  int64            `json:"earned_cents"`
+			Paid    int64            `json:"paid_cents"`
+			Open    int64            `json:"open_cents"`
+			Entries []map[string]any `json:"entries"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out.Status, out.Earned, out.Paid, out.Open, out.Entries
+	}
+
+	status, earned, paid, open, entries := get()
+	if status != "pending" || earned != 200 || paid != 0 || open != 200 || len(entries) != 1 {
+		t.Fatalf("pending state: %s %d %d %d %+v", status, earned, paid, open, entries)
+	}
+
+	// Payout the full balance: settled.
+	if rec := doJSON(t, r, "POST", "/api/distributors/"+strconv.FormatUint(uint64(d.ID), 10)+"/payout",
+		map[string]any{"amount_cents": 200, "note": "bank"}); rec.Code != http.StatusCreated {
+		t.Fatalf("payout: %d %s", rec.Code, rec.Body)
+	}
+	status, earned, paid, open, _ = get()
+	if status != "settled" || earned != 200 || paid != 200 || open != 0 {
+		t.Fatalf("settled state: %s %d %d %d", status, earned, paid, open)
+	}
+
+	// A negative adjust drives the balance negative: overpaid (defensive).
+	if rec := doJSON(t, r, "POST", "/api/distributors/"+strconv.FormatUint(uint64(d.ID), 10)+"/adjust",
+		map[string]any{"amount_cents": -50, "note": "correction"}); rec.Code != http.StatusCreated {
+		t.Fatalf("adjust: %d %s", rec.Code, rec.Body)
+	}
+	status, _, _, open, _ = get()
+	if status != "overpaid" || open != -50 {
+		t.Fatalf("overpaid state: %s %d", status, open)
+	}
+
+	// Unknown distributor 404s.
+	if rec := doJSON(t, r, "GET", "/api/distributors/424242/settlement", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown: %d", rec.Code)
+	}
+}

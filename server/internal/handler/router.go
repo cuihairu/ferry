@@ -416,6 +416,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.POST("/distributors", h.createDistributor)
 		api.PUT("/distributors/:id", h.updateDistributor)
 		api.GET("/distributors/:id/ledger", h.distributorLedger)
+		api.GET("/distributors/:id/settlement", h.distributorSettlement)
 		// Settlement payout and manual adjustment (DS-2): booked by hand, never auto-paid.
 		api.POST("/distributors/:id/payout", h.distributorPayout)
 		api.POST("/distributors/:id/adjust", h.distributorAdjust)

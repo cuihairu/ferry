@@ -332,6 +332,58 @@ func (h *Handler) distributorLedger(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ledger": rows, "balance_cents": totals[uint(id)].Balance})
 }
 
+// distributorSettlement handles GET /distributors/:id/settlement (F-1325):
+// the unified commission settlement status. The ledger is the settlement
+// state -- there is deliberately no second status column, which would fork
+// the truth -- and the state derives from the balance triple per DS-2:
+// earned (commission+adjust, by sign), paid (payout), open (balance).
+// settled = open 0, pending = open > 0, overpaid = open < 0 (unreachable
+// through the guarded payout, kept defensive for manual adjust entries).
+func (h *Handler) distributorSettlement(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	var d storage.Distributor
+	if err := h.db.First(&d, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			fail(c, http.StatusNotFound, errors.New("distributor not found"))
+		} else {
+			fail(c, http.StatusInternalServerError, err)
+		}
+		return
+	}
+	totals, err := h.distributorTotals()
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	t := totals[d.ID]
+	status := "pending"
+	switch {
+	case t.Balance == 0:
+		status = "settled"
+	case t.Balance < 0:
+		status = "overpaid"
+	}
+	var entries []storage.DistributorLedger
+	if err := h.db.Where("distributor_id = ?", d.ID).
+		Where("kind IN ?", []string{"commission", "payout", "adjust"}).
+		Order("id DESC").Limit(200).Find(&entries).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"distributor_id": d.ID,
+		"earned_cents":   t.Commission,
+		"paid_cents":     t.Payout,
+		"open_cents":     t.Balance,
+		"status":         status,
+		"entries":        entries,
+	})
+}
+
 // distributorPayout settles a payout (DS-2): writes a payout row and deducts the unsettled balance accordingly.
 // Payout is a manual offline action (settlement terms agreed offline; the panel only books entries and never pays automatically); the amount must not
 // exceed the balance — overpaying first posts an adjust entry, keeping the balance domain non-negative.
