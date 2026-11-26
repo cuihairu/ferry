@@ -1472,7 +1472,8 @@ External Client
     - 备注（Task ID: F-0908 | Status: Done | Evidence: probe lossPct；TestVerdictOf+TestProbeUnreachable | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0909` 支持 TCP Connect 探测。
     - 备注（Task ID: F-0909 | Status: Done | Evidence: probe.go:131 net.DialTimeout("tcp")；TestProbeHealthy | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0910` 支持 UDP 探测。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0910` 支持 UDP 探测。
+    - 备注（Task ID: F-0910 | Status: Done | Evidence: ProbeSpec.proto=payload_hex/expect_hex（config 校验：udp 必带 payload、hex 合法、payload 仅 udp 专用）；measureUDP 每轮发包+等回复，回复匹配 expect 前缀才算成功（UDP 无连接，无回复=不可达）；复用 summarize 的 rtt/jitter/loss | Verification: TestMeasureUDPReply+TestMeasureUDPMismatch+TestMeasureUDPSilent+TestProbeUDPReport；config TestValidate 6 新用例；agent 全套 20 包 ok 2026-11-26 | Commit: b2badb2）
 -   [ ] `F-0911` 支持应用层探测。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [ ] `F-0912` 支持公网出口探测。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [ ] `F-0913` 支持探测超时和错误分类。（依赖：无；完成条件：需求落地+测试绿+证据行）
