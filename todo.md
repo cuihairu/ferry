@@ -1484,7 +1484,8 @@ External Client
     - 备注（Task ID: F-0914 | Status: Done | Evidence: agentws repeatReport+dedupe；TestReportDeduperWindow+TestReportDeduperTTL | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0915` 支持探测结果过期处理。
     - 备注（Task ID: F-0915 | Status: Done | Evidence: aggregate 窗口+idx_probe_window models.go:184-195；TestJudgeWindowAndLatest | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0916` 支持异常样本过滤。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0916` 支持异常样本过滤。
+    - 备注（Task ID: F-0916 | Status: Done | Evidence: server/internal/outlier.Trim 中位数/MAD 稳健剔除（DefaultFactor=5≈3.5/0.6745，<4 样本直通，MAD=0 仅留中位数，不改输入）；eveningapi eveningRTT 剔除后均值+Outliers 计数，EveningHour/EveningWindow.outliers 字段；dash 晚高峰对比「剔除异常样本」展示 | Verification: TestTrim（尖峰剔除/全等/直通/不改输入）+TestEveningOutlierTrim（7 点钟 5×20ms+1×1000ms → AvgRttMs=20 Outliers=1）+ 全 server 套件绿 2026-11-26（exit 0，50 ok）+ dash build 绿 | Commit: 0757ad1）
 
 ## 7.2 探测调度和健康计算
 
