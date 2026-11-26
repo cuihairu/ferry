@@ -104,6 +104,29 @@ func (h *Handler) listUserDevices(c *gin.Context) {
 	c.JSON(http.StatusOK, rows)
 }
 
+// unbindUserDevice removes one device binding (F-1224): the admin-side unbind,
+// so a lost or sold client stops counting against the device/IP limits right
+// away. The row is scoped to the user (id + user_id), so a device id from
+// another account never resolves. The unbound client re-registers as a fresh
+// device on its next subscription fetch, subject to the same limit checks.
+func (h *Handler) unbindUserDevice(c *gin.Context) {
+	u, err := h.findUser(c.Param("id"))
+	if err != nil {
+		replyFind(c, err)
+		return
+	}
+	res := h.db.Where("id = ? AND user_id = ?", c.Param("did"), u.ID).Delete(&storage.SubDevice{})
+	if res.Error != nil {
+		fail(c, http.StatusInternalServerError, res.Error)
+		return
+	}
+	if res.RowsAffected == 0 {
+		fail(c, http.StatusNotFound, errors.New("device not found"))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"unbound": c.Param("did")})
+}
+
 // subDeviceExists reports whether a kind/key is already registered under a user.
 func (h *Handler) subDeviceExists(userID uint, kind, key string) (bool, error) {
 	var cnt int64

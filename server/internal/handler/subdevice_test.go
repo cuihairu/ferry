@@ -251,3 +251,65 @@ func TestPanelMeDeviceUsage(t *testing.T) {
 		t.Fatalf("panel me device usage = %+v, want 2/3/1/2", me)
 	}
 }
+
+// TestUserDeviceUnbind pins the admin device unbind (F-1224): DELETE
+// /api/users/:id/devices/:did removes exactly one binding scoped to that user
+// (a device id belonging to another account never resolves), the list shrinks
+// accordingly, and an unknown or already-unbound id gives 404.
+func TestUserDeviceUnbind(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	if rec := doJSON(t, r, "POST", "/api/users", map[string]any{"username": "unbind-a"}); rec.Code != http.StatusCreated {
+		t.Fatalf("create user a: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doJSON(t, r, "POST", "/api/users", map[string]any{"username": "unbind-b"}); rec.Code != http.StatusCreated {
+		t.Fatalf("create user b: %d %s", rec.Code, rec.Body)
+	}
+	var ua, ub storage.User
+	if err := db.Where("username = ?", "unbind-a").First(&ua).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Where("username = ?", "unbind-b").First(&ub).Error; err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	rows := []storage.SubDevice{
+		{UserID: ua.ID, Kind: "hwid", Key: "dev-a1", FirstSeen: now, LastSeen: now},
+		{UserID: ua.ID, Kind: "hwid", Key: "dev-a2", FirstSeen: now, LastSeen: now},
+		{UserID: ub.ID, Kind: "hwid", Key: "dev-b1", FirstSeen: now, LastSeen: now},
+	}
+	if err := db.Create(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// Cross-user: b's device id never resolves under a's route.
+	if rec := doJSON(t, r, "DELETE", "/api/users/"+utoa(ua.ID)+"/devices/"+utoa(rows[2].ID), nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("cross-user unbind = %d", rec.Code)
+	}
+	// Unbind a's first device.
+	if rec := doJSON(t, r, "DELETE", "/api/users/"+utoa(ua.ID)+"/devices/"+utoa(rows[0].ID), nil); rec.Code != http.StatusOK {
+		t.Fatalf("unbind: %d %s", rec.Code, rec.Body)
+	}
+	var left []storage.SubDevice
+	if err := db.Where("user_id = ?", ua.ID).Order("id").Find(&left).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(left) != 1 || left[0].Key != "dev-a2" {
+		t.Fatalf("left = %+v, want only dev-a2", left)
+	}
+	// Already unbound: 404. Unknown id: 404.
+	if rec := doJSON(t, r, "DELETE", "/api/users/"+utoa(ua.ID)+"/devices/"+utoa(rows[0].ID), nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("re-unbind = %d", rec.Code)
+	}
+	if rec := doJSON(t, r, "DELETE", "/api/users/"+utoa(ua.ID)+"/devices/9999", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown device = %d", rec.Code)
+	}
+	// b's binding is untouched.
+	var cnt int64
+	if err := db.Model(&storage.SubDevice{}).Where("user_id = ?", ub.ID).Count(&cnt).Error; err != nil {
+		t.Fatal(err)
+	}
+	if cnt != 1 {
+		t.Fatalf("b devices = %d, want 1", cnt)
+	}
+}

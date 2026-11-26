@@ -354,6 +354,9 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.DELETE("/users/:id", h.deleteUser)
 		api.POST("/users/:id/sub-token", h.resetSubToken)
 		api.GET("/users/:id/devices", h.listUserDevices)
+		// Device unbind (F-1224): remove one binding so a lost client stops
+		// counting against the device/IP limits.
+		api.DELETE("/users/:id/devices/:did", h.unbindUserDevice)
 		api.GET("/users/:id/traffic", h.userTraffic)
 		// Plans (F-0101): sellable package templates applied to users in bulk.
 		api.GET("/plans", h.listPlans)
