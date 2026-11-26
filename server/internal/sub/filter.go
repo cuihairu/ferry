@@ -133,8 +133,10 @@ func ApplyConfig(entries []Entry, cfg Config, now time.Time) []Entry {
 }
 
 // BuildRemark generates a single remark by config: when remark_template is non-empty, substitute placeholders
-// ({region}/{name}/{rtt}; invalid template characters are emitted as-is, no panic); when empty, fall back to the default
-// "region · name (latencyms)"; omit RTT when include_rtt=false or when there is no probe data.
+// ({region}/{name}/{rtt}/{labels}; invalid template characters are emitted as-is, no panic); when empty, fall back to
+// the default "region · name (latencyms)"; omit RTT when include_rtt=false or when there is no probe data. {labels}
+// joins the node's label list with commas (F-1107: labels join region and the sort modes as a unified output
+// dimension); a node with no labels substitutes the empty string.
 func BuildRemark(e *Entry, cfg Config) string {
 	tpl := cfg.RemarkTemplate
 	includeRTT := cfg.IncludeRTT == nil || *cfg.IncludeRTT
@@ -148,7 +150,9 @@ func BuildRemark(e *Entry, cfg Config) string {
 	if includeRTT && e.RttMs > 0 {
 		rtt = strconv.Itoa(e.RttMs)
 	}
-	return strings.NewReplacer("{region}", entryRegion(e), "{name}", e.Node.Name, "{rtt}", rtt).Replace(tpl)
+	labels := strings.Join(nodeLabels(e.Node.Labels), ",")
+	return strings.NewReplacer("{region}", entryRegion(e), "{name}", e.Node.Name, "{rtt}", rtt,
+		"{labels}", labels).Replace(tpl)
 }
 
 // nodeLabels parses the JSON array text of node labels; empty text, non-array, and parse failure

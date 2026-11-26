@@ -248,3 +248,22 @@ func names(entries []Entry) []string {
 	}
 	return out
 }
+
+// TestBuildRemarkLabels covers the {labels} placeholder (F-1107): the node's
+// label list joins with commas, an unlabeled node substitutes the empty
+// string, and bad label text is tolerated as empty (same tolerance as the
+// filter side).
+func TestBuildRemarkLabels(t *testing.T) {
+	e := ent("hk1", "香港", `["iepl","vip"]`, "vless", 42)
+	if got := BuildRemark(&e, Config{RemarkTemplate: "{labels} {name}"}); got != "iepl,vip hk1" {
+		t.Fatalf("labels template = %q", got)
+	}
+	noLabel := ent("hk2", "香港", "", "vless", 42)
+	if got := BuildRemark(&noLabel, Config{RemarkTemplate: "{labels}|{name}"}); got != "|hk2" {
+		t.Fatalf("no labels = %q", got)
+	}
+	bad := ent("hk3", "香港", "not-json", "vless", 42)
+	if got := BuildRemark(&bad, Config{RemarkTemplate: "{labels}-{name}"}); got != "-hk3" {
+		t.Fatalf("bad labels tolerated = %q", got)
+	}
+}
