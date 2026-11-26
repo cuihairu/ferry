@@ -1800,7 +1800,8 @@ External Client
     - 待补（F-1224 | 未满足：仅 GET /api/users/:id/devices（router.go:239→subdevice.go:85-100）；无解绑/删除端点（用户删除清设备行属整户删除）。）
 -   [x] `F-1225` 支持设备上限检查。
     - 备注（Task ID: F-1225 | Status: Done | Evidence: subdevice 上限检查；TestSubDeviceLimitValidation | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1226` 支持异常设备告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1226` 支持异常设备告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1226 | Status: Done | Evidence: device_anomaly 告警（herald.go KindDeviceAnomaly+subdevice.go alertSubDeviceChurn）：共享式流失检测——同一用户 5 分钟窗口内注册 ≥3 台不同 hwid 即落 admin warning 事件（按用户按日去重，同超限告警模式）；硬阻断仍由 device_limit 负责，告警只提示不拦截 | Verification: TestSubDeviceChurnAlert（第 3 台触发 1 条、第 4 台同日不重复、阈值下用户静默、全程 200 不阻断交付）| Commit: 0cbbe72）
     - 待补（F-1226 | 部分：仅设备/IP 超限告警（subdevice.go:136-156 herald.KindDeviceLimit 按用户按日去重）；无异常设备检测（异常 UA/IP/偏离）。）
 -   [x] `F-1227` 避免仅凭 IP 变化认定设备变化。
     - 备注（Task ID: F-1227 | Status: Done | Evidence: subdevice.go:56-80 设备身份=hwid 行；IP 变化仅新增 ip-kind 行不重认/重计设备；无 hwid 请求不落设备行 | Verification: TestSubscriptionDeviceLimit+TestSubscriptionIPLimit（subdevice_test.go:43/80） | Commit: ad8f965）
