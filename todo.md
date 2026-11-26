@@ -1489,14 +1489,17 @@ External Client
 
 ## 7.2 探测调度和健康计算
 
--   [ ] `F-0921` 将可在边缘执行的探测任务下发给 Agent。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0921 | 区级未满足原因：区级现状：服务端不下发探测任务（agent 本地 config.go:74 Probes），无 probe-task 消息类型；无并发限制(F-0922)/无故障提速(F-0925)/无防风暴(F-0926)。F-0923/0929/0930 已关。F-0924/0931/0932-0934 部分（按 spec IntervalSec/池滞回/手动摘除无操作者无过期）。）
--   [ ] `F-0922` 为探测任务设置并发限制。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0921` 将可在边缘执行的探测任务下发给 Agent。
+    - 备注（Task ID: F-0921 | Status: Done | Evidence: agentproto MsgProbeTask/MsgProbeTaskAck+ProbeTask{Version,Specs}/ProbeTaskAck；server Node.ProbeTasks 期望态（PUT /api/nodes/:id/probe_tasks 校验+落库，hello 后 dispatchProbeTasks 补发，在线 hub.Request 即时下发）+ validateProbeTasks 镜像 agent 规则；agent handleProbeTask 全有或全无校验、spool probe-tasks.json 持久化重启续跑、probe.Runner.Replace 热切换（同名遮蔽本地 config 探测，空列表撤回）| Verification: TestSetProbeTasks/TestSetProbeTasksValidation/TestProbeTaskHelloDispatch（catch-up+在线 delivered=true）+TestHandleProbeTaskApplies/RejectsInvalid/Withdraw/TestLoadProbeTasksOnStart+TestRunnerReplace；agent 全套件 20 ok、server 全套件 50 ok 2026-11-26 | Commit: 92fef5c）
+-   [x] `F-0922` 为探测任务设置并发限制。
+    - 备注（Task ID: F-0922 | Status: Done | Evidence: probe.Runner 信号量 acquire/release 包住 measure（defaultProbeConcurrency=16），SetConcurrency/Concurrency，config probe_concurrency（0=默认），app.New/proberole 两处接线 | Verification: TestProbeConcurrencyLimit（限 1 时目标侧并发高峰=1；默认时并行 spec 峰值≥2，慢 UDP 应答器测水印）+TestProbeConcurrencyWiring；agent 全套件 20 ok 2026-11-26 | Commit: 92fef5c）
 -   [x] `F-0923` 为探测任务设置超时。
     - 备注（Task ID: F-0923 | Status: Done | Evidence: dialTimeout=3s(probe.go:22)+net.DialTimeout(probe.go:131) | Verification: TestProbeUnreachable | Commit: fbcb525）
 -   [ ] `F-0924` 支持按 Path 重要性配置探测频率。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0925` 故障时支持临时提高探测频率。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0926` 防止大规模节点互探造成探测风暴。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0925` 故障时支持临时提高探测频率。
+    - 备注（Task ID: F-0925 | Status: Done | Evidence: probe.loop 记住 sick verdict → boostUntil=now+5min，nextIntervalBoosted 4 倍提速（间隔/4，下限 10s 上限为原间隔，窗口过后再回原速）；与 19-23 点高峰提速叠加但不劣化 | Verification: TestNextIntervalBoosted（3600→900s、60→15s、30→10s 下限、5s 上限优先生效、过期不提速）；agent 全套件 20 ok 2026-11-26 | Commit: 92fef5c）
+-   [x] `F-0926` 防止大规模节点互探造成探测风暴。
+    - 备注（Task ID: F-0926 | Status: Done | Evidence: probe.Runner SetStartJitter/startDelay 首轮随机相位（45s 窗口内均匀，且不超过该 spec 自己的 interval），Replace 新任务集同样错峰；core agent 启用，独立 proberole 关闭（本地配置无群组风险，崩溃重启后首轮不能空窗）| Verification: TestStartJitterSpread（200 次抽样分布、小 interval 上限、0 关闭）+ runner/proberole 相关测试；agent 全套件 20 ok 2026-11-26 | Commit: 92fef5c）
 -   [x] `F-0927` 定义健康状态计算规则。
     - 备注（Task ID: F-0927 | Status: Done | Evidence: aggregate.go:65 Judge+monitor.go:66 applyVerdict；TestJudgeRegionAndISP+TestApplyVerdictTransitions | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0928` 定义健康统计时间窗口。
