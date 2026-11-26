@@ -1275,13 +1275,20 @@ External Client
     - 备注（Task ID: F-0630 | Status: Done | Evidence: CostView.vue「实际成本趋势」按天/月/账期分桶；GET /api/cost/spend/trend（逐币种） | Verification: dash build 绿 2026-11-26 | Commit: 75813fa）
 -   [x] `F-0631` 展示异常成本提醒。
     - 备注（Task ID: F-0631 | Status: Done | Evidence: cost.CheckAlerts 阈值告警+CostView 高亮；TestCheckAlerts+TestLoopChecksAlertsUntilCancel | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0632` 增加账单同步任务页面。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0633` 增加账单明细查询页面。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0634` 增加账单差异对账页面。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0635` 增加成本分摊规则页面。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0636` 支持按日期、Provider、账号、区域和资源筛选。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0637` 支持导出成本明细。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0638` 在 UI 中清楚区分实际账单、估算和分摊值。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0632` 增加账单同步任务页面。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0632 | Status: Done | Evidence: dash BillsView.vue（/bills）成本源 CRUD+启停+同步窗口（datetimerange/account/region/incremental→POST /api/cost/sources/:id/import-api）+手动文件导入（el-upload→import-file）+同步记录表（running/succeeded/partial/failed）；后端 BillImport 运行日志 GET /api/cost/imports | Verification: dash vue-tsc -b+vite build 绿 2026-11-26；TestBillingAPI/TestBillingAPIImportFromAPI 绿 | Commit: 18b327a）
+-   [x] `F-0633` 增加账单明细查询页面。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0633 | Status: Done | Evidence: BillsView.vue 账单明细查询：来源/账号/区域/资源/日期范围筛选+GET /api/cost/records 列表+行展开懒加载 GET /api/cost/records/:id/items+重新分摊 recompute | Verification: dash vue-tsc -b+vite build 绿 2026-11-26；TestBillingAPI 绿 | Commit: f455be8）
+-   [x] `F-0634` 增加账单差异对账页面。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0634 | Status: Done | Evidence: BillsView.vue 账单差异对账：scope（provider/account/region/node/path）+月度默认区间创建对账+diff 展示+confirmed/adjusted 确认（仅 open 可确认）+备注 | Verification: dash vue-tsc -b+vite build 绿 2026-11-26；TestBillingAPI 对账断言绿 | Commit: f455be8）
+-   [x] `F-0635` 增加成本分摊规则页面。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0635 | Status: Done | Evidence: BillsView.vue 成本分摊规则：版本化规则表（name/kind bandwidth|traffic|ratio|manual|direct/version/enabled）+新建走 POST 编辑追加版本+recompute 入口 | Verification: dash vue-tsc -b+vite build 绿 2026-11-26；TestBillingAPI 分摊断言绿 | Commit: f455be8）
+-   [x] `F-0636` 支持按日期、Provider、账号、区域和资源筛选。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0636 | Status: Done | Evidence: 服务端 GET /api/cost/records 支持 cost_provider_id/source/account/region/from/to(incurred_at)+resource（经 CostItem 子查询）；dash BillsView 筛选条含来源/账号/区域/资源/日期范围+CostProviderID 参数 | Verification: TestBillingAPI resource 过滤断言绿 2026-11-26；dash build 绿 | Commit: 26e603e）
+-   [x] `F-0637` 支持导出成本明细。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0637 | Status: Done | Evidence: BillsView.vue 导出 CSV：当前筛选结果整表导出（﻿ BOM+字段转义+ferry-bills-YYYY-MM-DD.csv 下载） | Verification: dash vue-tsc -b+vite build 绿 2026-11-26 | Commit: 278f6f5）
+-   [x] `F-0638` 在 UI 中清楚区分实际账单、估算和分摊值。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0638 | Status: Done | Evidence: CostView.vue page-desc 图例「实际=厂商账单导入值/估算=面板折算/分摊=规则分摊，不混用不跨币种合并」+排名/趋势列名标注+差异页口径标注（面板 vs 账单，CNY 才比较） | Verification: dash vue-tsc -b+vite build 绿 2026-11-26 | Commit: 278f6f5）
 
 ------------------------------------------------------------------------
 
@@ -1351,16 +1358,16 @@ External Client
     - 备注（Task ID: F-0744 | Status: Done | Evidence: provision→probe→online 入池检查流水线；TestProvisionPipeline | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0745` 支持节点摘池。
     - 备注（Task ID: F-0745 | Status: Done | Evidence: pool.go suspend/resume 摘池；TestSuspend+TestSweepSuspendAndResume | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0746` 支持节点维护模式。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0746 | 未满足原因：未满足：无维护模式字段/状态（maintenance|维护模式 全仓 0 命中）；pool suspend/resume 是摘池非维护。）
+-   [x] `F-0746` 支持节点维护模式。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0746 | Status: Done | Evidence: Node.Maintenance 字段+node.go create/update（in.Maintenance 可改）+alloc SweepAt/订阅池/策略池过滤 maintenance=false+云关停 drain 流程（Drain 开维护窗 F-0401）；原待补注「全仓 0 命中」已过时；本 commit 补 dash：NodesView 维护开关（行内 el-switch+编辑表单） | Verification: TestSweepSkipsMaintenance 绿 2026-11-26；dash vue-tsc -b+vite build 绿 | Commit: f242e52）
 -   [x] `F-0747` 支持节点禁用。
     - 备注（Task ID: F-0747 | Status: Done | Evidence: enabled 关停；TestNodeCRUD | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0748` 支持节点重新启用。
     - 备注（Task ID: F-0748 | Status: Done | Evidence: enabled 重启+pool resume；TestNodeCRUD+TestResume | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0749` 支持节点批量操作。
     - 备注（Task ID: F-0749 | Status: Done | Evidence: router.go:184-185 batch；TestBatchNodeProc+TestBatchNodeConfig | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0750` 支持节点详情展示 Agent、Relay、Probe 状态。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0750 | 未满足原因：部分：节点详情返回 agent 状态(node.go:26-33)、/procs 进程状态(procstatus.go:69)、probe 仅全局 GET /api/probe-reports 无 per-node 过滤(router.go:450)；无单端点聚合三态。）
+-   [x] `F-0750` 支持节点详情展示 Agent、Relay、Probe 状态。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0750 | Status: Done | Evidence: 新端点 GET /api/nodes/:id/status 聚合三态（agent: status/last_seen/enabled/maintenance；relay: node_proc_statuses proc=relay 快照+role/pool_state；probe: 最新 ProbeReport verdict/rtt/loss，缺失为 null 不编造）+GET /api/probe-reports 支持 node_id per-node 过滤；dash NodesView「状态」按钮+三态对话框 | Verification: TestNodeStatusAggregate+TestProbeReportsNodeFilter 绿 2026-11-26；dash build 绿 | Commit: 7e5c00a）
 -   [x] `F-0751` 支持节点操作历史。
     - 备注（Task ID: F-0751 | Status: Done | Evidence: auditMiddleware 覆盖 /api,/admin 写(audit.go:119-140)+GET /api/audit-logs?target=:id 按节点过滤(audit.go:169-171,router.go:274) | Verification: TestAuditLogsCaptureWriteOps+TestAuditLogsCaptureFailedWriteAndFilters | Commit: 172dad4）
 -   [x] `F-0752` 支持节点配置版本查看。
