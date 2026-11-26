@@ -1325,7 +1325,7 @@ External Client
 -   [x] `F-0729` 定义未知消息处理方式。
     - 备注（Task ID: F-0729 | Status: Done | Evidence: link readLoop 丢弃坏消息+服务端留痕；TestReadLoopDropsBadMessages | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0730` 增加 Agent 协议兼容性测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0730 | 未满足原因：部分：agentproto 有 round-trip/类型稳定/版本守卫测试（TestMarshalRoundTrip/TestMessageTypesStable/TestEnvelopeVersionGuard）；无跨版本(旧schema→新解码)兼容测试。）
+    - 备注（Task ID: F-0730 | Status: Done | Evidence: 跨版本兼容测试 compat_test.go：TestOldAgentPayloadsDecode（旧 agent 缺 Caps/caps/Error 字段的 hello/heartbeat/upgrade_status 按零值解码）TestUnknownPayloadFieldsIgnored（新端多字段解码忽略）TestUnknownTypeEnvelopeSurvivesDecode（新消息类型旧端按类型丢弃、信封可解）——落实 §5.2 兼容规则：载荷新字段 omitempty、两端独立升级 | Verification: go test ./... 全绿 2026-11-26（agentproto -v 三例 PASS，agent/server 本轮未改代码） | Commit: 803110c）
 
 ## 5.3 节点管理
 
