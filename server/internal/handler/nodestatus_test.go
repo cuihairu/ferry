@@ -99,3 +99,28 @@ func TestProbeReportsNodeFilter(t *testing.T) {
 		t.Fatalf("bad node_id must be 400: %d", rec.Code)
 	}
 }
+
+// TestNodeStatusHealth covers the F-0902 wiring: the status aggregate carries
+// the node's own derived health, distinct from the per-path health endpoint.
+func TestNodeStatusHealth(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	live := storage.Node{Name: "nh-live", Token: "tk-nh-live", Status: "online", Enabled: true}
+	susp := storage.Node{Name: "nh-susp", Token: "tk-nh-susp", Status: "online",
+		PoolState: "suspended", Enabled: true}
+	nodes := []storage.Node{live, susp}
+	for i := range nodes {
+		if err := db.Create(&nodes[i]).Error; err != nil {
+			t.Fatalf("node: %v", err)
+		}
+	}
+	// Live node without verdicts: unknown (absence is not health); suspended
+	// node: degraded even before any verdict.
+	rec := doJSON(t, r, http.MethodGet, "/api/nodes/"+itoa(nodes[0].ID)+"/status", nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"health":"unknown"`) {
+		t.Fatalf("live health: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, r, http.MethodGet, "/api/nodes/"+itoa(nodes[1].ID)+"/status", nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"health":"degraded"`) {
+		t.Fatalf("suspended health: %d %s", rec.Code, rec.Body.String())
+	}
+}

@@ -1072,6 +1072,8 @@ export interface NodeStatusAggregate {
     max_streams: number
     rate_limit_kbps: number
   } | null
+  /** derived per-node health (F-0902): healthy/unknown/degraded/off */
+  health: string
 }
 
 export function getNodeStatus(id: number): Promise<NodeStatusAggregate> {

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/nodehealth"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -70,10 +71,13 @@ type nodeProbeStatus struct {
 
 // nodeStatus is the aggregate payload of GET /api/nodes/:id/status.
 type nodeStatus struct {
-	Agent     nodeAgentStatus  `json:"agent"`
-	Relay     *nodeRelayStatus `json:"relay"`
-	Probe     *nodeProbeStatus `json:"probe"`
-	RelayCaps *nodeRelayCaps   `json:"relay_caps,omitempty"`
+	Agent nodeAgentStatus  `json:"agent"`
+	Relay *nodeRelayStatus `json:"relay"`
+	Probe *nodeProbeStatus `json:"probe"`
+	// Health is the node's own derived health (F-0902), distinct from the
+	// per-path health pathhealth reports.
+	Health    string         `json:"health"`
+	RelayCaps *nodeRelayCaps `json:"relay_caps,omitempty"`
 }
 
 // nodeStatus returns the agent/relay/probe state of one node (F-0750).
@@ -89,6 +93,9 @@ func (h *Handler) nodeStatus(c *gin.Context) {
 		Enabled:     n.Enabled,
 		Maintenance: n.Maintenance,
 	}}
+	// Node health (F-0902) derives from the node's own signals; computed on
+	// read so it is always as fresh as the underlying state.
+	out.Health = nodehealth.Evaluate(h.db, []storage.Node{*n}, time.Now())[n.ID]
 	if n.RelayCaps != "" {
 		var caps nodeRelayCaps
 		if err := json.Unmarshal([]byte(n.RelayCaps), &caps); err == nil {

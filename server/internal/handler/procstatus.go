@@ -37,7 +37,7 @@ func (h *Handler) saveProcStatuses(nodeID int64, procs []agentproto.ProcStatus) 
 			row = storage.NodeProcStatus{
 				NodeID: uint(nodeID), Proc: ps.Name, State: ps.State,
 				PID: ps.PID, Restarts: ps.Restarts, Metrics: metrics,
-				Version: ps.Version,
+				Version:   ps.Version,
 				UpdatedAt: time.Now(),
 			}
 			if err := h.db.Create(&row).Error; err != nil {

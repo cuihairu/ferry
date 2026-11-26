@@ -329,6 +329,11 @@ const statusData = ref<NodeStatusAggregate | null>(null)
 
 const AGENT_STATE_TYPE: Record<string, string> = { online: 'success', offline: 'danger', unknown: 'info' }
 const RELAY_STATE_TYPE: Record<string, string> = { running: 'success', stopped: 'info', crashed: 'danger' }
+// F-0902: per-node derived health (same vocabulary as path health).
+const NODE_HEALTH_TYPE: Record<string, string> = { healthy: 'success', unknown: 'info', degraded: 'warning', off: 'danger' }
+function healthTagType(state: string) {
+  return NODE_HEALTH_TYPE[state] ?? 'info'
+}
 
 // F-0804: capability flags from the agent's heartbeat declaration. UDP stays
 // explicitly unsupported until landing-side UDP termination exists.
@@ -1036,6 +1041,12 @@ async function remove(n: Node) {
           <el-descriptions-item label="进程快照">
             <template v-if="statusData.relay">{{ new Date(statusData.relay.updated_at).toLocaleString() }}</template>
             <span v-else>暂无上报</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="节点健康">
+            <el-tag :type="healthTagType(statusData.health)" size="small" disable-transitions>
+              {{ statusData.health }}
+            </el-tag>
+            <span class="status-meta">节点自身状态（区别于单条线路健康）</span>
           </el-descriptions-item>
           <el-descriptions-item label="探测判定">
             <template v-if="statusData.probe">
