@@ -96,13 +96,18 @@ type SubDevice struct {
 // PlanID node-delivery binding (User.PlanID × Node.PlanID): apply shapes the
 // user's limits, PlanID shapes which nodes the subscription delivers.
 type Plan struct {
-	ID          uint      `gorm:"primaryKey" json:"id"`
-	Name        string    `gorm:"size:64;uniqueIndex" json:"name"`
-	Note        string    `gorm:"size:255" json:"note"`
-	Enabled     bool      `gorm:"default:true" json:"enabled"`
-	QuotaBytes  int64     `gorm:"default:0" json:"quota_bytes"` // 0 = unlimited
-	ResetCycle  string    `gorm:"size:8;default:none" json:"reset_cycle"`
-	ExpiresDays int       `gorm:"default:0" json:"expires_days"`
+	ID          uint   `gorm:"primaryKey" json:"id"`
+	Name        string `gorm:"size:64;uniqueIndex" json:"name"`
+	Note        string `gorm:"size:255" json:"note"`
+	Enabled     bool   `gorm:"default:true" json:"enabled"`
+	QuotaBytes  int64  `gorm:"default:0" json:"quota_bytes"` // 0 = unlimited
+	ResetCycle  string `gorm:"size:8;default:none" json:"reset_cycle"`
+	ExpiresDays int    `gorm:"default:0" json:"expires_days"`
+	// Bandwidth caps as apply-time templates (F-1205): the values land on the
+	// user rows only when apply runs -- editing the plan afterwards never
+	// propagates retroactively, re-apply is the propagation mechanism. 0 =
+	// unlimited (the user-surface convention); enforcement is node-side, the
+	// server validates (>=0), stores and exposes the values.
 	BwUpMbps    int       `gorm:"default:0" json:"bw_up_mbps"`
 	BwDownMbps  int       `gorm:"default:0" json:"bw_down_mbps"`
 	DeviceLimit int       `gorm:"default:0" json:"device_limit"`

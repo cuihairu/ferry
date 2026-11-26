@@ -275,3 +275,84 @@ func TestPlanExpiryRules(t *testing.T) {
 		t.Fatalf("applied limits lost after renewal: %+v", renewed)
 	}
 }
+
+// TestPlanBandwidthRules pins the plan bandwidth rules (F-1205): the plan's
+// caps are apply-time templates -- editing the plan never propagates to
+// already-applied users, re-apply does; a plan without bandwidth fields
+// applies 0 (= unlimited, the user-surface convention); a negative cap fails
+// validation on update as on create.
+func TestPlanBandwidthRules(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	rec := doJSON(t, r, "POST", "/api/users", map[string]any{"username": "bw-u"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create user: %d %s", rec.Code, rec.Body)
+	}
+	uid := uint(mustJSON(t, rec)["id"].(float64))
+
+	// A plan with explicit caps; apply lands them on the user row.
+	rec = doJSON(t, r, "POST", "/api/plans", map[string]any{
+		"name": "bw-pkg", "bw_up_mbps": 3, "bw_down_mbps": 5,
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create plan: %d %s", rec.Code, rec.Body)
+	}
+	plan := uint(mustJSON(t, rec)["id"].(float64))
+	if rec = doJSON(t, r, "POST", "/api/plans/"+utoa(plan)+"/apply", map[string]any{
+		"user_ids": []any{uid},
+	}); rec.Code != http.StatusOK {
+		t.Fatalf("apply: %d %s", rec.Code, rec.Body)
+	}
+
+	// Editing the plan does NOT move the applied user (no retro propagation).
+	if rec = doJSON(t, r, "PUT", "/api/plans/"+utoa(plan), map[string]any{
+		"bw_up_mbps": 10, "bw_down_mbps": 10,
+	}); rec.Code != http.StatusOK {
+		t.Fatalf("update plan: %d %s", rec.Code, rec.Body)
+	}
+	var u storage.User
+	if err := db.First(&u, uid).Error; err != nil {
+		t.Fatal(err)
+	}
+	if u.BwUpMbps != 3 || u.BwDownMbps != 5 {
+		t.Fatalf("plan edit leaked to applied user: %+v", u)
+	}
+
+	// Re-apply is the propagation mechanism.
+	if rec = doJSON(t, r, "POST", "/api/plans/"+utoa(plan)+"/apply", map[string]any{
+		"user_ids": []any{uid},
+	}); rec.Code != http.StatusOK {
+		t.Fatalf("re-apply: %d %s", rec.Code, rec.Body)
+	}
+	if err := db.First(&u, uid).Error; err != nil {
+		t.Fatal(err)
+	}
+	if u.BwUpMbps != 10 || u.BwDownMbps != 10 {
+		t.Fatalf("re-apply did not propagate caps: %+v", u)
+	}
+
+	// A plan without bandwidth fields applies 0 = unlimited.
+	rec = doJSON(t, r, "POST", "/api/plans", map[string]any{"name": "bw-none"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create bare plan: %d %s", rec.Code, rec.Body)
+	}
+	bare := uint(mustJSON(t, rec)["id"].(float64))
+	if rec = doJSON(t, r, "POST", "/api/plans/"+utoa(bare)+"/apply", map[string]any{
+		"user_ids": []any{uid},
+	}); rec.Code != http.StatusOK {
+		t.Fatalf("bare apply: %d %s", rec.Code, rec.Body)
+	}
+	if err := db.First(&u, uid).Error; err != nil {
+		t.Fatal(err)
+	}
+	if u.BwUpMbps != 0 || u.BwDownMbps != 0 {
+		t.Fatalf("bare plan must apply unlimited (0): %+v", u)
+	}
+
+	// Negative caps fail on update too (merged-row validation).
+	if rec = doJSON(t, r, "PUT", "/api/plans/"+utoa(plan), map[string]any{
+		"bw_up_mbps": -1,
+	}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("negative bw update = %d", rec.Code)
+	}
+}
