@@ -2178,8 +2178,8 @@ External Client
     - 备注（Task ID: F-1644 | Status: Done | Evidence: recovery.Options.Cooldown（默认 DefaultCooldown=1h，recovery.go）——Sweep 判封段把最近终端态（done/failed）管线落在冷却窗内的节点挡在新建流水线外（HAVING MAX(updated_at) > now-Cooldown 后 Pluck node_id）；顺带修了重开路径：Recovery 行 uniqueIndex 每节点一行，此前终态后重新摘除的 Create 会以 unique 冲突炸掉整轮 Sweep，现 isDupKey 命中时把旧行重置回 L1 running（recovery reopen） | Verification: TestCooldownGuardsVerdict（开→失败→冷却窗内不再开→冷却后同行重置回 L1 running）绿；recovery 包 GOMAXPROCS=1 -count=2 绿；全量 52 ok FAIL=0 exit=0 | Commit: 125fe55）
 -   [x] `F-1645` 定义自动恢复失败后的人工介入状态。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1645 | Status: Done | Evidence: recovery 新增 StateManual=manual（F-1645）——advanceNext 全级耗尽（原 StateFailed）改落人工介入态（last_err 照写，KindRecoveryFailed+notify 升级照发、标题区分「转人工介入」）；Sweep 判封段对 manual 行无限期挡在自动重开外（只有人能动）；管理端 POST /api/recoveries/:id/ack（manual→failed 收案，非 manual 409，audit 中间件留痕） | Verification: TestTimeoutExhaustFails/TestActionFailedAdvances 改断言 manual 绿；新增 TestManualBarsVerdict（manual 行冷却后也不被自动重置）+TestRecoveryAck（ack 200/二次 409/未知 404）绿；全量 52 ok FAIL=0 exit=0 | Commit: e7dc4f6）
--   [ ] `F-1646` 防止自动恢复循环重启。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1646 | 未满足：失败管线后节点保持 suspended，下次 Sweep 会开新 Recovery（查询仅排除 running 与 手动% pool_reason recovery.go:169-189）；无失败重开守卫——循环重启风险确认。）
+-   [x] `F-1646` 防止自动恢复循环重启。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1646 | Status: Done | Evidence: 三层防循环（recovery.go）：①F-1644 冷却——终态后同节点判封静默 1h，不再每轮 Sweep 重开；②F-1645 耗尽即落 manual 人工介入态，Sweep 对 manual 无限期挡在自动重开外（自动链到此为止）；③本次显式重开预算——Recovery.Reopens 计数（uniqueIndex 单行复用），重开路径超 Options.MaxReopens（默认 5）改 finishRecovery(manual)（「自动恢复重开 N 次仍未根治」+升级照发），ack 时 reopens 清零给新预算 | Verification: TestReopenCapStopsLoop（超限→manual 且计数不动；未超限→重开 L1 且计数+1）+TestManualBarsVerdict+TestRecoveryAck（reopens 5→ack→0）绿；全量 52 ok FAIL=0 exit=0 | Commit: 8bf45f2）
 -   [x] `F-1647` 记录自动恢复决策和执行结果。
     - 备注（Task ID: F-1647 | Status: Done | Evidence: RecoveryAction 轨迹 models.go:527；TestTraceRowsReplay | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 
