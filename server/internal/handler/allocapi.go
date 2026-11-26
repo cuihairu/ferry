@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/cuihairu/ferry/server/internal/alloc"
 	"github.com/cuihairu/ferry/server/internal/storage"
@@ -40,4 +42,26 @@ func (h *Handler) putAllocPolicy(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, in)
+}
+
+// listAllocDecisions returns the recorded scheduling snapshots (F-1032,
+// newest first, 50 rows by default): only rounds that actually moved
+// something write one, so this is the replay trail of why the assignment
+// table looks the way it does.
+func (h *Handler) listAllocDecisions(c *gin.Context) {
+	limit := 50
+	if v := c.Query("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 200 {
+			fail(c, http.StatusBadRequest, errors.New("limit must be 1-200"))
+			return
+		}
+		limit = n
+	}
+	rows := []storage.AllocDecision{}
+	if err := h.db.Order("id DESC").Limit(limit).Find(&rows).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"rows": rows})
 }

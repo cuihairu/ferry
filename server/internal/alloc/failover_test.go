@@ -1,6 +1,7 @@
 package alloc
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -176,5 +177,80 @@ func TestRebindLandingLeftPool(t *testing.T) {
 	}
 	if reloaded.LandingNodeID != alive.ID || reloaded.Version != 2 {
 		t.Fatalf("rebound path = %+v", reloaded)
+	}
+}
+
+// TestRebindRecordsSnapshot covers the F-1032 failover side: a round that
+// rebound writes one kind-failover snapshot with the path's replay row; a
+// no-op round appends nothing.
+func TestRebindRecordsSnapshot(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Now()
+
+	entry := seedNode(t, db, "fs-entry", "entry", "out", func(n *storage.Node) {
+		n.Capabilities = storage.MustJSON([]string{"relay_entry"})
+	})
+	sickly := seedNode(t, db, "fs-sick", "landing", "out", func(n *storage.Node) {
+		n.Capabilities = storage.MustJSON([]string{"relay_landing"})
+		n.BillingType, n.TrafficPriceCents = "按流量", int64(5)
+	})
+	alt := seedNode(t, db, "fs-alt", "landing", "out", func(n *storage.Node) {
+		n.Capabilities = storage.MustJSON([]string{"relay_landing"})
+		n.BillingType, n.TrafficPriceCents = "按流量", int64(50)
+	})
+	probe := func(target uint, verdict string) {
+		t.Helper()
+		tid := target
+		if err := db.Create(&storage.ProbeReport{
+			NodeID: entry.ID, TargetKind: agentproto.ProbeTargetTunnel, TargetNodeID: &tid,
+			Verdict: verdict, ProbedAt: now,
+		}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	probe(sickly.ID, agentproto.ProbeVerdictSick)
+	probe(alt.ID, agentproto.ProbeVerdictHealthy)
+	p := seedPath(t, db, "fs-path", entry.ID, sickly.ID, "out")
+
+	events, err := RebindSickPaths(db, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("events = %+v", events)
+	}
+	var snaps []storage.AllocDecision
+	if err := db.Where("kind = ?", SnapshotKindFailover).Find(&snaps).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(snaps) != 1 {
+		t.Fatalf("snapshots = %d", len(snaps))
+	}
+	s := snaps[0]
+	if s.Switches != 1 || s.Entries != 1 || s.Landings != 2 {
+		t.Fatalf("snapshot header = %+v", s)
+	}
+	var replay []decisionSnapshotRow
+	if err := json.Unmarshal([]byte(s.Decisions), &replay); err != nil {
+		t.Fatal(err)
+	}
+	if len(replay) != 1 || replay[0].Policy != "failover" || replay[0].Action != ActionSwitch ||
+		replay[0].EntryName != p.Name || replay[0].From != sickly.Name || replay[0].To != alt.Name ||
+		replay[0].Reason == "" {
+		t.Fatalf("snapshot rows = %+v", replay)
+	}
+
+	// a no-op round appends nothing: the path already sits on the healthy alt
+	if events, err = RebindSickPaths(db, now); err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("second pass events = %+v", events)
+	}
+	if err := db.Where("kind = ?", SnapshotKindFailover).Find(&snaps).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(snaps) != 1 {
+		t.Fatalf("no-op round wrote snapshots = %d", len(snaps))
 	}
 }

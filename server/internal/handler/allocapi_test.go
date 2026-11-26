@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
+
+	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
 // TestAllocAPI covers policy view/set (E-21): default policy, persisted set,
@@ -96,5 +99,66 @@ func TestAllocAPI(t *testing.T) {
 	}
 	if len(out.Rows) != 1 || out.Rows[0]["strategy"] != "least_conn" {
 		t.Fatalf("rows = %+v", out.Rows)
+	}
+}
+
+// TestAllocDecisionsList covers the snapshot read API (F-1032): newest first
+// with a bounded limit, and bad limits rejected.
+func TestAllocDecisionsList(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	// an empty table still answers with an empty list
+	rec := doJSON(t, r, "GET", "/api/alloc/decisions", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("empty list status = %d body=%s", rec.Code, rec.Body)
+	}
+
+	if err := db.Create(&storage.AllocDecision{Kind: "alloc", RoundAt: time.Now(),
+		PolicyOut: "cost_first", PolicyIn: "perf_first", Entries: 2, Landings: 3,
+		Switches: 1, Decisions: `[{"entry_name":"e1","action":"switch"}]`}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&storage.AllocDecision{Kind: "failover", RoundAt: time.Now(),
+		Switches: 2, Decisions: `[]`}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	rec = doJSON(t, r, "GET", "/api/alloc/decisions", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list status = %d body=%s", rec.Code, rec.Body)
+	}
+	var out struct {
+		Rows []struct {
+			Kind      string `json:"kind"`
+			Switches  int    `json:"switches"`
+			Decisions string `json:"decisions"`
+		} `json:"rows"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode decisions: %v", err)
+	}
+	if len(out.Rows) != 2 || out.Rows[0].Kind != "failover" || out.Rows[1].Kind != "alloc" {
+		t.Fatalf("rows = %+v", out.Rows)
+	}
+
+	// the limit is honored
+	rec = doJSON(t, r, "GET", "/api/alloc/decisions?limit=1", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("limit status = %d", rec.Code)
+	}
+	out.Rows = nil
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Rows) != 1 {
+		t.Fatalf("limit=1 rows = %d", len(out.Rows))
+	}
+
+	// out-of-range and non-numeric limits are rejected
+	for _, bad := range []string{"0", "201", "abc"} {
+		rec = doJSON(t, r, "GET", "/api/alloc/decisions?limit="+bad, nil)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("limit %q status = %d", bad, rec.Code)
+		}
 	}
 }

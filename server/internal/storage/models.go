@@ -344,6 +344,27 @@ type AllocExclusion struct {
 	CreatedAt     time.Time `gorm:"index" json:"created_at"`
 }
 
+// AllocDecision is one scheduling decision snapshot (F-1032): the round that
+// actually moved something records what it decided and why, so the panel can
+// replay a switch without re-deriving it from policy and probe history.
+// Keep-only rounds write nothing -- their state is the assignment table.
+type AllocDecision struct {
+	ID      uint      `gorm:"primaryKey" json:"id"`
+	Kind    string    `gorm:"size:16;not null;index" json:"kind"` // alloc/failover
+	RoundAt time.Time `gorm:"not null;index" json:"round_at"`
+	// Policy tiers in effect this round (both directions, for the replay).
+	PolicyOut string `gorm:"size:16" json:"policy_out"`
+	PolicyIn  string `gorm:"size:16" json:"policy_in"`
+	// Pool sizes at decision time: schedulable entries and landing candidates.
+	Entries  int `json:"entries"`
+	Landings int `json:"landings"`
+	Switches int `json:"switches"`
+	// Decisions is the compact JSON row list (per-entry decision or per-path
+	// rebind), names included so a replay reads without joins.
+	Decisions string    `gorm:"type:text" json:"decisions"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // ProbeReport stores one edge probe conclusion: probing runs locally on the node,
 // and the panel only receives the conclusion for aggregate judgment and historical backtracking.
 type ProbeReport struct {

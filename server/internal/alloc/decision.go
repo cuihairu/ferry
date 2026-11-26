@@ -1,6 +1,7 @@
 package alloc
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"time"
@@ -33,6 +34,15 @@ const (
 	// ActionSkip means the entry itself is not schedulable (e.g. it lacks the
 	// relay_entry capability, so no tunnel can come up).
 	ActionSkip = "skip"
+)
+
+// Decision snapshot kinds (F-1032): the two executors that move state share
+// one table, distinguished by which pass produced the round.
+const (
+	// SnapshotKindAlloc marks an allocation sweep round.
+	SnapshotKindAlloc = "alloc"
+	// SnapshotKindFailover marks a path rebind round.
+	SnapshotKindFailover = "failover"
 )
 
 // Request (F-1022) is the unified scheduling input: everything one round
@@ -351,5 +361,59 @@ func Apply(db *gorm.DB, req *Request, decisions []Decision) ([]SwitchEvent, erro
 			Reason:    d.Reason,
 		})
 	}
+	if len(events) > 0 {
+		// Decision snapshot (F-1032): a round that moved something records
+		// what it decided, so the panel can replay it. Best-effort, like the
+		// exclusion trail: a recording failure must not fail the round.
+		_ = recordDecisionSnapshot(db, SnapshotKindAlloc, req, decisions)
+	}
 	return events, nil
+}
+
+// decisionSnapshotRow is one compact replay line inside a snapshot: names
+// included, so reading a switch needs no joins.
+type decisionSnapshotRow struct {
+	EntryID   uint   `json:"entry_id"`
+	EntryName string `json:"entry_name"`
+	Direction string `json:"direction"`
+	Policy    string `json:"policy"`
+	Action    string `json:"action"`
+	From      string `json:"from"`
+	To        string `json:"to"`
+	Reason    string `json:"reason"`
+}
+
+// recordDecisionSnapshot writes one round's snapshot (F-1032): the policy
+// tiers in effect, the pool sizes, and every decision rendered as compact
+// replay rows. Recording is best-effort; failures cost observability only.
+func recordDecisionSnapshot(db *gorm.DB, kind string, req *Request, decisions []Decision) error {
+	rows := make([]decisionSnapshotRow, 0, len(decisions))
+	switches := 0
+	for _, d := range decisions {
+		row := decisionSnapshotRow{
+			EntryID: d.EntryID, EntryName: d.EntryName, Direction: d.Direction,
+			Policy: d.Policy, Action: d.Action, Reason: d.Reason,
+		}
+		if d.FromID != 0 {
+			row.From = nodeName(req.Landings, d.FromID)
+		}
+		if d.ToID != 0 {
+			row.To = nodeName(req.Landings, d.ToID)
+		}
+		if d.Action == ActionSwitch {
+			switches++
+		}
+		rows = append(rows, row)
+	}
+	raw, err := json.Marshal(rows)
+	if err != nil {
+		return err
+	}
+	row := storage.AllocDecision{
+		Kind: kind, RoundAt: req.Now,
+		PolicyOut: req.Policy.Out, PolicyIn: req.Policy.In,
+		Entries: len(req.Entries), Landings: len(req.Landings),
+		Switches: switches, Decisions: string(raw),
+	}
+	return db.Create(&row).Error
 }

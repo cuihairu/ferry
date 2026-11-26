@@ -1,6 +1,7 @@
 package alloc
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -21,14 +22,15 @@ import (
 
 // PathRebindEvent is one failover rebind of a Path (F-1031).
 type PathRebindEvent struct {
-	PathID   uint
-	PathName string
-	EntryID  uint
-	FromID   uint
-	FromName string
-	ToID     uint
-	ToName   string
-	Reason   string
+	PathID    uint
+	PathName  string
+	EntryID   uint
+	Direction string
+	FromID    uint
+	FromName  string
+	ToID      uint
+	ToName    string
+	Reason    string
 }
 
 // SwitchEvent renders the rebind as the switch event the hooks and the
@@ -132,11 +134,41 @@ func RebindSickPaths(db *gorm.DB, now time.Time) ([]PathRebindEvent, error) {
 			continue // the panel edited the path mid-round; its version wins
 		}
 		events = append(events, PathRebindEvent{
-			PathID: p.ID, PathName: p.Name, EntryID: p.EntryNodeID,
+			PathID: p.ID, PathName: p.Name, EntryID: p.EntryNodeID, Direction: direction,
 			FromID: p.LandingNodeID, FromName: nodeName(landings, p.LandingNodeID),
 			ToID: alt.Node.ID, ToName: alt.Node.Name,
 			Reason: fmt.Sprintf("failover：%s，%s 负载 %d 连/%dM", failed, policyFor(policy, direction), alt.Conns, alt.CapacityMbps()),
 		})
 	}
+	if len(events) > 0 {
+		// Decision snapshot (F-1032): a rebind round records itself under the
+		// same table as the alloc side, kind "failover". Best-effort: a
+		// recording failure must not fail the rebinds already written.
+		_ = recordFailoverSnapshot(db, now, policy, len(paths), len(landings), events)
+	}
 	return events, nil
+}
+
+// recordFailoverSnapshot writes the failover round's snapshot (F-1032): the
+// same compact replay rows as the alloc side, sourced from the rebind events.
+func recordFailoverSnapshot(db *gorm.DB, now time.Time, policy PolicySetting, paths, landings int, events []PathRebindEvent) error {
+	rows := make([]decisionSnapshotRow, 0, len(events))
+	for _, ev := range events {
+		rows = append(rows, decisionSnapshotRow{
+			EntryID: ev.EntryID, EntryName: ev.PathName, Direction: ev.Direction,
+			Policy: "failover", Action: ActionSwitch,
+			From: ev.FromName, To: ev.ToName, Reason: ev.Reason,
+		})
+	}
+	raw, err := json.Marshal(rows)
+	if err != nil {
+		return err
+	}
+	row := storage.AllocDecision{
+		Kind: SnapshotKindFailover, RoundAt: now,
+		PolicyOut: policy.Out, PolicyIn: policy.In,
+		Entries: paths, Landings: landings,
+		Switches: len(events), Decisions: string(raw),
+	}
+	return db.Create(&row).Error
 }

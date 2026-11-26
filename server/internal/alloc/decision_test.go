@@ -1,6 +1,7 @@
 package alloc
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -287,5 +288,72 @@ func TestApplyWritesTrailsAndRows(t *testing.T) {
 	}
 	if len(rows) != 1 {
 		t.Fatalf("keep wrote rows: %+v", rows)
+	}
+}
+
+// TestApplyRecordsSnapshot covers the F-1032 alloc side: a round that moved
+// something records one snapshot with the replay rows inline (names, action,
+// reason), and a keep-only round records nothing.
+func TestApplyRecordsSnapshot(t *testing.T) {
+	db := newTestDB(t)
+
+	landA := seedNode(t, db, "sn-a", "landing", "out", nil)
+	landB := seedNode(t, db, "sn-b", "landing", "out", nil)
+	entry := seedNode(t, db, "sn-entry", "entry", "out", nil)
+
+	rid := entry.ID
+	cur := &storage.LandingAssignment{EntryNodeID: &rid, LandingNodeID: landB.ID,
+		Direction: "out", Strategy: PolicyCostFirst, AssignedAt: testNow}
+	if err := db.Create(cur).Error; err != nil {
+		t.Fatal(err)
+	}
+	req := &Request{
+		Now: testNow, Policy: DefaultPolicySetting(),
+		Entries: []storage.Node{entry}, Landings: []storage.Node{landA, landB},
+		Conns: map[uint]int{}, Sick: map[uint]bool{}, Manual: map[uint]bool{},
+		Current: map[uint]*storage.LandingAssignment{entry.ID: cur},
+	}
+	decs := []Decision{{
+		EntryID: entry.ID, EntryName: entry.Name, Direction: "out", Policy: PolicyCostFirst,
+		WinnerID: landA.ID, Action: ActionSwitch, FromID: landB.ID, ToID: landA.ID,
+		Reason: "cost_first 负载 0 连/100M",
+	}}
+	if _, err := Apply(db, req, decs); err != nil {
+		t.Fatal(err)
+	}
+
+	var snaps []storage.AllocDecision
+	if err := db.Find(&snaps).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(snaps) != 1 {
+		t.Fatalf("snapshots = %d", len(snaps))
+	}
+	s := snaps[0]
+	if s.Kind != SnapshotKindAlloc || s.Switches != 1 || !s.RoundAt.Equal(testNow) {
+		t.Fatalf("snapshot header = %+v", s)
+	}
+	if s.PolicyOut != PolicyCostFirst || s.Entries != 1 || s.Landings != 2 {
+		t.Fatalf("snapshot counts = %+v", s)
+	}
+	var replay []decisionSnapshotRow
+	if err := json.Unmarshal([]byte(s.Decisions), &replay); err != nil {
+		t.Fatal(err)
+	}
+	if len(replay) != 1 || replay[0].Action != ActionSwitch ||
+		replay[0].EntryName != entry.Name || replay[0].From != landB.Name || replay[0].To != landA.Name ||
+		replay[0].Reason == "" {
+		t.Fatalf("snapshot rows = %+v", replay)
+	}
+
+	// a keep-only round appends no snapshot
+	if _, err := Apply(db, req, []Decision{{EntryID: entry.ID, Action: ActionKeep}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Find(&snaps).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(snaps) != 1 {
+		t.Fatalf("keep round wrote snapshots = %d", len(snaps))
 	}
 }
