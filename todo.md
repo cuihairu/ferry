@@ -1711,8 +1711,8 @@ External Client
     - 备注（Task ID: F-1125 | Status: Done | Evidence: sing-box 生成审计 §3.6（singbox.go:165+TestPackSingBox） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1126` 完成 sing-box JSON Adapter。
     - 备注（Task ID: F-1126 | Status: Done | Evidence: sub/singbox.go:165 PackSingBox；TestPackSingBox | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1127` 为每个 Adapter 建立客户端能力矩阵。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1127 | 区级未满足原因：区级现状：F-1131 已关；其余——客户端能力矩阵未满足(仅 UA 嗅探+target 无 per-client 特性表)、真实客户端解析测试未满足(合成 UA 无 fixture)、不支持字段降级部分(硬失败整包/clash 静默裸 network)、策略组能力假设部分(clash 单一 url-test 形状假定所有客户端支持)。）
+-   [x] `F-1127` 为每个 Adapter 建立客户端能力矩阵。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1127 | Status: Done | Evidence: sub/capability.go ClientCaps 五 target 一行一声明(Notes/UDP/PacketEncoding/LazyGroups/RegionGroups/JSON)+CapsFor 单点查询；mihomo 为 clash 超集，xray/singbox 为纯 JSON 无注释位 | Verification: TestClientCapsMatrix(行齐/未知 miss/超集关系)+TestCapsMatchAdapters(矩阵声明与适配器实际输出互证：udp:/“# note”/无 // 注释)+go vet+server 全套件 green exit=0（51 ok）2026-11-27 | Commit: 2e2535b）
 -   [x] `F-1128` 为每个 Adapter 建立配置语法测试。
     - 备注（Task ID: F-1128 | Status: Done | Evidence: 测试内 yaml/json 严格解析断言；clash_test+singbox_test | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1129` 使用真实客户端版本执行解析测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
