@@ -79,6 +79,10 @@ func run(ctx context.Context, base config.RelaySpec, overridePath string, hup <-
 	if _, err := tunnels.get(cur); err != nil {
 		return err
 	}
+	// Counters (F-0815): the relay exposes its own metrics endpoint when
+	// configured; the core process collector can scrape it via MetricsURL.
+	mx := &relayMetrics{}
+	serveMetrics(cur.MetricsListen, mx)
 
 	if ln == nil {
 		var err error
@@ -161,10 +165,12 @@ func run(ctx context.Context, base config.RelaySpec, overridePath string, hup <-
 		ceiling := int(limit.Load())
 		if active.Add(1) > int64(ceiling) {
 			active.Add(-1)
+			mx.dropped.Add(1)
 			logger.Printf("relay overloaded, dropping %s", front.RemoteAddr())
 			_ = front.Close()
 			continue
 		}
+		mx.conns.Add(1)
 		go func(front net.Conn) {
 			defer active.Add(-1)
 			defer front.Close()
@@ -180,6 +186,7 @@ func run(ctx context.Context, base config.RelaySpec, overridePath string, hup <-
 			ceiling := int(streamLimit.Load())
 			if ceiling > 0 && streams.Add(1) > int64(ceiling) {
 				streams.Add(-1)
+				mx.streamDrops.Add(1)
 				logger.Printf("relay stream limit reached, dropping %s", front.RemoteAddr())
 				return
 			}
@@ -187,7 +194,7 @@ func run(ctx context.Context, base config.RelaySpec, overridePath string, hup <-
 				defer streams.Add(-1)
 			}
 			serveConn(ctx, tn, s.LandingAddr, effectiveRateKbps(*s), effectiveRetries(*s),
-				effectiveIdleTimeout(*s), front, logger, func() {
+				effectiveIdleTimeout(*s), front, logger, mx, func() {
 					// F-0813: a failed dial invalidates the cached plugin instance;
 					// the next connection rebuilds a fresh session.
 					tunnels.drop(*s)
@@ -200,7 +207,7 @@ func run(ctx context.Context, base config.RelaySpec, overridePath string, hup <-
 // serveConn dials the landing for one frontend connection and copies both ways; either direction ending tears down the whole connection.
 // A dial failure retries up to retries times (F-0813) after a short backoff;
 // between attempts the cached tunnel is evicted so a broken session is rebuilt.
-func serveConn(ctx context.Context, tn tunnel.Tunnel, landing string, rateKbps, retries int, idle time.Duration, front net.Conn, logger *log.Logger, onDialFail func()) {
+func serveConn(ctx context.Context, tn tunnel.Tunnel, landing string, rateKbps, retries int, idle time.Duration, front net.Conn, logger *log.Logger, mx *relayMetrics, onDialFail func()) {
 	var (
 		back net.Conn
 		err  error
@@ -210,8 +217,10 @@ func serveConn(ctx context.Context, tn tunnel.Tunnel, landing string, rateKbps, 
 		back, err = tn.Dial(dialCtx, landing)
 		cancel()
 		if err == nil {
+			mx.dials.Add(1)
 			break
 		}
+		mx.dialFailures.Add(1)
 		if onDialFail != nil {
 			onDialFail()
 		}
@@ -243,11 +252,13 @@ func serveConn(ctx context.Context, tn tunnel.Tunnel, landing string, rateKbps, 
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		_, _ = io.Copy(back, fwd)
+		n, _ := io.Copy(back, fwd)
+		mx.bytesRx.Add(n)
 	}()
 	go func() {
 		defer wg.Done()
-		_, _ = io.Copy(front, rev)
+		n, _ := io.Copy(front, rev)
+		mx.bytesTx.Add(n)
 	}()
 	done := make(chan struct{})
 	go func() {
