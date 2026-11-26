@@ -289,3 +289,58 @@ func TestSubXPolicyAndGroupParity(t *testing.T) {
 		t.Fatalf("unpinned custom subscription missing entries: %s", raw)
 	}
 }
+
+// TestSubXPolicyConstraintParity pins the constraint half of F-1144 on the
+// custom surface: a scoped policy's region whitelist filters the candidates
+// exactly like the main subscription (TestSubscriptionPolicyFilter).
+func TestSubXPolicyConstraintParity(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	panel := panelUserOf(t, r, "xcons-panel", nil)
+	rec := doJSONToken(t, r, panel, "POST", "/api/subscriptions", map[string]any{"name": "cons"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create sub: %d %s", rec.Code, rec.Body)
+	}
+	var s storage.Subscription
+	_ = json.Unmarshal(rec.Body.Bytes(), &s)
+	var owner storage.User
+	if err := db.Where("username = ?", "xcons-panel").First(&owner).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	mk := func(name, region string) {
+		if err := db.Create(&storage.Node{Name: name, Token: name, Address: name + ".example.com",
+			Port: 443, Protocol: "vless", Config: `{"uuid":"u-1"}`, Role: "entry", Enabled: true,
+			Status: "online", PoolState: "active", Region: region}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("cja-jp", "JP")
+	mk("cja-hk", "HK")
+
+	rec = doJSON(t, r, "POST", "/api/policies", map[string]any{
+		"scope": "user", "subject_id": owner.ID,
+		"constraints": map[string]any{"regions": []string{"JP"}},
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create policy: %d %s", rec.Code, rec.Body)
+	}
+
+	raw := decoded(t, getSub(t, r, "/sub/x/"+s.Token, "v2rayNG/1.8"))
+	if !strings.Contains(raw, "cja-jp.example.com") || strings.Contains(raw, "cja-hk.example.com") {
+		t.Fatalf("region constraint not honored on the custom surface: %s", raw)
+	}
+
+	// removing the policy restores both entries
+	var pol storage.Policy
+	if err := db.Where("scope = ?", "user").First(&pol).Error; err != nil {
+		t.Fatal(err)
+	}
+	if rec = doJSON(t, r, "DELETE", "/api/policies/"+utoa(pol.ID), nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete policy: %d %s", rec.Code, rec.Body)
+	}
+	raw = decoded(t, getSub(t, r, "/sub/x/"+s.Token, "v2rayNG/1.8"))
+	if !strings.Contains(raw, "cja-jp.example.com") || !strings.Contains(raw, "cja-hk.example.com") {
+		t.Fatalf("unconstrained custom subscription missing entries: %s", raw)
+	}
+}
