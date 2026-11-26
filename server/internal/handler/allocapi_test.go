@@ -565,3 +565,38 @@ func TestAllocPolicyPlanModes(t *testing.T) {
 		}
 	}
 }
+
+// TestAllocPolicyGroupModes covers the per-business-type mode map's API
+// surface (F-1048): the map persists and reads back, and an invalid mode is
+// rejected with the full-window payload.
+func TestAllocPolicyGroupModes(t *testing.T) {
+	r, _ := newTestRouterWithDB(t)
+
+	rec := doJSON(t, r, "PUT", "/api/alloc/policy", map[string]any{
+		"out": "cost_first", "in": "perf_first", "rebalance_start": 1, "rebalance_end": 7,
+		"sched_group_modes": map[string]string{"vip": "priority", "media": "quality"},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("put status = %d body=%s", rec.Code, rec.Body)
+	}
+	rec = doJSON(t, r, "GET", "/api/alloc", nil)
+	var pol struct {
+		Policy struct {
+			SchedGroupModes map[string]string `json:"sched_group_modes"`
+		} `json:"policy"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &pol); err != nil {
+		t.Fatal(err)
+	}
+	if pol.Policy.SchedGroupModes["vip"] != "priority" || pol.Policy.SchedGroupModes["media"] != "quality" {
+		t.Fatalf("modes = %+v", pol.Policy.SchedGroupModes)
+	}
+
+	rec = doJSON(t, r, "PUT", "/api/alloc/policy", map[string]any{
+		"out": "cost_first", "in": "perf_first", "rebalance_start": 1, "rebalance_end": 7,
+		"sched_group_modes": map[string]string{"vip": "greedy"},
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid mode status = %d", rec.Code)
+	}
+}

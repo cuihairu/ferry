@@ -70,16 +70,22 @@ func policyMustBeMsg() string {
 		PolicyLeastConn, PolicyCostFirst, PolicyPerfFirst, PolicyBalanced, PolicyPriority, PolicyQuality)
 }
 
-// policyForEntry returns the effective mode for one entry (F-1047): a
-// plan-bound entry takes its plan's override when present; everything else
-// falls back to the direction's system tier.
+// policyForEntry returns the effective mode for one entry: the direction's
+// system tier, overridden by the node's business group mode (F-1048), then
+// by its plan mode (F-1047) -- the plan is the most specific binding and wins.
 func policyForEntry(p PolicySetting, entry storage.Node) string {
-	if entry.PlanID != 0 {
-		if mode, ok := p.SchedPlanModes[strconv.FormatUint(uint64(entry.PlanID), 10)]; ok {
-			return mode
+	mode := policyFor(p, entry.Direction)
+	if entry.Group != "" {
+		if m, ok := p.SchedGroupModes[entry.Group]; ok {
+			mode = m
 		}
 	}
-	return policyFor(p, entry.Direction)
+	if entry.PlanID != 0 {
+		if m, ok := p.SchedPlanModes[strconv.FormatUint(uint64(entry.PlanID), 10)]; ok {
+			mode = m
+		}
+	}
+	return mode
 }
 
 // PolicySetting holds one tier per direction: outbound and inbound pools weight differently (design doc §C.5.2);
@@ -108,6 +114,10 @@ type PolicySetting struct {
 	// decide with that mode instead of the direction tiers. Only the mode is
 	// overridden -- the window, weights and cost guards stay system-wide.
 	SchedPlanModes map[string]string `json:"sched_plan_modes,omitempty"`
+	// Per-business-type mode overrides (F-1048): the key is the node's
+	// business group tag (Node.Group), the value a policy mode. A plan
+	// override is more specific and wins over the group's.
+	SchedGroupModes map[string]string `json:"sched_group_modes,omitempty"`
 }
 
 // Multiplicative score weight defaults (= the current formula 0.5*loadN + 0.3*costN - 0.2*premium).
@@ -254,6 +264,13 @@ func ValidateSetting(setting PolicySetting) (PolicySetting, error) {
 		}
 		if !ValidPolicy(m) {
 			return setting, fmt.Errorf("sched_plan_modes[%s]: %s", k, policyMustBeMsg())
+		}
+	}
+	// Per-business-type mode overrides (F-1048): keys are free-form group
+	// tags, values modes -- only the mode needs checking.
+	for k, m := range setting.SchedGroupModes {
+		if !ValidPolicy(m) {
+			return setting, fmt.Errorf("sched_group_modes[%s]: %s", k, policyMustBeMsg())
 		}
 	}
 	return setting, nil
