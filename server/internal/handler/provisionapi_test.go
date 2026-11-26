@@ -758,3 +758,120 @@ func TestDestroyCheck(t *testing.T) {
 		t.Fatalf("out-of-service node must be clear: %s", rec.Body)
 	}
 }
+
+// TestDestroyTemplate covers F-1660: the destroy surface — the super-admin
+// gate (审批) 403s an operator, the body must echo the template name (二次确认),
+// the F-1659 preflight blocks in-service dependencies, a second destroy while
+// one runs is refused, and the execution rides the cloud.destroy task (one
+// attempt, 30min timeout) through to the failed job when tofu is absent.
+func TestDestroyTemplate(t *testing.T) {
+	db, err := storage.Open(storage.DriverSQLite, filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	gin.SetMode(gin.TestMode)
+	cfg := config.Default()
+	cfg.SecretKey = "test-master-key"
+	cfg.TofuWorkdir = t.TempDir()
+	mgr := tasks.NewManager(db, nil)
+	r, _ := NewRouterWithTasks(db, cfg, mgr)
+
+	// Operator-tier admin (claims-only role gate): the destroy must 403.
+	if err := db.Create(&storage.User{ID: 999, Username: "op-dc", SubToken: "st-op-dc",
+		Password: "x", Enabled: true, IsAdmin: true, AdminRole: "operator"}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	prov := storage.Provider{Name: "vultr", Type: "vultr", Enabled: true}
+	sealed, encErr := secret.NewStore("test-master-key").Encrypt("sk-live")
+	if encErr != nil {
+		t.Fatal(encErr)
+	}
+	prov.AccessKey = sealed
+	if err := db.Create(&prov).Error; err != nil {
+		t.Fatal(err)
+	}
+	tpl := storage.ProvisionTemplate{Name: "hk-3t", ProviderID: prov.ID, Plan: "vc2-1c-1gb",
+		Region: "hkg", BillingType: "包月", Direction: "out", Role: "entry", Config: `{"inbounds":[]}`}
+	if err := db.Create(&tpl).Error; err != nil {
+		t.Fatal(err)
+	}
+	base := "/api/provision-templates/" + itoa64(int(tpl.ID)) + "/destroy"
+
+	// 审批 gate: operator token → 403 before any check runs.
+	op := opJWT(t, "op-dc")
+	if rec := doPanel(t, r, op, "POST", base, map[string]any{"confirm": "hk-3t"}); rec.Code != http.StatusForbidden {
+		t.Fatalf("operator destroy: %d %s", rec.Code, rec.Body)
+	}
+	// 二次确认: wrong echo and absent body → 400.
+	if rec := doJSON(t, r, "POST", base, map[string]any{"confirm": "nope"}); rec.Code != http.StatusBadRequest ||
+		!strings.Contains(rec.Body.String(), "confirmation mismatch") {
+		t.Fatalf("wrong echo: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doJSON(t, r, "POST", base, nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("absent body: %d %s", rec.Code, rec.Body)
+	}
+
+	// Preflight: a minted in-pool node blocks the destroy.
+	node := storage.Node{Name: "ferry-hk-3t", Port: 443, Token: "tok-dt-1",
+		Enabled: true, PoolState: "active", Role: "entry", Direction: "out"}
+	if err := db.Create(&node).Error; err != nil {
+		t.Fatal(err)
+	}
+	job := storage.ProvisionJob{TemplateID: tpl.ID, TemplateName: "hk-3t",
+		InstanceName: "ferry-hk-3t", Action: "apply", Status: "ok"}
+	if err := db.Create(&job).Error; err != nil {
+		t.Fatal(err)
+	}
+	if rec := doJSON(t, r, "POST", base, map[string]any{"confirm": "hk-3t"}); rec.Code != http.StatusConflict ||
+		!strings.Contains(rec.Body.String(), "destroy blocked") {
+		t.Fatalf("blocked destroy: %d %s", rec.Code, rec.Body)
+	}
+
+	// Node and job gone: the destroy is accepted and rides the task ledger.
+	db.Delete(&node)
+	db.Delete(&job)
+	rec := doJSON(t, r, "POST", base, map[string]any{"confirm": "hk-3t"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("destroy: %d %s", rec.Code, rec.Body)
+	}
+	var dj storage.ProvisionJob
+	if err := json.Unmarshal(rec.Body.Bytes(), &dj); err != nil {
+		t.Fatal(err)
+	}
+	if dj.Action != "destroy" || dj.Status != "running" {
+		t.Fatalf("destroy job = %+v", dj)
+	}
+	var task storage.Task
+	if err := db.Where("kind = ? AND ref_id = ?", "cloud.destroy", dj.ID).First(&task).Error; err != nil {
+		t.Fatalf("cloud.destroy row: %v", err)
+	}
+	if task.Status != tasks.StatusPending || task.MaxAttempts != 1 || task.TimeoutSeconds != 1800 {
+		t.Fatalf("task = %+v", task)
+	}
+	// Second destroy while one runs → 409.
+	if rec := doJSON(t, r, "POST", base, map[string]any{"confirm": "hk-3t"}); rec.Code != http.StatusConflict ||
+		!strings.Contains(rec.Body.String(), "already running") {
+		t.Fatalf("double destroy: %d %s", rec.Code, rec.Body)
+	}
+
+	// Drive the sweep: tofu is absent, so the destroy fails into dead/failed.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		mgr.LoopOnce(context.Background())
+		_ = db.First(&task, task.ID).Error
+		_ = db.First(&dj, dj.ID).Error
+		if task.Status == tasks.StatusDead && dj.Status == "failed" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if task.Status != tasks.StatusDead || dj.Status != "failed" {
+		t.Fatalf("after sweep: task=%s job=%s (%s)", task.Status, dj.Status, task.Error)
+	}
+}

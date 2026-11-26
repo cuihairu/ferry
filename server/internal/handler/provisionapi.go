@@ -266,6 +266,71 @@ func (h *Handler) destroyCheck(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": len(blockers) == 0, "blockers": blockers})
 }
 
+// destroyTemplate serves POST /api/provision-templates/:id/destroy (F-1660):
+// the paid destruction of a template's workspace instances. Human-gated on
+// three layers: super admin only (审批), the body must echo the template name
+// (二次确认), and the F-1659 preflight must be clear. Execution rides the task
+// ledger (cloud.destroy) with its own job trail row; while a destroy job runs,
+// further destroys of the same template are refused.
+func (h *Handler) destroyTemplate(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		fail(c, http.StatusNotFound, errors.New("template not found"))
+		return
+	}
+	var tpl storage.ProvisionTemplate
+	if err := h.db.First(&tpl, id).Error; err != nil {
+		fail(c, http.StatusNotFound, errors.New("template not found"))
+		return
+	}
+	var in struct {
+		Confirm string `json:"confirm"`
+	}
+	_ = c.ShouldBindJSON(&in) // an absent body means an empty confirm: mismatch
+	if in.Confirm != tpl.Name {
+		fail(c, http.StatusBadRequest, errors.New("confirmation mismatch: pass confirm=<template name> to destroy"))
+		return
+	}
+	if !h.secrets.Enabled() {
+		fail(c, http.StatusBadRequest, errors.New("secret master key not configured (set FERRY_SECRET_KEY)"))
+		return
+	}
+	if blockers := h.destroyBlockers(tpl); len(blockers) > 0 {
+		fail(c, http.StatusConflict, fmt.Errorf("destroy blocked: %s", strings.Join(blockers, "; ")))
+		return
+	}
+	var running int64
+	h.db.Model(&storage.ProvisionJob{}).Where(
+		"template_id = ? AND action = ? AND status = ?", tpl.ID, "destroy", "running").Count(&running)
+	if running > 0 {
+		fail(c, http.StatusConflict, errors.New("a destroy job is already running for this template"))
+		return
+	}
+	job := storage.ProvisionJob{TemplateID: tpl.ID, TemplateName: tpl.Name,
+		Action: "destroy", Status: "running"}
+	if err := h.db.Create(&job).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	if h.tasks != nil {
+		if _, err := h.tasks.Enqueue("cloud.destroy", job.ID,
+			fmt.Sprintf("provision-destroy-%d", job.ID), h.taskActor(c)); err == nil {
+			c.JSON(http.StatusOK, job)
+			return
+		}
+	}
+	// No ledger: refuse rather than fall back — unlike a minted apply there is
+	// no pre-paid apply to strand, and an untracked destroy defeats the audit
+	// surface this endpoint exists for.
+	job.Status = "failed"
+	job.Log = "task ledger unavailable; destroy not started"
+	now := time.Now()
+	job.FinishedAt = &now
+	h.db.Model(&storage.ProvisionJob{}).Where("id = ?", job.ID).
+		Updates(map[string]any{"status": "failed", "log": job.Log, "finished_at": now})
+	fail(c, http.StatusInternalServerError, errors.New(job.Log))
+}
+
 // templateCostEstimate serves GET /api/provision-templates/:id/cost-estimate
 // (F-1653): the reference-price lookup mapped from the template, so the operator
 // sees the expected monthly cost before paying for an apply. Keys default to

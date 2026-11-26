@@ -258,6 +258,64 @@ func registerTaskConsumers(h *Handler, mgr *tasks.Manager) {
 			return nil
 		},
 	})
+
+	// cloud.destroy (F-1660): the paid destroy of one template's workspace
+	// instances (tofu destroy on the per-template workdir). RefID is the
+	// destroy job id. MaxAttempts stays 1: a paid destroy never auto-retries;
+	// the operator re-runs via the endpoint. Depends re-checks the F-1659
+	// preflight so a queued destroy cannot outlive its preflight (something
+	// re-bound the node meanwhile).
+	mgr.Register("cloud.destroy", tasks.Definition{
+		MaxAttempts: 1,
+		Timeout:     30 * time.Minute,
+		Depends: func(ctx context.Context, t storage.Task) error {
+			var job storage.ProvisionJob
+			if err := db.First(&job, t.RefID).Error; err != nil {
+				return err
+			}
+			if job.Action != "destroy" || job.Status != "running" {
+				return fmt.Errorf("job %d is %s/%s; only a running destroy can execute", job.ID, job.Action, job.Status)
+			}
+			var tpl storage.ProvisionTemplate
+			if err := db.First(&tpl, job.TemplateID).Error; err != nil {
+				return err
+			}
+			if blockers := h.destroyBlockers(tpl); len(blockers) > 0 {
+				return fmt.Errorf("destroy blocked: %s", strings.Join(blockers, "; "))
+			}
+			return nil
+		},
+		Run: func(ctx context.Context, t *storage.Task) error {
+			var job storage.ProvisionJob
+			if err := db.First(&job, t.RefID).Error; err != nil {
+				return err
+			}
+			var tpl storage.ProvisionTemplate
+			if err := db.First(&tpl, job.TemplateID).Error; err != nil {
+				return err
+			}
+			var prov storage.Provider
+			if err := db.First(&prov, tpl.ProviderID).Error; err != nil {
+				return err
+			}
+			if !prov.Enabled {
+				return fmt.Errorf("provider %s disabled", prov.Name)
+			}
+			apiKey, err := provision.DecryptKey(prov, h.secrets)
+			if err != nil {
+				return err
+			}
+			m := h.getProvisionManager()
+			status, logTail := m.Execute(ctx, provision.ExecParams{
+				Template: tpl, ProviderType: prov.Type, APIKey: apiKey, Action: "destroy",
+			})
+			m.FinishJob(job.ID, status, logTail)
+			if status != "ok" {
+				return fmt.Errorf("destroy job %d failed: %s", job.ID, tailLine(logTail))
+			}
+			return nil
+		},
+	})
 }
 
 // postCreateSync runs one region-scoped resource sync (trigger "provision")
