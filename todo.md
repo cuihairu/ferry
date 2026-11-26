@@ -1614,7 +1614,8 @@ External Client
     - 备注（Task ID: F-1033 | Status: Done | Evidence: collectCandidates 结构性跳过不再静默：候选=entry 自身（both 角色双池）/方向不匹配/存量能力列表缺 relay_landing 都带 operator 可读 reason 进 Decision.Exclusions（与 F-0606 单价超上限同列）；Apply 自动随 recordExclusion 落 AllocExclusion 审计（1h 去重防刷）；决策快照回放行加 exclusions 字段（omitempty）使 GET /api/alloc/decisions 可解释每个被排除 landing；TestDecideExplainsStructuralExclusions（三因排除+trail 去重+快照回放） | Verification: go vet + server 全套件 green exit=0（51 ok）2026-11-26 | Commit: 3b82a58）
 -   [x] `F-1034` 实现调度结果解释。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1034 | Status: Done | Evidence: GET /api/alloc/explain（?entry_id= 过滤，非正数 400）：BuildRequest→Decide 只读跑当前信号不 Apply，operator 可直接回答「这条 entry 为什么在该 landing」；每 entry 输出 action/current/from→to/winner/reason + 候选表（landing 名称+eligible+reason+quality 分）+ 排除表（F-1033 原因带 landing 名称）；manual entry 不出 decision 单列 manual id 列表；DTO 平面化不外泄 Node 整行；TestAllocExplain（switch 全景/manual 分流/过滤/坏参 400） | Verification: go vet + server 全套件 green exit=0（51 ok）2026-11-26 | Commit: 726568c）
--   [ ] `F-1035` 实现调度模拟 API。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1035` 实现调度模拟 API。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1035 | Status: Done | Evidence: POST /api/alloc/simulate：指针字段 body（out/in/rebalance 窗口/三权重/max_cost_per_gb/missing_cost/hour）只覆盖出现的键，经 ValidateSetting（SavePolicy 校验抽出复用，零持久化）归一后叠到 BuildRequest 模型，hour 0-23 可把模拟轮挪到当天任意小时对比峰谷行为，Decide 只读输出与 explain 同构 DTO+simulated 标记；不写 assignment/不落快照/不改 policy；TestAllocSimulate（基线复算/费用上限排除两 landing/非法 tier 400/hour 覆盖+24 拒/GET /api/alloc 确认零持久化） | Verification: go vet + server 全套件 green exit=0（51 ok）2026-11-26 | Commit: 6498c50）
 -   [x] `F-1036` 实现调度单元测试。
     - 备注（Task ID: F-1036 | Status: Done | Evidence: alloc_test 9 例（Pick/sweep/权重/手动） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 
