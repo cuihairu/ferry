@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -277,5 +278,134 @@ func TestAllocExplain(t *testing.T) {
 	rec = doJSON(t, r, "GET", "/api/alloc/explain?entry_id=abc", nil)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad entry_id status = %d", rec.Code)
+	}
+}
+
+// TestAllocSimulate covers the simulator API (F-1035): optional overrides are
+// merged onto the live policy, validated like SavePolicy, and the round is
+// decided without writing anything -- the persisted policy and the assignment
+// table stay untouched.
+func TestAllocSimulate(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	entry := storage.Node{Name: "sim-entry", Token: "tok-sim-entry", Role: "entry",
+		Direction: "out", Enabled: true,
+		Capabilities: storage.MustJSON([]string{"proxy_ingress", "relay_entry", "probe"})}
+	cheap := storage.Node{Name: "sim-cheap", Token: "tok-sim-cheap", Role: "landing",
+		Direction: "out", Enabled: true, BillingType: "按流量", TrafficPriceCents: 5,
+		Capabilities: storage.MustJSON([]string{"relay_landing"})}
+	pricey := storage.Node{Name: "sim-pricey", Token: "tok-sim-pricey", Role: "landing",
+		Direction: "out", Enabled: true, BillingType: "按流量", TrafficPriceCents: 50,
+		Capabilities: storage.MustJSON([]string{"relay_landing"})}
+	for _, n := range []*storage.Node{&entry, &cheap, &pricey} {
+		if err := db.Create(n).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var sim struct {
+		Simulated bool   `json:"simulated"`
+		RoundAt   string `json:"round_at"`
+		Policy    struct {
+			Out          string `json:"out"`
+			MaxCostPerGB int64  `json:"max_cost_per_gb"`
+		} `json:"policy"`
+		Decisions []struct {
+			Action     string `json:"action"`
+			To         string `json:"to"`
+			Exclusions []struct {
+				Name   string `json:"name"`
+				Reason string `json:"reason"`
+			} `json:"exclusions"`
+		} `json:"decisions"`
+	}
+
+	// an empty body re-decides the live policy: the cheap landing wins
+	rec := doJSON(t, r, "POST", "/api/alloc/simulate", map[string]any{})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("simulate status = %d body=%s", rec.Code, rec.Body)
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &sim); err != nil {
+		t.Fatalf("decode simulate: %v", err)
+	}
+	if !sim.Simulated || sim.Policy.Out != "cost_first" || len(sim.Decisions) != 1 ||
+		sim.Decisions[0].Action != "switch" || sim.Decisions[0].To != cheap.Name {
+		t.Fatalf("baseline simulate = %+v", sim)
+	}
+
+	// a cost ceiling of 3 excludes the cheap landing by name -> nothing allocatable
+	rec = doJSON(t, r, "POST", "/api/alloc/simulate", map[string]any{"max_cost_per_gb": 3})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ceiling simulate status = %d", rec.Code)
+	}
+	sim = struct {
+		Simulated bool   `json:"simulated"`
+		RoundAt   string `json:"round_at"`
+		Policy    struct {
+			Out          string `json:"out"`
+			MaxCostPerGB int64  `json:"max_cost_per_gb"`
+		} `json:"policy"`
+		Decisions []struct {
+			Action     string `json:"action"`
+			To         string `json:"to"`
+			Exclusions []struct {
+				Name   string `json:"name"`
+				Reason string `json:"reason"`
+			} `json:"exclusions"`
+		} `json:"decisions"`
+	}{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &sim); err != nil {
+		t.Fatal(err)
+	}
+	if sim.Policy.MaxCostPerGB != 3 || len(sim.Decisions) != 1 || sim.Decisions[0].Action != "none" {
+		t.Fatalf("ceiling simulate = %+v", sim)
+	}
+	// both metered landings sit above the ceiling, so both are excluded by name
+	if len(sim.Decisions[0].Exclusions) != 2 ||
+		sim.Decisions[0].Exclusions[0].Name != cheap.Name ||
+		sim.Decisions[0].Exclusions[1].Name != pricey.Name ||
+		sim.Decisions[0].Exclusions[0].Reason == "" {
+		t.Fatalf("ceiling exclusions = %+v", sim.Decisions[0].Exclusions)
+	}
+
+	// an invalid tier is rejected like SavePolicy would
+	rec = doJSON(t, r, "POST", "/api/alloc/simulate", map[string]any{"out": "greedy"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid tier status = %d", rec.Code)
+	}
+
+	// the hour override moves the simulated round within today
+	rec = doJSON(t, r, "POST", "/api/alloc/simulate", map[string]any{"hour": 3})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("hour simulate status = %d", rec.Code)
+	}
+	sim.Decisions = nil
+	if err := json.Unmarshal(rec.Body.Bytes(), &sim); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sim.RoundAt, "T03:00:00") {
+		t.Fatalf("simulated round_at = %s, want hour 3", sim.RoundAt)
+	}
+	rec = doJSON(t, r, "POST", "/api/alloc/simulate", map[string]any{"hour": 24})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("hour 24 status = %d", rec.Code)
+	}
+
+	// nothing persisted: the live policy still has no ceiling
+	rec = doJSON(t, r, "GET", "/api/alloc", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get alloc status = %d", rec.Code)
+	}
+	var live struct {
+		Policy struct {
+			Out          string `json:"out"`
+			MaxCostPerGB int64  `json:"max_cost_per_gb"`
+		} `json:"policy"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &live); err != nil {
+		t.Fatal(err)
+	}
+	if live.Policy.Out != "cost_first" || live.Policy.MaxCostPerGB != 0 {
+		t.Fatalf("simulate persisted policy: %+v", live.Policy)
 	}
 }

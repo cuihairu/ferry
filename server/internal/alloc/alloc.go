@@ -179,8 +179,10 @@ func validWindow(start, end int) bool {
 	return start >= 0 && start <= 23 && end >= 0 && end <= 23 && start < end
 }
 
-// SavePolicy validates and persists the policy setting.
-func SavePolicy(db *gorm.DB, setting PolicySetting) error {
+// ValidateSetting runs SavePolicy's checks without persisting (F-1035): it
+// returns the normalized setting (empty tiers defaulted, all-zero weights
+// defaulted) or the error a SavePolicy call would give.
+func ValidateSetting(setting PolicySetting) (PolicySetting, error) {
 	// An empty tier means "per-direction default" (outbound cost-effective / inbound premium); only invalid tiers are rejected.
 	if setting.Out == "" {
 		setting.Out = DefaultPolicyOut
@@ -189,27 +191,36 @@ func SavePolicy(db *gorm.DB, setting PolicySetting) error {
 		setting.In = DefaultPolicyIn
 	}
 	if !ValidPolicy(setting.Out) || !ValidPolicy(setting.In) {
-		return fmt.Errorf("policy must be %s/%s/%s/%s", PolicyLeastConn, PolicyCostFirst, PolicyPerfFirst, PolicyBalanced)
+		return setting, fmt.Errorf("policy must be %s/%s/%s/%s", PolicyLeastConn, PolicyCostFirst, PolicyPerfFirst, PolicyBalanced)
 	}
 	if !validWindow(setting.RebalanceStart, setting.RebalanceEnd) {
-		return fmt.Errorf("rebalance window must be 0-23 with start < end")
+		return setting, fmt.Errorf("rebalance window must be 0-23 with start < end")
 	}
 	if setting.WLoad < 0 || setting.WCost < 0 || setting.WPremium < 0 {
-		return fmt.Errorf("score weights must be non-negative")
+		return setting, fmt.Errorf("score weights must be non-negative")
 	}
 	if setting.WLoad == 0 && setting.WCost == 0 && setting.WPremium == 0 {
 		// All-zero = follow the default (equivalent to unset), not rejected.
 		setting.WLoad, setting.WCost, setting.WPremium = DefaultWLoad, DefaultWCost, DefaultWPremium
 	}
 	if setting.MaxCostPerGB < 0 {
-		return fmt.Errorf("max cost per GB must be non-negative")
+		return setting, fmt.Errorf("max cost per GB must be non-negative")
 	}
 	if setting.MissingCost == "" {
 		// An empty degradation rule means "use the default", like the empty tiers above.
 		setting.MissingCost = DefaultMissingCost
 	}
 	if !ValidMissingCost(setting.MissingCost) {
-		return fmt.Errorf("missing cost must be %s/%s", MissingCostDeprioritize, MissingCostTreatZero)
+		return setting, fmt.Errorf("missing cost must be %s/%s", MissingCostDeprioritize, MissingCostTreatZero)
+	}
+	return setting, nil
+}
+
+// SavePolicy validates and persists the policy setting.
+func SavePolicy(db *gorm.DB, setting PolicySetting) error {
+	setting, err := ValidateSetting(setting)
+	if err != nil {
+		return err
 	}
 	raw, err := json.Marshal(setting)
 	if err != nil {

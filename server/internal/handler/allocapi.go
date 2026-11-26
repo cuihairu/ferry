@@ -123,40 +123,15 @@ func (h *Handler) explainAlloc(c *gin.Context) {
 		}
 		filter = n
 	}
-	landName := make(map[uint]string, len(req.Landings))
-	for _, l := range req.Landings {
-		landName[l.ID] = l.Name
-	}
+	decs := alloc.Decide(req)
 	views := []allocExplainDecision{}
-	for _, d := range alloc.Decide(req) {
+	for _, d := range decs {
 		if filter != 0 && int(d.EntryID) != filter {
 			continue
 		}
-		view := allocExplainDecision{
-			EntryID: d.EntryID, EntryName: d.EntryName, Direction: d.Direction,
-			Policy: d.Policy, Action: d.Action, WinnerID: d.WinnerID, Reason: d.Reason,
-			Candidates: make([]allocExplainCandidate, 0, len(d.Candidates)),
-			Exclusions: make([]allocExplainExclusion, 0, len(d.Exclusions)),
-		}
-		if cur := req.Current[d.EntryID]; cur != nil {
-			view.Current = landName[cur.LandingNodeID]
-		}
-		view.From = landName[d.FromID]
-		view.To = landName[d.ToID]
-		for _, ce := range d.Candidates {
-			view.Candidates = append(view.Candidates, allocExplainCandidate{
-				LandingID: ce.Candidate.Node.ID, Name: ce.Candidate.Node.Name,
-				Eligible: ce.Eligible, Reason: ce.Reason, QualityScore: ce.QualityScore,
-			})
-		}
-		for _, ex := range d.Exclusions {
-			view.Exclusions = append(view.Exclusions, allocExplainExclusion{
-				LandingID: ex.LandingID, Name: landName[ex.LandingID], Reason: ex.Reason,
-			})
-		}
-		views = append(views, view)
+		views = append(views, renderExplainDecision(req, d))
 	}
-	manual := make([]uint, 0, len(req.Manual))
+	manual := []uint{}
 	for id := range req.Manual {
 		if filter == 0 || int(id) == filter {
 			manual = append(manual, id)
@@ -166,6 +141,133 @@ func (h *Handler) explainAlloc(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"round_at":  req.Now,
 		"policy":    req.Policy,
+		"decisions": views,
+		"manual":    manual,
+	})
+}
+
+// renderExplainDecision flattens one Decision into the operator view (F-1034),
+// resolving landing names from the request model.
+func renderExplainDecision(req *alloc.Request, d alloc.Decision) allocExplainDecision {
+	landName := make(map[uint]string, len(req.Landings))
+	for _, l := range req.Landings {
+		landName[l.ID] = l.Name
+	}
+	view := allocExplainDecision{
+		EntryID: d.EntryID, EntryName: d.EntryName, Direction: d.Direction,
+		Policy: d.Policy, Action: d.Action, WinnerID: d.WinnerID, Reason: d.Reason,
+		Candidates: make([]allocExplainCandidate, 0, len(d.Candidates)),
+		Exclusions: make([]allocExplainExclusion, 0, len(d.Exclusions)),
+	}
+	if cur := req.Current[d.EntryID]; cur != nil {
+		view.Current = landName[cur.LandingNodeID]
+	}
+	view.From = landName[d.FromID]
+	view.To = landName[d.ToID]
+	for _, ce := range d.Candidates {
+		view.Candidates = append(view.Candidates, allocExplainCandidate{
+			LandingID: ce.Candidate.Node.ID, Name: ce.Candidate.Node.Name,
+			Eligible: ce.Eligible, Reason: ce.Reason, QualityScore: ce.QualityScore,
+		})
+	}
+	for _, ex := range d.Exclusions {
+		view.Exclusions = append(view.Exclusions, allocExplainExclusion{
+			LandingID: ex.LandingID, Name: landName[ex.LandingID], Reason: ex.Reason,
+		})
+	}
+	return view
+}
+
+// allocSimInput is the simulation request (F-1035): every field is optional
+// and only the ones present override the live policy, so a panel toggle can
+// answer "what would one knob change" without persisting anything.
+type allocSimInput struct {
+	Out            *string  `json:"out"`
+	In             *string  `json:"in"`
+	RebalanceStart *int     `json:"rebalance_start"`
+	RebalanceEnd   *int     `json:"rebalance_end"`
+	WLoad          *float64 `json:"w_load"`
+	WCost          *float64 `json:"w_cost"`
+	WPremium       *float64 `json:"w_premium"`
+	MaxCostPerGB   *int64   `json:"max_cost_per_gb"`
+	MissingCost    *string  `json:"missing_cost"`
+	// Hour moves the simulated round's clock within today (0-23), so the
+	// panel can compare peak vs off-peak behavior for the same fleet.
+	Hour *int `json:"hour"`
+}
+
+// simulateAlloc runs the decision pipeline on a hypothetical policy (F-1035):
+// load live signals, overlay the overrides, validate like SavePolicy, Decide
+// -- but never Apply, never write a snapshot, never persist the policy.
+func (h *Handler) simulateAlloc(c *gin.Context) {
+	var in allocSimInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	if in.Hour != nil && (*in.Hour < 0 || *in.Hour > 23) {
+		fail(c, http.StatusBadRequest, errors.New("hour must be 0-23"))
+		return
+	}
+	cur, err := alloc.LoadPolicy(h.db)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	if in.Out != nil {
+		cur.Out = *in.Out
+	}
+	if in.In != nil {
+		cur.In = *in.In
+	}
+	if in.RebalanceStart != nil {
+		cur.RebalanceStart = *in.RebalanceStart
+	}
+	if in.RebalanceEnd != nil {
+		cur.RebalanceEnd = *in.RebalanceEnd
+	}
+	if in.WLoad != nil {
+		cur.WLoad = *in.WLoad
+	}
+	if in.WCost != nil {
+		cur.WCost = *in.WCost
+	}
+	if in.WPremium != nil {
+		cur.WPremium = *in.WPremium
+	}
+	if in.MaxCostPerGB != nil {
+		cur.MaxCostPerGB = *in.MaxCostPerGB
+	}
+	if in.MissingCost != nil {
+		cur.MissingCost = *in.MissingCost
+	}
+	merged, err := alloc.ValidateSetting(cur)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	req, err := alloc.BuildRequest(h.db, time.Now())
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	req.Policy = merged
+	if in.Hour != nil {
+		req.Now = time.Date(req.Now.Year(), req.Now.Month(), req.Now.Day(), *in.Hour, 0, 0, 0, req.Now.Location())
+	}
+	views := []allocExplainDecision{}
+	for _, d := range alloc.Decide(req) {
+		views = append(views, renderExplainDecision(req, d))
+	}
+	manual := []uint{}
+	for id := range req.Manual {
+		manual = append(manual, id)
+	}
+	sort.Slice(manual, func(i, j int) bool { return manual[i] < manual[j] })
+	c.JSON(http.StatusOK, gin.H{
+		"simulated": true,
+		"round_at":  req.Now,
+		"policy":    merged,
 		"decisions": views,
 		"manual":    manual,
 	})
