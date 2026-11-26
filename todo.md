@@ -1890,10 +1890,14 @@ External Client
     - 备注（Task ID: F-1322 | Status: Done | Evidence: 活动规则审计（Campaign models.go:374+TestCampaignCRUDValidation/TestCampaignAutoApply） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1323` 审计分销佣金计算。
     - 备注（Task ID: F-1323 | Status: Done | Evidence: 分销佣金审计（Distributor :436/Ledger :449 佣金 0-100+distributor.go:166+TestDistributorCRUD/TestRedeemDistributorLedger/TestDistributorPayoutAdjust） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1324` 统一账目流水。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1324 | 未满足原因：部分：三张异构表（PaymentTransaction models.go:428/Grant :441/DistributorLedger :467）仅以字符串关联；统一仅在查询层(payrecon.go:17-47 reconcileRow+distributor.go:131)，无统一流水表/枚举。）
--   [ ] `F-1325` 统一佣金结算状态。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1325 | 未满足原因：部分：统一 ledger(kind sale/commission/payout/adjust)+派生未结余额(distributor.go:131-152)+条件 INSERT payout 守卫(:382)；但无显式结算状态（无 pending/settled/paid 字段、无结算批次，payout 仅手动 distributor.go:329-333）。）
+-   [x] `F-1324` 统一账目流水。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 证据（F-1324 | 已落地：GET /api/payments/flows?limit=N（默认 200 上限 500，payflows.go）：三张异构台账（资金 transaction/权益 grant/分销 ledger）经统一类型化信封读出（kind/order_no/ref/user_id/amount_cents/at），合并按时间倒序、各台账等额取样后截断（单类热台账不挤占窗口）；选型注释钉死：台账保持物理分离（语义不同、合并表会糊掉对账保证），统一在读层。grant 的 ref 载荷 grant_type:MiB，资金流 ref=provider/external_id，分销流 ref=distributor/:id。
+    - 验证：TestAccountFlows（三台账各一行合并倒序、各字段映射、limit=1 截断、limit 校验 400）；全量 51 ok / FAIL=0 / exit=0（F-1324+F-1325 合并树一次门禁）。
+    - Commit: e2c7504
+-   [x] `F-1325` 统一佣金结算状态。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 证据（F-1325 | 已落地：GET /api/distributors/:id/settlement（distributor.go）：结算状态由台账派生（ledger 即结算真相，不加第二状态列避免双头），DS-2 三元组 earned(commission+adjust)/paid(payout)/open(balance)；状态机 settled(open=0)/pending(open>0)/overpaid(open<0，payout 守卫下不可达、对人工 adjust 保留防御)。
+    - 验证：TestDistributorSettlement（佣金入账→pending、全额 payout→settled、负数 adjust→overpaid、未知 id 404、entries 列表）；全量 51 ok / FAIL=0 / exit=0（F-1324+F-1325 合并树一次门禁）。
+    - Commit: 443b1c6
 -   [ ] `F-1326` 建立异常订单和重复佣金测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1326 | 未满足原因：部分：异常订单已覆盖（TestReconcile/TestEpusdtNotifyConcurrentSettle/TestReconcileGuards）；重复佣金无重放测试（dedup 仅断言 txn/grant 计数，佣金唯一性靠原子核销 redeem.go:78-84 未在 ledger 层测试）。）
 
