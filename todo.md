@@ -2114,34 +2114,34 @@ External Client
 
 -   [x] `F-1601` 审计现有任务、Provision、Recovery 实现。
     - 备注（Task ID: F-1601 | Status: Done | Evidence: 任务/Provision/Recovery 审计 §3.12 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1602` 统一后台任务状态模型。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1602 | 未满足：无统一任务状态模型；五张独立任务表各持词汇（TouchJob models.go:305/ProvisionJob :514/Recovery :528/CertTask :603/Event :670），无共享状态机。）
--   [ ] `F-1603` 支持任务排队。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1603 | 部分：仅 event outbox 排队（pending+next_attempt_at 批 100 deliver.go:74-75）与各类型 sweep；无统一队列。）
--   [ ] `F-1604` 支持任务超时。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1604 | 部分：各子系统超时（recovery LevelTimeout recovery.go:56/proc_ctl 15s/upgrade ack 15s/herald 10s）；无任务级超时（provision goroutine 用 context.Background() provisionapi.go:73）。）
--   [ ] `F-1605` 支持有限次数重试。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1605 | 部分：仅 event outbox 有限重试（MaxAttempts=6 deliver.go:15,90+TestDeliverRetryBackoffAndDeadLetter）；cert 重试无上限；无统一重试预算。）
--   [ ] `F-1606` 支持退避策略。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1606 | 部分：退避散落三处（herald 1m→1h deliver.go:27/cert 1h cert.go:33/agent procs 1s→30s manager.go:90-91）；无统一策略。）
--   [ ] `F-1607` 支持任务取消。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1607 | 未满足：无任何任务取消端点/状态（仅请求级 ctx 取消）。）
--   [ ] `F-1608` 支持任务幂等。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1608 | 部分：幂等散落（Event DedupKey herald.go:83/Recovery node_id 唯一索引 models.go:528/节点名复用 launch.go:94）；无任务级幂等键。）
--   [ ] `F-1609` 支持任务进度和阶段信息。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1609 | 部分：recovery Level+ActionState（models.go:536）与 cert State 有阶段；无进度百分比。）
--   [ ] `F-1610` 支持任务日志。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1610 | 部分：各行日志尾/错误字段（ProvisionJob.Log 8KB models.go:518/RecoveryAction.Detail/CertTask.LastError/EventDelivery.Detail）；无结构化任务日志流。）
--   [ ] `F-1611` 支持任务人工重试。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1611 | 部分：人工重试散落（死信重投 eventsapi.go:61/cert 重签 certapi.go:148/provision 重跑 provisionapi.go:105）；recovery 无。）
--   [ ] `F-1612` 支持任务部分成功结果。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1612 | 部分：批量操作逐节点 ok/error（procop.go:120-142+TestBatchNodeProc/TestBatchNodeConfig）；无统一部分成功态。）
--   [ ] `F-1613` 支持任务执行者和操作者审计。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1613 | 部分：管理端写操作入审计（AuditLog models.go:735+auditMiddleware router.go:119）；任务行本身无执行者/操作者字段，自动任务无归属。）
--   [ ] `F-1614` 支持任务并发配额。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1614 | 部分：provision 互斥串行（provision.go:34,58-83）+批量上限 50（procop.go:22）；无可配置并发配额。）
--   [ ] `F-1615` 支持任务积压和失败告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1615 | 部分：events 积压/失败计数（eventsapi.go:46,269-275）；无阈值告警。）
+-   [x] `F-1602` 统一后台任务状态模型。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1602 | Status: Done | Evidence: 原「五张独立任务表各持词汇」回应——新统一台账 storage.Task（models.go：Kind/RefID/Status/Stage/Progress/Attempts/MaxAttempts/NextAttemptAt/IdempotencyKey/Result/Error/LogLines/Actor/Executor）+ internal/tasks 包共享状态机 pending→running→succeeded/failed/cancelled/dead（Run/registerLoop），注册制 Definition，新任务面一律落此台账，五张旧表保留渐进迁移 | Verification: tasks 包 7 测试+TestTaskEndpoints 绿（全量 52 ok FAIL=0 exit=0） | Commit: 1963bfa
+-   [x] `F-1603` 支持任务排队。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1603 | Status: Done | Evidence: 队列=pending+next_attempt_at（Loop 2s sweep，claimOne 单行 status 翻转防双取，quota 槽位满即停取）；POST /api/tasks 落行即排队，GET /api/tasks 可视 | Verification: tasks 包 7 测试+TestTaskEndpoints 绿（全量 52 ok FAIL=0 exit=0）（TestTaskEndpoints 断言排队/查询） | Commit: 1963bfa
+-   [x] `F-1604` 支持任务超时。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1604 | Status: Done | Evidence: 任务级超时=每次 attempt 独立 ctx.WithTimeout（TimeoutSeconds 列，Definition.Timeout 缺省 300s）；超时是可重试失败（attemptFailed 走退避），显式 cancel 才落 cancelled | Verification: tasks 包 7 测试+TestTaskEndpoints 绿（全量 52 ok FAIL=0 exit=0）（TestCancelAndTimeout 覆盖超时/取消两路） | Commit: 1963bfa
+-   [x] `F-1605` 支持有限次数重试。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1605 | Status: Done | Evidence: 统一重试预算 MaxAttempts（缺省 3，入 Definition 并落行）；预算耗尽→dead（死信终态）；人工 Retry 重置全预算 | Verification: tasks 包 7 测试+TestTaskEndpoints 绿（全量 52 ok FAIL=0 exit=0）（TestDeadLetterAndRetry：2 次耗尽→dead→人工重试 attempts=0） | Commit: 1963bfa
+-   [x] `F-1606` 支持退避策略。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1606 | Status: Done | Evidence: 统一退避=base*2^(attempt-1) 封顶 MaxDelay（缺省 5s→1h，Definition 可调），每次失败按预算排 next_attempt_at | Verification: tasks 包 7 测试+TestTaskEndpoints 绿（全量 52 ok FAIL=0 exit=0）（TestStateTransitionAndBackoff：失败两次退避后第 3 次成功） | Commit: 1963bfa
+-   [x] `F-1607` 支持任务取消。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1607 | Status: Done | Evidence: POST /api/tasks/:id/cancel（Cancel：pending 即翻 cancelled；running 记 asked 请求并取消 attempt ctx，Run 观察到后落 cancelled——与超时严格区分）；终态行 409 | Verification: tasks 包 7 测试+TestTaskEndpoints 绿（全量 52 ok FAIL=0 exit=0）（TestTaskEndpoints cancel pending；TestCancelAndTimeout cancel running） | Commit: 1963bfa
+-   [x] `F-1608` 支持任务幂等。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1608 | Status: Done | Evidence: 任务级幂等键 IdempotencyKey 唯一索引：同键重复 enqueue 返回既有行不落新行；无键自动合成唯一键 | Verification: tasks 包 7 测试+TestTaskEndpoints 绿（全量 52 ok FAIL=0 exit=0）（TestIdempotentEnqueue：同键同 ID、未知 kind 拒绝；TestTaskEndpoints 断言 sup-1 同行） | Commit: 1963bfa
+-   [x] `F-1609` 支持任务进度和阶段信息。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1609 | Status: Done | Evidence: Stage/Progress 列（0-100）+ SetProgress（仅 running 行可写），claim 落 stage=run、终态 stage=done/cancelled/dead | Verification: tasks 包 7 测试+TestTaskEndpoints 绿（全量 52 ok FAIL=0 exit=0）（TestProgressAndPartial 断言 stage/progress/result） | Commit: 1963bfa
+-   [x] `F-1610` 支持任务日志。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1610 | Status: Done | Evidence: LogLines 结构化任务日志迹（UTC 时间戳行，appendLog 记 enqueue/每次 attempt 结果/取消/人工重试），GET /api/tasks/:id 原样返回 | Verification: tasks 包 7 测试+TestTaskEndpoints 绿（全量 52 ok FAIL=0 exit=0）（TestStateTransitionAndBackoff 断言 LogLines 非空） | Commit: 1963bfa
+-   [x] `F-1611` 支持任务人工重试。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1611 | Status: Done | Evidence: POST /api/tasks/:id/retry（Retry：failed/dead/cancelled→pending 且 attempts=0 全预算恢复，actor 记操作者；非终态 409） | Verification: tasks 包 7 测试+TestTaskEndpoints 绿（全量 52 ok FAIL=0 exit=0）（TestDeadLetterAndRetry+TestTaskEndpoints 断言 pending 冲突） | Commit: 1963bfa
+-   [x] `F-1612` 支持任务部分成功结果。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1612 | Status: Done | Evidence: Result 列 JSON 契约：部分成功=成功终态+逐项 ok/error 结果（Definition.Run 写 t.Result，成功即持久化）；批量语义留消费方逐项落 Result | Verification: tasks 包 7 测试+TestTaskEndpoints 绿（全量 52 ok FAIL=0 exit=0）（TestProgressAndPartial 断言逐项结果落库） | Commit: 1963bfa
+-   [x] `F-1613` 支持任务执行者和操作者审计。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1613 | Status: Done | Evidence: 任务行级归属：Actor（enqueue/人工重试的操作者，取 auditActor 管理端用户名）+ Executor（执行实例 hostname）双列 | Verification: tasks 包 7 测试+TestTaskEndpoints 绿（全量 52 ok FAIL=0 exit=0）（TestStateTransitionAndBackoff 断言 Executor；TestDeadLetterAndRetry 断言重试 Actor=admin） | Commit: 1963bfa
+-   [x] `F-1614` 支持任务并发配额。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1614 | Status: Done | Evidence: 可配置并发配额：信号量 sem（Setting task.concurrency，缺省 4，每 sweep 重读热更），槽位满不取新任务 | Verification: tasks 包 7 测试+TestTaskEndpoints 绿（全量 52 ok FAIL=0 exit=0）（TestQuotaAndAlerts：quota=1 时第二任务保持 pending） | Commit: 1963bfa
+-   [x] `F-1615` 支持任务积压和失败告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1615 | Status: Done | Evidence: sweep 后 maybeAlert：积压=超 10min 未启动的 pending 数≥阈值（Setting task.backlog_threshold 缺省 50）、死信=dead 累计≥阈值（task.dead_threshold 缺省 10），发 herald task_backlog/task_dead（新 Kind 常量，1h 窗口去重） | Verification: tasks 包 7 测试+TestTaskEndpoints 绿（全量 52 ok FAIL=0 exit=0）（TestQuotaAndAlerts 断言 window 内仅一条事件） | Commit: 1963bfa
 
 ## 14.2 节点运维任务
 
@@ -2159,12 +2159,12 @@ External Client
     - 待补（F-1626 | 部分：仅 agent 侧自动回滚（120s 看门狗→Rollback upgrade.go:22,53,76）；面板无回滚任务/端点。）
 -   [ ] `F-1627` 支持节点重新探测任务。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1627 | 未满足：探测是 agent 本地周期循环（probe/probe.go:62-164）；无面板重新探测端点。）
--   [ ] `F-1628` 支持节点摘除任务。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1628 | 部分：手动摘除 /pool/:id/suspend（poolapi.go:56）同步翻状态；无任务行/跟踪。）
--   [ ] `F-1629` 支持节点恢复任务。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1629 | 部分：手动恢复 /pool/:id/resume（poolapi.go:83）；无任务行/跟踪。）
--   [ ] `F-1630` 支持任务执行前依赖检查。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1630 | 部分：provision/cert 各有前置检查（provisionapi.go:44-66/launch.go:46-54/loop.go:83-97）；无通用任务前依赖检查。）
+-   [x] `F-1628` 支持节点摘除任务。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1628 | Status: Done | Evidence: 原「同步翻状态无任务行」回应——node.suspend 消费者注册（Depends=节点存在且 entry 角色，Run=pool.Suspend 同规则、已在摘除视为幂等成功+OnChange 对账），经 POST /api/tasks 排队：可取消/重试/退避/审计全继承统一任务系统 | Verification: tasks 包 7 测试+TestTaskEndpoints 绿（全量 52 ok FAIL=0 exit=0）（TestTaskEndpoints 端到端：enqueue→sweep→pool_state=suspended） | Commit: 1963bfa
+-   [x] `F-1629` 支持节点恢复任务。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1629 | Status: Done | Evidence: node.resume 消费者（Run=pool.Resume、不在摘除视为幂等成功+OnChange 对账），同队列可取消/重试/审计 | Verification: tasks 包 7 测试+TestTaskEndpoints 绿（全量 52 ok FAIL=0 exit=0）（TestTaskEndpoints 端到端：resume→pool_state 脱离 suspended） | Commit: 1963bfa
+-   [x] `F-1630` 支持任务执行前依赖检查。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1630 | Status: Done | Evidence: Definition.Depends 通用前置检查钩子（Run 之前执行，失败记 stage=depends 按预算重试/死信）；node.suspend/resume 已用（节点存在+角色校验） | Verification: tasks 包 7 测试+TestTaskEndpoints 绿（全量 52 ok FAIL=0 exit=0）（TestDependsPrecheck：depends 失败不执行 Run 直接按预算终态） | Commit: 1963bfa
 
 ## 14.3 自动恢复
 
