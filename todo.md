@@ -1961,8 +1961,8 @@ External Client
     - 备注（Task ID: F-1423 | Status: Done | Evidence: 原「无 CloudResource 模型」结论已过时——CloudResource 模型（models.go:755，provider+external 去重）与 CloudView 资源列表/详情（绑定节点 显示+绑定/解绑操作+无绑定可创建节点）均已落；Node→资源跳转见 F-0431（7f78101）；资源→Node 绑定展示在资源详情 绑定节点 行（CloudView.vue:583） | Verification: dash vue-tsc+vite build 绿；cloudsync/cloudlink 服务端测试随全量 51 ok 绿 | Commit: 7f78101）
 -   [x] `F-1424` 展示 Agent、Relay 和 Probe 状态。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1424 | Status: Done | Evidence: 原「relay/probe 状态未呈现」结论已过时——F-0750 已落 NodesView 状态对话框三态：Agent 状态/最近在线/启用/维护、Relay 进程（state/PID/重启/版本/角色/入口池/进程快照）+Relay 能力声明（F-0804）、探测判定（verdict/方向/RTT/抖动/丢包/失败类型/探测时间），另有列表 agent 版本列+进程快照对话框 | Verification: TestNodeStatusAggregate+TestProbeReportsNodeFilter 绿 2026-11-26；dash build 绿 | Commit: 7e5c00a）
--   [ ] `F-1425` 展示节点配置版本。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1425 | 未满足：/api/nodes/:id/configs（router.go:206）有路由无 UI。）
+-   [x] `F-1425` 展示节点配置版本。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1425 | Status: Done | Evidence: NodesView 详情对话框新增「配置下发历史」表（getNodeConfigs→GET /api/nodes/:id/configs，api.ts 补 getter；进程/类型/配置版本（content-hash sha256 前 12 位、悬停全文）/状态 tag（applied|failed|pending）+已回滚+已验证标记/时间/错误 tooltip） | Verification: pnpm --filter ferry-dash build 绿（vue-tsc -b + vite build 26.1s） | Commit: 3a261c8）
 -   [x] `F-1426` 提供节点维护和启停管理。
     - 备注（Task ID: F-1426 | Status: Done | Evidence: NodesView.vue:109-148 proc start/stop/reload+pool suspend/resume/standby（:358-372 batch proc/:714-723） | Verification: 后端 TestNodeProcOp/TestBatchNodeProc（procop_test.go）；dash 无前端单测 | Commit: ce8b33e）
 -   [ ] `F-1427` 提供 Path 列表。（依赖：无；完成条件：需求落地+测试绿+证据行）
