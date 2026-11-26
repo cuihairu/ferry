@@ -2031,8 +2031,8 @@ External Client
     - 备注（Task ID: F-1466 | Status: Done | Evidence: CostView.vue:306-329 节点行（月流量/流量花费/固定成本/月度预估） | Verification: API 侧 TestCostAPI（costapi_test.go）；dash 无前端单测 | Commit: ce8b33e）
 -   [x] `F-1467` 提供 Path 成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1467 | Status: Done | Evidence: 原「无 Path 成本」结论已过时——CostView getPathCosts→GET /api/cost/path-estimates（F-0603 可解释单路径估算，loadPaths pathRows）+ 支出排行 scope=路径（spendPathEstimates）；过期/未知价降级 Precise 标记不编造（F-0610） | Verification: pathcost_test.go+TestCostAPI 随全量绿；dash build 绿 | Commit: 75813fa）
--   [ ] `F-1468` 提供账单导入和同步任务管理。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1468 | 未满足：仅价格表导入（CostView.vue:465-474）；无账单导入/同步任务。）
+-   [x] `F-1468` 提供账单导入和同步任务管理。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1468 | Status: Done | Evidence: 原「无账单导入/同步任务」结论已过时——BillsView（F-0632 面）：成本源注册/启用（api|file|manual）+ 按窗口 API 同步（importBillsAPI→POST /cost/sources/:id/import-api）+ 账单文件上传（importBillsFile→/import-file）+ 同步运行记录表（BillImportRow：started/added/updated/missing/ok/error，CloudView 同步日志 tab 亦呈 provider 维度） | Verification: TestBillingAPI 导入断言绿；dash build 绿 | Commit: f455be8）
 -   [ ] `F-1469` 提供账单明细查询。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1469 | 未满足：无账单明细查询。）
 -   [ ] `F-1470` 提供估算与实际账单对比。（依赖：无；完成条件：需求落地+测试绿+证据行）
