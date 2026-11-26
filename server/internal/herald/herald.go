@@ -43,6 +43,7 @@ const (
 	KindPriceAlert      = "price_alert"        // price watch hit a drop / target price (plans and cost design §4.2, E-32 reference-library batch wired to production points)
 	KindGeoSyncFailed   = "geodns_sync_failed" // smart-DNS per-region reconciliation failure (entries and load balancing §C.8, E-27 wired to production points)
 	KindDeviceLimit     = "device_limit"       // subscription client device/IP count exceeded (P2-4, deduped per user per day)
+	KindDeviceAnomaly   = "device_anomaly"     // abnormal subscription device behavior, e.g. share-style churn (F-1226, deduped per user per day)
 	KindCloudBootFailed = "cloud_boot_failed"  // cloud instance booted but its Ferry Node did not come back (F-0403)
 
 	// User outreach (HERALD-4, §2.2; in-app messages still go out, this channel serves out-of-app delivery).

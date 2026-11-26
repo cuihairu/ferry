@@ -2,9 +2,11 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -311,5 +313,58 @@ func TestUserDeviceUnbind(t *testing.T) {
 	}
 	if cnt != 1 {
 		t.Fatalf("b devices = %d, want 1", cnt)
+	}
+}
+
+// TestSubDeviceChurnAlert pins the abnormal-device alert (F-1226): a third
+// distinct device inside the churn window lands exactly one device_anomaly
+// event for the admin (deduped per user per day); a user under the threshold
+// stays silent, and the alert never blocks delivery (all fetches stay 200).
+func TestSubDeviceChurnAlert(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	path, _ := createLimitedUser(t, r, "churn-u", 0, 0) // unlimited: only the anomaly signal is under test
+
+	for i, hw := range []string{"hw-churn-1", "hw-churn-2", "hw-churn-3"} {
+		addr := fmt.Sprintf("10.7.0.%d:1111", i+1)
+		if rec := getSubAt(t, r, path, "v2rayNG/1.8", addr, hw); rec.Code != http.StatusOK {
+			t.Fatalf("device %d: %d %s", i+1, rec.Code, rec.Body)
+		}
+	}
+	var ev storage.Event
+	if err := db.Where("kind = ?", "device_anomaly").First(&ev).Error; err != nil {
+		t.Fatalf("no device_anomaly event: %v", err)
+	}
+	if ev.Severity != "warning" || ev.Target != "admin" {
+		t.Fatalf("event shape = %+v", ev)
+	}
+	if !strings.Contains(ev.Body, "churn-u") {
+		t.Fatalf("event body missing user: %s", ev.Body)
+	}
+
+	// Same-day dedup: a fourth device does not duplicate the event.
+	if rec := getSubAt(t, r, path, "v2rayNG/1.8", "10.7.0.9:1111", "hw-churn-4"); rec.Code != http.StatusOK {
+		t.Fatalf("device 4: %d %s", rec.Code, rec.Body)
+	}
+	var n int64
+	if err := db.Model(&storage.Event{}).Where("kind = 'device_anomaly'").Count(&n).Error; err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("device_anomaly events = %d, want 1", n)
+	}
+
+	// A second user under the threshold (two devices) writes nothing.
+	path2, _ := createLimitedUser(t, r, "calm-u", 0, 0)
+	for i, hw := range []string{"hw-calm-1", "hw-calm-2"} {
+		addr := fmt.Sprintf("10.8.0.%d:1111", i+1)
+		if rec := getSubAt(t, r, path2, "v2rayNG/1.8", addr, hw); rec.Code != http.StatusOK {
+			t.Fatalf("calm device %d: %d %s", i+1, rec.Code, rec.Body)
+		}
+	}
+	if err := db.Model(&storage.Event{}).Where("kind = 'device_anomaly'").Count(&n).Error; err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("device_anomaly events after calm user = %d, want 1", n)
 	}
 }

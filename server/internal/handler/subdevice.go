@@ -81,6 +81,7 @@ func (h *Handler) subDeviceCheck(c *gin.Context, u *storage.User, hwid, ip, ua s
 			if err := h.subDeviceTouch(u.ID, "hwid", hwid, ua, now); err != nil {
 				return err
 			}
+			h.alertSubDeviceChurn(u, now)
 		}
 	}
 	return nil
@@ -181,6 +182,52 @@ func (h *Handler) alertSubDeviceLimit(u *storage.User, kind, key string) {
 		Target:   herald.TargetAdmin,
 		DedupKey: dedup,
 		Meta:     map[string]any{"user_id": u.ID, "kind": kind, "key": key},
+	})
+}
+
+// Abnormal-device signal (F-1226): share-style churn. A normal client registers
+// exactly one device; a stream of distinct devices inside minutes means the
+// subscription link is being passed around -- which a generous static
+// device_limit never catches. Threshold is low on purpose (3 in 5 minutes);
+// the alert is advisory (warning, deduped per user per day), the hard stop
+// remains the device_limit itself.
+const (
+	subDeviceChurnWindow    = 5 * time.Minute
+	subDeviceChurnThreshold = 3
+)
+
+// alertSubDeviceChurn lands the abnormal-device alert (F-1226): >=
+// subDeviceChurnThreshold distinct devices registered inside the churn window,
+// deduped per user per day like the over-limit alert. Counting failures stay
+// silent and never block the subscription delivery.
+func (h *Handler) alertSubDeviceChurn(u *storage.User, now time.Time) {
+	var cnt int64
+	if err := h.db.Model(&storage.SubDevice{}).
+		Where("user_id = ? AND kind = ? AND first_seen > ?", u.ID, "hwid", now.Add(-subDeviceChurnWindow)).
+		Count(&cnt).Error; err != nil {
+		return
+	}
+	if cnt < subDeviceChurnThreshold {
+		return
+	}
+	dedup := fmt.Sprintf("device_anomaly:%d:%s", u.ID, now.Format("2006-01-02"))
+	var n int64
+	if err := h.db.Model(&storage.Event{}).
+		Where("kind = ? AND dedup_key = ?", herald.KindDeviceAnomaly, dedup).
+		Count(&n).Error; err != nil {
+		return
+	}
+	if n > 0 {
+		return
+	}
+	_, _ = herald.Emit(h.db, herald.EmitInput{
+		Kind:     herald.KindDeviceAnomaly,
+		Severity: herald.SeverityWarning,
+		Title:    "订阅设备异常",
+		Body:     fmt.Sprintf("用户 %s（id=%d）在 %d 分钟内注册了 %d 台不同设备，订阅链接可能被共享。", u.Username, u.ID, int(subDeviceChurnWindow.Minutes()), cnt),
+		Target:   herald.TargetAdmin,
+		DedupKey: dedup,
+		Meta:     map[string]any{"user_id": u.ID, "devices": cnt, "window_sec": int(subDeviceChurnWindow.Seconds())},
 	})
 }
 
