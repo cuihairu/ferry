@@ -445,6 +445,7 @@ function legText(leg: PathCostRow['explain'][number], currency: string): string 
     <h2>成本</h2>
     <p class="page-desc">
       月度成本核算：流量花费只计按流量计费节点，月固定成本进汇总不影响分配；月度预估按自然月至今折算。
+      页面金额分三种口径：<strong>实际</strong>＝厂商账单导入值（账单同步页）、<strong>估算</strong>＝面板按单价折算的预估值、<strong>分摊</strong>＝按分摊规则把账单拆到目标的值；不同口径不混用，跨币种也永不合并。
     </p>
 
     <div v-if="rep" class="stats">

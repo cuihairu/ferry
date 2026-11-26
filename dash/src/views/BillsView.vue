@@ -169,7 +169,7 @@ onMounted(loadImports)
 // filters; expanding a record loads its line items and offers re-allocation. ----
 const records = ref<CostRecordRow[]>([])
 const recordsLoading = ref(false)
-const filters = reactive({ source: '', account: '', region: '' })
+const filters = reactive({ source: '', account: '', region: '', resource: '', range: null as [string, string] | null })
 const items = ref<Record<number, BillItemRow[]>>({})
 
 async function loadRecords() {
@@ -179,6 +179,9 @@ async function loadRecords() {
     if (filters.source) f.source = filters.source
     if (filters.account) f.account = filters.account
     if (filters.region) f.region = filters.region
+    if (filters.resource) f.resource = filters.resource
+    if (filters.range && filters.range[0]) f.from = filters.range[0]
+    if (filters.range && filters.range[1]) f.to = filters.range[1]
     const data = await getBillRecords(f)
     records.value = data.records
     items.value = {}
@@ -206,6 +209,24 @@ async function recomputeRecord(row: CostRecordRow) {
   } catch (e) {
     ElMessage.error(String(e))
   }
+}
+
+// F-0637: export the currently filtered bill records as CSV (client-side; the
+// export mirrors the query result, not the whole table).
+function exportRecords() {
+  const head = ['bill_id', 'revision', 'source', 'account', 'region', 'currency', 'amount_cents', 'pre_tax_cents', 'tax_cents', 'incurred_at']
+  const esc = (v: string | number) => `"${String(v).replaceAll('"', '""')}"`
+  const lines = [head.join(',')]
+  for (const r of records.value) {
+    lines.push([r.bill_id, r.revision, r.source, r.account, r.region, r.currency,
+      r.amount_cents, r.pre_tax_cents, r.tax_cents, r.incurred_at].map(esc).join(','))
+  }
+  const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = `ferry-bills-${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(a.href)
 }
 
 // ---- Estimate-vs-actual reconciliation (F-0634): one comparison row per
@@ -411,10 +432,13 @@ onMounted(loadRules)
 
     <h3 class="section">账单明细查询</h3>
     <div class="toolbar">
+      <el-date-picker v-model="filters.range" type="datetimerange" value-format="YYYY-MM-DDTHH:mm:ssZ" />
       <el-input v-model="filters.source" placeholder="导入来源（api/file/manual）" style="width: 180px" />
       <el-input v-model="filters.account" placeholder="账号" style="width: 150px" />
       <el-input v-model="filters.region" placeholder="区域" style="width: 120px" />
+      <el-input v-model="filters.resource" placeholder="资源 ID" style="width: 130px" />
       <el-button type="primary" @click="loadRecords" :loading="recordsLoading">查询</el-button>
+      <el-button @click="exportRecords" :disabled="records.length === 0">导出 CSV</el-button>
       <span class="hint">展开账单查看明细行；「重新分摊」会按当前规则版本生成新的分摊记录。</span>
     </div>
     <el-table :data="records" v-loading="recordsLoading" :header-cell-style="{ background: 'var(--ferry-bg-panel)' }" @expand-change="onRecordExpand">
