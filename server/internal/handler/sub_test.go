@@ -479,3 +479,55 @@ func TestSubscriptionSingBoxMixed(t *testing.T) {
 		t.Fatalf("trojan tls = %v", obs[1]["tls"])
 	}
 }
+
+// TestSubscriptionVersionAndTime covers the unified subscription metadata
+// (F-1108): the update time rides Last-Modified in HTTP date format and the
+// version stamp rides X-Subscription-Version; the same body keeps the same
+// version on refetch, and the custom subscription surface carries the same
+// metadata (both deliver through one helper, no drift).
+func TestSubscriptionVersionAndTime(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	panel := panelUserOf(t, r, "ver-admin", nil)
+	token := panelUserOf(t, r, "ver-user", nil)
+
+	node := storage.Node{Name: "ver-hk", Address: "v.example.com", Port: 443, Protocol: "vless",
+		Config: `{"uuid":"u-9"}`, Enabled: true, Token: "ver-tok-1", Role: "entry", Status: "online"}
+	if err := db.Create(&node).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	assertMeta := func(rec *httptest.ResponseRecorder) string {
+		t.Helper()
+		if rec.Code != http.StatusOK {
+			t.Fatalf("sub status = %d %s", rec.Code, rec.Body)
+		}
+		if _, err := http.ParseTime(rec.Header().Get("Last-Modified")); err != nil {
+			t.Fatalf("last-modified not an HTTP date: %q", rec.Header().Get("Last-Modified"))
+		}
+		v := rec.Header().Get("X-Subscription-Version")
+		if len(v) != 12 {
+			t.Fatalf("version stamp = %q", v)
+		}
+		return v
+	}
+
+	rec := getSub(t, r, "/sub/"+token, "v2rayNG/1.8")
+	v := assertMeta(rec)
+	rec2 := getSub(t, r, "/sub/"+token, "v2rayNG/1.8")
+	if got := assertMeta(rec2); got != v {
+		t.Fatalf("same body must keep the version: %q vs %q", got, v)
+	}
+
+	// the custom subscription surface carries the same metadata
+	rec = doJSONToken(t, r, panel, "POST", "/api/subscriptions", map[string]any{"name": "ver-sub"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create sub: %d %s", rec.Code, rec.Body)
+	}
+	var s storage.Subscription
+	_ = json.Unmarshal(rec.Body.Bytes(), &s)
+	rec = getSub(t, r, "/sub/x/"+s.Token, "v2rayNG/1.8")
+	if got := assertMeta(rec); got != v {
+		t.Fatalf("custom sub metadata must match: %q vs %q", got, v)
+	}
+}

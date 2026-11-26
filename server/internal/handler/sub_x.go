@@ -134,56 +134,59 @@ func (h *Handler) subXDeliver(c *gin.Context, u storage.User, usage trafficUsage
 	if target == "" {
 		target = subTargetByUA(c.Request.UserAgent())
 	}
-	c.Header("Subscription-Userinfo", userinfoHeader(u, usage))
-	c.Header("Profile-Update-Interval", "24")
-	c.Header("Profile-Title", u.Username)
 	// TOUCH-7 contingency notes are always attached: the client cache carries its own
 	// backup entries and notice address.
 	notes := h.outageNotes()
+	var body, ctype string
 	switch target {
 	case "v2ray":
 		// The per-sub sort was already applied inside ApplyConfig (the default is the
 		// region-grouped order); the Ordered variant avoids PackV2Ray re-sorting
 		// internally and overriding the sort config.
-		body, err := sub.PackV2RayOrdered(entries, notes)
+		b, err := sub.PackV2RayOrdered(entries, notes)
 		if err != nil {
 			fail(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte(body))
+		body, ctype = b, "text/plain; charset=utf-8"
 	case "clash":
-		body, err := sub.PackClash(entries, notes)
+		b, err := sub.PackClash(entries, notes)
 		if err != nil {
 			fail(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.Data(http.StatusOK, "text/yaml; charset=utf-8", []byte(body))
+		body, ctype = b, "text/yaml; charset=utf-8"
 	case "mihomo":
-		body, err := sub.PackMihomo(entries, notes)
+		b, err := sub.PackMihomo(entries, notes)
 		if err != nil {
 			fail(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.Data(http.StatusOK, "text/yaml; charset=utf-8", []byte(body))
+		body, ctype = b, "text/yaml; charset=utf-8"
 	case "xray":
 		// xray-json: an Xray-core outbounds array (G1); plain JSON has no comment position, same omission reasoning as singbox.
-		body, err := sub.PackXray(entries)
+		b, err := sub.PackXray(entries)
 		if err != nil {
 			fail(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.Data(http.StatusOK, "application/json; charset=utf-8", []byte(body))
+		body, ctype = b, "application/json; charset=utf-8"
 	case "singbox":
 		// sing-box is plain JSON with no comment position, so contingency notes are omitted (consistent with the main subscription).
-		body, err := sub.PackSingBox(entries)
+		b, err := sub.PackSingBox(entries)
 		if err != nil {
 			fail(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.Data(http.StatusOK, "application/json; charset=utf-8", []byte(body))
+		body, ctype = b, "application/json; charset=utf-8"
 	default:
 		fail(c, http.StatusBadRequest, errors.New("target must be v2ray, clash, mihomo, singbox or xray"))
+		return
 	}
+	// Usage headers + unified version/update-time metadata (F-1108, one helper
+	// with the main subscription).
+	subscriptionMeta(c, u, usage, []byte(body))
+	c.Data(http.StatusOK, ctype, []byte(body))
 }
 
 // subFilterOf parses the stored filter text; a parse failure (legacy dirty data) is

@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -192,63 +194,63 @@ func (h *Handler) subscription(c *gin.Context) {
 		target = subTargetByUA(c.Request.UserAgent())
 	}
 
-	// P0-7 headers: usage and expiry (rx as seen by the node counts as user upload, tx as download).
-	c.Header("Subscription-Userinfo", userinfoHeader(u, usage))
-	c.Header("Profile-Update-Interval", "24")
-	c.Header("Profile-Title", u.Username)
-
 	// Outage contingency (TOUCH-7): subscription text comments carry a backup notice
 	// address and a backup domain list, so the client cache has its own escape channel
 	// (issued before any disconnection; empty subscriptions get them too -- expired and
 	// over-quota users need a way back the most).
 	notes := h.outageNotes()
 
+	var body, ctype string
 	switch target {
 	case "v2ray":
-		body, err := sub.PackV2Ray(entries, notes)
+		b, err := sub.PackV2Ray(entries, notes)
 		if err != nil {
 			fail(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte(body))
+		body, ctype = b, "text/plain; charset=utf-8"
 	case "clash":
-		body, err := sub.PackClash(entries, notes)
+		b, err := sub.PackClash(entries, notes)
 		if err != nil {
 			fail(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.Data(http.StatusOK, "text/yaml; charset=utf-8", []byte(body))
+		body, ctype = b, "text/yaml; charset=utf-8"
 	case "mihomo":
-		body, err := sub.PackMihomo(entries, notes)
+		b, err := sub.PackMihomo(entries, notes)
 		if err != nil {
 			fail(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.Data(http.StatusOK, "text/yaml; charset=utf-8", []byte(body))
+		body, ctype = b, "text/yaml; charset=utf-8"
 	case "xray":
 		// xray-json: an Xray-core outbounds array (G1). Plain JSON has no comment
 		// position, so the contingency notes are omitted, same reasoning as singbox.
-		body, err := sub.PackXray(entries)
+		b, err := sub.PackXray(entries)
 		if err != nil {
 			fail(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.Data(http.StatusOK, "application/json; charset=utf-8", []byte(body))
+		body, ctype = b, "application/json; charset=utf-8"
 	case "singbox":
 		// A sing-box outbounds array (built in the hy2 batch, five protocols completed in
 		// the SB batch): clients just merge it into their outbounds section. TOUCH-7 escape
 		// comments are omitted -- plain JSON has no comment position and inserting comment
 		// lines breaks parsing; the contingency notes travel via the v2ray/clash targets
 		// (the panel's in-site notice and the Herald out-of-band channel remain reachable).
-		body, err := sub.PackSingBox(entries)
+		b, err := sub.PackSingBox(entries)
 		if err != nil {
 			fail(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.Data(http.StatusOK, "application/json; charset=utf-8", []byte(body))
+		body, ctype = b, "application/json; charset=utf-8"
 	default:
 		fail(c, http.StatusBadRequest, errors.New("target must be v2ray, clash, mihomo, singbox or xray"))
+		return
 	}
+	// P0-7 usage headers + unified version/update-time metadata (F-1108).
+	subscriptionMeta(c, u, usage, []byte(body))
+	c.Data(http.StatusOK, ctype, []byte(body))
 }
 
 // rttWindow is the window of tunnel probe verdicts that participate in entry speed aggregation.
@@ -282,4 +284,18 @@ func userinfoHeader(u storage.User, usage trafficUsage) string {
 		s += fmt.Sprintf("; expire=%d", u.ExpiresAt.Unix())
 	}
 	return s
+}
+
+// subscriptionMeta writes the unified subscription response metadata (F-1108):
+// the usage headers plus the update time (Last-Modified, UTC) and the content
+// version stamp (X-Subscription-Version, an sha1 prefix -- same body, same
+// version). The main subscription and the custom subscription both deliver
+// through this one helper, so the metadata cannot drift between the surfaces.
+func subscriptionMeta(c *gin.Context, u storage.User, usage trafficUsage, body []byte) {
+	c.Header("Subscription-Userinfo", userinfoHeader(u, usage))
+	c.Header("Profile-Update-Interval", "24")
+	c.Header("Profile-Title", u.Username)
+	c.Header("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
+	sum := sha1.Sum(body)
+	c.Header("X-Subscription-Version", hex.EncodeToString(sum[:])[:12])
 }
