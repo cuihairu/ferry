@@ -1948,8 +1948,8 @@ External Client
     - 备注（Task ID: F-1408 | Status: Done | Evidence: NodesView.vue:151-196 活跃告警徽标+对话框（:608-610/:875-901，api getAlerts:400） | Verification: API 侧 TestAlertGuards（alerts_test.go:276）；dash 无前端单测 | Commit: ce8b33e）
 -   [x] `F-1409` 展示本月云资源成本摘要。
     - 备注（Task ID: F-1409 | Status: Done | Evidence: CostView.vue:278-295 摘要卡（月至今流量/月固定/月度预估/节点数） | Verification: API 侧 TestCostAPI（costapi_test.go）；dash 无前端单测 | Commit: ce8b33e）
--   [ ] `F-1410` 展示估算成本与实际账单差异。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1410 | 未满足：有月度预估（CostView.vue:287-290）；无实际账单对比。）
+-   [x] `F-1410` 展示估算成本与实际账单差异。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1410 | Status: Done | Evidence: 原「无实际账单对比」结论已过时——F-0634 已落 BillsView.vue 账单差异对账表（:476-510 估算/实际/差异三列 + 币种/scope provider|account|region|node|path + confirmed/adjusted 确认），估算面另有 CostView 月度预估卡（F-1409）；服务端 billing.Reconcile + TestReconcileDiffAndConfirm（billing_test.go:208） | Verification: TestReconcileDiffAndConfirm 随 2026-11-27 全量 51 ok / FAIL=0 / exit=0 绿；dash build（vue-tsc+vite）绿 | Commit: f455be8）
 
 ## 12.2 节点与线路
 
