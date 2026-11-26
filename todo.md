@@ -1745,7 +1745,8 @@ External Client
     - 备注（Task ID: F-1148 | Status: Done | Evidence: subscriptionMeta 升级(sub.go)：ETag=body 全 sha1(带引号强校验器)+Last-Modified(HTTP 日期 UTC)+If-None-Match 命中→304 空 body 但 Usage 三头保留(客户端仍可记账)；主/自建两 surface 同一 helper 门控 c.Data | Verification: TestSubscriptionConditionalGet(200+引号 ETag→304 空 body 头保留→车队变更 ETag 变化回 200)+go vet+server 全套件 green exit=0（51 ok）2026-11-27 | Commit: f9dbf4c）
 -   [x] `F-1149` 支持订阅缓存失效。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1149 | Status: Done | Evidence: subscriptionMeta 增 Cache-Control: no-cache(共享缓存不许吐陈旧 body，ETag 重验廉价 304 故安全)；失效机制本身=内容哈希 ETag——车队任何变更哈希即变，重验必然回 200 新 body，无需服务端失效广播 | Verification: TestSubscriptionConditionalGet(no-cache 头断言+变更→ETag 变→200)+go vet+server 全套件 green exit=0（51 ok）2026-11-27 | Commit: 0f499ad）
--   [ ] `F-1150` 记录订阅访问审计。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1150` 记录订阅访问审计。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1150 | Status: Done | Evidence: SubAccessLog 模型（models.go，user_id/path/target/ua/ip/code，永不存原始 token）+AutoMigrate 注册+两订阅面 defer recordSubAccess（sub.go/sub_x.go）全出口落行：200/304/404/429/403，未解析 token user_id=0，写失败仅 log 不阻断交付 | Verification: TestSubAccessLogRecordsDelivery（200+304 两行，user/path/target 断言）+TestSubAccessLogRecordsMiss（404 行 user_id=0）+TestSubAccessLogCustomSurface（/sub/x 路径+?target= 覆盖）| Commit: 67762b6）
 -   [x] `F-1151` 对过期或封禁用户执行明确的订阅拒绝策略。
     - 备注（Task ID: F-1151 | Status: Done | Evidence: 过期/封禁 404 或空订阅；TestSubscription+TestSubscriptionAvailability | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1152` 对流量耗尽用户执行套餐定义的订阅策略。
