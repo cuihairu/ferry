@@ -2,6 +2,7 @@ package nodehealth
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -144,5 +145,111 @@ func TestEvaluateHysteresis(t *testing.T) {
 	got = Evaluate(db, []storage.Node{other}, now)
 	if got[other.ID] != Degraded {
 		t.Fatalf("one stray healthy in a sick window = %q", got[other.ID])
+	}
+}
+
+// TestEvaluateOverride covers the F-0932 manual override: an active override
+// wins over the computed state, an expired one stops applying on its own, and
+// an override may not whitewash a disabled node out of off.
+func TestEvaluateOverride(t *testing.T) {
+	db := newTestDB(t)
+	node := mkNode(t, db, "nh-ovr", "online", "active", true)
+	off := mkNode(t, db, "nh-ovr-off", "offline", "active", true)
+	now := time.Now()
+
+	// No verdicts: computed unknown; forced healthy wins anyway.
+	mkOverride := func(n storage.Node, state string, expires time.Time) {
+		t.Helper()
+		// one row per node, same replace rule the handler applies
+		if err := db.Where("node_id = ?", n.ID).Delete(&storage.HealthOverride{}).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Create(&storage.HealthOverride{
+			NodeID: n.ID, State: state, Reason: "ops window", Operator: "oncall",
+			ExpiresAt: expires,
+		}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	mkOverride(node, "healthy", now.Add(time.Hour))
+	got := Evaluate(db, []storage.Node{node, off}, now)
+	if got[node.ID] != Healthy {
+		t.Fatalf("active override = %q; want healthy", got[node.ID])
+	}
+	// Off is not overridable: the node is out of service regardless.
+	if got[off.ID] != Off {
+		t.Fatalf("override must not lift off = %q", got[off.ID])
+	}
+
+	// Forced degraded pins a node whose probe window is healthy.
+	prober := mkNode(t, db, "nh-ovr-prober", "online", "active", true)
+	seedVerdict(t, db, prober.ID, node.ID, agentproto.ProbeVerdictHealthy, time.Minute)
+	mkOverride(node, "degraded", now.Add(time.Hour))
+	got = Evaluate(db, []storage.Node{node}, now)
+	if got[node.ID] != Degraded {
+		t.Fatalf("forced degraded = %q; want degraded over healthy window", got[node.ID])
+	}
+
+	// An expired override stops applying: the computed state resumes.
+	if err := db.Model(&storage.HealthOverride{}).Where("node_id = ?", node.ID).
+		UpdateColumn("expires_at", now.Add(-time.Minute)).Error; err != nil {
+		t.Fatal(err)
+	}
+	got = Evaluate(db, []storage.Node{node}, now)
+	if got[node.ID] != Healthy {
+		t.Fatalf("expired override must not apply = %q; want computed healthy", got[node.ID])
+	}
+}
+
+// TestEvaluateWithReason pins the F-0934 explanation: the reason names the
+// decisive input the same way the state was decided -- absence of evidence,
+// pool state, probe counts, override audit.
+func TestEvaluateWithReason(t *testing.T) {
+	db := newTestDB(t)
+	quiet := mkNode(t, db, "nh-r-quiet", "online", "active", true)
+	susp := mkNode(t, db, "nh-r-susp", "online", "suspended", true)
+	off := mkNode(t, db, "nh-r-off", "offline", "active", true)
+	now := time.Now()
+
+	got := EvaluateWithReason(db, []storage.Node{quiet, susp, off}, now)
+	if got[quiet.ID].State != Unknown || got[quiet.ID].Reason != "no fresh probe verdicts (30m window)" {
+		t.Fatalf("quiet reason = %+v", got[quiet.ID])
+	}
+	if got[susp.ID].State != Degraded || got[susp.ID].Reason != "pool suspended" {
+		t.Fatalf("suspended reason = %+v", got[susp.ID])
+	}
+	if got[off.ID].State != Off || got[off.ID].Reason != "agent offline (no heartbeat)" {
+		t.Fatalf("offline reason = %+v", got[off.ID])
+	}
+
+	// A sick majority reports its counts; the override names its operator.
+	prober := mkNode(t, db, "nh-r-prober", "online", "active", true)
+	sick := mkNode(t, db, "nh-r-sick", "online", "active", true)
+	seedVerdict(t, db, prober.ID, sick.ID, agentproto.ProbeVerdictHealthy, time.Minute)
+	seedVerdict(t, db, prober.ID, sick.ID, agentproto.ProbeVerdictSick, time.Minute)
+	seedVerdict(t, db, prober.ID, sick.ID, agentproto.ProbeVerdictSick, 2*time.Minute)
+	if err := db.Create(&storage.HealthOverride{
+		NodeID: sick.ID, State: "degraded", Reason: "suspected flapping",
+		Operator: "neteng", ExpiresAt: now.Add(time.Hour),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	got = EvaluateWithReason(db, []storage.Node{sick}, now)
+	if got[sick.ID].State != Degraded {
+		t.Fatalf("override state = %q", got[sick.ID].State)
+	}
+	if !strings.Contains(got[sick.ID].Reason, "manual override by neteng") ||
+		!strings.Contains(got[sick.ID].Reason, "suspected flapping") {
+		t.Fatalf("override reason = %q", got[sick.ID].Reason)
+	}
+
+	// Without the override the probe counts are the explanation.
+	if err := db.Where("node_id = ?", sick.ID).Delete(&storage.HealthOverride{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	got = EvaluateWithReason(db, []storage.Node{sick}, now)
+	if got[sick.ID].State != Degraded ||
+		got[sick.ID].Reason != "probe window: 2 sick vs 1 healthy (30m)" {
+		t.Fatalf("probe reason = %+v", got[sick.ID])
 	}
 }

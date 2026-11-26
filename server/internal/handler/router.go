@@ -166,6 +166,11 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.DELETE("/enrollment-tokens/:id", h.revokeEnrollmentToken)
 		api.GET("/nodes/:id", h.getNode)
 		api.GET("/nodes/:id/status", h.nodeStatus)
+		// Manual health override (F-0932/F-0933): pin the derived health with
+		// a mandatory reason/operator/expiry, or clear it.
+		api.PUT("/nodes/:id/health_override", h.setHealthOverride)
+		api.GET("/nodes/:id/health_override", h.getHealthOverride)
+		api.DELETE("/nodes/:id/health_override", h.deleteHealthOverride)
 		api.PUT("/nodes/:id", h.updateNode)
 		api.DELETE("/nodes/:id", h.deleteNode)
 		// Registration approval flow (F-0741): a require-approval enrollment lands

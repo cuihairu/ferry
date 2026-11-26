@@ -339,6 +339,22 @@ type ProbeReport struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+// HealthOverride is a manual health-state override (F-0932/F-0933): while the
+// row is active (expires_at in the future) the node's derived health reports
+// the forced state instead of the computed one. One row per node -- a new
+// override replaces the previous one; every override must carry the reason,
+// the operator who set it and an expiry (F-0933).
+type HealthOverride struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	NodeID    uint      `gorm:"uniqueIndex;not null" json:"node_id"`
+	State     string    `gorm:"size:16;not null" json:"state"` // healthy/degraded
+	Reason    string    `gorm:"type:text;not null" json:"reason"`
+	Operator  string    `gorm:"size:64;not null" json:"operator"`
+	ExpiresAt time.Time `gorm:"not null" json:"expires_at"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // DimensionStatus is the status-light data for a region / ISP dimension: the persisted outcome of aggregate judgment.
 type DimensionStatus struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`

@@ -132,6 +132,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&CostReconciliation{},
 		&BillImport{},
 		&CostAllocationRule{}, &NodeCostLine{}, &NodeUpgrade{}, &AllocExclusion{},
+		&HealthOverride{},
 	)
 }
 

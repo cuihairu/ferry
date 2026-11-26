@@ -82,6 +82,9 @@ type nodeStatus struct {
 	// Health is the node's own derived health (F-0902), distinct from the
 	// per-path health pathhealth reports.
 	Health string `json:"health"`
+	// HealthReason explains which input decided Health (F-0934): probe
+	// window counts, pool state, override audit or absence of evidence.
+	HealthReason string `json:"health_reason"`
 	// Egress is the node's own public-egress health (F-0905) from its exit
 	// baseline probes -- "this node can reach the outside", as opposed to
 	// Health's "others can reach this node".
@@ -103,8 +106,11 @@ func (h *Handler) nodeStatus(c *gin.Context) {
 		Maintenance: n.Maintenance,
 	}}
 	// Node health (F-0902) derives from the node's own signals; computed on
-	// read so it is always as fresh as the underlying state.
-	out.Health = nodehealth.Evaluate(h.db, []storage.Node{*n}, time.Now())[n.ID]
+	// read so it is always as fresh as the underlying state. The reason
+	// (F-0934) travels with it so the dash can show why.
+	hr := nodehealth.EvaluateWithReason(h.db, []storage.Node{*n}, time.Now())[n.ID]
+	out.Health = hr.State
+	out.HealthReason = hr.Reason
 	out.Egress = egresshealth.Evaluate(h.db, []storage.Node{*n}, time.Now())[n.ID]
 	if n.RelayCaps != "" {
 		var caps nodeRelayCaps

@@ -8,6 +8,7 @@
 package nodehealth
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/cuihairu/ferry/packages/agentproto"
@@ -72,12 +73,34 @@ func (t verdictTally) majority() string {
 	}
 }
 
+// HealthWithReason is one node's derived health plus the explanation of
+// which input decided it (F-0934): the dash surfaces the reason next to the
+// state light so "why is it degraded" never needs a database dive.
+type HealthWithReason struct {
+	State  string
+	Reason string
+}
+
 // Evaluate derives each node's health: a disabled or offline node is off; a
 // pool-suspended node is degraded; a majority-sick fresh verdict window from
 // the mutual probes degrades (F-0931); a majority-healthy window with the
 // node alive and active is healthy; a live node without any fresh verdict is
-// unknown (absence of evidence is not health).
+// unknown (absence of evidence is not health). An active manual override
+// (F-0932) wins over all computed states -- except off, which no override may
+// whitewash.
 func Evaluate(db *gorm.DB, nodes []storage.Node, now time.Time) map[uint]string {
+	withReason := EvaluateWithReason(db, nodes, now)
+	out := make(map[uint]string, len(nodes))
+	for id, hr := range withReason {
+		out[id] = hr.State
+	}
+	return out
+}
+
+// EvaluateWithReason is Evaluate plus the decisive-input explanation per
+// node (F-0934): what flipped the state, in one line, ranked the same way
+// the state itself is decided.
+func EvaluateWithReason(db *gorm.DB, nodes []storage.Node, now time.Time) map[uint]HealthWithReason {
 	ids := make([]uint, 0, len(nodes))
 	for _, n := range nodes {
 		ids = append(ids, n.ID)
@@ -106,26 +129,63 @@ func Evaluate(db *gorm.DB, nodes []storage.Node, now time.Time) map[uint]string 
 		}
 	}
 
-	out := make(map[uint]string, len(nodes))
+	// Active manual overrides (F-0932/F-0933): expired rows simply do not
+	// load, so the computed state resumes on its own.
+	overrides := map[uint]storage.HealthOverride{}
+	if len(ids) > 0 {
+		var rows []storage.HealthOverride
+		if err := db.Where("node_id IN ? AND expires_at > ?", ids, now).Find(&rows).Error; err == nil {
+			for _, r := range rows {
+				overrides[r.NodeID] = r
+			}
+		}
+	}
+
+	out := make(map[uint]HealthWithReason, len(nodes))
 	for _, n := range nodes {
 		switch {
 		case !n.Enabled || n.Status == "offline":
-			out[n.ID] = Off
+			reason := "node disabled by operator"
+			if n.Enabled {
+				reason = "agent offline (no heartbeat)"
+			}
+			out[n.ID] = HealthWithReason{Off, reason}
 			continue
 		}
 		state := Unknown
+		reason := "no fresh probe verdicts (30m window)"
 		if n.PoolState == "suspended" {
 			state = Worst(state, Degraded)
+			reason = "pool suspended"
 		}
-		switch tallies[n.ID].majority() {
+		t := tallies[n.ID]
+		switch t.majority() {
 		case agentproto.ProbeVerdictSick:
 			state = Worst(state, Degraded)
+			reason = fmt.Sprintf("probe window: %d sick vs %d healthy (30m)", t.sick, t.healthy)
+			if n.PoolState == "suspended" {
+				reason = "pool suspended; " + reason
+			}
 		case agentproto.ProbeVerdictHealthy:
 			if state != Degraded {
 				state = Healthy
 			}
+			probes := fmt.Sprintf("probe window: %d healthy vs %d sick (30m)", t.healthy, t.sick)
+			reason = probes
+			if state == Degraded {
+				reason = "pool suspended; " + probes
+			}
 		}
-		out[n.ID] = state
+		// The operator's explicit verdict outranks the derivation (F-0932):
+		// forced healthy lifts a suspended/degraded node, forced degraded
+		// pins a flapping one. The reason names the override so the forced
+		// state is never mistaken for a computed one (F-0934).
+		if o, ok := overrides[n.ID]; ok {
+			state = o.State
+			reason = fmt.Sprintf("manual override by %s until %s: %s",
+				o.Operator, o.ExpiresAt.Format("2006-01-02 15:04 MST"), o.Reason)
+		}
+		out[n.ID] = HealthWithReason{state, reason}
 	}
 	return out
 }
