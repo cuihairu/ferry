@@ -1859,8 +1859,10 @@ External Client
     - 备注（Task ID: F-1301 | Status: Done | Evidence: 订单状态机审计 §3.8（PaymentOrder models.go:327） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1302` 统一订单幂等规则。
     - 备注（Task ID: F-1302 | Status: Done | Evidence: order_no uniqueIndex models.go:330+paynotify.go:51 事务；TestEpusdtNotify+TestReconcileGuards | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1303` 统一订单超时和取消规则。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1303 | 未满足原因：未满足：expired 状态声明(models.go:345,351)但全仓无写入；无过期/取消路由(router.go:260-306 仅 reconcile/detail/refund/orders/notify)；coupon.go:273 明注「本仓无订单过期清扫，pending 常驻」。）
+-   [x] `F-1303` 统一订单超时和取消规则。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 证据（F-1303 | 已落地：统一规则=仅 pending 可流转终态（payorder.go orderPendingTimeout=30min 注释钉死）：超时腿 OrderSweep 批量条件更新 pending→expired + OrderLoop 后台循环（main.go，FERRY_ORDER_SWEEP_SEC 默认 60s）；取消腿 POST /api/panel/orders/:order_no/cancel（owner-scoped 条件更新 pending→cancelled，终态/他单 409）；settle 侧本就只放行 pending（paynotify.go 条件更新），过期后回调不复活订单、流水照落由 payrecon 标记待人工复核；models.go 状态枚举补 declared 未写的 cancelled；coupon.go「无清扫 pending 常驻」陈旧注释同步修正。
+    - 验证：TestOrderExpirySweep（旧 pending 过期/新 pending/终态不动）、TestPanelOrderCancel（取消一次成功、再取消/他单/已支付 409、他单不改）、TestSettleExpiredOrderStaysExpired（过期单回调不复活、流水落账、发放不生效）；全量 51 ok / FAIL=0 / exit=0。
+    - Commit: 56bdc22
 -   [x] `F-1304` 审计支付 Provider 接口。
     - 备注（Task ID: F-1304 | Status: Done | Evidence: 支付 Provider 接口审计 §3.8（provider.go:14-20） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1305` 验证支付回调签名。
