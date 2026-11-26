@@ -600,3 +600,43 @@ func TestAllocPolicyGroupModes(t *testing.T) {
 		t.Fatalf("invalid mode status = %d", rec.Code)
 	}
 }
+
+// TestAllocPolicyDirectFirst covers the direct-first toggle's API surface
+// (F-1051): an explicit false persists and reads back, and a fresh policy
+// keeps the default (enabled, field omitted).
+func TestAllocPolicyDirectFirst(t *testing.T) {
+	r, _ := newTestRouterWithDB(t)
+
+	rec := doJSON(t, r, "PUT", "/api/alloc/policy", map[string]any{
+		"out": "cost_first", "in": "perf_first", "rebalance_start": 1, "rebalance_end": 7,
+		"direct_first": false,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("put status = %d body=%s", rec.Code, rec.Body)
+	}
+	rec = doJSON(t, r, "GET", "/api/alloc", nil)
+	var pol struct {
+		Policy struct {
+			DirectFirst *bool `json:"direct_first"`
+		} `json:"policy"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &pol); err != nil {
+		t.Fatal(err)
+	}
+	if pol.Policy.DirectFirst == nil || *pol.Policy.DirectFirst {
+		t.Fatalf("explicit false must read back: %+v", pol.Policy.DirectFirst)
+	}
+
+	// a fresh policy keeps the default (nil = enabled); the struct must be
+	// reset first -- json.Unmarshal leaves stale pointer fields untouched
+	// when the key is omitted
+	pol.Policy.DirectFirst = nil
+	r2, _ := newTestRouterWithDB(t)
+	rec = doJSON(t, r2, "GET", "/api/alloc", nil)
+	if err := json.Unmarshal(rec.Body.Bytes(), &pol); err != nil {
+		t.Fatal(err)
+	}
+	if pol.Policy.DirectFirst != nil {
+		t.Fatalf("default must be nil: %+v", pol.Policy.DirectFirst)
+	}
+}

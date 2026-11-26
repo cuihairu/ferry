@@ -118,6 +118,10 @@ type PolicySetting struct {
 	// business group tag (Node.Group), the value a policy mode. A plan
 	// override is more specific and wins over the group's.
 	SchedGroupModes map[string]string `json:"sched_group_modes,omitempty"`
+	// DirectFirst (F-1051/F-1052): domestic entries prefer a same-region
+	// (direct) landing; a cross-region relay may win only when fresh probes
+	// prove it clearly better. Nil keeps the default (enabled).
+	DirectFirst *bool `json:"direct_first,omitempty"`
 }
 
 // Multiplicative score weight defaults (= the current formula 0.5*loadN + 0.3*costN - 0.2*premium).
@@ -372,6 +376,87 @@ func Pick(policy, direction, missing string, w ScoreWeights, cands []Candidate) 
 		}
 	}
 	return best, true
+}
+
+// directRelayMargin is how much a relay candidate's probe quality must beat
+// the best direct candidate's before a domestic entry hands its traffic to
+// the relay (F-1052). Same conservatism as the peak switch margins: a noisy
+// sample must not move traffic across regions.
+const directRelayMargin = 0.15
+
+// directFirstOn reports whether the direct-first rule is enabled: nil keeps
+// the F-1051 default (on).
+func directFirstOn(p PolicySetting) bool { return p.DirectFirst == nil || *p.DirectFirst }
+
+// isDirectTo reports whether the landing is a same-region (direct) hop for
+// the entry: the region is the geographic dimension the panel maintains, so
+// entry and landing sharing a non-empty region is "domestic to domestic"
+// (F-1051) and anything else crosses a relay segment.
+func isDirectTo(entry, landing storage.Node) bool {
+	return entry.Region != "" && landing.Region == entry.Region
+}
+
+// pickDirectFirst selects the entry's landing under the direct-first rule
+// (F-1051/F-1052/F-1053) over the policy's candidate order: within the
+// direct and the relay group the policy comparator picks as usual, and the
+// relay group wins only when its best candidate's fresh probe quality beats
+// the best direct one by directRelayMargin. With no usable direct candidate
+// the rule steps aside entirely and the policy picks over all candidates
+// (F-1053). The comparison basis is appended as exclusions on the losing
+// group (F-1054) so the trail and the decision snapshot carry the scores
+// the rule decided from; note (possibly empty) is meant for the switch
+// reason.
+func pickDirectFirst(entry storage.Node, policy, direction, missing string, w ScoreWeights,
+	cands []Candidate, d *Decision) (int, bool, string) {
+	less := LessFor(policy, direction, missing, w, cands)
+	pickAmong := func(group []int) int {
+		best := group[0]
+		for _, i := range group[1:] {
+			if less(i, best) {
+				best = i
+			}
+		}
+		return best
+	}
+	direct, relay := make([]int, 0, len(cands)), make([]int, 0, len(cands))
+	for i, c := range cands {
+		if !c.Healthy {
+			continue
+		}
+		if isDirectTo(entry, c.Node) {
+			direct = append(direct, i)
+		} else {
+			relay = append(relay, i)
+		}
+	}
+	// F-1053: nothing reachable in the same region -- the policy picks over
+	// every healthy candidate, the rule records nothing.
+	if len(direct) == 0 {
+		idx, ok := Pick(policy, direction, missing, w, cands)
+		return idx, ok, ""
+	}
+	bestD := pickAmong(direct)
+	if len(relay) == 0 {
+		return bestD, true, ""
+	}
+	bestR := pickAmong(relay)
+	sd, sr := QualityScore(cands[bestD].Quality), QualityScore(cands[bestR].Quality)
+	if sr > sd+directRelayMargin {
+		// F-1052: the measurement proves the relay clearly better -- each
+		// direct candidate is ruled out with the comparison in the reason.
+		for _, i := range direct {
+			d.Exclusions = append(d.Exclusions, Exclusion{LandingID: cands[i].Node.ID,
+				Reason: fmt.Sprintf("测量证明中继更优：中继 %.2f > 直连 %.2f+%.2f", sr, sd, directRelayMargin)})
+		}
+		return bestR, true, fmt.Sprintf("中继更优 %.2f > 直连 %.2f", sr, sd)
+	}
+	// F-1051: direct by default -- each relay candidate is ruled out with
+	// the comparison that kept it behind (F-1054).
+	for _, i := range relay {
+		d.Exclusions = append(d.Exclusions, Exclusion{LandingID: cands[i].Node.ID,
+			Reason: fmt.Sprintf("直连优先：直连 %.2f，中继 %.2f 未超阈值 %.2f", sd, sr, directRelayMargin)})
+	}
+	return bestD, true, ""
 }
 
 // Load metric: load ratio (conns/capacityM) — a 3M small pipe receives fewer connections by capacity.

@@ -196,7 +196,17 @@ func Decide(req *Request) []Decision {
 		weights := req.Policy.Weights()
 		d.Candidates = rankCandidates(cands, policyName, direction, req.Policy.MissingCost, weights)
 
-		idx, ok := Pick(policyName, direction, req.Policy.MissingCost, weights, cands)
+		// Direct-first (F-1051/F-1052/F-1053): domestic entries prefer the
+		// same-region group; the rule sits above the policy order and hands
+		// the comparison basis back as exclusions (F-1054).
+		var idx int
+		var ok bool
+		var note string
+		if directFirstOn(req.Policy) {
+			idx, ok, note = pickDirectFirst(entry, policyName, direction, req.Policy.MissingCost, weights, cands, &d)
+		} else {
+			idx, ok = Pick(policyName, direction, req.Policy.MissingCost, weights, cands)
+		}
 		if !ok {
 			d.Action = ActionNone
 			d.Reason = "no allocatable candidate"
@@ -239,6 +249,9 @@ func Decide(req *Request) []Decision {
 			d.FromID = current.LandingNodeID
 		}
 		d.Reason = fmt.Sprintf("%s 负载 %d 连/%dM", policyName, c.Conns, c.CapacityMbps())
+		if note != "" {
+			d.Reason += "; " + note
+		}
 		out = append(out, d)
 	}
 	return out
