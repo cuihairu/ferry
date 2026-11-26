@@ -1022,6 +1022,8 @@ export interface NodeProcRow {
   pid?: number
   restarts: number
   metrics?: Record<string, number>
+  /** build version reported by the agent (F-0816) */
+  version?: string
   updated_at: string
 }
 
@@ -1043,6 +1045,7 @@ export interface NodeStatusAggregate {
     state: string
     pid?: number
     restarts: number
+    version?: string
     updated_at: string
     role: string
     pool_state: string

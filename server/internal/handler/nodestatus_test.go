@@ -41,7 +41,7 @@ func TestNodeStatusAggregate(t *testing.T) {
 	// Relog a relay process snapshot and one probe report.
 	if err := db.Create(&storage.NodeProcStatus{
 		NodeID: node.ID, Proc: "relay", State: "running", PID: 42, Restarts: 1,
-		UpdatedAt: now,
+		Version: "v1.2.3", UpdatedAt: now,
 	}).Error; err != nil {
 		t.Fatalf("proc status: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestNodeStatusAggregate(t *testing.T) {
 	rec = doJSON(t, r, http.MethodGet, "/api/nodes/"+itoa(node.ID)+"/status", nil)
 	body = rec.Body.String()
 	for _, want := range []string{`"state":"running"`, `"pid":42`, `"role":"relay"`,
-		`"verdict":"healthy"`, `"rtt_ms":120`, `"loss_pct":2`} {
+		`"version":"v1.2.3"`, `"verdict":"healthy"`, `"rtt_ms":120`, `"loss_pct":2`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("aggregate must contain %s: %s", want, body)
 		}

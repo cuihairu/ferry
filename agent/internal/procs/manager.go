@@ -35,6 +35,10 @@ const defaultMetricsInterval = 15 * time.Second
 type Manager struct {
 	log *log.Logger
 
+	// version is the agent build version attached to every proc status (F-0816):
+	// role processes ship in the same binary, so this is their version too.
+	version string
+
 	mu    sync.Mutex
 	procs map[string]*proc
 
@@ -80,11 +84,17 @@ type ctrlReq struct {
 
 // New creates a manager from the spec table (no process is started; Start supervises them all together).
 func New(specs []config.ProcSpec, logger *log.Logger) *Manager {
+	return NewWithVersion(specs, logger, "")
+}
+
+// NewWithVersion is New with the agent build version attached to proc statuses (F-0816).
+func NewWithVersion(specs []config.ProcSpec, logger *log.Logger, version string) *Manager {
 	if logger == nil {
 		logger = log.Default()
 	}
 	m := &Manager{
 		log:             logger,
+		version:         version,
 		procs:           map[string]*proc{},
 		metricsInterval: defaultMetricsInterval,
 		minBackoff:      time.Second,
@@ -423,6 +433,7 @@ func (p *proc) snapshotLocked() agentproto.ProcStatus {
 		Restarts: p.restarts,
 		PID:      p.pid,
 		Metrics:  p.metrics,
+		Version:  p.mgr.version,
 	}
 }
 

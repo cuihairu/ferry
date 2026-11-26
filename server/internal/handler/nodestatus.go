@@ -35,6 +35,9 @@ type nodeRelayStatus struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	Role      string    `json:"role"`
 	PoolState string    `json:"pool_state"`
+	// Version is the reported build of the relay process (F-0816); empty until an
+	// agent with version support reports it.
+	Version string `json:"version,omitempty"`
 }
 
 // nodeProbeStatus is the probe half: the newest verdict this node produced as
@@ -80,6 +83,7 @@ func (h *Handler) nodeStatus(c *gin.Context) {
 			UpdatedAt: proc.UpdatedAt,
 			Role:      n.Role,
 			PoolState: n.PoolState,
+			Version:   proc.Version,
 		}
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		fail(c, http.StatusInternalServerError, err)

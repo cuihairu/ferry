@@ -79,7 +79,7 @@ func New(cfg config.Config, version string) *App {
 		interval:   cfg.HeartbeatInterval(),
 		certAlarms: map[string]time.Time{},
 	}
-	a.mgr = procs.New(cfg.Procs, a.log)
+	a.mgr = procs.NewWithVersion(cfg.Procs, a.log, version)
 	a.mgr.OnStatusChange = a.reportStatus
 	a.mgr.OnAlarm = a.reportAlarm
 	a.Procs = a.mgr.Statuses

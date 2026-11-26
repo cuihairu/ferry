@@ -146,6 +146,10 @@ type ProcStatus struct {
 	Restarts int               `json:"restarts"`
 	PID      int               `json:"pid,omitempty"`
 	Metrics  map[string]uint64 `json:"metrics,omitempty"` // process metrics (key-value numeric map, collected from MetricsURL)
+	// Version is the build version of the managed process (F-0816). In the
+	// same-binary deployment contract the core fills it from its own build
+	// version: relay/probe run as -role subcommands of the same executable.
+	Version string `json:"version,omitempty"`
 }
 
 // Process action values.

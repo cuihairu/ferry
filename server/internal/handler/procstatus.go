@@ -37,6 +37,7 @@ func (h *Handler) saveProcStatuses(nodeID int64, procs []agentproto.ProcStatus) 
 			row = storage.NodeProcStatus{
 				NodeID: uint(nodeID), Proc: ps.Name, State: ps.State,
 				PID: ps.PID, Restarts: ps.Restarts, Metrics: metrics,
+				Version: ps.Version,
 				UpdatedAt: time.Now(),
 			}
 			if err := h.db.Create(&row).Error; err != nil {
@@ -47,10 +48,14 @@ func (h *Handler) saveProcStatuses(nodeID int64, procs []agentproto.ProcStatus) 
 		if err != nil {
 			return err
 		}
-		if err := h.db.Model(&row).Updates(map[string]any{
+		updates := map[string]any{
 			"state": ps.State, "pid": ps.PID, "restarts": ps.Restarts,
 			"metrics": metrics, "updated_at": time.Now(),
-		}).Error; err != nil {
+		}
+		if ps.Version != "" {
+			updates["version"] = ps.Version
+		} // an older agent's empty version must not erase a known one
+		if err := h.db.Model(&row).Updates(updates).Error; err != nil {
 			return err
 		}
 	}
@@ -65,6 +70,7 @@ type nodeProcRow struct {
 	PID       int               `json:"pid,omitempty"`
 	Restarts  int               `json:"restarts"`
 	Metrics   map[string]uint64 `json:"metrics,omitempty"`
+	Version   string            `json:"version,omitempty"`
 	UpdatedAt time.Time         `json:"updated_at"`
 }
 
@@ -84,7 +90,7 @@ func (h *Handler) nodeProcs(c *gin.Context) {
 	for _, r := range rows {
 		row := nodeProcRow{
 			Proc: r.Proc, State: r.State, PID: r.PID,
-			Restarts: r.Restarts, UpdatedAt: r.UpdatedAt,
+			Restarts: r.Restarts, Version: r.Version, UpdatedAt: r.UpdatedAt,
 		}
 		if r.Metrics != "" {
 			_ = json.Unmarshal([]byte(r.Metrics), &row.Metrics)

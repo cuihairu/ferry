@@ -394,6 +394,9 @@ type NodeProcStatus struct {
 	PID       int       `gorm:"column:pid;default:0" json:"pid,omitempty"`
 	Restarts  int       `gorm:"default:0" json:"restarts"`
 	Metrics   string    `gorm:"type:text" json:"metrics,omitempty"` // JSON numeric object (key-value)
+	// Version is the reported build of the managed process (F-0816); empty before
+	// any agent with version support reports it.
+	Version   string    `gorm:"size:64" json:"version,omitempty"`
 	UpdatedAt time.Time `gorm:"not null" json:"updated_at"`
 }
 

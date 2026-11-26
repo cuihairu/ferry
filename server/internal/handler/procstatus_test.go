@@ -40,6 +40,7 @@ func TestAgentWSProcStatus(t *testing.T) {
 	sendHB([]agentproto.ProcStatus{{
 		Name: "cache", State: "running", PID: 4321, Restarts: 1, Since: time.Now(),
 		Metrics: map[string]uint64{"hits": 12, "misses": 3},
+		Version: "v1.2.3",
 	}})
 	var rows []storage.NodeProcStatus
 	if err := db.Order("proc ASC").Find(&rows).Error; err != nil {
@@ -53,7 +54,7 @@ func TestAgentWSProcStatus(t *testing.T) {
 		t.Fatalf("metrics column not json: %q", rows[0].Metrics)
 	}
 	if rows[0].Proc != "cache" || rows[0].State != "running" || rows[0].PID != 4321 ||
-		rows[0].Restarts != 1 || got["hits"] != 12 || got["misses"] != 3 {
+		rows[0].Restarts != 1 || got["hits"] != 12 || got["misses"] != 3 || rows[0].Version != "v1.2.3" {
 		t.Fatalf("proc row mismatch: %+v metrics=%v", rows[0], got)
 	}
 
@@ -88,6 +89,9 @@ func TestAgentWSProcStatus(t *testing.T) {
 	}
 	if len(list) != 2 || list[0]["proc"] != "cache" || list[1]["proc"] != "squid" {
 		t.Fatalf("node procs list mismatch: %v", list)
+	}
+	if list[0]["version"] != "v1.2.3" {
+		t.Fatalf("version missing in api: %v", list[0])
 	}
 	m, ok := list[0]["metrics"].(map[string]any)
 	if !ok || m["hits"] != float64(99) {

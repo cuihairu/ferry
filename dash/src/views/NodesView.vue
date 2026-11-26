@@ -1009,6 +1009,7 @@ async function remove(n: Node) {
                 {{ statusData.relay.state }}
               </el-tag>
               <span class="status-meta">PID {{ statusData.relay.pid ?? '—' }} · 重启 {{ statusData.relay.restarts }} 次</span>
+              <span v-if="statusData.relay.version" class="status-meta">版本 {{ statusData.relay.version }}</span>
             </template>
             <span v-else>—</span>
           </el-descriptions-item>
