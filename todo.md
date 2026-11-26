@@ -1495,7 +1495,8 @@ External Client
     - 备注（Task ID: F-0922 | Status: Done | Evidence: probe.Runner 信号量 acquire/release 包住 measure（defaultProbeConcurrency=16），SetConcurrency/Concurrency，config probe_concurrency（0=默认），app.New/proberole 两处接线 | Verification: TestProbeConcurrencyLimit（限 1 时目标侧并发高峰=1；默认时并行 spec 峰值≥2，慢 UDP 应答器测水印）+TestProbeConcurrencyWiring；agent 全套件 20 ok 2026-11-26 | Commit: 92fef5c）
 -   [x] `F-0923` 为探测任务设置超时。
     - 备注（Task ID: F-0923 | Status: Done | Evidence: dialTimeout=3s(probe.go:22)+net.DialTimeout(probe.go:131) | Verification: TestProbeUnreachable | Commit: fbcb525）
--   [ ] `F-0924` 支持按 Path 重要性配置探测频率。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0924` 支持按 Path 重要性配置探测频率。
+    - 备注（Task ID: F-0924 | Status: Done | Evidence: Path.ProbeImportance（critical/normal/low，默认 normal，create/update 校验+合并）；POST /api/probe-tasks/sync-from-paths 把每条启用 Path 重建为入口节点的 path-<id> tunnel 下发任务（落点 address:port，direction 沿用 Path，间隔 critical 60s/normal 300s/low 900s），只重建 path-* 命名空间、运营者自建任务不动，停用/删除的 Path 下次同步自动撤回；deliverProbeTasks 状态分类（ok/offline/transport/rejected） | Verification: TestPathProbeImportanceValidation+TestSyncProbeTasksFromPaths（critical=60s/low=900s/运营任务保留/停用撤回）+TestImportanceProbeInterval；全 server 套件绿 2026-11-26（exit 0，50 ok） | Commit: 2dfd711）
 -   [x] `F-0925` 故障时支持临时提高探测频率。
     - 备注（Task ID: F-0925 | Status: Done | Evidence: probe.loop 记住 sick verdict → boostUntil=now+5min，nextIntervalBoosted 4 倍提速（间隔/4，下限 10s 上限为原间隔，窗口过后再回原速）；与 19-23 点高峰提速叠加但不劣化 | Verification: TestNextIntervalBoosted（3600→900s、60→15s、30→10s 下限、5s 上限优先生效、过期不提速）；agent 全套件 20 ok 2026-11-26 | Commit: 92fef5c）
 -   [x] `F-0926` 防止大规模节点互探造成探测风暴。
