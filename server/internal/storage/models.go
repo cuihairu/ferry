@@ -331,6 +331,7 @@ type LandingAssignment struct {
 	Weight        int        `gorm:"default:0" json:"weight"`
 	Reason        string     `gorm:"size:64" json:"reason"` // region_fault/failover/manual...
 	AssignedAt    time.Time  `gorm:"not null" json:"assigned_at"`
+	ExpiresAt     *time.Time `json:"expires_at"` // manual override TTL (F-1050): past this the sweep hands the entry back to auto
 	ReleasedAt    *time.Time `json:"released_at"` // empty = in effect
 	ReleaseReason string     `gorm:"size:64" json:"release_reason"`
 }

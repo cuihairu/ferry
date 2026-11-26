@@ -145,7 +145,7 @@ func BuildRequest(db *gorm.DB, now time.Time) (*Request, error) {
 		Current: map[uint]*storage.LandingAssignment{},
 	}
 	for _, entry := range entries {
-		manual, err := hasManualAssignment(db, entry.ID, entry.Region)
+		manual, err := hasManualAssignment(db, entry.ID, entry.Region, now)
 		if err != nil {
 			return nil, err
 		}

@@ -170,3 +170,65 @@ func TestLandingAssignment(t *testing.T) {
 
 	_ = db
 }
+
+// TestLandingManualTTL covers the manual override TTL API surface (F-1050):
+// expires_in_seconds is persisted as an absolute expires_at, and a
+// non-positive TTL is rejected.
+func TestLandingManualTTL(t *testing.T) {
+	r, _ := newTestRouterWithDB(t)
+
+	mk := func(name, role string) uint {
+		rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
+			"name": name, "address": name + ".example.com", "port": 443,
+			"protocol": "vless", "config": `{"uuid":"u1"}`, "role": role,
+		})
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("create %s(%s): %d %s", name, role, rec.Code, rec.Body)
+		}
+		var n map[string]any
+		_ = json.Unmarshal(rec.Body.Bytes(), &n)
+		return uint(n["id"].(float64))
+	}
+	entry := mk("ttl-entry", "entry")
+	landing := mk("ttl-landing", "landing")
+
+	// zero/negative TTL is rejected
+	if rec := doJSON(t, r, "POST", "/api/landings", map[string]any{
+		"entry_node_id": entry, "landing_node_id": landing,
+		"direction": "out", "expires_in_seconds": 0,
+	}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("zero ttl: %d", rec.Code)
+	}
+
+	rec := doJSON(t, r, "POST", "/api/landings", map[string]any{
+		"entry_node_id": entry, "landing_node_id": landing,
+		"direction": "out", "expires_in_seconds": 3600,
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create with ttl: %d %s", rec.Code, rec.Body)
+	}
+	var row struct {
+		ExpiresAt *string `json:"expires_at"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &row); err != nil {
+		t.Fatal(err)
+	}
+	if row.ExpiresAt == nil || *row.ExpiresAt == "" {
+		t.Fatalf("expires_at missing: %s", rec.Body)
+	}
+
+	// no TTL keeps the override permanent (legacy behavior)
+	rec = doJSON(t, r, "POST", "/api/landings", map[string]any{
+		"entry_node_id": entry, "landing_node_id": landing, "direction": "in",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create without ttl: %d %s", rec.Code, rec.Body)
+	}
+	row.ExpiresAt = nil
+	if err := json.Unmarshal(rec.Body.Bytes(), &row); err != nil {
+		t.Fatal(err)
+	}
+	if row.ExpiresAt != nil {
+		t.Fatalf("no ttl must stay nil: %s", rec.Body)
+	}
+}

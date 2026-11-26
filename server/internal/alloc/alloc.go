@@ -701,6 +701,13 @@ func Sweep(db *gorm.DB) ([]SwitchEvent, error) {
 // The round is the unified three-step pipeline (F-1022/F-1023): load the
 // input model, decide purely, apply the writes.
 func SweepAt(db *gorm.DB, now time.Time) ([]SwitchEvent, error) {
+	// Manual override TTL (F-1050): an expired manual assignment is released
+	// (released_at + reason trail) so the entry rejoins auto this round. This
+	// runs before the failover freeze -- the operator's TTL has spoken, and
+	// handing an entry back to auto is not a failover switch.
+	if _, err := releaseExpiredManual(db, now); err != nil {
+		return nil, err
+	}
 	// Failover freeze (F-0294): a policy chain setting failover=manual stops
 	// auto landing switches this round (current assignments are kept).
 	eff, _, err := policyconstraints.Resolve(db, 0, 0)
@@ -725,12 +732,27 @@ func policyFor(p PolicySetting, direction string) string {
 	return p.Out
 }
 
-// hasManualAssignment reports whether an entry-level or region-level manual assignment is effective.
-func hasManualAssignment(db *gorm.DB, entryID uint, region string) (bool, error) {
+// ManualExpiredReason trails a manual assignment the TTL released (F-1050).
+const ManualExpiredReason = "manual_expired"
+
+// releaseExpiredManual releases manual assignments whose TTL has passed
+// (F-1050): the row keeps its trail (released_at + manual_expired) and the
+// entry rejoins auto allocation in the same round. Returns the released count.
+func releaseExpiredManual(db *gorm.DB, now time.Time) (int64, error) {
+	q := db.Model(&storage.LandingAssignment{}).
+		Where("released_at IS NULL AND strategy = ? AND expires_at IS NOT NULL AND expires_at <= ?",
+			PolicyManual, now)
+	res := q.Updates(map[string]any{"released_at": now, "release_reason": ManualExpiredReason})
+	return res.RowsAffected, res.Error
+}
+
+// hasManualAssignment reports whether an entry-level or region-level manual
+// assignment is effective: not released and not past its TTL (F-1050).
+func hasManualAssignment(db *gorm.DB, entryID uint, region string, now time.Time) (bool, error) {
 	var n int64
 	if err := db.Model(&storage.LandingAssignment{}).
-		Where("released_at IS NULL AND strategy = ? AND (entry_node_id = ? OR (entry_node_id IS NULL AND region = ?))",
-			PolicyManual, entryID, region).
+		Where("released_at IS NULL AND strategy = ? AND (entry_node_id = ? OR (entry_node_id IS NULL AND region = ?)) AND (expires_at IS NULL OR expires_at > ?)",
+			PolicyManual, entryID, region, now).
 		Count(&n).Error; err != nil {
 		return false, err
 	}

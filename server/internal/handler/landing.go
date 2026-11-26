@@ -24,6 +24,9 @@ type landingInput struct {
 	Direction     string `json:"direction"`
 	Weight        *int   `json:"weight,omitempty"`
 	Reason        string `json:"reason"`
+	// ExpiresInSeconds is the optional manual override TTL (F-1050): past it
+	// the sweep releases the assignment and the entry rejoins auto.
+	ExpiresInSeconds *int `json:"expires_in_seconds,omitempty"`
 }
 
 func (h *Handler) listLandings(c *gin.Context) {
@@ -66,6 +69,10 @@ func (h *Handler) createLanding(c *gin.Context) {
 		fail(c, http.StatusBadRequest, errors.New("weight must be 0-1000"))
 		return
 	}
+	if in.ExpiresInSeconds != nil && *in.ExpiresInSeconds <= 0 {
+		fail(c, http.StatusBadRequest, errors.New("expires_in_seconds must be positive"))
+		return
+	}
 	var landing storage.Node
 	if err := h.db.First(&landing, in.LandingNodeID).Error; err != nil {
 		fail(c, http.StatusBadRequest, errors.New("landing node not found"))
@@ -75,13 +82,18 @@ func (h *Handler) createLanding(c *gin.Context) {
 		fail(c, http.StatusBadRequest, errors.New("landing node must have landing role"))
 		return
 	}
+	now := time.Now()
 	row := storage.LandingAssignment{
 		LandingNodeID: landing.ID,
 		Direction:     in.Direction,
 		Strategy:      "manual",
 		Weight:        weight,
 		Reason:        in.Reason,
-		AssignedAt:    time.Now(),
+		AssignedAt:    now,
+	}
+	if in.ExpiresInSeconds != nil {
+		expiresAt := now.Add(time.Duration(*in.ExpiresInSeconds) * time.Second)
+		row.ExpiresAt = &expiresAt
 	}
 	if in.EntryNodeID != nil {
 		var entry storage.Node
