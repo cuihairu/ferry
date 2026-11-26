@@ -56,6 +56,19 @@ func (h *Handler) validatePathInput(in pathInput) (storage.Path, error) {
 			return storage.Path{}, errors.New("relay node not found")
 		}
 	}
+	// Topology validation (F-1003): a path is entry -> (relay) -> landing,
+	// so the three positions must be distinct nodes -- no self-loops, and a
+	// relay may not double as an endpoint. Role fit is not pinned here: the
+	// node role column defaults to landing for legacy rows, and allocation
+	// already filters candidates by role at pick time.
+	if *in.EntryNodeID == *in.LandingNodeID {
+		return storage.Path{}, errors.New("entry and landing must be different nodes")
+	}
+	if in.RelayNodeID != nil && *in.RelayNodeID != 0 {
+		if *in.RelayNodeID == *in.EntryNodeID || *in.RelayNodeID == *in.LandingNodeID {
+			return storage.Path{}, errors.New("relay must differ from entry and landing")
+		}
+	}
 	direction := in.Direction
 	if direction == "" {
 		direction = "out"

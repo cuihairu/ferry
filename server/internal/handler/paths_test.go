@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/cuihairu/ferry/server/internal/storage"
@@ -54,6 +55,25 @@ func TestPathCRUD(t *testing.T) {
 		"name": "x", "entry_node_id": entry, "landing_node_id": landing, "direction": "sideways",
 	}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad direction = %d", rec.Code)
+	}
+
+	// Topology validation (F-1003): no self-loops, and a relay may not double
+	// as an endpoint.
+	if rec = doJSON(t, r, "POST", "/api/paths", map[string]any{
+		"name": "loop", "entry_node_id": entry, "landing_node_id": entry,
+	}); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "different nodes") {
+		t.Fatalf("self loop = %d %s", rec.Code, rec.Body)
+	}
+	if rec = doJSON(t, r, "POST", "/api/paths", map[string]any{
+		"name": "reuse", "entry_node_id": entry, "landing_node_id": landing, "relay_node_id": entry,
+	}); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "relay must differ") {
+		t.Fatalf("relay reuse = %d %s", rec.Code, rec.Body)
+	}
+	// The same shape is refused on update, too.
+	if rec = doJSON(t, r, "PUT", "/api/paths/"+utoa(p.ID), map[string]any{
+		"landing_node_id": entry,
+	}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("update into self loop = %d %s", rec.Code, rec.Body)
 	}
 
 	// Multiple paths may share an entry and a landing (F-0248/F-0249).
