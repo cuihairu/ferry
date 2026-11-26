@@ -6,7 +6,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"strconv"
 	"sync"
 	"time"
 
@@ -166,6 +165,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.GET("/enrollment-tokens", h.listEnrollmentTokens)
 		api.DELETE("/enrollment-tokens/:id", h.revokeEnrollmentToken)
 		api.GET("/nodes/:id", h.getNode)
+		api.GET("/nodes/:id/status", h.nodeStatus)
 		api.PUT("/nodes/:id", h.updateNode)
 		api.DELETE("/nodes/:id", h.deleteNode)
 		// Registration approval flow (F-0741): a require-approval enrollment lands
@@ -608,25 +608,6 @@ func (h *Handler) health(c *gin.Context) {
 func (h *Handler) listDimensionStatus(c *gin.Context) {
 	out := []storage.DimensionStatus{}
 	if err := h.db.Order("scope, key").Find(&out).Error; err != nil {
-		fail(c, http.StatusInternalServerError, err)
-		return
-	}
-	c.JSON(http.StatusOK, out)
-}
-
-// listProbeReports returns the edge probe verdict records (newest first, 200 by default).
-func (h *Handler) listProbeReports(c *gin.Context) {
-	limit := 200
-	if v := c.Query("limit"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 || n > 1000 {
-			fail(c, http.StatusBadRequest, errors.New("limit must be 1-1000"))
-			return
-		}
-		limit = n
-	}
-	out := []storage.ProbeReport{}
-	if err := h.db.Order("probed_at DESC, id DESC").Limit(limit).Find(&out).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}

@@ -1029,6 +1029,39 @@ export function getNodeProcs(id: number): Promise<NodeProcRow[]> {
   return get<NodeProcRow[]>(`/api/nodes/${id}/procs`)
 }
 
+// ---- Node operational state aggregation (F-0750: agent / relay / probe tri-state in one call) ----
+
+/** NodeStatusAggregate is the agent/relay/probe tri-state of one node (GET /api/nodes/:id/status). */
+export interface NodeStatusAggregate {
+  agent: {
+    status: string
+    last_seen?: string | null
+    enabled: boolean
+    maintenance: boolean
+  }
+  relay: {
+    state: string
+    pid?: number
+    restarts: number
+    updated_at: string
+    role: string
+    pool_state: string
+  } | null
+  probe: {
+    target_kind: string
+    direction: string
+    rtt_ms: number
+    loss_pct: number
+    reachable: boolean
+    verdict: string
+    probed_at: string
+  } | null
+}
+
+export function getNodeStatus(id: number): Promise<NodeStatusAggregate> {
+  return get<NodeStatusAggregate>(`/api/nodes/${id}/status`)
+}
+
 // ---- Traffic savings report (SAVE-7: save_stats aggregated daily, sharing the cost dashboard page) ----
 
 /** SaveStatsRow is one node's savings summary for a day (direct/blocked bytes + converted cost). */

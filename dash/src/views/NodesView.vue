@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { get, post, put, del, resolveAlert, upgradeNode, getNodeProcs, rotateNodeToken, revokeNodeToken, type Node, type DimensionStatus, type NodeShare, type BatchProcResult, type BatchConfigResult, type Alert, type NodeLoad, type NodeProcRow } from '../api'
+import { get, post, put, del, resolveAlert, upgradeNode, getNodeProcs, getNodeStatus, rotateNodeToken, revokeNodeToken, type Node, type DimensionStatus, type NodeShare, type BatchProcResult, type BatchConfigResult, type Alert, type NodeLoad, type NodeProcRow, type NodeStatusAggregate } from '../api'
 import QRCode from 'qrcode'
 import RuleLibDialog from '../components/RuleLibDialog.vue'
 
@@ -320,6 +320,28 @@ const procsFor = ref<Node | null>(null)
 const procsRows = ref<NodeProcRow[]>([])
 
 const PROC_STATE_TYPE: Record<string, string> = { running: 'success', stopped: 'info', crashed: 'danger' }
+
+// Node detail tri-state dialog (F-0750): agent liveness, relay process and the latest probe verdict.
+const statusVisible = ref(false)
+const statusBusy = ref(false)
+const statusFor = ref<Node | null>(null)
+const statusData = ref<NodeStatusAggregate | null>(null)
+
+const AGENT_STATE_TYPE: Record<string, string> = { online: 'success', offline: 'danger', unknown: 'info' }
+const RELAY_STATE_TYPE: Record<string, string> = { running: 'success', stopped: 'info', crashed: 'danger' }
+
+async function openStatus(n: Node) {
+  statusFor.value = n
+  statusVisible.value = true
+  statusBusy.value = true
+  try {
+    statusData.value = await getNodeStatus(n.id)
+  } catch (e) {
+    ElMessage.error(String(e))
+  } finally {
+    statusBusy.value = false
+  }
+}
 
 async function openProcs(n: Node) {
   procsFor.value = n
@@ -728,6 +750,7 @@ async function remove(n: Node) {
       </el-table-column>
       <el-table-column label="操作" width="360" fixed="right">
         <template #default="{ row }">
+          <el-button link type="primary" @click="openStatus(row)">状态</el-button>
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
           <el-button link type="primary" @click="openShare(row)">分享</el-button>
           <el-button link type="primary" @click="openRuleLib(row)">分流</el-button>
@@ -962,6 +985,64 @@ async function remove(n: Node) {
       </template>
     </el-dialog>
 
+    <!-- Node detail tri-state (F-0750): agent liveness, relay process, latest probe verdict -->
+    <el-dialog v-model="statusVisible" :title="`状态 · ${statusFor?.name ?? ''}`" width="640px">
+      <div v-loading="statusBusy">
+        <el-descriptions v-if="statusData" :column="2" border size="small">
+          <el-descriptions-item label="Agent 状态">
+            <el-tag :type="AGENT_STATE_TYPE[statusData.agent.status] ?? 'info'" size="small" disable-transitions>
+              {{ statusData.agent.status }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="最近在线">
+            {{ statusData.agent.last_seen ? new Date(statusData.agent.last_seen).toLocaleString() : '从未上报' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="启用">
+            {{ statusData.agent.enabled ? '是' : '否' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="维护">
+            {{ statusData.agent.maintenance ? '维护中（不参与分配与订阅）' : '否' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="Relay 进程">
+            <template v-if="statusData.relay">
+              <el-tag :type="RELAY_STATE_TYPE[statusData.relay.state] ?? 'info'" size="small" disable-transitions>
+                {{ statusData.relay.state }}
+              </el-tag>
+              <span class="status-meta">PID {{ statusData.relay.pid ?? '—' }} · 重启 {{ statusData.relay.restarts }} 次</span>
+            </template>
+            <span v-else>—</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="角色 / 入口池">
+            <template v-if="statusData.relay">
+              {{ statusData.relay.role }} / {{ statusData.relay.pool_state }}
+            </template>
+            <span v-else>—</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="进程快照">
+            <template v-if="statusData.relay">{{ new Date(statusData.relay.updated_at).toLocaleString() }}</template>
+            <span v-else>暂无上报</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="探测判定">
+            <template v-if="statusData.probe">
+              <el-tag :type="statusData.probe.verdict === 'healthy' ? 'success' : 'warning'" size="small" disable-transitions>
+                {{ statusData.probe.verdict }}
+              </el-tag>
+              <span class="status-meta">{{ statusData.probe.direction }} · RTT {{ statusData.probe.rtt_ms }}ms · 丢包 {{ statusData.probe.loss_pct }}%</span>
+            </template>
+            <span v-else>暂无探测记录</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="探测时间" :span="2">
+            <template v-if="statusData.probe">{{ new Date(statusData.probe.probed_at).toLocaleString() }}</template>
+            <span v-else>—</span>
+          </el-descriptions-item>
+        </el-descriptions>
+      </div>
+      <template #footer>
+        <el-button :disabled="!statusFor" :loading="statusBusy" @click="statusFor && openStatus(statusFor)">刷新</el-button>
+        <el-button @click="statusVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
     <RuleLibDialog v-model="ruleLibVisible" :node="ruleLibFor" />
   </div>
 </template>
@@ -994,6 +1075,11 @@ async function remove(n: Node) {
 }
 .form-hint {
   margin-left: 10px;
+  color: var(--ferry-text-muted);
+  font-size: 12px;
+}
+.status-meta {
+  margin-left: 8px;
   color: var(--ferry-text-muted);
   font-size: 12px;
 }
