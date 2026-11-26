@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { get, post, put, del, getAlloc, putAllocPolicy, type Node, type LandingAssignment, type TransportRow, type AllocPolicy } from '../api'
+import { get, post, put, del, getAlloc, putAllocPolicy, explainAlloc, type Node, type LandingAssignment, type TransportRow, type AllocPolicy, type AllocExplainDecision } from '../api'
 import { formatDate } from '../utils/format'
 
 // E-20: manual landing assignment — assign landings and weights for an entry node or a whole region.
@@ -170,6 +170,34 @@ async function release(row: LandingAssignment) {
 }
 
 const DIR_TEXT: Record<string, string> = { out: '出海', in: '回国' }
+
+// Scheduling explanation (F-1431): the live per-entry decision view (F-1023/F-1034)
+// read from GET /api/alloc/explain — ranked candidates with eligibility reasons,
+// pre-score exclusions, winner and action. Read-only; nothing is applied here.
+const explainVisible = ref(false)
+const explainBusy = ref(false)
+const explainRoundAt = ref('')
+const explainDecisions = ref<AllocExplainDecision[]>([])
+const explainManual = ref<number[]>([])
+
+const EXPLAIN_ACTION: Record<string, string> = {
+  keep: '保持', switch: '切换', 'keep-current': '保持', force_switch: '强制切换',
+}
+
+async function openExplain() {
+  explainVisible.value = true
+  explainBusy.value = true
+  try {
+    const out = await explainAlloc()
+    explainRoundAt.value = out.round_at
+    explainDecisions.value = out.decisions
+    explainManual.value = out.manual
+  } catch (e) {
+    ElMessage.error(String(e))
+  } finally {
+    explainBusy.value = false
+  }
+}
 </script>
 
 <template>
@@ -185,6 +213,7 @@ const DIR_TEXT: Record<string, string> = { out: '出海', in: '回国' }
         <el-radio-button value="all">含历史</el-radio-button>
       </el-radio-group>
       <el-button type="primary" @click="openCreate">新建分配</el-button>
+      <el-button @click="openExplain">调度解释</el-button>
     </div>
 
     <el-table :data="rows" v-loading="loading" :header-cell-style="{ background: 'var(--ferry-bg-panel)' }">
@@ -324,10 +353,85 @@ const DIR_TEXT: Record<string, string> = { out: '出海', in: '回国' }
         <el-button type="primary" :loading="saving" @click="save">分配</el-button>
       </template>
     </el-dialog>
+
+    <!-- Scheduling explanation dialog (F-1431): live per-entry decisions with candidates and exclusion reasons -->
+    <el-dialog v-model="explainVisible" title="调度解释" width="760px">
+      <div v-loading="explainBusy" class="explain-head">
+        <span v-if="explainRoundAt">回合时间：{{ new Date(explainRoundAt).toLocaleString() }}</span>
+        <span v-if="explainManual.length" class="hint" style="margin-left: 12px">
+          手动接管入口：{{ explainManual.join('、') }}（不参与自动调度）
+        </span>
+      </div>
+      <el-table :data="explainDecisions" size="small" empty-text="暂无可调度入口" row-key="entry_id">
+        <el-table-column type="expand">
+          <template #default="{ row }">
+            <div class="explain-detail">
+              <div class="explain-line">
+                当前落地：<b>{{ row.current || '—' }}</b>
+                <template v-if="row.to">· 目标：<b>{{ row.to }}</b></template>
+                <template v-if="row.winner_id">· 胜选：{{ row.to || `#${row.winner_id}` }}</template>
+                <template v-if="row.reason">· 原因：{{ row.reason }}</template>
+              </div>
+              <div class="explain-sub">候选（{{ row.candidates.length }}）</div>
+              <el-table :data="row.candidates" size="small">
+                <el-table-column prop="name" label="落地" min-width="120" />
+                <el-table-column label="参评" width="80">
+                  <template #default="{ row: c }">
+                    <el-tag size="small" :type="c.eligible ? 'success' : 'danger'" disable-transitions>{{ c.eligible ? '参评' : '淘汰' }}</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="质量分" width="90">
+                  <template #default="{ row: c }">{{ c.quality_score.toFixed(3) }}</template>
+                </el-table-column>
+                <el-table-column prop="reason" label="淘汰原因" min-width="160">
+                  <template #default="{ row: c }">{{ c.reason || '—' }}</template>
+                </el-table-column>
+              </el-table>
+              <div class="explain-sub">预先排除（{{ row.exclusions.length }}）</div>
+              <el-table :data="row.exclusions" size="small" empty-text="无预先排除">
+                <el-table-column prop="name" label="落地" min-width="120" />
+                <el-table-column prop="reason" label="排除原因" min-width="220" />
+              </el-table>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="entry_name" label="入口" min-width="120" />
+        <el-table-column label="方向" width="80">
+          <template #default="{ row }">{{ DIR_TEXT[row.direction] ?? row.direction }}</template>
+        </el-table-column>
+        <el-table-column prop="policy" label="策略" width="100" />
+        <el-table-column label="动作" width="100">
+          <template #default="{ row }">{{ EXPLAIN_ACTION[row.action] ?? row.action }}</template>
+        </el-table-column>
+        <el-table-column label="候选数" width="80">
+          <template #default="{ row }">{{ row.candidates.length }}</template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button :loading="explainBusy" @click="openExplain">刷新</el-button>
+        <el-button @click="explainVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <style scoped>
+.explain-head {
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+.explain-detail {
+  padding: 4px 12px;
+}
+.explain-line {
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.explain-sub {
+  margin: 8px 0 4px;
+  font-weight: 600;
+  font-size: 12px;
+}
 .toolbar {
   margin-bottom: 16px;
   display: flex;

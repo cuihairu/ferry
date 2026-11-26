@@ -1959,3 +1959,39 @@ export function getPathDetail(id: number): Promise<Path> {
 export function getPathHealth(id: number): Promise<{ path_id: number; health: string }> {
   return get(`/api/paths/${id}/health`)
 }
+
+/** AllocExplainCandidate is one candidate's answer inside a scheduling decision (F-1034): ineligible candidates carry a reason. */
+export interface AllocExplainCandidate {
+  landing_id: number
+  name: string
+  eligible: boolean
+  reason?: string
+  quality_score: number
+}
+
+/** AllocExplainExclusion is a landing ruled out before scoring, with the reason (F-1034). */
+export interface AllocExplainExclusion {
+  landing_id: number
+  name: string
+  reason: string
+}
+
+/** AllocExplainDecision is one entry's scheduling answer: ranked candidates, exclusions, winner and action (F-1023/F-1034). */
+export interface AllocExplainDecision {
+  entry_id: number
+  entry_name: string
+  direction: string
+  policy: string
+  action: string
+  current?: string
+  from?: string
+  to?: string
+  winner_id?: number
+  reason?: string
+  candidates: AllocExplainCandidate[]
+  exclusions: AllocExplainExclusion[]
+}
+
+export function explainAlloc(entryId?: number): Promise<{ round_at: string; policy: AllocPolicy; decisions: AllocExplainDecision[]; manual: number[] }> {
+  return get(`/api/alloc/explain${entryId ? `?entry_id=${entryId}` : ''}`)
+}
