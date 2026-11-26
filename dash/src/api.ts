@@ -1621,3 +1621,85 @@ export function getCostEstimates(): Promise<{ estimates: CostEstimateRow[] }> {
 export function getPathCosts(from: string): Promise<{ rows: PathCostRow[] }> {
   return get(`/api/cost/path-estimates?from=${encodeURIComponent(from)}`)
 }
+
+// ---- Bill sync admin (§4.7, F-0632: sources, sync runs, manual triggers) ----
+
+export interface CostSourceRow {
+  id: number
+  name: string
+  provider_id?: number
+  source: string
+  account: string
+  region: string
+  currency: string
+  enabled: boolean
+  note: string
+  last_sync_at: string | null
+  last_error: string
+}
+
+export interface BillImportRow {
+  id: number
+  cost_provider_id: number
+  source: string
+  trigger: string
+  period_start: string
+  period_end: string
+  account: string
+  region: string
+  state: string
+  fetched: number
+  added: number
+  updated: number
+  skipped: number
+  error?: string
+  retry_count: number
+  started_at: string
+  finished_at?: string | null
+}
+
+export interface CostSourceInput {
+  name: string
+  provider_id?: number | null
+  source: string
+  account: string
+  region: string
+  currency: string
+  note: string
+  enabled?: boolean
+}
+
+export interface ImportAPIInput {
+  from: string
+  to: string
+  account?: string
+  region?: string
+  incremental?: boolean
+}
+
+export function getCostSources(): Promise<{ sources: CostSourceRow[] }> {
+  return get('/api/cost/sources')
+}
+
+export function createCostSource(input: CostSourceInput): Promise<CostSourceRow> {
+  return post('/api/cost/sources', input)
+}
+
+export function updateCostSource(id: number, patch: Partial<CostSourceInput>): Promise<CostSourceRow> {
+  return put(`/api/cost/sources/${id}`, patch)
+}
+
+export function getBillImports(costProviderId?: number): Promise<{ imports: BillImportRow[] }> {
+  return get(`/api/cost/imports${costProviderId ? `?cost_provider_id=${costProviderId}` : ''}`)
+}
+
+export function importBillsAPI(id: number, input: ImportAPIInput): Promise<{ ok: boolean; error?: string; run?: BillImportRow }> {
+  return post(`/api/cost/sources/${id}/import-api`, input)
+}
+
+/** importBillsFile uploads a vendor bill JSON file (multipart `file` field). */
+export function importBillsFile(id: number, file: File): Promise<{ ok: boolean; error?: string; run?: BillImportRow }> {
+  const form = new FormData()
+  form.append('file', file)
+  return request(`/api/cost/sources/${id}/import-file`, { method: 'POST', body: form })
+}

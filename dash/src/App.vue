@@ -52,6 +52,7 @@ function doLogout() {
         <el-menu-item index="/payments">对账</el-menu-item>
         <el-menu-item index="/promos">促销</el-menu-item>
         <el-menu-item index="/cost">成本</el-menu-item>
+        <el-menu-item index="/bills">账单同步</el-menu-item>
         <el-menu-item index="/provision">供给</el-menu-item>
         <el-menu-item index="/dns">域名</el-menu-item>
         <el-menu-item index="/recoveries">恢复</el-menu-item>

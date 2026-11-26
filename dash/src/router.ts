@@ -19,6 +19,7 @@ export const router = createRouter({
     { path: '/promos', component: () => import('./views/PromosView.vue') },
     { path: '/admins', component: () => import('./views/AdminsView.vue') },
     { path: '/cost', component: () => import('./views/CostView.vue') },
+    { path: '/bills', component: () => import('./views/BillsView.vue') },
     { path: '/provision', component: () => import('./views/ProvisionView.vue') },
     { path: '/dns', component: () => import('./views/DnsView.vue') },
     { path: '/recoveries', component: () => import('./views/RecoveryView.vue') },
