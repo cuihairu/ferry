@@ -488,6 +488,16 @@ func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID 
 			// Runtime capability state rides each heartbeat (F-0229); an empty
 			// payload (old agent) is a no-op.
 			h.mergeCaps(nodeID, hb.Caps)
+			// Structured relay capability declaration (F-0804): an empty payload
+			// from an older agent must not erase a previously reported declaration.
+			if hb.RelayCaps != nil {
+				if b, err := json.Marshal(hb.RelayCaps); err == nil {
+					if err := h.db.Model(&storage.Node{}).Where("id=?", nodeID).
+						Update("relay_caps", string(b)).Error; err != nil {
+						log.Printf("save relay caps node=%d: %v", nodeID, err)
+					}
+				}
+			}
 			// Persist the process snapshot (SAVE-3): metrics (cache hit statistics, etc.) are updated
 			// with it, and a failure only logs -- it never blocks the heartbeat reply.
 			if procs, over := capBatch(hb.Procs, maxBatchItems); over {

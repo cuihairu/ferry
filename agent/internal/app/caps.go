@@ -35,6 +35,40 @@ func staticCaps(cfg config.Config) []string {
 	return out
 }
 
+// relayCaps declares the relay data plane's concrete features and limits (F-0804),
+// derived from the local relay spec on every heartbeat: UDP forwarding stays
+// false until the landing side can terminate it, and a limit is only declared
+// when the spec actually carries a positive value.
+func relayCaps(cfg config.Config) *agentproto.RelayCaps {
+	r := cfg.Relay
+	if r.Listen == "" {
+		return nil
+	}
+	c := &agentproto.RelayCaps{
+		TCPForward:     true,
+		Reconnect:      true,
+		IdleCleanup:    effectiveIdle(r),
+		Metrics:        r.MetricsListen != "",
+		StreamLimit:    r.MaxStreams > 0,
+		BandwidthLimit: r.RateLimitKbps > 0,
+		MaxConns:       maxConns(r),
+		MaxStreams:     r.MaxStreams,
+		RateLimitKbps:  r.RateLimitKbps,
+	}
+	return c
+}
+
+func effectiveIdle(r config.RelaySpec) bool {
+	return r.IdleTimeoutSec > 0
+}
+
+func maxConns(r config.RelaySpec) int {
+	if r.MaxConns > 0 {
+		return r.MaxConns
+	}
+	return 128 // the relay package default
+}
+
 // dynamicCaps derives the runtime capability state (F-0229) from the live
 // component snapshot taken with the heartbeat. Proxy ingress follows the
 // managed process states: any crash degrades, all-down is off. Probe and

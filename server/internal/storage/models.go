@@ -207,10 +207,13 @@ type Node struct {
 	// (F-0222): panel-set, derived from role/transport/labels, one of
 	// proxy_ingress/relay_entry/relay_landing/probe/tcp/udp. The dynamic
 	// counterparts live in CapabilityState.
-	Capabilities    string    `gorm:"type:text" json:"capabilities"`
-	CapabilityState string    `gorm:"type:text" json:"capability_state"` // JSON object: dynamic runtime capability -> ok/degraded/off
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	Capabilities    string `gorm:"type:text" json:"capabilities"`
+	CapabilityState string `gorm:"type:text" json:"capability_state"` // JSON object: dynamic runtime capability -> ok/degraded/off
+	// RelayCaps is the JSON RelayCaps declaration from the agent heartbeat (F-0804):
+	// concrete relay features and configured limits; empty before any reporting agent.
+	RelayCaps string    `gorm:"type:text" json:"relay_caps"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // TrafficLog is one traffic accounting record (aggregated per user per node per cycle).
@@ -387,13 +390,13 @@ type NodeTrafficLog struct {
 // NodeProcStatus is the latest status snapshot of a managed process (SAVE-3): the ProcStatus carried by each heartbeat is upserted
 // per node per process, and metrics (nginx cache / Squid hit statistics etc.) are stored in metrics as JSON.
 type NodeProcStatus struct {
-	ID        uint      `gorm:"primaryKey" json:"id"`
-	NodeID    uint      `gorm:"uniqueIndex:idx_node_proc;not null" json:"node_id"`
-	Proc      string    `gorm:"size:64;not null;uniqueIndex:idx_node_proc" json:"proc"`
-	State     string    `gorm:"size:16;not null" json:"state"` // running/stopped/crashed
-	PID       int       `gorm:"column:pid;default:0" json:"pid,omitempty"`
-	Restarts  int       `gorm:"default:0" json:"restarts"`
-	Metrics   string    `gorm:"type:text" json:"metrics,omitempty"` // JSON numeric object (key-value)
+	ID       uint   `gorm:"primaryKey" json:"id"`
+	NodeID   uint   `gorm:"uniqueIndex:idx_node_proc;not null" json:"node_id"`
+	Proc     string `gorm:"size:64;not null;uniqueIndex:idx_node_proc" json:"proc"`
+	State    string `gorm:"size:16;not null" json:"state"` // running/stopped/crashed
+	PID      int    `gorm:"column:pid;default:0" json:"pid,omitempty"`
+	Restarts int    `gorm:"default:0" json:"restarts"`
+	Metrics  string `gorm:"type:text" json:"metrics,omitempty"` // JSON numeric object (key-value)
 	// Version is the reported build of the managed process (F-0816); empty before
 	// any agent with version support reports it.
 	Version   string    `gorm:"size:64" json:"version,omitempty"`

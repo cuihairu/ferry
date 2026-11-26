@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -40,6 +41,21 @@ type nodeRelayStatus struct {
 	Version string `json:"version,omitempty"`
 }
 
+// nodeRelayCaps is the structured relay capability declaration (F-0804) the agent
+// last reported with a heartbeat; nil when the agent never reported one.
+type nodeRelayCaps struct {
+	TCPForward     bool `json:"tcp_forward"`
+	UDPForward     bool `json:"udp_forward"`
+	Reconnect      bool `json:"reconnect"`
+	IdleCleanup    bool `json:"idle_cleanup"`
+	Metrics        bool `json:"metrics"`
+	StreamLimit    bool `json:"stream_limit"`
+	BandwidthLimit bool `json:"bandwidth_limit"`
+	MaxConns       int  `json:"max_conns"`
+	MaxStreams     int  `json:"max_streams"`
+	RateLimitKbps  int  `json:"rate_limit_kbps"`
+}
+
 // nodeProbeStatus is the probe half: the newest verdict this node produced as
 // a prober. The verdict/rtt/loss come straight from the report row.
 type nodeProbeStatus struct {
@@ -54,9 +70,10 @@ type nodeProbeStatus struct {
 
 // nodeStatus is the aggregate payload of GET /api/nodes/:id/status.
 type nodeStatus struct {
-	Agent nodeAgentStatus  `json:"agent"`
-	Relay *nodeRelayStatus `json:"relay"`
-	Probe *nodeProbeStatus `json:"probe"`
+	Agent     nodeAgentStatus  `json:"agent"`
+	Relay     *nodeRelayStatus `json:"relay"`
+	Probe     *nodeProbeStatus `json:"probe"`
+	RelayCaps *nodeRelayCaps   `json:"relay_caps,omitempty"`
 }
 
 // nodeStatus returns the agent/relay/probe state of one node (F-0750).
@@ -72,6 +89,12 @@ func (h *Handler) nodeStatus(c *gin.Context) {
 		Enabled:     n.Enabled,
 		Maintenance: n.Maintenance,
 	}}
+	if n.RelayCaps != "" {
+		var caps nodeRelayCaps
+		if err := json.Unmarshal([]byte(n.RelayCaps), &caps); err == nil {
+			out.RelayCaps = &caps
+		}
+	}
 
 	var proc storage.NodeProcStatus
 	err = h.db.Where("node_id=? AND proc=?", n.ID, "relay").First(&proc).Error

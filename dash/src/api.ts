@@ -1059,6 +1059,19 @@ export interface NodeStatusAggregate {
     verdict: string
     probed_at: string
   } | null
+  /** structured relay capability declaration (F-0804) */
+  relay_caps?: {
+    tcp_forward: boolean
+    udp_forward: boolean
+    reconnect: boolean
+    idle_cleanup: boolean
+    metrics: boolean
+    stream_limit: boolean
+    bandwidth_limit: boolean
+    max_conns: number
+    max_streams: number
+    rate_limit_kbps: number
+  } | null
 }
 
 export function getNodeStatus(id: number): Promise<NodeStatusAggregate> {

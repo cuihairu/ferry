@@ -478,6 +478,7 @@ func (a *App) buildHeartbeat() agentproto.Heartbeat {
 	// Runtime capability state rides every heartbeat (F-0229): derived from the
 	// same component snapshot the panel persists as proc statuses.
 	hb.Caps = dynamicCaps(a.cfg, hb.Procs)
+	hb.RelayCaps = relayCaps(a.cfg)
 	a.watchAlarms(hb)
 	return hb
 }

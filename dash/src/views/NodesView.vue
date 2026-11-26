@@ -330,6 +330,20 @@ const statusData = ref<NodeStatusAggregate | null>(null)
 const AGENT_STATE_TYPE: Record<string, string> = { online: 'success', offline: 'danger', unknown: 'info' }
 const RELAY_STATE_TYPE: Record<string, string> = { running: 'success', stopped: 'info', crashed: 'danger' }
 
+// F-0804: capability flags from the agent's heartbeat declaration. UDP stays
+// explicitly unsupported until landing-side UDP termination exists.
+function relayCapTags(caps: NonNullable<NodeStatusAggregate['relay_caps']>) {
+  return [
+    { label: 'TCP', on: caps.tcp_forward },
+    { label: 'UDP', on: caps.udp_forward },
+    { label: '重连', on: caps.reconnect },
+    { label: '空闲清理', on: caps.idle_cleanup },
+    { label: '指标', on: caps.metrics },
+    { label: '连接限流', on: caps.stream_limit },
+    { label: '带宽限流', on: caps.bandwidth_limit },
+  ]
+}
+
 async function openStatus(n: Node) {
   statusFor.value = n
   statusVisible.value = true
@@ -1035,6 +1049,16 @@ async function remove(n: Node) {
           <el-descriptions-item label="探测时间" :span="2">
             <template v-if="statusData.probe">{{ new Date(statusData.probe.probed_at).toLocaleString() }}</template>
             <span v-else>—</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="Relay 能力" :span="2">
+            <template v-if="statusData.relay_caps">
+              <el-tag v-for="tag in relayCapTags(statusData.relay_caps)" :key="tag.label"
+                :type="tag.on ? 'success' : 'info'" size="small" effect="plain" disable-transitions>
+                {{ tag.label }}: {{ tag.on ? '支持' : '不支持' }}
+              </el-tag>
+              <span class="status-meta">max_conns {{ statusData.relay_caps.max_conns }}</span>
+            </template>
+            <span v-else>暂无声明（旧版 agent）</span>
           </el-descriptions-item>
         </el-descriptions>
       </div>

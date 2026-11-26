@@ -117,7 +117,27 @@ type Heartbeat struct {
 	// ok/degraded/off, derived from the live component states each heartbeat.
 	// Absent keys mean "unknown" and never disqualify a node.
 	Caps map[string]string `json:"caps,omitempty"`
-	At   time.Time         `json:"at"`
+	// RelayCaps is the structured relay capability declaration (F-0804): the
+	// concrete features and limits this relay instance supports. Nil means the
+	// agent has no relay configured; older agents omit it entirely.
+	RelayCaps *RelayCaps `json:"relay_caps,omitempty"`
+	At        time.Time  `json:"at"`
+}
+
+// RelayCaps declares what a relay instance can actually do (F-0804). It is
+// derived from the local relay spec on every heartbeat so a panel edit or a
+// hot reload cannot overstate a capability the process does not have.
+type RelayCaps struct {
+	TCPForward     bool `json:"tcp_forward"`
+	UDPForward     bool `json:"udp_forward"`
+	Reconnect      bool `json:"reconnect"`
+	IdleCleanup    bool `json:"idle_cleanup"`
+	Metrics        bool `json:"metrics"`
+	StreamLimit    bool `json:"stream_limit"`
+	BandwidthLimit bool `json:"bandwidth_limit"`
+	MaxConns       int  `json:"max_conns"`
+	MaxStreams     int  `json:"max_streams"`
+	RateLimitKbps  int  `json:"rate_limit_kbps"`
 }
 
 // HeartbeatAck lets the panel adjust the next heartbeat interval.
