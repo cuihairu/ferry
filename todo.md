@@ -1602,7 +1602,8 @@ External Client
     - 备注（Task ID: F-1027 | Status: Done | Evidence: CostPerGB alloc.go:202-207 | Verification: TestPickCostFirst | Commit: fbcb525）
 -   [x] `F-1028` 实现 Path 质量评分。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1028 | Status: Done | Evidence: alloc.Quality+LatestQuality（窗口内每 prober 最新判词按 target 均值）+QualityScore（loss 权重 0.7/RTT 0.3 折算 [0,1]，无样本=中性 0.5 不罚冷启动）；接入 Candidate/Request/CandidateEval/Decision 与面板 preview 的 quality 字段，策略比较器不动（F-1046 规则不变，quality 策略留给 F-1044）；TestLatestQuality/TestQualityScore/TestDecideCarriesQuality | Verification: go vet + server 全套件 green exit=0（51 ok）2026-11-26 | Commit: 8e74cce）
--   [ ] `F-1029` 实现优先级规则。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1029` 实现优先级规则。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1029 | Status: Done | Evidence: Node.SchedPriority 优先级档位（小值优先，0=标准档），LessFor 档位分区包裹全部策略比较器（档位压倒策略指标，同档内策略+缺价分区照旧），shouldSwitch 峰时升档直切/降档等闲时；NodeInput.sched_priority（nil 保留/显式 0 重置/负值 400），preview 输出 sched_priority；TestPickPriorityTier/TestShouldSwitchPriorityTier/TestSweepRespectsPriorityTier/TestNodeSchedPriority | Verification: go vet + server 全套件 green exit=0（51 ok）2026-11-26 | Commit: 879643b）
 -   [x] `F-1030` 实现候选排序。
     - 备注（Task ID: F-1030 | Status: Done | Evidence: lessFor alloc.go:255-318+Pick 217-238+平局确定性 260 | Verification: TestPickTieBreaks | Commit: fbcb525）
 -   [ ] `F-1031` 实现故障回退。（依赖：无；完成条件：需求落地+测试绿+证据行）
