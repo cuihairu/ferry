@@ -122,6 +122,29 @@ type Path struct {
 	UpdatedAt       time.Time `json:"updated_at"`
 }
 
+// PendingPath (F-1016) is a path draft awaiting operator confirmation: the
+// preview picked the landing, the operator confirmed the entry, and the row
+// is materialized only on confirmation. Rejected drafts are marked rejected
+// (kept for audit); confirmation or rejection is terminal, so a draft is
+// confirmed at most once.
+type PendingPath struct {
+	ID              uint      `gorm:"primaryKey" json:"id"`
+	Name            string    `gorm:"size:64;not null" json:"name"`
+	EntryNodeID     uint      `gorm:"index;not null" json:"entry_node_id"`
+	LandingNodeID   uint      `gorm:"index;not null" json:"landing_node_id"`
+	RelayNodeID     *uint     `gorm:"index" json:"relay_node_id"`
+	Transport       string    `gorm:"size:16;default:tls" json:"transport"`
+	Region          string    `gorm:"size:64" json:"region"`
+	Direction       string    `gorm:"size:8;not null;default:out" json:"direction"`
+	ProbeImportance string    `gorm:"size:16;default:normal" json:"probe_importance"`
+	Reason          string    `gorm:"type:text" json:"reason"`
+	State           string    `gorm:"size:16;not null;default:pending;index" json:"state"` // pending/confirmed/rejected
+	CreatedBy       string    `gorm:"size:64" json:"created_by"`
+	PathID          *uint     `gorm:"index" json:"path_id"` // set on confirmation (F-1018 verify gate)
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
 // PathGroup (F-0261) is a named, ordered candidate set of paths organized by
 // direction/region/purpose; subscription policies pick a group and the group
 // resolves to one path (default first, then candidates by Position).

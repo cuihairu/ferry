@@ -72,6 +72,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&SubDevice{},
 		&Plan{},
 		&Path{},
+		&PendingPath{},
 		&PathGroup{},
 		&PathGroupMember{},
 		&Node{},

@@ -363,6 +363,13 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.GET("/paths", h.listPaths)
 		api.POST("/paths", h.createPath)
 		api.GET("/paths/preview", h.previewPathCandidates)
+		// Candidate path lifecycle (F-1016~F-1019): drafts are reviewed and
+		// confirmed, or provisioned automatically with connectivity verification.
+		api.POST("/paths/drafts", h.createPathDraft)
+		api.GET("/paths/drafts", h.listPathDrafts)
+		api.POST("/paths/drafts/:id/confirm", h.confirmPathDraft)
+		api.POST("/paths/drafts/:id/reject", h.rejectPathDraft)
+		api.POST("/paths/provision", h.autoProvisionPath)
 		api.GET("/paths/:id", h.getPath)
 		api.GET("/paths/:id/health", h.getPathHealth)
 		api.PUT("/paths/:id", h.updatePath)
