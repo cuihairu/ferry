@@ -2019,10 +2019,10 @@ External Client
 
 -   [x] `F-1461` 提供成本总览。
     - 备注（Task ID: F-1461 | Status: Done | Evidence: CostView.vue:278-295 成本总览摘要卡 | Verification: API 侧 TestCostAPI（costapi_test.go）；dash 无前端单测 | Commit: ce8b33e）
--   [ ] `F-1462` 提供 Provider 成本统计。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1462 | 部分：仅节点/区域/ISP 维度（CostView.vue:306-360）；无 Provider 维度成本。）
--   [ ] `F-1463` 提供账号成本统计。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1463 | 未满足：无账号维度成本。）
+-   [x] `F-1462` 提供 Provider 成本统计。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1462 | Status: Done | Evidence: BillsView「维度统计（当前筛选）」按 Provider（成本来源）汇总表：cost_provider_id→成本来源名（sources），笔数+按币种金额合计，随记录筛选联动（moneyTotals 客户端聚合，getBillRecords 同一查询结果） | Verification: pnpm --filter ferry-dash build 绿（vue-tsc -b + vite build 20.9s） | Commit: d01c3c9）
+-   [x] `F-1463` 提供账号成本统计。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1463 | Status: Done | Evidence: BillsView「维度统计」按账号汇总表（account 分组，空账号归 —），笔数+按币种金额合计，与 Provider 表并列同源联动 | Verification: pnpm --filter ferry-dash build 绿 | Commit: d01c3c9）
 -   [x] `F-1464` 提供区域成本统计。
     - 备注（Task ID: F-1464 | Status: Done | Evidence: CostView.vue:333-349 区域汇总表（节点/流量花费/固定成本/月度预估） | Verification: API 侧 TestCostAPI（costapi_test.go）；dash 无前端单测 | Commit: ce8b33e）
 -   [ ] `F-1465` 提供资源成本统计。（依赖：无；完成条件：需求落地+测试绿+证据行）
