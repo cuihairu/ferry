@@ -1692,7 +1692,8 @@ External Client
     - 备注（Task ID: F-1105 | Status: Done | Evidence: nodeConfig TLS/SNI/Host/Path/Net 各适配器映射自身 schema(v2ray 参数 links.go:67-81/clash servername+applyTransport clash.go:181-201/sing-box tls.server_name+singBoxTransport singbox.go:103-161) | Verification: 上述测试 | Commit: 842a7dd）
 -   [x] `F-1106` 统一 UDP 支持声明。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1106 | Status: Done | Evidence: storage.Node.UdpOpen(models.go) 单一声明字段+NodeInput.udp_open 面板面(create set/absent keep/false clear)+clash 渲染 ClashProxy.Udp(protocol/clash.go baseClashProxy 读 rc.Node.UdpOpen, omitempty 未声明节点字节不变 golden 门控)；v2ray 链接与 sing-box outbound 无 UDP 表达面，声明保持静默 | Verification: TestPackClashUdpDeclaration+TestNodeUdpOpen+go vet+server 全套件 green exit=0（51 ok）2026-11-27 | Commit: fd6c18b）
--   [ ] `F-1107` 统一节点标签、地区和排序信息。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1107` 统一节点标签、地区和排序信息。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1107 | Status: Done | Evidence: Node.Labels 进入输出面：BuildRemark 新增 {labels} 占位符(filter.go，逗号拼接，无标签/坏文本容错为空串，与过滤侧 nodeLabels 同容错)，经 ApplyConfig→Entry.Remark→entryLink 流入 v2ray 分享链接与 clash 节点名；地区/排序沿用已统一的 entryRegion/orderByProbe/SortEntries(region|rtt|name) | Verification: TestBuildRemarkLabels(labels join/无标签空/坏文本容空)+go vet+server 全套件 green exit=0（51 ok）2026-11-27 | Commit: 17654a6）
 -   [ ] `F-1108` 统一订阅版本和更新时间。（依赖：无；完成条件：需求落地+测试绿+证据行）
 
 ## 9.2 格式 Adapter
