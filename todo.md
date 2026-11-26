@@ -1321,7 +1321,7 @@ External Client
 -   [ ] `F-0727` 定义断线期间消息处理规则。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0727 | Status: Done | Evidence: 统一断线策略落 docs/design/agent协议参考.md §3：四类消息（核心进程内报告静默丢/角色 spool 保留重放偏移回退/面板命令 ErrOffline 502/重连循环）逐类规则表 + 重连对账（syncNodeMeta/hello_ack 周期校准/caps 合并）+ 命令超时口径（ErrTimeout 15s）；代码锚点 spool.Watch 2s 扫描、link.Run 重连、agentws setNodeStatus | Verification: 文档-only，代码行为均有现存测试（TestRunReconnectsUntilCancel/TestPushTimeout 等） | Commit: f198536）
 -   [ ] `F-0728` 定义消息大小限制。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0728 | 未满足原因：部分：服务端 agent-WS 入站 8MiB 上限(agentws.go:41-44,113 TestAgentWSFrameLimit)；agent 入站 readLoop 无 SetReadLimit(link.go:149-166)；HTTP API body 无 MaxBytesReader。）
+    - 备注（Task ID: F-0728 | Status: Done | Evidence: 三面全限——面板 agent-WS 入站 8MiB（既有 maxAgentFrameBytes/TestAgentWSFrameLimit）+ agent 入站 link.MaxFrameBytes 默认 8MiB（DefaultMaxFrameBytes，connectOnce SetReadLimit，超限断连进重连，TestReadLoopFrameLimit）+ /api HTTP 请求体 8MiB（bodyLimit 中间件 http.MaxBytesReader，超限 400，TestAPIBodyLimit）；规则落 docs/design/agent协议参考.md §1 | Verification: go test 全绿 2026-11-26（server -timeout=30m exit 0，handler 848s） | Commit: 5dbc1f1）
 -   [x] `F-0729` 定义未知消息处理方式。
     - 备注（Task ID: F-0729 | Status: Done | Evidence: link readLoop 丢弃坏消息+服务端留痕；TestReadLoopDropsBadMessages | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0730` 增加 Agent 协议兼容性测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
