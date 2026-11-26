@@ -2033,20 +2033,20 @@ External Client
     - 备注（Task ID: F-1467 | Status: Done | Evidence: 原「无 Path 成本」结论已过时——CostView getPathCosts→GET /api/cost/path-estimates（F-0603 可解释单路径估算，loadPaths pathRows）+ 支出排行 scope=路径（spendPathEstimates）；过期/未知价降级 Precise 标记不编造（F-0610） | Verification: pathcost_test.go+TestCostAPI 随全量绿；dash build 绿 | Commit: 75813fa）
 -   [x] `F-1468` 提供账单导入和同步任务管理。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1468 | Status: Done | Evidence: 原「无账单导入/同步任务」结论已过时——BillsView（F-0632 面）：成本源注册/启用（api|file|manual）+ 按窗口 API 同步（importBillsAPI→POST /cost/sources/:id/import-api）+ 账单文件上传（importBillsFile→/import-file）+ 同步运行记录表（BillImportRow：started/added/updated/missing/ok/error，CloudView 同步日志 tab 亦呈 provider 维度） | Verification: TestBillingAPI 导入断言绿；dash build 绿 | Commit: f455be8）
--   [ ] `F-1469` 提供账单明细查询。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1469 | 未满足：无账单明细查询。）
--   [ ] `F-1470` 提供估算与实际账单对比。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1470 | 部分：月至今实际+月度预估并列（CostView.vue:278-290）；无显式对比视图。）
--   [ ] `F-1471` 提供成本分摊规则管理。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1471 | 未满足：成本阈值（CostView.vue:297-303）+价格监控有；无分摊规则（分摊）配置。）
--   [ ] `F-1472` 提供账单差异对账入口。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1472 | 未满足：无账单差异对账。）
--   [ ] `F-1473` 提供成本异常告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1473 | 部分：高成本阈值（CostView.vue:297-303）+价格 watch（:560-587）+增长率异常检测 API（GET /cost/anomalies spend_spike，Commit: 2be063c）；未接 Herald 周期告警循环。）
--   [ ] `F-1474` 支持成本明细导出。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1474 | 未满足：无导出。）
--   [ ] `F-1475` 在页面明确区分实际、估算和分摊金额。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1475 | 部分：实际（流量/固定）与预估列区分（CostView.vue:310-326）；无分摊金额。）
+-   [x] `F-1469` 提供账单明细查询。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1469 | Status: Done | Evidence: 原「无账单明细查询」结论已过时——BillsView「账单明细查询」：日期窗口/来源/账号/区域/资源五过滤（GET /api/cost/records，F-0636 resource 过滤下推明细行）+ 行展开看明细项（GET /cost/records/:id/items：资源/类别/金额/用量/节点|路径/描述） | Verification: TestBillingAPI 断言绿；dash build 绿 | Commit: f455be8）
+-   [x] `F-1470` 提供估算与实际账单对比。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1470 | Status: Done | Evidence: 原「无显式对比视图」结论已过时——BillsView 账单差异对账表（估算/实际/差异三列，F-0634/F-1410）+ CostView 支出排行三金额并列（SpendRow actual/allocated/estimate 列） | Verification: TestReconcileDiffAndConfirm（billing_test.go:208）绿；dash build 绿 | Commit: f455be8）
+-   [x] `F-1471` 提供成本分摊规则管理。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1471 | Status: Done | Evidence: 原「无分摊规则配置」结论已过时——BillsView「分摊规则」区（F-0635）：规则表（带宽/流量/固定比例/手工/直连五类）+ 新建/编辑（editAllocationRule 追加版本号，旧分摊结果可解释）+ 账单行「重新分摊」（recomputeAllocations） | Verification: TestBillingAPI 分摊规则断言绿；dash build 绿 | Commit: f455be8）
+-   [x] `F-1472` 提供账单差异对账入口。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1472 | Status: Done | Evidence: 原「无账单差异对账」结论已过时——BillsView「账单差异对账」区带「新建对账」按钮（openReconcile→POST /cost/reconciliations，scope provider/account/region/node/path+期间+币种），行级 confirmed/adjusted 确认（F-0591/F-0592） | Verification: TestReconcileDiffAndConfirm 绿；dash build 绿 | Commit: f455be8）
+-   [x] `F-1473` 提供成本异常告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1473 | Status: Done | Evidence: 原「未接 Herald 周期告警循环」结论已过时——main.go go cost.Loop（E-23 高成本告警）激活分支 Emit herald.KindCostExceeded（cost.go:246-256，dedup=node:<id>，活跃唯一即去重，回落消解复发再发，HERALD-3 fb851d3）+ GET /cost/anomalies spend_spike（2be063c）+ 价格监控 WatchLoop（E-32 price_alert） | Verification: TestCheckAlerts+TestCheckAlertsNotifiesWebhook 绿；dash build 绿 | Commit: fb851d3）
+-   [x] `F-1474` 支持成本明细导出。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1474 | Status: Done | Evidence: 原「无导出」结论已过时——BillsView「导出 CSV」（exportRecords，F-0637）：当前筛选结果客户端导出（bill_id/revision/source/account/region/currency/金额三列/incurred_at） | Verification: dash build 绿 | Commit: 278f6f5）
+-   [x] `F-1475` 在页面明确区分实际、估算和分摊金额。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1475 | Status: Done | Evidence: 原「无分摊金额」结论已过时——CostView 支出排行表三列并列显式区分：实际/分摊/估算（CostView.vue:585-610，SpendRow actual_cents/allocated_cents/estimate_cents，零值显示 —） | Verification: 服务端 billing stats 测试随全量绿；dash build 绿 | Commit: 75813fa）
 
 ## 12.5 配置、任务与审计
 
