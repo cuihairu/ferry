@@ -60,6 +60,9 @@ func subTargetByUA(ua string) string {
 // outbounds array, hy2 batch); by default it is detected from the UA (clash family gets
 // clash, sing-box/Stash get singbox, everything else v2ray, SHOP-2).
 func (h *Handler) subscription(c *gin.Context) {
+	// Access audit (F-1150): deferred, so every outcome -- 200/304 delivery, 404
+	// unknown/revoked token, 429 rate limit, 403 device check -- lands one row.
+	defer h.recordSubAccess(c)
 	token, ip := c.Param("token"), c.ClientIP()
 	if !h.subMissLimiter.Allow(ip) || !h.subLimiter.Allow(token) {
 		log.Printf("sub rate limited: token=%s… ip=%s", token[:min(6, len(token))], ip)
@@ -81,6 +84,7 @@ func (h *Handler) subscription(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 		return
 	}
+	c.Set("subUserID", u.ID)
 	// Device/IP count checks (P2-4): the IP facet always runs (client-independent);
 	// the hwid facet only applies when the client sends X-Client-Hwid -- without it the
 	// device limit does not affect that request (client cooperation is out of our
@@ -280,6 +284,39 @@ func (h *Handler) entryRttMs() map[uint]int {
 		out[r.NodeID] = int(r.Avg + 0.5)
 	}
 	return out
+}
+
+// recordSubAccess writes the subscription access audit row (F-1150). Both subscription
+// surfaces defer it, so every outcome is recorded: 200/304 deliveries, 404 misses
+// (unknown or revoked token), 429 rate limiting, 403 device checks. The row keys on
+// the resolved user (c.Get "subUserID", 0 when the token never resolved) and never
+// carries the raw token; a write failure degrades to a log line and never blocks
+// delivery.
+func (h *Handler) recordSubAccess(c *gin.Context) {
+	uid, _ := c.Get("subUserID")
+	id, _ := uid.(uint)
+	target := c.Query("target")
+	if target == "" {
+		target = subTargetByUA(c.Request.UserAgent())
+	}
+	ua := c.Request.UserAgent()
+	if len(ua) > 255 {
+		ua = ua[:255]
+	}
+	if len(target) > 32 {
+		target = target[:32]
+	}
+	row := storage.SubAccessLog{
+		UserID: id,
+		Path:   c.FullPath(),
+		Target: target,
+		UA:     ua,
+		IP:     c.ClientIP(),
+		Code:   c.Writer.Status(),
+	}
+	if err := h.db.Create(&row).Error; err != nil {
+		log.Printf("sub access log write failed: %v", err)
+	}
 }
 
 func userinfoHeader(u storage.User, usage trafficUsage) string {

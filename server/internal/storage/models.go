@@ -1095,6 +1095,22 @@ type AuditLog struct {
 	CreatedAt time.Time `gorm:"index" json:"created_at"`
 }
 
+// SubAccessLog is the subscription access audit (F-1150, the usage-side counterpart of
+// the admin write audit AU-1): every /sub delivery attempt lands here -- hits (200/304)
+// and misses alike (404 unknown/revoked token, 429 rate limiting, 403 device check) --
+// for anti-enumeration forensics. The raw token is never stored: a resolved delivery
+// keys on user_id, a miss stays 0.
+type SubAccessLog struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	UserID    uint      `gorm:"index" json:"user_id"` // 0 = the token did not resolve
+	Path      string    `gorm:"size:16" json:"path"`  // /sub/:token | /sub/x/:token
+	Target    string    `gorm:"size:32" json:"target"`
+	UA        string    `gorm:"size:255" json:"ua"`
+	IP        string    `gorm:"size:64" json:"ip"`
+	Code      int       `json:"code"` // response status
+	CreatedAt time.Time `gorm:"index" json:"created_at"`
+}
+
 // PriceWatch is a price-watch condition (E-32, the plans-and-cost design §4.2 DDL blueprint): it watches one
 // price-key of "vendor + region + config tier", and a price drop or a reached target price (target_price>0) alerts via
 // Herald price_alert; conditions share the reference-price vocabulary (costref price-table keys).

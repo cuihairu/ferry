@@ -39,6 +39,8 @@ import (
 //   - quota downgrade follows the main subscription's semantics (active linkage rows
 //     serve only the low-cost tier per their snapshot tier line).
 func (h *Handler) subscriptionFiltered(c *gin.Context) {
+	// Access audit (F-1150), the same deferred record as the main subscription.
+	defer h.recordSubAccess(c)
 	token, ip := c.Param("token"), c.ClientIP()
 	if !h.subMissLimiter.Allow(ip) || !h.subLimiter.Allow(token) {
 		log.Printf("sub rate limited: token=%s… ip=%s", token[:min(6, len(token))], ip)
@@ -70,6 +72,7 @@ func (h *Handler) subscriptionFiltered(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
+	c.Set("subUserID", u.ID)
 	// Linked user disabled: return the empty list as usual (not a 403); usage headers
 	// are still attached so the client can see its status.
 	if !u.Enabled {
