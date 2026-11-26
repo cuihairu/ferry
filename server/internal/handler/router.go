@@ -421,6 +421,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.POST("/distributors/:id/adjust", h.distributorAdjust)
 		// Online payment callback (PAY-8): mounted on the open group (carries Provider signature verification), see end of file.
 		api.GET("/payments/reconcile", h.listReconcile)
+		api.POST("/payments/compensate", h.compensateGrants)
 		// Order detail and refund flow (OD-2)
 		api.GET("/payments/orders/:order_no", h.adminOrderDetail)
 		api.POST("/payments/orders/:order_no/refund", h.refundOrder)
