@@ -87,3 +87,61 @@ func TestCloudAccountPerm(t *testing.T) {
 		t.Fatalf("grant non-admin: %d", rec.Code)
 	}
 }
+
+// TestCloudOpPerms covers F-1704/F-1705: the operation-type permission gates —
+// power ops (on/off/reboot) need cloud.power, force-stop/rebuild the
+// cloud.highrisk tier; the super role passes unconditionally, and a grant
+// opens exactly its own tier (the check rides inside the handler since the
+// middleware cannot read the body).
+func TestCloudOpPerms(t *testing.T) {
+	r, db := newTestRouterCfg(t, func(cfg *config.Config) { cfg.SecretKey = "test-master-key" })
+
+	if err := db.Create(&storage.User{ID: 999, Username: "op-op", SubToken: "st-op-op",
+		Password: "x", Enabled: true, IsAdmin: true, AdminRole: "operator"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	op := opJWT(t, "op-op")
+	req := func(opType string) map[string]any {
+		return map[string]any{"provider_id": 1, "op": opType,
+			"specs": []map[string]any{{"resource_id": 1}}}
+	}
+
+	// No grants: both tiers 403 with the right perm named.
+	rec := doPanel(t, r, op, "POST", "/api/cloud-operations", req("power_on"))
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "missing permission cloud.power") {
+		t.Fatalf("power_on ungranted: %d %s", rec.Code, rec.Body)
+	}
+	rec = doPanel(t, r, op, "POST", "/api/cloud-operations", req("force_stop"))
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "missing permission cloud.highrisk") {
+		t.Fatalf("force_stop ungranted: %d %s", rec.Code, rec.Body)
+	}
+
+	// The power grant opens power ops but not the high-risk tier.
+	if rec := doJSON(t, r, "PUT", "/api/admins/999/perms", map[string]any{"perms": []string{PermCloudPower}}); rec.Code != http.StatusOK {
+		t.Fatalf("grant power: %d %s", rec.Code, rec.Body)
+	}
+	rec = doPanel(t, r, op, "POST", "/api/cloud-operations", req("power_on"))
+	if rec.Code == http.StatusForbidden {
+		t.Fatalf("granted power_on still 403: %d %s", rec.Code, rec.Body)
+	}
+	rec = doPanel(t, r, op, "POST", "/api/cloud-operations", req("force_stop"))
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("power grant must not open force_stop: %d %s", rec.Code, rec.Body)
+	}
+
+	// The high-risk grant opens force_stop past the perm gate (the oper-level
+	// confirmation flow then answers on its own terms, not 403).
+	if rec := doJSON(t, r, "PUT", "/api/admins/999/perms", map[string]any{"perms": []string{PermCloudPower, PermCloudHighRisk}}); rec.Code != http.StatusOK {
+		t.Fatalf("grant highrisk: %d %s", rec.Code, rec.Body)
+	}
+	rec = doPanel(t, r, op, "POST", "/api/cloud-operations", req("force_stop"))
+	if rec.Code == http.StatusForbidden {
+		t.Fatalf("granted force_stop still 403: %d %s", rec.Code, rec.Body)
+	}
+
+	// The super role passes without any grant (default admin JWT).
+	rec = doJSON(t, r, "POST", "/api/cloud-operations", req("power_on"))
+	if rec.Code == http.StatusForbidden {
+		t.Fatalf("super power_on 403: %d %s", rec.Code, rec.Body)
+	}
+}

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -40,6 +41,14 @@ func (h *Handler) createCloudOperation(c *gin.Context) {
 	var in oper.Request
 	if err := c.ShouldBindJSON(&in); err != nil {
 		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	// F-1704/F-1705: creating an operation is gated by the op-type permission
+	// (power ops need cloud.power, force-stop/rebuild cloud.highrisk); the
+	// middleware form cannot see the body, so the check rides here. The
+	// high-risk ops' own confirmation flow is unchanged on top of this.
+	if !h.opPermCheck(c, in.Op) {
+		fail(c, http.StatusForbidden, fmt.Errorf("missing permission %s", opPerm[in.Op]))
 		return
 	}
 	actor, actorKind := h.operActor(c)

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/cloudprov"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -20,11 +21,43 @@ const (
 	// PermCloudAccount gates cloud account management (F-1703): provider
 	// CRUD, credential rotate/revoke, connection test, account-wide sync.
 	PermCloudAccount = "cloud.account.manage"
+	// PermCloudPower gates the everyday power operations (F-1704): power on,
+	// power off, reboot.
+	PermCloudPower = "cloud.power"
+	// PermCloudHighRisk gates force-stop and rebuild (F-1705): the data-loss
+	// tier, stacked on top of the operation system's own confirmation flow.
+	PermCloudHighRisk = "cloud.highrisk"
 )
 
 // adminPerms is the grantable vocabulary keyed by perm name.
 var adminPerms = map[string]string{
-	PermCloudAccount: "cloud account management (providers, credentials, sync)",
+	PermCloudAccount:  "cloud account management (providers, credentials, sync)",
+	PermCloudPower:    "cloud resource power operations (on/off/reboot)",
+	PermCloudHighRisk: "high-risk cloud operations (force stop, rebuild)",
+}
+
+// opPerm maps each cloud operation type to its gate (F-1704/F-1705); ops
+// outside the map are not permission-gated (unknown ops fail validOp later).
+var opPerm = map[string]string{
+	cloudprov.OpPowerOn:   PermCloudPower,
+	cloudprov.OpPowerOff:  PermCloudPower,
+	cloudprov.OpReboot:    PermCloudPower,
+	cloudprov.OpForceStop: PermCloudHighRisk,
+	cloudprov.OpRebuild:   PermCloudHighRisk,
+}
+
+// opPermCheck is the in-handler gate for POST /api/cloud-operations (the
+// middleware form cannot see the body): super passes unconditionally, every
+// other admin needs the op-type grant.
+func (h *Handler) opPermCheck(c *gin.Context, op string) bool {
+	if role, _ := c.Get("adminRole"); role == RoleSuper {
+		return true
+	}
+	perm, ok := opPerm[op]
+	if !ok {
+		return true
+	}
+	return h.adminHasPerm(c, perm)
 }
 
 // requirePerm gates one route behind a named permission: super admins pass
