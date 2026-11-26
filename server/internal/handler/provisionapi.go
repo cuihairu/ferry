@@ -215,6 +215,57 @@ func (h *Handler) validateSpec(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": len(errs) == 0, "errors": errs, "warnings": warns})
 }
 
+// destroyBlockers lists what a template workspace destroy would break
+// (F-1659): the workdir state is per-template, so destroy rolls back exactly
+// this template's minted instances — and each of them that still lives as a
+// node is checked against what depends on it: a path routing through it, a
+// still-bound cloud resource, or an in-pool scheduling state.
+func (h *Handler) destroyBlockers(tpl storage.ProvisionTemplate) []string {
+	var names []string
+	h.db.Model(&storage.ProvisionJob{}).Where("template_id = ? AND instance_name != ''", tpl.ID).
+		Distinct().Pluck("instance_name", &names)
+	var out []string
+	for _, name := range names {
+		var n storage.Node
+		if err := h.db.Where("name = ?", name).First(&n).Error; err != nil {
+			continue // minted but never registered: nothing in service to break
+		}
+		var paths int64
+		h.db.Model(&storage.Path{}).Where(
+			"entry_node_id = ? OR landing_node_id = ? OR relay_node_id = ?", n.ID, n.ID, n.ID).Count(&paths)
+		if paths > 0 {
+			out = append(out, fmt.Sprintf("node %s serves %d path(s)", n.Name, paths))
+		}
+		var bound int64
+		h.db.Model(&storage.CloudResource{}).Where("node_id = ? AND unbound_at IS NULL", n.ID).Count(&bound)
+		if bound > 0 {
+			out = append(out, fmt.Sprintf("node %s has a bound cloud resource", n.Name))
+		}
+		if n.Enabled && n.PoolState == "active" {
+			out = append(out, fmt.Sprintf("node %s is in the scheduling pool", n.Name))
+		}
+	}
+	return out
+}
+
+// destroyCheck serves GET /api/provision-templates/:id/destroy-check (F-1659):
+// the preflight for a destroy — ok=false plus the blocker list when anything
+// in service depends on this template's instances.
+func (h *Handler) destroyCheck(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		fail(c, http.StatusNotFound, errors.New("template not found"))
+		return
+	}
+	var tpl storage.ProvisionTemplate
+	if err := h.db.First(&tpl, id).Error; err != nil {
+		fail(c, http.StatusNotFound, errors.New("template not found"))
+		return
+	}
+	blockers := h.destroyBlockers(tpl)
+	c.JSON(http.StatusOK, gin.H{"ok": len(blockers) == 0, "blockers": blockers})
+}
+
 // templateCostEstimate serves GET /api/provision-templates/:id/cost-estimate
 // (F-1653): the reference-price lookup mapped from the template, so the operator
 // sees the expected monthly cost before paying for an apply. Keys default to

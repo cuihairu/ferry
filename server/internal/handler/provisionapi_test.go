@@ -677,3 +677,84 @@ func TestTemplateSpecValidation(t *testing.T) {
 		t.Fatalf("vendor failure must warn without blocking: %+v", out)
 	}
 }
+
+// TestDestroyCheck covers F-1659: the pre-destroy dependency preflight —
+// nodes minted from the template's jobs block when they serve paths, carry a
+// bound cloud resource, or sit in the scheduling pool; a template whose
+// instances never registered (or whose node left service) is clear.
+func TestDestroyCheck(t *testing.T) {
+	r, db, tplID := provisionFixture(t)
+
+	// No jobs yet: nothing to check, clear.
+	rec := doJSON(t, r, "GET", "/api/provision-templates/"+itoa64(int(tplID))+"/destroy-check", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("empty check: %d %s", rec.Code, rec.Body)
+	}
+	if !strings.Contains(rec.Body.String(), `"ok":true`) {
+		t.Fatalf("empty template must be clear: %s", rec.Body)
+	}
+	// Unknown template → 404.
+	if rec = doJSON(t, r, "GET", "/api/provision-templates/999/destroy-check", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown template: %d", rec.Code)
+	}
+
+	// A minted instance that registered as an in-pool node: pool blocker.
+	node := storage.Node{Name: "ferry-hk-3t", Port: 443, Token: "tok-dc-1",
+		Enabled: true, PoolState: "active", Role: "entry", Direction: "out"}
+	if err := db.Create(&node).Error; err != nil {
+		t.Fatal(err)
+	}
+	job := storage.ProvisionJob{TemplateID: tplID, TemplateName: "hk-3t",
+		InstanceName: "ferry-hk-3t", Action: "apply", Status: "ok"}
+	if err := db.Create(&job).Error; err != nil {
+		t.Fatal(err)
+	}
+	rec = doJSON(t, r, "GET", "/api/provision-templates/"+itoa64(int(tplID))+"/destroy-check", nil)
+	if !strings.Contains(rec.Body.String(), "in the scheduling pool") {
+		t.Fatalf("pool blocker missing: %s", rec.Body)
+	}
+
+	// A path routed through the node: path blocker stacks.
+	p := storage.Path{Name: "p-dc-1", EntryNodeID: node.ID, LandingNodeID: node.ID}
+	if err := db.Create(&p).Error; err != nil {
+		t.Fatal(err)
+	}
+	rec = doJSON(t, r, "GET", "/api/provision-templates/"+itoa64(int(tplID))+"/destroy-check", nil)
+	if !strings.Contains(rec.Body.String(), "serves 1 path(s)") {
+		t.Fatalf("path blocker missing: %s", rec.Body)
+	}
+
+	// A bound cloud resource: binding blocker stacks.
+	bound := uint(node.ID)
+	cr := storage.CloudResource{ProviderID: 1, ExternalID: "i-9", Region: "hkg",
+		NodeID: &bound}
+	if err := db.Create(&cr).Error; err != nil {
+		t.Fatal(err)
+	}
+	rec = doJSON(t, r, "GET", "/api/provision-templates/"+itoa64(int(tplID))+"/destroy-check", nil)
+	if !strings.Contains(rec.Body.String(), "bound cloud resource") {
+		t.Fatalf("binding blocker missing: %s", rec.Body)
+	}
+	if strings.Contains(rec.Body.String(), `"ok":true`) {
+		t.Fatalf("blocked template must not be ok: %s", rec.Body)
+	}
+
+	// A minted instance that never registered as a node: nothing to break.
+	job2 := storage.ProvisionJob{TemplateID: tplID, TemplateName: "hk-3t",
+		InstanceName: "ferry-ghost", Action: "apply", Status: "failed"}
+	if err := db.Create(&job2).Error; err != nil {
+		t.Fatal(err)
+	}
+	// And once the node leaves service (path removed, disabled + out of pool,
+	// binding unbound) only the ghost remains — the check is clear again.
+	db.Delete(&p)
+	db.Delete(&cr)
+	now := time.Now()
+	db.Model(&node).Updates(map[string]any{"enabled": false, "pool_state": "suspended"})
+	db.Model(&storage.CloudResource{}).Where("node_id = ?", node.ID).
+		Update("unbound_at", now)
+	rec = doJSON(t, r, "GET", "/api/provision-templates/"+itoa64(int(tplID))+"/destroy-check", nil)
+	if !strings.Contains(rec.Body.String(), `"ok":true`) {
+		t.Fatalf("out-of-service node must be clear: %s", rec.Body)
+	}
+}

@@ -239,6 +239,7 @@ func NewRouterWithTasks(db *gorm.DB, cfg config.Config, mgr *tasks.Manager) (*gi
 		api.POST("/provision-templates/:id/plan", h.planTemplate)
 		api.GET("/provision-templates/:id/cost-estimate", h.templateCostEstimate)
 		api.POST("/provision-templates/:id/validate", h.validateSpec)
+		api.GET("/provision-templates/:id/destroy-check", h.destroyCheck)
 		api.GET("/provision-jobs", h.listProvisionJobs)
 		api.GET("/recoveries", h.listRecoveries)
 		api.GET("/recoveries/:id/actions", h.listRecoveryActions)
