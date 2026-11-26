@@ -3,6 +3,19 @@ package storage
 import "time"
 
 // User is a subscription user; SubToken is the subscription link token.
+// AdminPerm grants one non-super admin a named management permission
+// (F-1703~): the fine-grained tier under the super/operator roles — the row
+// grants, its absence denies, and super admins bypass the checks entirely.
+type AdminPerm struct {
+	ID     uint   `gorm:"primaryKey" json:"id"`
+	UserID uint   `gorm:"uniqueIndex:idx_adminperm_user_perm;not null" json:"user_id"`
+	Perm   string `gorm:"size:64;uniqueIndex:idx_adminperm_user_perm;not null" json:"perm"`
+	// Grant context: who granted it and when (the audit trail lives on in
+	// audit_logs via the granting PUT).
+	GrantedAt time.Time `json:"granted_at"`
+	GrantedBy string    `gorm:"size:64" json:"granted_by"`
+}
+
 type User struct {
 	ID         uint       `gorm:"primaryKey" json:"id"`
 	Username   string     `gorm:"size:64;uniqueIndex" json:"username"`

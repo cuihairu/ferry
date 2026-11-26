@@ -208,16 +208,18 @@ func NewRouterWithTasks(db *gorm.DB, cfg config.Config, mgr *tasks.Manager) (*gi
 		api.POST("/pool/:id/standby", h.standbyPoolNode)
 		api.GET("/load", h.listLoad)
 		api.GET("/providers", h.listProviders)
-		api.POST("/providers", h.createProvider)
-		api.PUT("/providers/:id", h.updateProvider)
-		api.DELETE("/providers/:id", h.deleteProvider)
+		// F-1703: cloud account management is its own permission — mutations
+		// (and the credential/sync actions) need the grant; reads stay open.
+		api.POST("/providers", h.requirePerm(PermCloudAccount), h.createProvider)
+		api.PUT("/providers/:id", h.requirePerm(PermCloudAccount), h.updateProvider)
+		api.DELETE("/providers/:id", h.requirePerm(PermCloudAccount), h.deleteProvider)
 		// Connection test (F-0328): local credential check + adapter probe.
-		api.POST("/providers/:id/test", h.testProviderConnection)
+		api.POST("/providers/:id/test", h.requirePerm(PermCloudAccount), h.testProviderConnection)
 		// Credential rotation (F-0330): grace-window rotation + early revoke.
-		api.POST("/providers/:id/rotate", h.rotateProviderCredential)
-		api.POST("/providers/:id/revoke-previous", h.revokePreviousCredential)
+		api.POST("/providers/:id/rotate", h.requirePerm(PermCloudAccount), h.rotateProviderCredential)
+		api.POST("/providers/:id/revoke-previous", h.requirePerm(PermCloudAccount), h.revokePreviousCredential)
 		// Cloud resources (F-0341~F-0356): sync, list/detail, binding and history.
-		api.POST("/providers/:id/sync", h.syncCloudResources)
+		api.POST("/providers/:id/sync", h.requirePerm(PermCloudAccount), h.syncCloudResources)
 		api.GET("/cloud-resources", h.listCloudResources)
 		api.GET("/cloud-resources/:id", h.getCloudResource)
 		api.POST("/cloud-resources/:id/bind", h.bindCloudResource)
@@ -361,6 +363,8 @@ func NewRouterWithTasks(db *gorm.DB, cfg config.Config, mgr *tasks.Manager) (*gi
 		// surface is super-only; operator (sub-admin) is bounded by the max_users
 		// create-user quota (user.go).
 		api.GET("/admins", h.requireSuper(), h.listAdmins)
+		api.GET("/admins/:id/perms", h.requireSuper(), h.listAdminPerms)
+		api.PUT("/admins/:id/perms", h.requireSuper(), h.putAdminPerms)
 		api.POST("/admins", h.requireSuper(), h.createAdmin)
 		api.PUT("/admins/:id", h.requireSuper(), h.updateAdmin)
 		api.DELETE("/admins/:id", h.requireSuper(), h.deleteAdmin)

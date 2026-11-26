@@ -112,6 +112,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&EventDelivery{},
 		&Backup{},
 		&RecoveryCode{},
+		&AdminPerm{},
 		&LoginLog{},
 		&AuditLog{},
 		&SubAccessLog{},
