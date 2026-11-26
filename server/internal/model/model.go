@@ -72,6 +72,9 @@ type NodeInput struct {
 	// MaxConns caps the node's online connections (F-1065): 0 = unlimited;
 	// the sweep skips candidates at or above the cap.
 	MaxConns *int `json:"max_conns,omitempty"`
+	// MaxStreams caps concurrent relay streams (F-1066): 0 = unlimited; the
+	// sweep skips candidates at or above the cap.
+	MaxStreams *int `json:"max_streams,omitempty"`
 	// PlanID binds the node to one subscription plan (F-1047): 0 = serves
 	// every plan. nil keeps the current value.
 	PlanID *uint `json:"plan_id,omitempty"`

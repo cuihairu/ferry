@@ -231,7 +231,15 @@ type Node struct {
 	// MaxConns caps the node's online connections (F-1065): 0 = unlimited.
 	// The sweep skips a candidate at or above its cap (with a trailed
 	// exclusion) so a small pipe never receives new traffic past its limit.
-	MaxConns     int    `gorm:"default:0" json:"max_conns"`
+	MaxConns int `gorm:"default:0" json:"max_conns"`
+	// MaxStreams caps concurrent relay streams (F-1066): 0 = unlimited. The
+	// agent's own ceiling (RelayCaps.MaxStreams, F-0809) stays the hard
+	// enforcement; this is the scheduling-side capacity limit. In the P0
+	// single-stream data plane one connection carries one stream, so the
+	// live connection count is the stream load the cap compares against
+	// (multiplexing plugins undercount here, erring late -- the agent's hard
+	// limit still protects the node).
+	MaxStreams   int    `gorm:"default:0" json:"max_streams"`
 	MetaInit     bool   `gorm:"default:false" json:"-"`                  // whether the metadata is initialized (the panel has taken over)
 	AgentVersion string `gorm:"size:64;default:''" json:"agent_version"` // agent self-reported version (A-23)
 	// Entry-pool suspend state (E-16): suspended = removed on consecutive sick, and the subscription entry pool drops it

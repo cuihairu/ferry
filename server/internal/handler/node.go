@@ -132,6 +132,10 @@ func newPersistedNode(db *gorm.DB, in *model.NodeInput) (*storage.Node, error) {
 	if in.MaxConns != nil {
 		n.MaxConns = *in.MaxConns
 	}
+	// stream cap (F-1066): panel-set, agent registration reports ignore it.
+	if in.MaxStreams != nil {
+		n.MaxStreams = *in.MaxStreams
+	}
 	if in.TrafficPriceCents != nil {
 		n.TrafficPriceCents = *in.TrafficPriceCents
 	}
@@ -252,6 +256,11 @@ func (h *Handler) updateNode(c *gin.Context) {
 	// Connection cap (F-1065): panel-set; 0 clears it back to unlimited.
 	if in.MaxConns != nil {
 		updates["max_conns"] = *in.MaxConns
+		metaProvided = true
+	}
+	// Stream cap (F-1066): panel-set; 0 clears it back to unlimited.
+	if in.MaxStreams != nil {
+		updates["max_streams"] = *in.MaxStreams
 		metaProvided = true
 	}
 	if metaProvided {

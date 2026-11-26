@@ -292,6 +292,16 @@ func collectCandidates(req *Request, entry storage.Node, direction string, d *De
 				Reason: fmt.Sprintf("连接数 %d 达上限 %d", req.Conns[l.ID], l.MaxConns)})
 			continue
 		}
+		// Stream cap (F-1066): same admission rule for concurrent streams.
+		// The live connection count is the stream load in the P0 single-
+		// stream data plane (one connection = one backend dial); multiplexing
+		// plugins undercount, erring late -- the agent's own hard ceiling
+		// (RelayCaps.MaxStreams, F-0809) still protects the node.
+		if l.MaxStreams > 0 && req.Conns[l.ID] >= l.MaxStreams {
+			d.Exclusions = append(d.Exclusions, Exclusion{LandingID: l.ID,
+				Reason: fmt.Sprintf("并发流 %d 达上限 %d", req.Conns[l.ID], l.MaxStreams)})
+			continue
+		}
 		// Price freshness (F-0604): node updated_at is the price as-of
 		// marker; beyond the window the price is stale and must not drive
 		// the cost decision (it degrades per MissingCost instead).
