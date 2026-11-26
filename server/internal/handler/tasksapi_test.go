@@ -5,13 +5,17 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
+
 	"github.com/cuihairu/ferry/packages/agentproto"
 	"github.com/cuihairu/ferry/server/internal/config"
+	"github.com/cuihairu/ferry/server/internal/secret"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/cuihairu/ferry/server/internal/tasks"
 )
@@ -285,5 +289,109 @@ func TestTaskAgentLinkConsumers(t *testing.T) {
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// TestCloudCreateTask covers F-1652: the apply endpoint enqueues a tracked
+// cloud.create task (RefID = the job row) instead of a fire-and-forget
+// goroutine; driving the sweep executes the apply (the real tofu is absent in
+// tests, so the run lands failed on both the task and the job rows) and the
+// Depends precheck rejects rows that are not a running apply.
+func TestCloudCreateTask(t *testing.T) {
+	db, err := storage.Open(storage.DriverSQLite, filepath.Join(t.TempDir(), "cloud.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	gin.SetMode(gin.TestMode)
+	mgr := tasks.NewManager(db, nil)
+	cfg := config.Default()
+	cfg.SecretKey = "test-master-key"
+	cfg.TofuWorkdir = t.TempDir()
+	r, _ := NewRouterWithTasks(db, cfg, mgr)
+	ctx := context.Background()
+
+	store := secret.NewStore(cfg.SecretKey)
+	prov := storage.Provider{Name: "vultr", Type: "vultr", Enabled: true}
+	if err := db.Create(&prov).Error; err != nil {
+		t.Fatal(err)
+	}
+	sealed, encErr := store.Encrypt("sk-live")
+	if encErr != nil {
+		t.Fatal(encErr)
+	}
+	prov.AccessKey = sealed
+	if err := db.Save(&prov).Error; err != nil {
+		t.Fatal(err)
+	}
+	tpl := storage.ProvisionTemplate{Name: "hk-3t", ProviderID: prov.ID, Plan: "vc2-1c-1gb",
+		Region: "hkg", BillingType: "包月", Direction: "out", Role: "entry", Config: `{"inbounds":[]}`}
+	if err := db.Create(&tpl).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// Apply: the response is the running job; a cloud.create task row is queued.
+	rec := doJSON(t, r, "POST", "/api/provision-templates/"+itoa64(int(tpl.ID))+"/apply", map[string]any{"name": "ferry-hk-3t"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("apply: %d %s", rec.Code, rec.Body)
+	}
+	var job storage.ProvisionJob
+	if err := json.Unmarshal(rec.Body.Bytes(), &job); err != nil {
+		t.Fatal(err)
+	}
+	if job.Status != "running" || job.InstanceName != "ferry-hk-3t" {
+		t.Fatalf("job = %+v", job)
+	}
+
+	// The task row exists, pending, keyed to the job.
+	var task storage.Task
+	if err := db.Where("kind = ? AND ref_id = ?", "cloud.create", job.ID).First(&task).Error; err != nil {
+		t.Fatalf("cloud.create row: %v", err)
+	}
+	if task.Status != tasks.StatusPending || task.MaxAttempts != 1 || task.TimeoutSeconds != 1800 {
+		t.Fatalf("task = %+v", task)
+	}
+
+	// Drive the sweep: tofu is absent, so the apply fails and both rows say so.
+	// MaxAttempts is 1, so the exhausted task lands in dead (not failed).
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		mgr.LoopOnce(ctx)
+		_ = db.First(&task, task.ID).Error
+		_ = db.First(&job, job.ID).Error
+		if task.Status == tasks.StatusDead && job.Status == "failed" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if task.Status != tasks.StatusDead {
+		t.Fatalf("task status = %s (%s)", task.Status, task.Error)
+	}
+	if job.Status != "failed" {
+		t.Fatalf("job status = %s", job.Status)
+	}
+
+	// A finished job refuses re-execution via the Depends precheck.
+	rec = doJSON(t, r, "POST", "/api/tasks", map[string]any{"kind": "cloud.create", "ref_id": job.ID})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("enqueue finished job: %d %s", rec.Code, rec.Body)
+	}
+	var t2 storage.Task
+	_ = json.Unmarshal(rec.Body.Bytes(), &t2)
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		mgr.LoopOnce(ctx)
+		_ = db.First(&t2, t2.ID).Error
+		if t2.Error != "" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if t2.Error == "" {
+		t.Fatalf("finished job re-execution not refused: %+v", t2)
 	}
 }

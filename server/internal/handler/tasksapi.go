@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cuihairu/ferry/packages/agentproto"
 	"github.com/cuihairu/ferry/server/internal/pool"
+	"github.com/cuihairu/ferry/server/internal/provision"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/cuihairu/ferry/server/internal/tasks"
 	"github.com/gin-gonic/gin"
@@ -185,6 +187,80 @@ func registerTaskConsumers(h *Handler, mgr *tasks.Manager) {
 			return nil
 		},
 	})
+
+	// cloud.create (F-1652): apply executions ride the shared task ledger
+	// instead of a fire-and-forget goroutine — the run gets a tracked row
+	// (stage/log/cancel) on top of the ProvisionJob trail. RefID is the job id.
+	// MaxAttempts stays 1 on purpose: a paid creation never auto-retries (a
+	// blind second apply could double instances); a human re-runs via retry.
+	mgr.Register("cloud.create", tasks.Definition{
+		MaxAttempts: 1,
+		Timeout:     30 * time.Minute,
+		Depends: func(ctx context.Context, t storage.Task) error {
+			var job storage.ProvisionJob
+			if err := db.First(&job, t.RefID).Error; err != nil {
+				return err
+			}
+			if job.Action != "apply" || job.Status != "running" {
+				return fmt.Errorf("job %d is %s/%s; only a running apply can execute", job.ID, job.Action, job.Status)
+			}
+			return nil
+		},
+		Run: func(ctx context.Context, t *storage.Task) error {
+			var job storage.ProvisionJob
+			if err := db.First(&job, t.RefID).Error; err != nil {
+				return err
+			}
+			var tpl storage.ProvisionTemplate
+			if err := db.First(&tpl, job.TemplateID).Error; err != nil {
+				return err
+			}
+			var prov storage.Provider
+			if err := db.First(&prov, tpl.ProviderID).Error; err != nil {
+				return err
+			}
+			if !prov.Enabled {
+				return fmt.Errorf("provider %s disabled", prov.Name)
+			}
+			apiKey, err := provision.DecryptKey(prov, h.secrets)
+			if err != nil {
+				return err
+			}
+			// The node was pre-minted by PrepareLaunch (reuse-by-name keeps the
+			// token stable), so cloud-init rebuilds deterministically here.
+			var node storage.Node
+			if err := db.Where("name = ?", job.InstanceName).First(&node).Error; err != nil {
+				return fmt.Errorf("provision node %s: %w", job.InstanceName, err)
+			}
+			cfgJSON, err := provision.AgentConfigJSON(provision.AgentConfigFile{
+				PanelURL: provision.PanelWSURL(h.cfg.BaseURL), AgentID: job.InstanceName, Token: node.Token,
+			})
+			if err != nil {
+				return err
+			}
+			m := h.getProvisionManager()
+			status, logTail := m.Execute(ctx, provision.ExecParams{
+				Template: tpl, ProviderType: prov.Type, APIKey: apiKey,
+				InstanceName: job.InstanceName, Action: "apply",
+				UserData: provision.CloudInit(cfgJSON, h.cfg.AgentDownloadBase, h.cfg.AgentVersion),
+			})
+			m.FinishJob(job.ID, status, logTail)
+			if status != "ok" {
+				return fmt.Errorf("apply job %d failed: %s", job.ID, tailLine(logTail))
+			}
+			return nil
+		},
+	})
+}
+
+// tailLine returns the last non-empty line of a tofu log tail (the task row
+// keeps one error line; the full log lives on the ProvisionJob).
+func tailLine(s string) string {
+	s = strings.TrimRight(s, "\n")
+	if i := strings.LastIndexByte(s, '\n'); i >= 0 {
+		return s[i+1:]
+	}
+	return s
 }
 
 // taskActor names the caller for the task's actor column (F-1613).

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/recovery"
 	"github.com/cuihairu/ferry/server/internal/secret"
 	"github.com/cuihairu/ferry/server/internal/storage"
+	"github.com/cuihairu/ferry/server/internal/tasks"
 	"gorm.io/gorm"
 )
 
@@ -37,7 +39,10 @@ func TestProvisionRunAPI(t *testing.T) {
 	cfg := config.Default()
 	cfg.SecretKey = "test-master-key"
 	cfg.TofuWorkdir = t.TempDir() // the workdir must never be a relative path, and tests must not pollute the package directory
-	r, _ := NewRouter(db, cfg)
+	// A drivable manager: apply now rides the cloud.create task (F-1652), and
+	// the poll loop below drains the queue the way main.Loop does in production.
+	mgr := tasks.NewManager(db, nil)
+	r, _ := NewRouterWithTasks(db, cfg, mgr)
 	store := secret.NewStore(cfg.SecretKey)
 
 	prov := storage.Provider{Name: "vultr", Type: "vultr", Enabled: true}
@@ -131,10 +136,11 @@ func TestProvisionRunAPI(t *testing.T) {
 		t.Fatalf("re-apply must reuse node token: %q vs %q", again.Token, node.Token)
 	}
 
-	// the background goroutine will backfill failed because tofu is missing —
-	// poll until the final state lands.
+	// the cloud.create task will backfill failed because tofu is missing —
+	// poll until the final state lands, draining the task queue each round.
 	deadline := time.Now().Add(10 * time.Second)
 	for {
+		mgr.LoopOnce(context.Background())
 		var row storage.ProvisionJob
 		if err := db.First(&row, job.ID).Error; err != nil {
 			t.Fatal(err)

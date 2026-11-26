@@ -880,6 +880,7 @@ type ProvisionJob struct {
 	ID           uint       `gorm:"primaryKey" json:"id"`
 	TemplateID   uint       `gorm:"index;not null" json:"template_id"`
 	TemplateName string     `gorm:"size:64" json:"template_name"`
+	InstanceName string     `gorm:"size:64" json:"instance_name"`
 	Action       string     `gorm:"size:8;not null" json:"action"` // plan / apply
 	Status       string     `gorm:"size:8;not null" json:"status"` // running / ok / failed
 	Log          string     `gorm:"type:text" json:"log"`

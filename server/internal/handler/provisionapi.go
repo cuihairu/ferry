@@ -90,10 +90,22 @@ func (h *Handler) runProvision(c *gin.Context, action string) {
 			return
 		}
 		job = *prep.Job
-		go func(p *provision.Prepared) {
-			status, log := m.Execute(context.Background(), p.Params)
-			m.FinishJob(p.Job.ID, status, log)
-		}(prep)
+		// F-1652: execution rides the shared task ledger (tracked row, cancel,
+		// stage/log); a ledger failure falls back to the direct goroutine so a
+		// minted node is never stranded unexecuted.
+		ran := false
+		if h.tasks != nil {
+			if _, err := h.tasks.Enqueue("cloud.create", job.ID,
+				fmt.Sprintf("provision-job-%d", job.ID), h.taskActor(c)); err == nil {
+				ran = true
+			}
+		}
+		if !ran {
+			go func(p *provision.Prepared) {
+				status, log := m.Execute(context.Background(), p.Params)
+				m.FinishJob(p.Job.ID, status, log)
+			}(prep)
+		}
 	} else {
 		// plan: touches neither instances nor nodes.
 		job = storage.ProvisionJob{TemplateID: tpl.ID, TemplateName: tpl.Name, Action: "plan", Status: "running"}

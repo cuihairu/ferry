@@ -64,7 +64,8 @@ func (m *Manager) PrepareLaunch(p LaunchParams) (*Prepared, error) {
 		return nil, err
 	}
 	job := storage.ProvisionJob{
-		TemplateID: p.Template.ID, TemplateName: p.Template.Name, Action: "apply", Status: "running",
+		TemplateID: p.Template.ID, TemplateName: p.Template.Name, InstanceName: p.InstanceName,
+		Action: "apply", Status: "running",
 	}
 	if err := m.db.Create(&job).Error; err != nil {
 		return nil, err
