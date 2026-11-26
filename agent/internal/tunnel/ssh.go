@@ -2,7 +2,6 @@ package tunnel
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -69,26 +68,26 @@ func (t *sshTunnel) reset(dead *ssh.Client) {
 func (t *sshTunnel) dial(ctx context.Context) (*ssh.Client, error) {
 	addr := t.opts.ServerName
 	if addr == "" {
-		return nil, errors.New("tunnel: ssh requires server_name (sshd host:port)")
+		return nil, Errorf(ClassConfig, "ssh:dial", "requires server_name (sshd host:port)")
 	}
 	keyPath := t.opts.KeyFile
 	if keyPath == "" {
-		return nil, errors.New("tunnel: ssh requires key_file (private key path)")
+		return nil, Errorf(ClassConfig, "ssh:dial", "requires key_file (private key path)")
 	}
 	user := t.opts.AuthUser
 	if user == "" {
-		return nil, errors.New("tunnel: ssh requires auth_user")
+		return nil, Errorf(ClassConfig, "ssh:dial", "requires auth_user")
 	}
 	if t.opts.ForwardAddr == "" {
-		return nil, errors.New("tunnel: ssh requires forward_addr (ferry relay listen on landing host)")
+		return nil, Errorf(ClassConfig, "ssh:dial", "requires forward_addr (ferry relay listen on landing host)")
 	}
 	pemBytes, err := os.ReadFile(keyPath)
 	if err != nil {
-		return nil, fmt.Errorf("tunnel: read key file: %w", err)
+		return nil, Wrap(ClassConfig, "ssh:dial", fmt.Errorf("read key file: %w", err))
 	}
 	signer, err := ssh.ParsePrivateKey(pemBytes)
 	if err != nil {
-		return nil, fmt.Errorf("tunnel: parse private key: %w", err)
+		return nil, Wrap(ClassConfig, "ssh:dial", fmt.Errorf("parse private key: %w", err))
 	}
 	hostKey := ssh.InsecureIgnoreHostKey() //nolint:gosec // bootstrap rule: skipped when known_hosts is unset, see the ssh_known_hosts note
 	if t.opts.KnownHostsFile != "" {
@@ -110,19 +109,22 @@ func (t *sshTunnel) dial(ctx context.Context) (*ssh.Client, error) {
 	d := &net.Dialer{Timeout: t.opts.TimeoutOrDefault()}
 	raw, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
-		return nil, fmt.Errorf("tunnel: ssh dial %s: %w", addr, err)
+		return nil, Wrap(ClassNetwork, "ssh:dial", fmt.Errorf("ssh dial %s: %w", addr, err))
 	}
 	conn, chans, reqs, err := ssh.NewClientConn(raw, addr, cfg)
 	if err != nil {
 		_ = raw.Close()
-		return nil, fmt.Errorf("tunnel: ssh handshake %s: %w", addr, err)
+		// the handshake leg covers both plain network drops and host key / auth
+		// rejections; x/crypto does not separate them, so it keeps the retryable
+		// network class (host key mismatch still surfaces in the message text).
+		return nil, Wrap(ClassNetwork, "ssh:dial", fmt.Errorf("ssh handshake %s: %w", addr, err))
 	}
 	return ssh.NewClient(conn, chans, reqs), nil
 }
 
 func (t *sshTunnel) Dial(ctx context.Context, addr string) (net.Conn, error) {
 	if t.opts.ForwardAddr == "" {
-		return nil, errors.New("tunnel: ssh requires forward_addr (ferry relay listen on landing host)")
+		return nil, Errorf(ClassConfig, "ssh:dial", "requires forward_addr (ferry relay listen on landing host)")
 	}
 	c, err := t.getOrCreate(ctx)
 	if err != nil {
@@ -144,7 +146,7 @@ func (t *sshTunnel) Dial(ctx context.Context, addr string) (net.Conn, error) {
 		}
 		conn, err = c2.Dial("tcp", t.opts.ForwardAddr)
 		if err != nil {
-			return nil, fmt.Errorf("tunnel: ssh open channel %s: %w", t.opts.ForwardAddr, err)
+			return nil, Wrap(ClassNetwork, "ssh:channel", fmt.Errorf("ssh open channel %s: %w", t.opts.ForwardAddr, err))
 		}
 	}
 	return conn, nil

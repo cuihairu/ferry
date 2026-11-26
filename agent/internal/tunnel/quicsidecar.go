@@ -52,7 +52,7 @@ func (t *quicSidecar) Dial(ctx context.Context, addr string) (net.Conn, error) {
 	d := &net.Dialer{Timeout: t.opts.TimeoutOrDefault()}
 	conn, err := d.DialContext(ctx, "tcp", SidecarAddr())
 	if err != nil {
-		return nil, fmt.Errorf("tunnel quic: sidecar %s: %w", SidecarAddr(), err)
+		return nil, Wrap(ClassNetwork, "quic:dial", fmt.Errorf("sidecar %s: %w", SidecarAddr(), err))
 	}
 	sni := t.opts.ServerName
 	if sni == "" {
@@ -66,12 +66,12 @@ func (t *quicSidecar) Dial(ctx context.Context, addr string) (net.Conn, error) {
 	_ = conn.SetDeadline(time.Now().Add(t.opts.TimeoutOrDefault()))
 	if _, err := fmt.Fprintf(conn, "CONNECT %s sni=%s\n", addr, sni); err != nil {
 		_ = conn.Close()
-		return nil, fmt.Errorf("tunnel quic: send connect: %w", err)
+		return nil, Wrap(ClassNetwork, "quic:dial", fmt.Errorf("send connect: %w", err))
 	}
 	line, err := bufio.NewReader(conn).ReadString('\n')
 	if err != nil {
 		_ = conn.Close()
-		return nil, fmt.Errorf("tunnel quic: read connect reply: %w", err)
+		return nil, Wrap(ClassNetwork, "quic:dial", fmt.Errorf("read connect reply: %w", err))
 	}
 	_ = conn.SetDeadline(time.Time{})
 	switch {
@@ -79,10 +79,12 @@ func (t *quicSidecar) Dial(ctx context.Context, addr string) (net.Conn, error) {
 		return conn, nil
 	case strings.HasPrefix(line, "ERR"):
 		_ = conn.Close()
-		return nil, fmt.Errorf("tunnel quic: %s: %s", addr, strings.TrimSpace(strings.TrimPrefix(line, "ERR")))
+		// the sidecar refuses the stream explicitly (peer unreachable etc.):
+		// a peer-side refusal, not local load.
+		return nil, Wrap(ClassAuth, "quic:dial", fmt.Errorf("%s: %s", addr, strings.TrimSpace(strings.TrimPrefix(line, "ERR"))))
 	default:
 		_ = conn.Close()
-		return nil, fmt.Errorf("tunnel quic: unexpected sidecar reply %q", line)
+		return nil, Errorf(ClassAuth, "quic:dial", "unexpected sidecar reply %q", line)
 	}
 }
 

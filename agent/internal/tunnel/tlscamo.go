@@ -52,11 +52,11 @@ func (t *tlsCamo) Dial(ctx context.Context, addr string) (net.Conn, error) {
 	if t.opts.CAFile != "" {
 		pemBytes, err := os.ReadFile(t.opts.CAFile)
 		if err != nil {
-			return nil, fmt.Errorf("tunnel: read CA file: %w", err)
+			return nil, Wrap(ClassConfig, "tls-camo:dial", fmt.Errorf("read CA file: %w", err))
 		}
 		pool := x509.NewCertPool()
 		if !pool.AppendCertsFromPEM(pemBytes) {
-			return nil, fmt.Errorf("tunnel: no certificates in %s", t.opts.CAFile)
+			return nil, Errorf(ClassConfig, "tls-camo:dial", "no certificates in %s", t.opts.CAFile)
 		}
 		tlsCfg.RootCAs = pool
 	}
@@ -66,7 +66,10 @@ func (t *tlsCamo) Dial(ctx context.Context, addr string) (net.Conn, error) {
 	}
 	conn, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
-		return nil, err
+		// tls.Dialer folds DNS/TCP/TLS trouble into one error; the retryable
+		// network class is the honest bucket (certificate rejection is
+		// indistinguishable from a refused connection here).
+		return nil, Wrap(ClassNetwork, "tls-camo:dial", err)
 	}
 	return conn, nil
 }

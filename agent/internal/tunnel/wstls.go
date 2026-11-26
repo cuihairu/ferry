@@ -53,11 +53,11 @@ func (t *wsTls) Dial(ctx context.Context, addr string) (net.Conn, error) {
 	if t.opts.CAFile != "" {
 		pemBytes, err := os.ReadFile(t.opts.CAFile)
 		if err != nil {
-			return nil, fmt.Errorf("tunnel: read CA file: %w", err)
+			return nil, Wrap(ClassConfig, "ws-tls:dial", fmt.Errorf("read CA file: %w", err))
 		}
 		pool := x509.NewCertPool()
 		if !pool.AppendCertsFromPEM(pemBytes) {
-			return nil, fmt.Errorf("tunnel: no certificates in %s", t.opts.CAFile)
+			return nil, Errorf(ClassConfig, "ws-tls:dial", "no certificates in %s", t.opts.CAFile)
 		}
 		tlsCfg.RootCAs = pool
 	}
@@ -71,7 +71,10 @@ func (t *wsTls) Dial(ctx context.Context, addr string) (net.Conn, error) {
 	}
 	ws, _, err := d.DialContext(ctx, "wss://"+addr+"/ferry", header)
 	if err != nil {
-		return nil, fmt.Errorf("ws-tls dial %s: %w", addr, err)
+		// the upgrade error folds network, TLS and HTTP status rejections into
+		// one value; keep the retryable network class (the message text still
+		// carries the rejection reason).
+		return nil, Wrap(ClassNetwork, "ws-tls:dial", fmt.Errorf("ws-tls dial %s: %w", addr, err))
 	}
 	return &wsConn{ws: ws}, nil
 }
