@@ -1511,9 +1511,12 @@ External Client
     - 备注（Task ID: F-0930 | Status: Done | Evidence: DefaultWellStreak=2(pool.go:27)+pool.go:161 | Verification: TestSweepSuspendAndResume | Commit: fbcb525）
 -   [x] `F-0931` 实现健康状态滞回，避免频繁抖动。
     - 备注（Task ID: F-0931 | Status: Done | Evidence: nodehealth/egresshealth Evaluate 改窗口多数票（healthy 票>0 且 sick 未过票数→healthy，sick 严格多数→degraded，全无→unknown），同一份 ProbeFresh 窗口内按 verdict 计票；tie 算 healthy（恶化需 sick 严格多数）；egresshealth 同款（出口基线）| Verification: TestEvaluateHysteresis（各 3:1 单离票→健康、3:1 杂票→劣化）+既有规则测试改 tie→healthy；两包 go test 绿 | Commit: c6bbdd0）
--   [ ] `F-0932` 支持健康状态人工覆盖。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0933` 人工覆盖必须记录原因、操作者和过期时间。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0934` 提供健康状态变化解释。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0932` 支持健康状态人工覆盖。
+    - 备注（Task ID: F-0932 | Status: Done | Evidence: storage.HealthOverride（一节点一行，uniqueIndex，PUT 替换）+ nodehealth.Evaluate 查活动覆盖（expires_at>now）盖过计算态；PUT/GET/DELETE /api/nodes/:id/health_override；off（disabled/offline）不可被覆盖洗白；egresshealth 保持探测驱动不参与覆盖 | Verification: TestEvaluateOverride（活动覆盖生效/过期自动失效/off 拒绝洗白）+TestOverrideShowsInNodeStatus（端到端经 /api/nodes/:id/status）；全 server 套件绿 2026-11-26（50 ok，exit 0） | Commit: 43fa033）
+-   [x] `F-0933` 人工覆盖必须记录原因、操作者和过期时间。
+    - 备注（Task ID: F-0933 | Status: Done | Evidence: validateHealthOverride 强制 reason/operator 非空 + expires_at 必须未来（state 只许 healthy/degraded）；审计字段随行持久化，覆盖生效时解释串带操作者+期限+原因 | Verification: TestSetHealthOverrideValidation（6 例 400：未知 state/off 不可强制/空 reason/空 operator/过去期/缺期）+TestSetHealthOverride（替换后仍一行、新审计字段）；同上全绿 | Commit: 43fa033）
+-   [x] `F-0934` 提供健康状态变化解释。
+    - 备注（Task ID: F-0934 | Status: Done | Evidence: nodehealth.EvaluateWithReason 返回 {State,Reason}（Evaluate 改为其薄壳）；解释按决定链出：无新 verdict→"no fresh probe verdicts (30m window)"、pool suspended、probe window 计票（"N sick vs M healthy (30m)"）、覆盖→"manual override by <operator> until <time>: <reason>"；GET /api/nodes/:id/status 新增 health_reason | Verification: TestEvaluateWithReason（四类解释+计票串）+TestOverrideShowsInNodeStatus 检查 health_reason；同上全绿 | Commit: 43fa033）
 
 ## 7.3 业务质量指标
 
