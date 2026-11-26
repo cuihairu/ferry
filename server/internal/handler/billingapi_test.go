@@ -391,3 +391,37 @@ func doJSONRaw(t *testing.T, r *gin.Engine, method, path, body, contentType stri
 	r.ServeHTTP(rec, req)
 	return rec
 }
+
+// TestBillingAPIPathCosts covers GET /api/cost/path-estimates (F-0603): the
+// explainable list requires from and returns per-leg lines with precise flags.
+func TestBillingAPIPathCosts(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	entry := storage.Node{Name: "pc-e", Token: "tk-pc-e", Role: "entry", BillingType: "包月",
+		MonthlyCostCents: 3100, Currency: "CNY"}
+	landing := storage.Node{Name: "pc-l", Token: "tk-pc-l", Role: "landing", BillingType: "包月",
+		MonthlyCostCents: 3100, Currency: "CNY"}
+	for _, n := range []*storage.Node{&entry, &landing} {
+		if err := db.Create(n).Error; err != nil {
+			t.Fatalf("node: %v", err)
+		}
+	}
+	if err := db.Create(&storage.Path{Name: "pc-path", EntryNodeID: entry.ID,
+		LandingNodeID: landing.ID, Direction: "out", Enabled: true}).Error; err != nil {
+		t.Fatalf("path: %v", err)
+	}
+
+	if rec := doJSON(t, r, "GET", "/api/cost/path-estimates", nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("missing from must be 400: %d", rec.Code)
+	}
+	if rec := doJSON(t, r, "GET", "/api/cost/path-estimates?from=not-a-time", nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad from must be 400: %d", rec.Code)
+	}
+	rec := doJSON(t, r, "GET", "/api/cost/path-estimates?from=2026-10-01T00:00:00Z", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list path costs: %d %s", rec.Code, rec.Body)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"path_id":1`) || !strings.Contains(body, `"marginal_per_gb_cents":0`) {
+		t.Fatalf("path cost payload: %s", body)
+	}
+}

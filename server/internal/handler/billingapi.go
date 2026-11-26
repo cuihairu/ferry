@@ -897,3 +897,32 @@ func (h *Handler) estimatedSpend(kind string, id uint, key, from, to string) int
 	_ = q.Scan(&sum).Error
 	return sum
 }
+
+// listPathCosts serves GET /api/cost/path-estimates (F-0603): the explainable
+// per-path cost estimate with freshness marking (F-0604); stale or unknown
+// prices lose the Precise flag instead of inventing amounts (F-0610).
+func (h *Handler) listPathCosts(c *gin.Context) {
+	fromS := c.Query("from")
+	if fromS == "" {
+		fail(c, http.StatusBadRequest, errors.New("from is required"))
+		return
+	}
+	from, err := time.Parse(time.RFC3339, fromS)
+	if err != nil {
+		fail(c, http.StatusBadRequest, errors.New("from must be RFC3339"))
+		return
+	}
+	to := from.AddDate(0, 1, 0)
+	if s := c.Query("to"); s != "" {
+		if to, err = time.Parse(time.RFC3339, s); err != nil {
+			fail(c, http.StatusBadRequest, errors.New("to must be RFC3339"))
+			return
+		}
+	}
+	rows, err := billing.PathCostEstimates(h.db, from, to, time.Now())
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"rows": rows})
+}
