@@ -59,6 +59,9 @@ type RelaySpec struct {
 	MaxStreams int `json:"max_streams,omitempty"`
 	// RateLimitKbps caps per-connection bandwidth in kilobits/sec, per direction (F-0810); 0 = unlimited.
 	RateLimitKbps int `json:"rate_limit_kbps,omitempty"`
+	// DialRetries caps the landing dial retries per forwarded connection (F-0813);
+	// 0 means the default retry count.
+	DialRetries int `json:"dial_retries,omitempty"`
 
 	// ssh plugin parameters (E-28, ignored by other transports): the key and known_hosts are local
 	// path references, and the key content goes neither into config nor into the database (the credential encryption scope R24 covers only in-database secrets).

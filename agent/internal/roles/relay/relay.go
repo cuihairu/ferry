@@ -126,6 +126,7 @@ func run(ctx context.Context, base config.RelaySpec, overridePath string, hup <-
 					effectiveMaxConns(next) == effectiveMaxConns(*old) &&
 					effectiveMaxStreams(next) == effectiveMaxStreams(*old) &&
 					effectiveRateKbps(next) == effectiveRateKbps(*old) &&
+					effectiveRetries(next) == effectiveRetries(*old) &&
 					tunnelPluginOf(next) == tunnelPluginOf(*old) {
 					continue // no change means no switch, avoiding pointless logs
 				}
@@ -184,19 +185,43 @@ func run(ctx context.Context, base config.RelaySpec, overridePath string, hup <-
 			if ceiling > 0 {
 				defer streams.Add(-1)
 			}
-			serveConn(ctx, tn, s.LandingAddr, effectiveRateKbps(*s), front, logger)
+			serveConn(ctx, tn, s.LandingAddr, effectiveRateKbps(*s), effectiveRetries(*s), front, logger, func() {
+				// F-0813: a failed dial invalidates the cached plugin instance;
+				// the next connection rebuilds a fresh session.
+				tunnels.drop(*s)
+				_ = tn.Close()
+			})
 		}(front)
 	}
 }
 
 // serveConn dials the landing for one frontend connection and copies both ways; either direction ending tears down the whole connection.
-func serveConn(ctx context.Context, tn tunnel.Tunnel, landing string, rateKbps int, front net.Conn, logger *log.Logger) {
-	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
-	defer cancel()
-	back, err := tn.Dial(dialCtx, landing)
-	if err != nil {
-		logger.Printf("relay dial %s: %v", landing, err)
-		return
+// A dial failure retries up to retries times (F-0813) after a short backoff;
+// between attempts the cached tunnel is evicted so a broken session is rebuilt.
+func serveConn(ctx context.Context, tn tunnel.Tunnel, landing string, rateKbps, retries int, front net.Conn, logger *log.Logger, onDialFail func()) {
+	var (
+		back net.Conn
+		err  error
+	)
+	for attempt := 0; ; attempt++ {
+		dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
+		back, err = tn.Dial(dialCtx, landing)
+		cancel()
+		if err == nil {
+			break
+		}
+		if onDialFail != nil {
+			onDialFail()
+		}
+		if attempt >= retries {
+			logger.Printf("relay dial %s after %d attempts: %v", landing, attempt+1, err)
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(retryBackoff):
+		}
 	}
 	defer back.Close()
 	// Bandwidth limit (F-0810): applied per direction per connection; 0 means
@@ -244,6 +269,9 @@ func mergeSpec(base, ov config.RelaySpec) config.RelaySpec {
 	if ov.RateLimitKbps > 0 {
 		s.RateLimitKbps = ov.RateLimitKbps
 	}
+	if ov.DialRetries > 0 {
+		s.DialRetries = ov.DialRetries
+	}
 	if ov.ServerName != "" {
 		s.ServerName = ov.ServerName
 	}
@@ -251,6 +279,20 @@ func mergeSpec(base, ov config.RelaySpec) config.RelaySpec {
 		s.CAFile = ov.CAFile
 	}
 	return s
+}
+
+// retryBackoff is the pause between landing dial attempts (F-0813).
+const retryBackoff = 200 * time.Millisecond
+
+// defaultDialRetries is one extra attempt after the first dial failure.
+const defaultDialRetries = 1
+
+// effectiveRetries normalizes the dial retry count: 0 takes the default.
+func effectiveRetries(spec config.RelaySpec) int {
+	if spec.DialRetries > 0 {
+		return spec.DialRetries
+	}
+	return defaultDialRetries
 }
 
 // effectiveRateKbps normalizes the bandwidth ceiling: negatives mean unlimited.
@@ -339,6 +381,19 @@ func (c *tunnelCache) get(spec config.RelaySpec) (tunnel.Tunnel, error) {
 	}
 	c.m[key] = tn
 	return tn, nil
+}
+
+// drop invalidates a cached plugin instance after a dial failure (F-0813): the
+// next connection rebuilds it, so a broken connection/session is not reused
+// forever. The caller owns closing the evicted instance.
+func (c *tunnelCache) drop(spec config.RelaySpec) {
+	key := strings.Join([]string{
+		tunnelPluginOf(spec), spec.ServerName, spec.CAFile,
+		spec.SSHUser, spec.SSHKeyFile, spec.SSHKnownHosts, spec.SSHForwardAddr,
+	}, "|")
+	c.mu.Lock()
+	delete(c.m, key)
+	c.mu.Unlock()
 }
 
 func (c *tunnelCache) closeAll() {
