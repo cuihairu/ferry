@@ -1520,16 +1520,24 @@ External Client
 
 ## 7.3 业务质量指标
 
--   [ ] `F-0941` 定义游戏质量指标集合。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0941 | 区级未满足原因：区级现状：无按业务(game/web/video)质量指标集与评分规则（business/scoring/质量分 0 命中）；仅通用 DimensionStatus(models.go:218-226)+晚间时段报告(eveningapi.go)——F-0941~F-0949 均未满足。）
--   [ ] `F-0942` 定义网页质量指标集合。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0943` 定义视频质量指标集合。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0944` 定义普通代理质量指标集合。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0945` 游戏评分纳入 RTT、Jitter、Loss 和 Availability。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0946` 网页评分纳入连接、TLS、TTFB 和失败率。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0947` 视频评分纳入吞吐、丢包和缓冲风险。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0948` 不同业务评分使用独立规则。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0949` 支持区域、运营商和时段质量报表。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0941` 定义游戏质量指标集合。
+    - 备注（Task ID: F-0941 | Status: Done | Evidence: quality.gameSet：RTT/Jitter/Loss/Availability 四项有序集，Derive 直读 ProbeReport（avail=100-loss，不可达 0），未知业务返回空集；TestGameSetMetrics+TestGameSetDerive | Verification: 双门禁 agent 全套件绿（exit 0）+server 全套件绿（exit 0，51 ok）2026-11-26 | Commit: 9f1e7ef）
+-   [x] `F-0942` 定义网页质量指标集合。
+    - 备注（Task ID: F-0942 | Status: Done | Evidence: quality.webSet：ConnectMs/TLSMs/TTFBMs/LossPct；agent measureHTTP 用 httptrace 实测 connect/TLS/TTFB 均值（明文 tls=0），经 agentproto→storage→agentws 持久化；TestMeasureHTTPPhases+TestWebSetMetrics+agentws 存储断言 | Verification: 双门禁 agent 全套件绿（exit 0）+server 全套件绿（exit 0，51 ok）2026-11-26 | Commit: 9f1e7ef）
+-   [x] `F-0943` 定义视频质量指标集合。
+    - 备注（Task ID: F-0943 | Status: Done | Evidence: quality.videoSet：ThroughputKbps/Loss/Jitter/BufferRisk；ProbeSpec.DownloadKB 可选 GET 下载测速率（1-10240KB，agent+panel 双重校验）；bufferRisk=loss*2+jitter 封顶 100；TestMeasureHTTPThroughput+TestVideoSetMetrics+TestValidateDownloadKB | Verification: 双门禁 agent 全套件绿（exit 0）+server 全套件绿（exit 0，51 ok）2026-11-26 | Commit: 9f1e7ef）
+-   [x] `F-0944` 定义普通代理质量指标集合。
+    - 备注（Task ID: F-0944 | Status: Done | Evidence: quality.proxySet：RTT/Loss/Availability 三项传输集；TestProxySetMetrics | Verification: 双门禁 agent 全套件绿（exit 0）+server 全套件绿（exit 0，51 ok）2026-11-26 | Commit: 9f1e7ef）
+-   [x] `F-0945` 游戏评分纳入 RTT、Jitter、Loss 和 Availability。
+    - 备注（Task ID: F-0945 | Status: Done | Evidence: quality.gameRule 四项加权（RTT 0.4/Jitter 0.2/Loss 0.2/Avail 0.2），lin 映射分数 0-100，不可达时相位无 datum 不伪装 0ms；TestScoreGame（满分/死亡/逐项单调） | Verification: 双门禁 agent 全套件绿（exit 0）+server 全套件绿（exit 0，51 ok）2026-11-26 | Commit: 9f1e7ef）
+-   [x] `F-0946` 网页评分纳入连接、TLS、TTFB 和失败率。
+    - 备注（Task ID: F-0946 | Status: Done | Evidence: quality.webRule 四项加权（connect 0.2/TLS 0.2/TTFB 0.35/loss 0.25），明文 tls=0 视为无 datum 并重归一化权重；TestScoreWeb（慢 TLS 降分/明文不罚/慢 TTFB 重罚/失败率降分） | Verification: 双门禁 agent 全套件绿（exit 0）+server 全套件绿（exit 0，51 ok）2026-11-26 | Commit: 9f1e7ef）
+-   [x] `F-0947` 视频评分纳入吞吐、丢包和缓冲风险。
+    - 备注（Task ID: F-0947 | Status: Done | Evidence: quality.videoRule 三项加权（throughput 0.4/loss 0.25/buffer risk 0.35），未开 download_kb 则吞吐无 datum 重归一化而非算 0；TestScoreVideo（满分/饥饿/无下载/卡播/不可达） | Verification: 双门禁 agent 全套件绿（exit 0）+server 全套件绿（exit 0，51 ok）2026-11-26 | Commit: 9f1e7ef）
+-   [x] `F-0948` 不同业务评分使用独立规则。
+    - 备注（Task ID: F-0948 | Status: Done | Evidence: quality.rule 按 business 分派独立规则，无默认兜底；同一 ProbeReport 在游戏/网页得分不同，网页相位不能救游戏分，未知业务返回 unscored；TestScoreIndependentRules | Verification: 双门禁 agent 全套件绿（exit 0）+server 全套件绿（exit 0，51 ok）2026-11-26 | Commit: 9f1e7ef）
+-   [x] `F-0949` 支持区域、运营商和时段质量报表。
+    - 备注（Task ID: F-0949 | Status: Done | Evidence: GET /api/quality-report?business=&window_hours=（1-168h）；按 region+ISP 与小时分桶聚合 quality.Score，输出 samples/avg_score/avg_rtt/avg_jitter/avg_loss 与 timeslots 小时分桶，无评分行不入平均，非法参数 400；TestQualityReport | Verification: 双门禁 agent 全套件绿（exit 0）+server 全套件绿（exit 0，51 ok）2026-11-26 | Commit: 9f1e7ef）
 
 ------------------------------------------------------------------------
 
