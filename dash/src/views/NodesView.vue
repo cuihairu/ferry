@@ -426,6 +426,46 @@ async function openStatus(n: Node) {
   }
 }
 
+// Node detail dialog (F-1422): one read-only aggregate of identity, runtime and
+// path membership. Identity/runtime come from the loaded node row and load
+// samples; path membership re-reads the path list so a just-created path shows up.
+const detailVisible = ref(false)
+const detailFor = ref<Node | null>(null)
+
+interface DetailPathRow {
+  id: number
+  name: string
+  part: string
+  transport: string
+  direction: string
+  enabled: boolean
+  version: number
+}
+
+const detailPaths = computed<DetailPathRow[]>(() => {
+  const n = detailFor.value
+  if (!n) return []
+  const rows: DetailPathRow[] = []
+  for (const p of paths.value) {
+    const parts: string[] = []
+    if (p.entry_node_id === n.id) parts.push('入口')
+    if (p.landing_node_id === n.id) parts.push('落地')
+    if (p.relay_node_id === n.id) parts.push('中转')
+    if (parts.length) {
+      rows.push({ id: p.id, name: p.name, part: parts.join('+'), transport: p.transport, direction: p.direction, enabled: p.enabled, version: p.version })
+    }
+  }
+  return rows.sort((a, b) => a.id - b.id)
+})
+
+function openDetail(n: Node) {
+  detailFor.value = n
+  detailVisible.value = true
+  getPaths()
+    .then((d) => (paths.value = d.paths))
+    .catch(() => undefined)
+}
+
 async function openProcs(n: Node) {
   procsFor.value = n
   procsVisible.value = true
@@ -872,6 +912,7 @@ async function remove(n: Node) {
       </el-table-column>
       <el-table-column label="操作" width="360" fixed="right">
         <template #default="{ row }">
+          <el-button link type="primary" @click="openDetail(row)">详情</el-button>
           <el-button link type="primary" @click="openStatus(row)">状态</el-button>
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
           <el-button link type="primary" @click="openShare(row)">分享</el-button>
@@ -1108,6 +1149,50 @@ async function remove(n: Node) {
     </el-dialog>
 
     <!-- Node detail tri-state (F-0750): agent liveness, relay process, latest probe verdict -->
+    <!-- Node detail dialog (F-1422): read-only aggregate of identity, runtime and path membership -->
+    <el-dialog v-model="detailVisible" :title="`详情 · ${detailFor?.name ?? ''}`" width="680px">
+      <el-descriptions v-if="detailFor" :column="2" border size="small">
+        <el-descriptions-item label="地址">{{ detailFor.address }}:{{ detailFor.port }}</el-descriptions-item>
+        <el-descriptions-item label="协议 / 传输">{{ detailFor.protocol }} / {{ detailFor.transport }}</el-descriptions-item>
+        <el-descriptions-item label="角色 / 方向">{{ ROLE_TEXT[detailFor.role] ?? detailFor.role }} / {{ DIR_TEXT[detailFor.direction] ?? detailFor.direction }}</el-descriptions-item>
+        <el-descriptions-item label="状态">{{ detailFor.status }}</el-descriptions-item>
+        <el-descriptions-item label="Agent 版本">{{ detailFor.agent_version || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="最近在线">{{ detailFor.last_seen ? new Date(detailFor.last_seen).toLocaleString() : '从未上报' }}</el-descriptions-item>
+        <el-descriptions-item label="区域">{{ detailFor.region || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="城市 / 机房">{{ detailFor.city || '—' }} / {{ detailFor.datacenter || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="运营商 / 线路">{{ detailFor.isp || '—' }} / {{ detailFor.line_type || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="启用 / 维护">{{ detailFor.enabled ? '是' : '否' }} / {{ detailFor.maintenance ? '维护中' : '否' }}</el-descriptions-item>
+        <el-descriptions-item label="入口池">
+          {{ detailFor.pool_state }}<template v-if="detailFor.pool_reason">（{{ detailFor.pool_reason }}）</template>
+        </el-descriptions-item>
+        <el-descriptions-item label="实时负载">
+          <template v-if="detailFor && loadOf(detailFor.id) && loadOf(detailFor.id)!.util_pct >= 0">
+            {{ loadOf(detailFor.id)!.conns }} 连接 · {{ Math.round(loadOf(detailFor.id)!.mbps) }} / {{ loadOf(detailFor.id)!.capacity_mbps }} Mbps（{{ Math.round(loadOf(detailFor.id)!.util_pct) }}%）
+          </template>
+          <span v-else>无采样</span>
+        </el-descriptions-item>
+      </el-descriptions>
+      <div class="detail-paths-head">关联线路（{{ detailPaths.length }}）</div>
+      <el-table :data="detailPaths" size="small" empty-text="暂无关联线路">
+        <el-table-column prop="id" label="ID" width="60" />
+        <el-table-column prop="name" label="名称" min-width="120" />
+        <el-table-column prop="part" label="本节点身份" width="110" />
+        <el-table-column label="方向" width="80">
+          <template #default="{ row }">{{ DIR_TEXT[row.direction] ?? row.direction }}</template>
+        </el-table-column>
+        <el-table-column prop="transport" label="传输" width="80" />
+        <el-table-column label="启用" width="70">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.enabled ? 'success' : 'info'" disable-transitions>{{ row.enabled ? '是' : '否' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="version" label="版本" width="70" />
+      </el-table>
+      <template #footer>
+        <el-button @click="detailVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="statusVisible" :title="`状态 · ${statusFor?.name ?? ''}`" width="640px">
       <div v-loading="statusBusy">
         <el-descriptions v-if="statusData" :column="2" border size="small">
@@ -1286,6 +1371,11 @@ async function remove(n: Node) {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+.detail-paths-head {
+  margin: 14px 0 8px;
+  font-weight: 600;
+  font-size: 13px;
 }
 
 /* ---- Region/ISP perspective ---- */

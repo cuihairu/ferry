@@ -84,6 +84,8 @@ export interface Node {
   old_token?: string
   token_rotated_at?: string | null
   status: string
+  /** last agent version reported by the heartbeat (empty when never reported). */
+  agent_version?: string
   role: string
   direction: string
   line_type: string
