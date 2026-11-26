@@ -356,3 +356,83 @@ func TestPlanBandwidthRules(t *testing.T) {
 		t.Fatalf("negative bw update = %d", rec.Code)
 	}
 }
+
+// TestPlanSwitchUpDown pins the upgrade/downgrade flow (F-1210): applying a
+// different plan is the switch -- every previous plan value is overwritten
+// (limits, reset cycle, and the plan_id binding, so the delivery-side plan
+// scope moves with the switch), and the new plan's expires_days rule applies.
+func TestPlanSwitchUpDown(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	rec := doJSON(t, r, "POST", "/api/users", map[string]any{"username": "switch-u"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create user: %d %s", rec.Code, rec.Body)
+	}
+	uid := uint(mustJSON(t, rec)["id"].(float64))
+
+	mkPlan := func(name string, body map[string]any) uint {
+		t.Helper()
+		body["name"] = name
+		rec := doJSON(t, r, "POST", "/api/plans", body)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("create %s: %d %s", name, rec.Code, rec.Body)
+		}
+		return uint(mustJSON(t, rec)["id"].(float64))
+	}
+	// "Pro" (higher tier, no expiry rewrite) and "Lite" (lower tier, 30 days).
+	pro := mkPlan("pro", map[string]any{
+		"quota_bytes": 10 << 30, "bw_up_mbps": 10, "bw_down_mbps": 20,
+		"device_limit": 5, "ip_limit": 5,
+	})
+	lite := mkPlan("lite", map[string]any{
+		"quota_bytes": 5 << 30, "reset_cycle": "week",
+		"bw_up_mbps": 3, "bw_down_mbps": 5, "device_limit": 2, "ip_limit": 2,
+		"expires_days": 30,
+	})
+
+	apply := func(id uint) {
+		t.Helper()
+		if rec := doJSON(t, r, "POST", "/api/plans/"+utoa(id)+"/apply", map[string]any{
+			"user_ids": []any{uid},
+		}); rec.Code != http.StatusOK {
+			t.Fatalf("apply %d: %d", id, rec.Code)
+		}
+	}
+	var u storage.User
+	snapshot := func() storage.User {
+		t.Helper()
+		if err := db.First(&u, uid).Error; err != nil {
+			t.Fatal(err)
+		}
+		return u
+	}
+
+	// Baseline: pro.
+	apply(pro)
+	base := snapshot()
+	if base.PlanID != pro || base.QuotaBytes != 10<<30 || base.BwUpMbps != 10 {
+		t.Fatalf("after pro apply: plan_id=%d quota=%d bw=%d", base.PlanID, base.QuotaBytes, base.BwUpMbps)
+	}
+
+	// Downgrade to lite: every value moves, including the binding and expiry.
+	apply(lite)
+	down := snapshot()
+	if down.PlanID != lite || down.QuotaBytes != 5<<30 || down.ResetCycle != "week" ||
+		down.BwUpMbps != 3 || down.BwDownMbps != 5 || down.DeviceLimit != 2 || down.IPLimit != 2 {
+		t.Fatalf("after lite apply: %+v", down)
+	}
+	if down.ExpiresAt == nil || down.ExpiresAt.Sub(time.Now()).Hours() < 29.9 {
+		t.Fatalf("lite expires_days=30 not applied: %v", down.ExpiresAt)
+	}
+
+	// Upgrade back to pro: limits and binding return; the lite-issued expiry
+	// survives untouched (only expires_days>0 rewrites it, the F-1203 rule).
+	apply(pro)
+	up := snapshot()
+	if up.PlanID != pro || up.QuotaBytes != 10<<30 || up.BwUpMbps != 10 || up.ResetCycle != "none" {
+		t.Fatalf("after pro re-apply: %+v", up)
+	}
+	if up.ExpiresAt == nil || up.ExpiresAt.Sub(time.Now()).Hours() < 29.9 {
+		t.Fatalf("upgrade must keep the lite-issued expiry: %v", up.ExpiresAt)
+	}
+}

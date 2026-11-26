@@ -233,6 +233,10 @@ func (h *Handler) deletePlan(c *gin.Context) {
 // applyPlan copies the plan's limits onto the listed users (F-0044: partial
 // failure is per row, never a blanket success). ExpiresDays>0 also rewrites
 // each user's ExpiresAt relative to now; 0 leaves expiry untouched.
+// Applying a different plan is the upgrade/downgrade flow (F-1210): the copy
+// includes the user's plan_id binding, so the delivery-side plan scope (the
+// PlanID node binding F-1142/F-1047 and plan-scoped policies F-1207) moves
+// with the switch instead of trailing behind.
 func (h *Handler) applyPlan(c *gin.Context) {
 	p, err := h.findPlan(c.Param("id"))
 	if err != nil {
@@ -269,6 +273,7 @@ func (h *Handler) applyPlan(c *gin.Context) {
 			"bw_down_mbps": p.BwDownMbps,
 			"device_limit": p.DeviceLimit,
 			"ip_limit":     p.IPLimit,
+			"plan_id":      p.ID,
 			"updated_at":   now,
 		}
 		if expiresAt != nil {
