@@ -1770,7 +1770,8 @@ External Client
 -   [x] `F-1205` 明确套餐限速规则。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1205 | Status: Done | Evidence: 规则落 Plan 模型 bw 字段注释（models.go）：apply 时模板拷贝、改套餐不回溯已套用户（重套=传播机制）、0=不限（用户面约定）、执行点在节点侧服务端只校验(≥0)+存储+暴露 | Verification: TestPlanBandwidthRules（改套餐不泄漏→重套生效→无 bw 字段套餐套 0=不限→负数 update 400）+TestPlanApplyUsers/TestPlanCRUD（负数 create 400）| Commit: d35842c）
     - 待补（F-1205 | 部分：限速字段与校验齐（BwUp/BwDown models.go:26-27+校验 usertemplate.go:58-63+PATCH user.go:226-238）；执行点在节点侧/仓外，服务端仅存储下发。）
--   [ ] `F-1206` 明确套餐线路权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1206` 明确套餐线路权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1206 | Status: Done | Evidence: 套餐线路权限=PlanID 绑定轴（F-1047 Node.PlanID×F-1142 User.PlanID，0=对全体开放）；配额联动降档（低成本档过滤）为独立机制继续存在 | Verification: TestSubXPlanBinding（自建订阅面：套餐节点只给套餐订阅者、无套餐用户看不到；主面已由 TestSubscriptionPlanFilter 钉住）| Commit: ca8bffd）
     - 待补（F-1206 | 部分：无套餐线路权限字段；仅配额联动降档（超阈值只出低成本档入口 sub.go:88-102+quota/link.go:119-129），非套餐线路权限。）
 -   [ ] `F-1207` 明确套餐区域权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1207 | 未满足：Region 仅节点元数据/故障聚合维度（models.go:98），订阅无条件下发全部 entry/both 节点（sub.go:73-84），无按用户/套餐的区域权限。）
