@@ -1671,7 +1671,8 @@ External Client
     - 备注（Task ID: F-1068 | Status: Done | Evidence: storage.PathCapacity(entry, relay, landing)（木桶估算：链路容量=各节点 CapacityMbps 最小值，返回瓶颈节点名，直连链路 relay=nil 跳过；复用 F-1064 单源回退链，实测校准参与竞底）；只读端点 GET /api/paths/:id/capacity（router 注册）：capacity_mbps+bottleneck/bottleneck_id+逐节点明细分解（entry/relay/landing mbps），不触发探测不写行，链上节点缺失 404；TestPathCapacity（relay 竞底 30/直连 100/实测校准 10 竞底）+TestPathCapacityEndpoint（relay 链 30 瓶颈 cap-relay、直连 100 瓶颈 cap-landing） | Verification: go vet + server 全套件 green exit=0（51 ok）2026-11-27 | Commit: 7fe8e63）
 -   [x] `F-1069` 支持容量不足时自动降权。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1069 | Status: Done | Evidence: PolicySetting.MinCapacityFloor（Mbps，0=关，ValidateSetting 非负校验）经 ScoreWeights.CapacityFloor（Weights() 注入，比较器旋钮随 w 走到 LessFor/Pick/preview 全链）；LessFor 组装序 byTier(byFloor(missing 分区(less)))：降权在算子 tier 内、结构上先于缺价分区，全部模式生效（floor 是运维容量门槛非打分微调）；只降已知容量低于 floor 的——无带宽字段不罚（未知≠不足，循 F-0292 先例），Candidate.CapacityMbps 的 100 地板不影响判定（用原始字段判短）；TestCapacityFloorDemotion（floor 开 30M 让位 500M/未知不罚/关=恢复 cost_first/tier 越过 floor）+TestSweepCapacityFloor（sweep 级让位+settled 不 churn）+TestValidateSettingCapacityFloor+TestAllocPolicyCapacityFloor（API 往读+负值 400；注意 Candidate 字面量须带 CostKnown/CostFresh 否则全员落 missing 分区价格不参与） | Verification: go vet + server 全套件 green exit=0（51 ok）2026-11-27 | Commit: 38ced0f）
--   [ ] `F-1070` 支持管理员容量覆盖。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1070` 支持管理员容量覆盖。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1070 | Status: Done | Evidence: Node.CapacityOverrideMbps(models.go:231-234) 领先 CapacityMbps 链(capacity.go:21-22 override>measured>downlink>uplink>100)+面板面 NodeInput.capacity_override_mbps(model.go:78-80)+node.go 建/改(newPersistedNode/updateNode 0=清除回测量值) | Verification: TestNodeCapacityMbps override leads + TestNodeCapacityOverride(create sets/absent keeps/0 clears)+go vet+server 全套件 green exit=0（51 ok）2026-11-27 | Commit: 838b2a0）
 
 ------------------------------------------------------------------------
 
