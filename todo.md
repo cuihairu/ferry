@@ -2058,10 +2058,10 @@ External Client
     - 备注（Task ID: F-1483 | Status: Done | Evidence: 原「部分/无任务列表」结论已过时——NodeConfig.Status pending/applied/failed（A-18 状态机，ack 经 agenthub → pusher.Finish 落账，E-16b 同链路）在「配置下发历史」表以状态 tag 逐条展示（3a261c8）；批量配置逐节点结果沿用 NodesView 批量面板 | Verification: agentws_test/procop_test 断言 configs 记录与状态绿；dash build 绿 | Commit: 3a261c8）
 -   [x] `F-1484` 提供配置失败和回滚记录。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1484 | Status: Done | Evidence: 原「仅提示文案、无记录」结论已过时——下发历史行级记录：failed 状态红 tag + Error 字段 ⓘ 悬浮原文 + Reverted「已回滚」黄 tag + Validated「已验证」绿 tag（3a261c8）；失败/回滚由 pusher.Finish 落账，config_err_test.go 覆盖错误路径 | Verification: config_err_test 绿；dash build 绿 | Commit: 3a261c8）
--   [ ] `F-1485` 提供批量运维任务列表。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1485 | 部分：批量 proc/config 即时逐节点结果（NodesView.vue:614-622/:358-443）；无任务队列视图。）
--   [ ] `F-1486` 提供 Agent 升级任务列表。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1486 | 部分：逐节点升级对话框（NodesView.vue:445-483）；无任务列表。）
+-   [x] `F-1485` 提供批量运维任务列表。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1485 | Status: Done | Evidence: 原「无任务队列视图」结论已过时——CloudView「运维」页签任务列表（7f78101）：逐资源操作行（op/批次 batch_id/状态 tag/操作者/结果或错误/提交时间）+ 行级取消（allow_cancel→POST /cloud-operations/:id/cancel）+ 日志详情弹窗（GET /cloud-operations/:id 含 CloudOperationLog 状态迁移，F-0375/F-0384）；批量=同 batch_id 多资源行（POST /cloud-operations，F-0373），oper.Reconcile 兜底 vendor Unknown（F-0373） | Verification: TestCloudOperationAPI 绿（operapi_test.go）；dash build 绿 | Commit: 5a59e1e+7f78101）
+-   [x] `F-1486` 提供 Agent 升级任务列表。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1486 | Status: Done | Evidence: 原「无任务列表」结论已过时——服务端 GET /api/nodes/:id/upgrades（upgrade.go listNodeUpgrades，新到旧 limit ≤500，F-0712 NodeUpgrade：upgrade_id/version/state/error）之上补 UI：升级弹窗「升级任务记录」表（任务哈希短值/目标版本/状态 tag downloading|applying 黄·applied 绿·failed 红/时间/错误 ⓘ），打开加载+下发后刷新+弹窗开启期间 3s 轻轮询，关闭清定时器 | Verification: 服务端升级链路测试随全量绿；dash build 绿 | Commit: 697385d）
 -   [x] `F-1487` 提供自动恢复任务列表。
     - 备注（Task ID: F-1487 | Status: Done | Evidence: RecoveryView.vue:74-121 recoveries 列表+action 回放（api :795-799） | Verification: API 侧 TestTraceRowsReplay（recovery_test.go）；dash 无前端单测 | Commit: ce8b33e）
 -   [x] `F-1488` 提供操作审计查询。
