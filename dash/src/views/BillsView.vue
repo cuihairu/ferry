@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   getCostSources, createCostSource, updateCostSource, getBillImports,
@@ -228,6 +228,52 @@ function exportRecords() {
   a.click()
   URL.revokeObjectURL(a.href)
 }
+
+// Dimension rollups (F-1462/F-1463): provider (cost source) and account totals
+// over the currently filtered records, grouped per currency client-side — the
+// same query result the records table shows, rolled up two ways.
+interface DimAggRow {
+  key: string
+  label: string
+  count: number
+  totals: string
+}
+
+function moneyTotals(rows: CostRecordRow[]): string {
+  const byCur = new Map<string, number>()
+  for (const r of rows) byCur.set(r.currency, (byCur.get(r.currency) ?? 0) + r.amount_cents)
+  return [...byCur.entries()].map(([c, v]) => `${(v / 100).toFixed(2)} ${c}`).join(' · ') || '—'
+}
+
+const providerAgg = computed<DimAggRow[]>(() => {
+  const groups = new Map<number, CostRecordRow[]>()
+  for (const r of records.value) {
+    const list = groups.get(r.cost_provider_id) ?? []
+    list.push(r)
+    groups.set(r.cost_provider_id, list)
+  }
+  return [...groups.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([id, rows]) => ({
+      key: `#${id}`,
+      label: sources.value.find((s) => s.id === id)?.name ?? `来源 #${id}`,
+      count: rows.length,
+      totals: moneyTotals(rows),
+    }))
+})
+
+const accountAgg = computed<DimAggRow[]>(() => {
+  const groups = new Map<string, CostRecordRow[]>()
+  for (const r of records.value) {
+    const k = r.account || '—'
+    const list = groups.get(k) ?? []
+    list.push(r)
+    groups.set(k, list)
+  }
+  return [...groups.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([k, rows]) => ({ key: k, label: k, count: rows.length, totals: moneyTotals(rows) }))
+})
 
 // ---- Estimate-vs-actual reconciliation (F-0634): one comparison row per
 // scope/period; the operator confirms with a note after aligning the books. ----
@@ -473,6 +519,27 @@ onMounted(loadRules)
       </el-table-column>
     </el-table>
 
+    <!-- Dimension rollups (F-1462/F-1463): provider and account totals over the filtered records -->
+    <h3 class="section">维度统计（当前筛选）</h3>
+    <div class="dim-rollup">
+      <div class="dim-pane">
+        <div class="hint" style="margin-bottom: 6px">按 Provider（成本来源）汇总</div>
+        <el-table :data="providerAgg" size="small" max-height="260">
+          <el-table-column prop="label" label="来源" min-width="120" />
+          <el-table-column prop="count" label="笔数" width="70" />
+          <el-table-column prop="totals" label="金额合计" min-width="150" />
+        </el-table>
+      </div>
+      <div class="dim-pane">
+        <div class="hint" style="margin-bottom: 6px">按账号汇总</div>
+        <el-table :data="accountAgg" size="small" max-height="260">
+          <el-table-column prop="label" label="账号" min-width="120" />
+          <el-table-column prop="count" label="笔数" width="70" />
+          <el-table-column prop="totals" label="金额合计" min-width="150" />
+        </el-table>
+      </div>
+    </div>
+
     <h3 class="section">账单差异对账</h3>
     <div class="toolbar">
       <el-button type="primary" @click="openReconcile">新建对账</el-button>
@@ -635,5 +702,14 @@ onMounted(loadRules)
 .hint {
   font-size: 12px;
   color: var(--ferry-text-muted);
+}
+.dim-rollup {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.dim-pane {
+  flex: 1;
+  min-width: 300px;
 }
 </style>
