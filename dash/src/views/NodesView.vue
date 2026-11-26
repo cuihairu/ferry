@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { get, post, put, del, resolveAlert, upgradeNode, getNodeProcs, getNodeStatus, rotateNodeToken, revokeNodeToken, type Node, type DimensionStatus, type NodeShare, type BatchProcResult, type BatchConfigResult, type Alert, type NodeLoad, type NodeProcRow, type NodeStatusAggregate } from '../api'
+import { get, post, put, del, resolveAlert, upgradeNode, getNodeProcs, getNodeStatus, rotateNodeToken, revokeNodeToken, getPaths, getPathGroups, getPathGroupHealth, type Node, type DimensionStatus, type NodeShare, type BatchProcResult, type BatchConfigResult, type Alert, type NodeLoad, type NodeProcRow, type NodeStatusAggregate, type Path, type PathGroup, type PathGroupHealth } from '../api'
 import QRCode from 'qrcode'
 import RuleLibDialog from '../components/RuleLibDialog.vue'
 
@@ -69,16 +69,21 @@ const filtered = computed(() =>
 async function load() {
   loading.value = true
   try {
-    const [ns, ds, as, ls] = await Promise.all([
+    const [ns, ds, as, ls, ps, gs] = await Promise.all([
       get<Node[]>('/api/nodes'),
       get<DimensionStatus[]>('/api/dimension-status'),
       get<Alert[]>('/api/alerts?limit=200'),
       get<NodeLoad[]>('/api/load'),
+      getPaths(),
+      getPathGroups(),
     ])
     nodes.value = ns
     dims.value = ds
     alerts.value = as
     loads.value = ls
+    paths.value = ps.paths
+    pathGroups.value = gs.path_groups
+    await loadPathAvailability()
   } catch (e) {
     ElMessage.error(String(e))
   } finally {
@@ -86,6 +91,65 @@ async function load() {
   }
 }
 onMounted(load)
+
+// ---- Overview strip (F-1401–F-1407): fleet-level aggregates on top of the node view.
+// Node-side numbers derive from the already-loaded nodes/loads lists; the path side
+// (F-1404/F-1405) needs the paths list plus the per-group health read. All display-only.
+const paths = ref<Path[]>([])
+const pathGroups = ref<PathGroup[]>([])
+
+// Online convention matches the region/ISP dim cards: enabled && status online.
+const onlineCount = computed(() => nodes.value.filter((n) => n.status === 'online' && n.enabled).length)
+
+// F-1402: healthy = enabled && online; unhealthy = enabled but not online (offline/
+// unknown/provisioning). Disabled nodes are deliberately off, so neither bucket claims them.
+const healthyCount = computed(() => nodes.value.filter((n) => n.enabled && n.status === 'online').length)
+const unhealthyCount = computed(() => nodes.value.filter((n) => n.enabled && n.status !== 'online').length)
+
+// F-1403: role both carries both duties, so it counts in both columns.
+const entryCount = computed(() => nodes.value.filter((n) => n.role === 'entry' || n.role === 'both').length)
+const landingCount = computed(() => nodes.value.filter((n) => n.role === 'landing' || n.role === 'both').length)
+
+// F-1404: relays are the nodes referenced as the middle leg of some path (Path.RelayNodeID,
+// empty = direct tunnel); their online status is read off the node list.
+const relayIds = computed(() => {
+  const ids = new Set<number>()
+  for (const p of paths.value) if (p.relay_node_id) ids.add(p.relay_node_id)
+  return [...ids]
+})
+const relayOnline = computed(
+  () => relayIds.value.filter((id) => nodes.value.find((n) => n.id === id)?.status === 'online').length,
+)
+
+// F-1405: fleet path availability = mean of enabled groups' availability over the stats
+// window (F-0269); null when no group reports probe data. Per-group health reads fail
+// soft — one broken group never blanks the strip.
+const pathAvailability = ref<number | null>(null)
+async function loadPathAvailability() {
+  const hs = await Promise.all(
+    pathGroups.value.filter((g) => g.enabled).map((g) => getPathGroupHealth(g.id).catch(() => null)),
+  )
+  const vals = hs
+    .filter((h): h is PathGroupHealth => !!h && h.availability !== null)
+    .map((h) => h.availability as number)
+  pathAvailability.value = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null
+}
+
+// F-1406: live totals over sampled load rows (util_pct=-1 rows carry no sample).
+const totalConns = computed(() => loads.value.reduce((a, l) => a + (l.util_pct >= 0 ? l.conns : 0), 0))
+const totalMbps = computed(() => loads.value.reduce((a, l) => a + (l.util_pct >= 0 ? l.mbps : 0), 0))
+
+// F-1407: per-region node distribution, same convention as the region dim cards.
+const regionCards = computed(() => {
+  const keys = new Set<string>()
+  for (const n of nodes.value) if (n.region) keys.add(n.region)
+  return [...keys]
+    .sort((a, b) => a.localeCompare(b, 'zh'))
+    .map((key) => {
+      const ns = nodes.value.filter((n) => n.region === key)
+      return { key, total: ns.length, online: ns.filter((n) => n.status === 'online' && n.enabled).length }
+    })
+})
 
 // ---- Load dashboard (E-25): connection count / measured throughput / bandwidth utilization; over 80% flagged red ----
 const loads = ref<NodeLoad[]>([])
@@ -653,6 +717,45 @@ async function remove(n: Node) {
     <h2>节点</h2>
     <p class="page-desc">节点、注册元数据与区域/运营商健康聚合。</p>
 
+    <!-- Overview strip (F-1401–F-1407): fleet-level node/path/load/region aggregates -->
+    <div class="overview-strip">
+      <div class="ov-card">
+        <div class="ov-label">节点</div>
+        <div class="ov-value">{{ onlineCount }}<span class="ov-sub"> / {{ nodes.length }} 在线</span></div>
+      </div>
+      <div class="ov-card">
+        <div class="ov-label">健康 / 不健康</div>
+        <div class="ov-value">{{ healthyCount }}<span class="ov-sub"> / {{ unhealthyCount }}</span></div>
+      </div>
+      <div class="ov-card">
+        <div class="ov-label">入口 / 落地</div>
+        <div class="ov-value">{{ entryCount }}<span class="ov-sub"> / {{ landingCount }}</span></div>
+      </div>
+      <div class="ov-card">
+        <div class="ov-label">中转在线</div>
+        <div class="ov-value">{{ relayIds.length ? `${relayOnline} / ${relayIds.length}` : '—' }}</div>
+      </div>
+      <div class="ov-card">
+        <div class="ov-label">线路</div>
+        <div class="ov-value">
+          {{ paths.filter((p) => p.enabled).length }}<span class="ov-sub"> / {{ paths.length }} · 可用率 {{ pathAvailability === null ? '—' : pathAvailability.toFixed(1) + '%' }}</span>
+        </div>
+      </div>
+      <div class="ov-card">
+        <div class="ov-label">实时负载</div>
+        <div class="ov-value">{{ totalConns }}<span class="ov-sub"> 连接 · {{ Math.round(totalMbps) }} Mbps</span></div>
+      </div>
+      <div class="ov-card ov-region">
+        <div class="ov-label">区域分布</div>
+        <div class="ov-tags">
+          <el-tag v-for="r in regionCards" :key="r.key" size="small" effect="plain" disable-transitions>
+            {{ r.key }} {{ r.online }}/{{ r.total }}
+          </el-tag>
+          <span v-if="!regionCards.length" class="ov-sub">—</span>
+        </div>
+      </div>
+    </div>
+
     <div class="toolbar">
       <el-radio-group v-model="view">
         <el-radio-button value="nodes">节点</el-radio-button>
@@ -1143,6 +1246,46 @@ async function remove(n: Node) {
   border-radius: 8px;
   background: #fff;
   padding: 6px;
+}
+
+/* ---- Overview strip (F-1401–F-1407) ---- */
+.overview-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.ov-card {
+  background: var(--ferry-bg-panel);
+  border: 1px solid var(--ferry-border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  min-width: 130px;
+}
+.ov-label {
+  font-size: 12px;
+  color: var(--ferry-text-muted);
+}
+.ov-value {
+  margin-top: 6px;
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.ov-sub {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ferry-text-dim);
+}
+.ov-region {
+  flex: 1;
+  min-width: 220px;
+}
+.ov-tags {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 /* ---- Region/ISP perspective ---- */

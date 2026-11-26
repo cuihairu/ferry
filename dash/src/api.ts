@@ -1848,3 +1848,49 @@ export function getAllocations(costItemId?: number): Promise<{ allocations: Cost
 export function recomputeAllocations(recordId: number, ruleId = 0, version = 0): Promise<{ count: number }> {
   return post(`/api/cost/records/${recordId}/recompute`, { rule_id: ruleId, version })
 }
+
+/** Path is one managed access path entry -> (optional relay) -> landing (F-0105). */
+export interface Path {
+  id: number
+  name: string
+  entry_node_id: number
+  landing_node_id: number
+  relay_node_id: number | null
+  transport: string
+  region: string
+  direction: string
+  enabled: boolean
+  probe_importance: string
+  version: number
+}
+
+export function getPaths(): Promise<{ paths: Path[] }> {
+  return get('/api/paths')
+}
+
+/** PathGroup is an ordered candidate path set with a default (F-0261). */
+export interface PathGroup {
+  id: number
+  name: string
+  direction: string
+  region: string
+  purpose: string
+  default_path_id: number | null
+  enabled: boolean
+}
+
+export function getPathGroups(): Promise<{ path_groups: PathGroup[] }> {
+  return get('/api/path-groups')
+}
+
+/** PathGroupHealth is the group aggregate (F-0268) plus its availability percentage over the stats window (F-0269, null without probe data). */
+export interface PathGroupHealth {
+  group_id: number
+  health: string
+  availability: number | null
+  members: { path_id: number; health: string }[]
+}
+
+export function getPathGroupHealth(id: number): Promise<PathGroupHealth> {
+  return get(`/api/path-groups/${id}/health`)
+}
