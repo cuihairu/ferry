@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/cuihairu/ferry/packages/agentproto"
-	"github.com/cuihairu/ferry/server/internal/billing"
 	"github.com/cuihairu/ferry/server/internal/notify"
 	// Aliased: the local alloc-policy identifier (PolicySetting values and
 	// policy params) shadows the package name everywhere below.
@@ -567,6 +566,8 @@ func Sweep(db *gorm.DB) ([]SwitchEvent, error) {
 }
 
 // SweepAt is Sweep with an injectable clock, for pinning time in tests.
+// The round is the unified three-step pipeline (F-1022/F-1023): load the
+// input model, decide purely, apply the writes.
 func SweepAt(db *gorm.DB, now time.Time) ([]SwitchEvent, error) {
 	// Failover freeze (F-0294): a policy chain setting failover=manual stops
 	// auto landing switches this round (current assignments are kept).
@@ -577,151 +578,11 @@ func SweepAt(db *gorm.DB, now time.Time) ([]SwitchEvent, error) {
 	if policyconstraints.FreezeFailover(eff) {
 		return nil, nil
 	}
-	policy, err := LoadPolicy(db)
+	req, err := BuildRequest(db, now)
 	if err != nil {
 		return nil, err
 	}
-	var entries []storage.Node
-	if err := db.Where("enabled = ? AND maintenance = ? AND role IN (?, ?) AND pool_state = ? AND status != ?",
-		true, false, "entry", "both", "active", "provisioning").Find(&entries).Error; err != nil {
-		return nil, err
-	}
-	// provisioning (OS-3, being provisioned) does not join allocation; once online the next sweep includes it naturally.
-	var landings []storage.Node
-	if err := db.Where("enabled = ? AND maintenance = ? AND role IN (?, ?) AND status != ?",
-		true, false, "landing", "both", "provisioning").Find(&landings).Error; err != nil {
-		return nil, err
-	}
-	conns := LatestConns(db)
-	sick := LatestSick(db)
-
-	var events []SwitchEvent
-	offPeak := InOffPeak(now, policy)
-	for _, entry := range entries {
-		direction := entry.Direction
-		if direction == agentproto.DirectionBoth {
-			// relay is single-process single-direction (one landing address); both entries allocate by the outbound tier.
-			direction = agentproto.DirectionOut
-		}
-		if direction != agentproto.DirectionIn && direction != agentproto.DirectionOut {
-			direction = agentproto.DirectionOut
-		}
-		// Manual assignments win: skip when an entry-level or region-level manual row is effective.
-		manual, err := hasManualAssignment(db, entry.ID, entry.Region)
-		if err != nil {
-			return events, err
-		}
-		if manual {
-			continue
-		}
-		// Candidate collection: direction-matched and healthy (latest verdict not sick).
-		cands := make([]Candidate, 0, len(landings))
-		for _, l := range landings {
-			if l.ID == entry.ID {
-				continue
-			}
-			if l.Direction != direction && l.Direction != agentproto.DirectionBoth {
-				continue
-			}
-			// Capability gate (F-0230): the landing must declare relay_landing
-			// and must not report it off; the entry must carry relay_entry.
-			// Nodes without any stored list fall back to the role-derived set,
-			// so legacy registrations stay eligible.
-			if !storage.HasCapability(l, storage.CapRelayLanding) {
-				continue
-			}
-			// Price freshness (F-0604): node updated_at is the price as-of
-			// marker; beyond the window the price is stale and must not drive
-			// the cost decision (it degrades per MissingCost instead).
-			known := l.BillingType != "按流量" || l.TrafficPriceCents > 0
-			fresh := now.Sub(l.UpdatedAt) < billing.PriceFreshWindow
-			// Cost ceiling (F-0606): metered candidates with a known fresh price
-			// above the ceiling are excluded this round and the exclusion is
-			// trailed (1-hour dedupe). Unknown or stale prices are never
-			// excluded (F-0610: an unknown price must not be guessed as
-			// over-budget), and fixed billing has no marginal cost at all.
-			if policy.MaxCostPerGB > 0 && l.BillingType == "按流量" && known && fresh &&
-				l.TrafficPriceCents > policy.MaxCostPerGB {
-				// Best-effort trail: the filter above already applied, so a
-				// recording failure only costs observability, not correctness.
-				_ = recordExclusion(db, entry.ID, l.ID, direction, policyFor(policy, direction),
-					fmt.Sprintf("单价 %d 分/GB 超上限 %d", l.TrafficPriceCents, policy.MaxCostPerGB), now)
-				continue
-			}
-			cands = append(cands, Candidate{Node: l, Conns: conns[l.ID], Healthy: !sick[l.ID],
-				CostKnown: known, CostFresh: fresh})
-		}
-		// The entry itself must be able to run the relay data plane toward the
-		// landing it is picking; otherwise the tunnel cannot come up.
-		if !storage.HasCapability(entry, storage.CapRelayEntry) {
-			continue
-		}
-		// Current auto row (latest effective one for the same entry and direction).
-		current, err := currentAuto(db, entry.ID, direction)
-		if err != nil {
-			return events, err
-		}
-		weights := policy.Weights()
-		idx, ok := Pick(policyFor(policy, direction), direction, policy.MissingCost, weights, cands)
-		if !ok {
-			continue // all sick or no candidates: keep current, wait for recovery
-		}
-		winner := cands[idx].Node
-		// When the current landing is among healthy candidates, use the conservative peak check; when not (sick/offline/none),
-		// force the switch — health issues do not queue.
-		curIdx := -1
-		if current != nil {
-			for i := range cands {
-				if cands[i].Healthy && cands[i].Node.ID == current.LandingNodeID {
-					curIdx = i
-					break
-				}
-			}
-		}
-		if curIdx >= 0 {
-			if curIdx == idx {
-				continue // current is already the best, no row to prevent churn
-			}
-			// At peak the primary metric must be clearly better to move; the off-peak window rebalances by the policy total order.
-			if !offPeak && !shouldSwitch(policyFor(policy, direction), direction, policy.MissingCost, weights, cands, curIdx, idx) {
-				continue
-			}
-		}
-		c := cands[idx]
-		reason := fmt.Sprintf("%s 负载 %d 连/%dM", policyFor(policy, direction), c.Conns, c.CapacityMbps())
-		if current != nil {
-			if err := db.Model(&storage.LandingAssignment{}).Where("id = ?", current.ID).
-				Updates(map[string]any{"released_at": now, "release_reason": "自动换线"}).Error; err != nil {
-				return events, err
-			}
-		}
-		row := storage.LandingAssignment{
-			EntryNodeID:   &entry.ID,
-			LandingNodeID: winner.ID,
-			Direction:     direction,
-			Strategy:      policyFor(policy, direction),
-			Weight:        0,
-			Reason:        reason,
-			AssignedAt:    now,
-		}
-		if err := db.Create(&row).Error; err != nil {
-			return events, err
-		}
-		fromName := "（无）"
-		if current != nil {
-			fromName = nodeName(landings, current.LandingNodeID)
-		}
-		events = append(events, SwitchEvent{
-			EntryID:   entry.ID,
-			EntryName: entry.Name,
-			FromName:  fromName,
-			ToName:    winner.Name,
-			Direction: direction,
-			Policy:    policyFor(policy, direction),
-			Reason:    reason,
-		})
-	}
-	return events, nil
+	return Apply(db, req, Decide(req))
 }
 
 // policyFor returns the tier for the direction.
