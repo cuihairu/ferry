@@ -3,12 +3,13 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   get, put, getEvening, getQuotaLink, putQuotaLink, getSaveStats, getBillRecords,
+  spendByScope, spendTrend, getPathCosts,
   checkCostRef, probeCostRef, saveCostRefTable, ApiError,
   listPriceWatches, createPriceWatch, updatePriceWatch, deletePriceWatch,
   type EveningReport, type GroupCost, type NodeCost,
   type QuotaLinkData, type QuotaLinkSetting, type QuotaActionRow,
   type SaveStatsReport, type RefCheckReport, type RefProbe, type PriceWatch,
-  type CostRecordRow,
+  type CostRecordRow, type SpendRow, type SpendTrendBucket, type PathCostRow,
 } from '../api'
 import { formatBytes, formatDate } from '../utils/format'
 
@@ -68,6 +69,9 @@ onMounted(load)
 onMounted(() => loadRefCheck())
 onMounted(loadWatches)
 onMounted(() => loadBills())
+onMounted(() => loadSpend())
+onMounted(() => loadTrend())
+onMounted(() => loadPaths())
 
 async function saveThreshold() {
   saving.value = true
@@ -306,6 +310,134 @@ function centsText(cents: number, currency: string): string {
 function billLabel(row: CostRecordRow): string {
   return row.revision ? `${row.bill_id}（修订 ${row.revision}）` : row.bill_id
 }
+
+// One month selector drives the whole actual region: bills, diff, rankings,
+// trend and path estimates all follow the picked month.
+function loadBillsSection() {
+  loadBills()
+  loadSpend()
+  loadTrend()
+  loadPaths()
+}
+
+// §4.7 F-0624: estimate vs actual diff. The panel projection is a single ¥
+// number (node-price projection), vendor bills are per currency, so the diff
+// only compares the CNY bucket honestly; other currencies are listed as-is.
+const isCurrentBillMonth = computed(() => {
+  const d = billMonth.value
+  const now = new Date()
+  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()
+})
+
+const diffRows = computed(() => {
+  if (!rep.value) return []
+  if (!isCurrentBillMonth.value) {
+    return [{ label: '差异（估算−实际）', amount: '—', note: '账单月份非本月，估算为月至今口径，不可比' }]
+  }
+  const rows: { label: string; amount: string; note: string }[] = [
+    { label: '估算（月度预估）', amount: yuan(rep.value.summary.projected_cents), note: '节点单价折算的月度预估（¥，面板估算口径）' },
+  ]
+  for (const [cur, cents] of billTotals.value) {
+    rows.push({ label: `实际（${cur}）`, amount: centsText(cents, cur), note: '厂商账单导入合计（实际）' })
+  }
+  const cny = billTotals.value.find(([cur]) => cur === 'CNY')
+  if (cny) {
+    rows.push({
+      label: '差异（估算−实际）',
+      amount: yuan(rep.value.summary.projected_cents - cny[1]),
+      note: '仅 CNY 币种账单参与比较；正数表示估算高于实际',
+    })
+  } else {
+    rows.push({ label: '差异（估算−实际）', amount: '—', note: '本月无 CNY 币种账单，无法比较' })
+  }
+  return rows
+})
+
+// §4.7 F-0625/26/28: actual-spend rankings by scope, over the picked bill
+// month. Rows stay per currency (F-0594); the dash sorts by actual descending.
+const spendScopes = [
+  { value: 'provider', label: 'Provider' },
+  { value: 'account', label: '账号' },
+  { value: 'region', label: '区域' },
+  { value: 'resource', label: '资源' },
+  { value: 'node', label: '节点' },
+  { value: 'path', label: '路径' },
+]
+const spendScope = ref('provider')
+const spendRows = ref<SpendRow[]>([])
+const spendLoading = ref(false)
+
+async function loadSpend() {
+  spendLoading.value = true
+  try {
+    const d = billMonth.value
+    const from = new Date(d.getFullYear(), d.getMonth(), 1).toISOString()
+    const to = new Date(d.getFullYear(), d.getMonth() + 1, 1).toISOString()
+    const data = await spendByScope(spendScope.value, from, to)
+    spendRows.value = [...data.rows].sort((a, b) => b.actual_cents - a.actual_cents)
+  } catch (e) {
+    ElMessage.error(String(e))
+  } finally {
+    spendLoading.value = false
+  }
+}
+
+// §4.7 F-0630: actual-spend trend buckets for the picked bill month.
+const trendBuckets = [
+  { value: 'day', label: '按天' },
+  { value: 'month', label: '按月' },
+  { value: 'cycle', label: '按账期' },
+]
+const trendBucket = ref('day')
+const trendRows = ref<SpendTrendBucket[]>([])
+const trendLoading = ref(false)
+
+async function loadTrend() {
+  trendLoading.value = true
+  try {
+    const d = billMonth.value
+    const from = new Date(d.getFullYear(), d.getMonth(), 1).toISOString()
+    const to = new Date(d.getFullYear(), d.getMonth() + 1, 1).toISOString()
+    const data = await spendTrend(trendBucket.value, from, to)
+    trendRows.value = data.rows
+  } catch (e) {
+    ElMessage.error(String(e))
+  } finally {
+    trendLoading.value = false
+  }
+}
+
+// §4.7 F-0629: explainable per-path cost estimates. Unknown/stale prices drop
+// the precise flag server-side; the badge surfaces it so a number is never
+// read as exact when a leg is unpriced.
+const pathRows = ref<PathCostRow[]>([])
+const pathLoading = ref(false)
+
+async function loadPaths() {
+  pathLoading.value = true
+  try {
+    const d = billMonth.value
+    const from = new Date(d.getFullYear(), d.getMonth(), 1).toISOString()
+    const data = await getPathCosts(from)
+    pathRows.value = data.rows
+  } catch (e) {
+    ElMessage.error(String(e))
+  } finally {
+    pathLoading.value = false
+  }
+}
+
+function directionText(d: string): string {
+  return d === 'in' ? '入站' : d === 'out' ? '出站' : d
+}
+
+function legText(leg: PathCostRow['explain'][number], currency: string): string {
+  const state = leg.unknown ? '未知价' : leg.fresh ? '' : '价格已过期'
+  const price = leg.unit === 'fixed'
+    ? `${(leg.monthly_cents / 100).toFixed(2)} ${currency}/月`
+    : `${(leg.cents_per_gb / 100).toFixed(3)} ${currency}/GB`
+  return `${leg.name}（${leg.role}${leg.billing_type ? '·' + leg.billing_type : ''}）${price}${state ? '　' + state : ''}`
+}
 </script>
 
 <template>
@@ -406,7 +538,7 @@ function billLabel(row: CostRecordRow): string {
       云厂商导入的真实账单记录（标记「实际」，与上方估算值口径不同）；金额按账单原币种展示，不跨币种合并。
     </p>
     <div class="toolbar">
-      <el-date-picker v-model="billMonth" type="month" :clearable="false" placeholder="账单月份" style="width: 130px" @change="loadBills" />
+      <el-date-picker v-model="billMonth" type="month" :clearable="false" placeholder="账单月份" style="width: 130px" @change="loadBillsSection" />
       <el-button @click="loadBills" :loading="billsLoading">刷新账单</el-button>
       <span v-if="billTotals.length" class="threshold">
         本月实际合计：
@@ -429,6 +561,87 @@ function billLabel(row: CostRecordRow): string {
       </el-table-column>
       <el-table-column label="发生时间" width="140">
         <template #default="{ row }">{{ formatDate(row.incurred_at) }}</template>
+      </el-table-column>
+    </el-table>
+
+    <div v-if="rep" class="groups" style="margin-top: 12px">
+      <div class="group">
+        <h3 class="section">估算与实际差异</h3>
+        <el-table :data="diffRows" :header-cell-style="{ background: 'var(--ferry-bg-panel)' }">
+          <el-table-column prop="label" label="口径" width="170" />
+          <el-table-column prop="amount" label="金额" min-width="130" />
+          <el-table-column prop="note" label="说明" min-width="260" />
+        </el-table>
+      </div>
+    </div>
+
+    <h3 class="section">实际成本排名</h3>
+    <div class="toolbar">
+      <el-radio-group v-model="spendScope" @change="loadSpend">
+        <el-radio-button v-for="s in spendScopes" :key="s.value" :value="s.value">{{ s.label }}</el-radio-button>
+      </el-radio-group>
+      <span class="threshold">随上方账单月份联动（实际账单口径）</span>
+    </div>
+    <el-table :data="spendRows" v-loading="spendLoading" :header-cell-style="{ background: 'var(--ferry-bg-panel)' }">
+      <el-table-column label="名称" min-width="140">
+        <template #default="{ row }">{{ row.name || row.key || '—' }}</template>
+      </el-table-column>
+      <el-table-column prop="currency" label="币种" width="80" />
+      <el-table-column label="实际" width="120">
+        <template #default="{ row }">{{ row.actual_cents > 0 ? centsText(row.actual_cents, row.currency) : '—' }}</template>
+      </el-table-column>
+      <el-table-column label="分摊" width="120">
+        <template #default="{ row }">{{ row.allocated_cents > 0 ? centsText(row.allocated_cents, row.currency) : '—' }}</template>
+      </el-table-column>
+      <el-table-column label="估算" width="120">
+        <template #default="{ row }">{{ row.estimate_cents > 0 ? centsText(row.estimate_cents, row.currency) : '—' }}</template>
+      </el-table-column>
+      <el-table-column label="笔数" width="80" prop="count" />
+    </el-table>
+
+    <h3 class="section">实际成本趋势</h3>
+    <div class="toolbar">
+      <el-radio-group v-model="trendBucket" @change="loadTrend">
+        <el-radio-button v-for="b in trendBuckets" :key="b.value" :value="b.value">{{ b.label }}</el-radio-button>
+      </el-radio-group>
+      <span class="threshold">同一账单月份内的实际花费分桶</span>
+    </div>
+    <el-table :data="trendRows" v-loading="trendLoading" :header-cell-style="{ background: 'var(--ferry-bg-panel)' }">
+      <el-table-column prop="bucket" label="分桶" min-width="140" />
+      <el-table-column prop="currency" label="币种" width="80" />
+      <el-table-column label="实际" width="130">
+        <template #default="{ row }">{{ centsText(row.actual_cents, row.currency) }}</template>
+      </el-table-column>
+      <el-table-column label="笔数" width="80" prop="count" />
+    </el-table>
+
+    <h3 class="section">Path 成本估算（估算）</h3>
+    <p class="page-desc">
+      按路径逐腿解释的估算成本（标记「估算」）；任一腿价格未知或过期时「精确」为否——数字仅供比较，不代表精确账单。
+    </p>
+    <el-table :data="pathRows" v-loading="pathLoading" :header-cell-style="{ background: 'var(--ferry-bg-panel)' }">
+      <el-table-column type="expand">
+        <template #default="{ row }">
+          <div class="path-legs">
+            <div v-for="(leg, i) in row.explain" :key="i">{{ legText(leg, row.currency) }}</div>
+          </div>
+        </template>
+      </el-table-column>
+      <el-table-column prop="name" label="路径" min-width="130" />
+      <el-table-column label="方向" width="80">
+        <template #default="{ row }">{{ directionText(row.direction) }}</template>
+      </el-table-column>
+      <el-table-column prop="currency" label="币种" width="80" />
+      <el-table-column label="估算合计" width="130">
+        <template #default="{ row }">{{ centsText(row.total_cents, row.currency) }}</template>
+      </el-table-column>
+      <el-table-column label="边际/GB" width="110">
+        <template #default="{ row }">{{ row.marginal_per_gb_cents > 0 ? centsText(row.marginal_per_gb_cents, row.currency) : '—' }}</template>
+      </el-table-column>
+      <el-table-column label="精确" width="90">
+        <template #default="{ row }">
+          <el-tag :type="row.precise ? 'success' : 'warning'" size="small">{{ row.precise ? '精确' : '含未知价' }}</el-tag>
+        </template>
       </el-table-column>
     </el-table>
 
@@ -808,5 +1021,10 @@ function billLabel(row: CostRecordRow): string {
   border: 1px solid var(--ferry-border);
   border-radius: 8px;
   background: var(--ferry-bg-panel);
+}
+.path-legs {
+  padding: 4px 16px;
+  line-height: 1.9;
+  color: var(--ferry-text-secondary, #606266);
 }
 </style>

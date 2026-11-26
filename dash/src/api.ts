@@ -1516,9 +1516,6 @@ export interface SpendTrendBucket {
   bucket: string
   currency: string
   actual_cents: number
-  allocated_cents: number
-  estimate_cents: number
-  report_cents: number
   count: number
 }
 
