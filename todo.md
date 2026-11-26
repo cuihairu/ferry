@@ -1975,8 +1975,8 @@ External Client
     - 备注（Task ID: F-1430 | Status: Done | Evidence: LandingsView.vue:232-264 alloc policy out/in/rebalance/权重（api putAllocPolicy:160） | Verification: API 侧 TestAllocPolicy（allocapi_test.go）；dash 无前端单测 | Commit: ce8b33e）
 -   [x] `F-1431` 展示调度候选和排除原因。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1431 | Status: Done | Evidence: LandingsView「调度解释」对话框（openExplain→GET /api/alloc/explain，F-1034 算子视图）：回合时间+手动接管入口列表；每入口展开行=当前落地/目标/胜选/原因 + 候选表（参评|淘汰 tag、质量分、淘汰原因）+ 预先排除表（落地、排除原因）；服务端 F-1023/F-1034 已有（TestExplainAlloc） | Verification: pnpm --filter ferry-dash build 绿（vue-tsc -b + vite build 9.3s） | Commit: 4908ab8）
--   [ ] `F-1432` 展示探测历史和质量趋势。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1432 | 部分：24h 质量趋势（CostView.vue:590-637）；无按节点探测历史。）
+-   [x] `F-1432` 展示探测历史和质量趋势。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1432 | Status: Done | Evidence: NodesView 状态对话框新增两节（数据源 GET /api/probe-reports?node_id=N，api.ts getProbeReports/ProbeReportRow）：质量趋势按小时桶（样本数/平均RTT/平均丢包/健康占比进度条，客户端聚合）+ 探测历史最近 10 条（时间/目标/方向/RTT/抖动/丢包/判定/失败类型）；既有 24h 晚间趋势（CostView E-29）保留 | Verification: pnpm --filter ferry-dash build 绿（vue-tsc -b + vite build 9.3s） | Commit: b2330ea）
 
 ## 12.3 云服务商与资源
 
