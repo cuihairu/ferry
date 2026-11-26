@@ -320,18 +320,10 @@ func (c Candidate) costMissing(rule string) bool {
 	return c.Node.BillingType == "按流量" && (!c.CostKnown || !c.CostFresh)
 }
 
-// CapacityMbps is the forwarding capacity (Mbps): measured calibrated > plan downlink > plan uplink > 100 floor.
-// Bandwidth serves as the capacity weight — a 3M small pipe receives fewer new connections by capacity, so it never floods over.
+// CapacityMbps is the candidate's forwarding capacity (Mbps); the fallback
+// chain lives on storage.Node (F-1064) so every consumer shares one source.
 func (c Candidate) CapacityMbps() int {
-	switch {
-	case c.Node.SpeedMeasuredMbps > 0:
-		return c.Node.SpeedMeasuredMbps
-	case c.Node.BwDownMbps > 0:
-		return c.Node.BwDownMbps
-	case c.Node.BwUpMbps > 0:
-		return c.Node.BwUpMbps
-	}
-	return 100
+	return c.Node.CapacityMbps()
 }
 
 // CostPerGB is the marginal traffic cost (cents/GB): only metered billing enters the cost decision;

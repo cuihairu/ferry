@@ -57,17 +57,7 @@ func (h *Handler) listLoad(c *gin.Context) {
 
 	out := make([]NodeLoad, 0, len(nodes))
 	for _, n := range nodes {
-		row := NodeLoad{NodeID: n.ID, UtilPct: -1}
-		switch {
-		case n.SpeedMeasuredMbps > 0:
-			row.CapacityMbps = n.SpeedMeasuredMbps
-		case n.BwDownMbps > 0:
-			row.CapacityMbps = n.BwDownMbps
-		case n.BwUpMbps > 0:
-			row.CapacityMbps = n.BwUpMbps
-		default:
-			row.CapacityMbps = 100
-		}
+		row := NodeLoad{NodeID: n.ID, UtilPct: -1, CapacityMbps: n.CapacityMbps()}
 		var mbps float64
 		for _, pair := range latest[n.ID] {
 			row.Conns += int(pair[1].conns)
@@ -78,9 +68,7 @@ func (h *Handler) listLoad(c *gin.Context) {
 			mbps += float64(pair[1].rx-pair[0].rx+pair[1].tx-pair[0].tx) * 8 / dt / 1e6
 		}
 		row.Mbps = mbps
-		if row.Conns > 0 || mbps > 0 {
-			row.UtilPct = int(mbps / float64(row.CapacityMbps) * 100)
-		}
+		row.UtilPct = storage.UtilizationPct(mbps, row.CapacityMbps, row.Conns > 0 || mbps > 0)
 		out = append(out, row)
 	}
 	c.JSON(http.StatusOK, out)
