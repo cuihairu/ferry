@@ -1973,8 +1973,8 @@ External Client
     - 备注（Task ID: F-1429 | Status: Done | Evidence: PathsView.vue 路径分组区：分组表（名称/方向/区域/用途/默认路径/启用/备注）+ 新建/编辑对话框（POST/PUT /api/path-groups）+ 删除（DELETE，确认框）；成员对话框（GET /api/path-groups/:id）：有序成员表（position 输入改序 PATCH members/:pathId、排除/恢复 PATCH excluded、移出 DELETE）、按路径 ID 加入（POST members，同方向校验由服务端）、聚合健康+24h 可用率展示（GET /path-groups/:id/health）；原「无 PathGroup 模型」结论已过时（PathGroup F-0261） | Verification: pnpm --filter ferry-dash build 绿 | Commit: f7ed60e）
 -   [x] `F-1430` 提供 Policy 管理。
     - 备注（Task ID: F-1430 | Status: Done | Evidence: LandingsView.vue:232-264 alloc policy out/in/rebalance/权重（api putAllocPolicy:160） | Verification: API 侧 TestAllocPolicy（allocapi_test.go）；dash 无前端单测 | Commit: ce8b33e）
--   [ ] `F-1431` 展示调度候选和排除原因。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1431 | 部分：手动 entry/landing 选择（LandingsView.vue:285-325）；无排除列表。）
+-   [x] `F-1431` 展示调度候选和排除原因。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1431 | Status: Done | Evidence: LandingsView「调度解释」对话框（openExplain→GET /api/alloc/explain，F-1034 算子视图）：回合时间+手动接管入口列表；每入口展开行=当前落地/目标/胜选/原因 + 候选表（参评|淘汰 tag、质量分、淘汰原因）+ 预先排除表（落地、排除原因）；服务端 F-1023/F-1034 已有（TestExplainAlloc） | Verification: pnpm --filter ferry-dash build 绿（vue-tsc -b + vite build 9.3s） | Commit: 4908ab8）
 -   [ ] `F-1432` 展示探测历史和质量趋势。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1432 | 部分：24h 质量趋势（CostView.vue:590-637）；无按节点探测历史。）
 
