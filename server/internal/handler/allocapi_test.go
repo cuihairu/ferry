@@ -640,3 +640,37 @@ func TestAllocPolicyDirectFirst(t *testing.T) {
 		t.Fatalf("default must be nil: %+v", pol.Policy.DirectFirst)
 	}
 }
+
+// TestAllocPolicyCapacityFloor covers the demotion floor's API surface
+// (F-1069): a positive floor round-trips, a negative one is rejected.
+func TestAllocPolicyCapacityFloor(t *testing.T) {
+	r, _ := newTestRouterWithDB(t)
+
+	rec := doJSON(t, r, "PUT", "/api/alloc/policy", map[string]any{
+		"out": "cost_first", "in": "perf_first", "rebalance_start": 1, "rebalance_end": 7,
+		"min_capacity_floor": 100,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("put status = %d body=%s", rec.Code, rec.Body)
+	}
+	rec = doJSON(t, r, "GET", "/api/alloc", nil)
+	var pol struct {
+		Policy struct {
+			MinCapacityFloor int `json:"min_capacity_floor"`
+		} `json:"policy"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &pol); err != nil {
+		t.Fatal(err)
+	}
+	if pol.Policy.MinCapacityFloor != 100 {
+		t.Fatalf("floor = %d", pol.Policy.MinCapacityFloor)
+	}
+
+	rec = doJSON(t, r, "PUT", "/api/alloc/policy", map[string]any{
+		"out": "cost_first", "in": "perf_first", "rebalance_start": 1, "rebalance_end": 7,
+		"min_capacity_floor": -5,
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("negative floor status = %d", rec.Code)
+	}
+}

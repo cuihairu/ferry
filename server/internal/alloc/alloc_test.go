@@ -511,10 +511,10 @@ func TestPickBalancedWeights(t *testing.T) {
 	}
 
 	// normalize: negative and all-zero weights fall back to the default.
-	if got := (PolicySetting{WLoad: -1}).Weights(); got != (ScoreWeights{DefaultWLoad, DefaultWCost, DefaultWPremium}) {
+	if got := (PolicySetting{WLoad: -1}).Weights(); got != (ScoreWeights{Load: DefaultWLoad, Cost: DefaultWCost, Premium: DefaultWPremium}) {
 		t.Fatalf("负系数应回缺省: %+v", got)
 	}
-	if got := (PolicySetting{}).Weights(); got != (ScoreWeights{DefaultWLoad, DefaultWCost, DefaultWPremium}) {
+	if got := (PolicySetting{}).Weights(); got != (ScoreWeights{Load: DefaultWLoad, Cost: DefaultWCost, Premium: DefaultWPremium}) {
 		t.Fatalf("全零应回缺省: %+v", got)
 	}
 }

@@ -122,6 +122,11 @@ type PolicySetting struct {
 	// (direct) landing; a cross-region relay may win only when fresh probes
 	// prove it clearly better. Nil keeps the default (enabled).
 	DirectFirst *bool `json:"direct_first,omitempty"`
+	// MinCapacityFloor (F-1069): candidates whose known capacity falls below
+	// this Mbps are demoted behind adequate ones inside their priority tier,
+	// whatever the policy order says. 0 disables the demotion; nodes with no
+	// known bandwidth are never demoted (unknown is not insufficient).
+	MinCapacityFloor int `json:"min_capacity_floor,omitempty"`
 }
 
 // Multiplicative score weight defaults (= the current formula 0.5*loadN + 0.3*costN - 0.2*premium).
@@ -186,12 +191,15 @@ type ScoreWeights struct {
 	Load    float64
 	Cost    float64
 	Premium float64
+	// CapacityFloor (F-1069) rides along as a comparator knob: known
+	// capacities below it demote inside the tier (0 = disabled).
+	CapacityFloor int
 }
 
 // Weights returns the weights; default/invalid values fall back to the current four-policy formula.
 func (s PolicySetting) Weights() ScoreWeights {
 	s.normalize()
-	return ScoreWeights{Load: s.WLoad, Cost: s.WCost, Premium: s.WPremium}
+	return ScoreWeights{Load: s.WLoad, Cost: s.WCost, Premium: s.WPremium, CapacityFloor: s.MinCapacityFloor}
 }
 
 // normalize fixes invalid fields back to the default tier.
@@ -276,6 +284,10 @@ func ValidateSetting(setting PolicySetting) (PolicySetting, error) {
 		if !ValidPolicy(m) {
 			return setting, fmt.Errorf("sched_group_modes[%s]: %s", k, policyMustBeMsg())
 		}
+	}
+	// Capacity demotion floor (F-1069): a negative floor is meaningless.
+	if setting.MinCapacityFloor < 0 {
+		return setting, fmt.Errorf("min capacity floor must be non-negative")
 	}
 	return setting, nil
 }
@@ -573,8 +585,8 @@ func LessFor(policy, direction, missingRule string, w ScoreWeights, cands []Cand
 	// Partition by the degradation rule (F-0605/F-0610): a missing price never
 	// meets a priced one on cost — it loses that comparison outright, and the
 	// policy order decides as usual within each bucket. treat_zero keeps the
-	// legacy single-bucket behavior. Both paths then pass through the priority
-	// tier partition (F-1029).
+	// legacy single-bucket behavior. Both paths then pass through the capacity
+	// demotion and the priority tier partition (F-1029).
 	prior := func(i int) int { return cands[i].Node.SchedPriority }
 	byTier := func(inner func(a, b int) bool) func(a, b int) bool {
 		return func(a, b int) bool {
@@ -584,20 +596,48 @@ func LessFor(policy, direction, missingRule string, w ScoreWeights, cands []Cand
 			return inner(a, b)
 		}
 	}
+	// Capacity demotion (F-1069): a candidate with a KNOWN capacity below the
+	// operator's floor ranks behind adequate ones within its tier, in every
+	// mode -- the floor is the operator's capacity bar, not a scoring nuance.
+	// Unknown bandwidth never demotes (unknown is not insufficient).
+	byFloor := func(inner func(a, b int) bool) func(a, b int) bool {
+		if w.CapacityFloor <= 0 {
+			return inner
+		}
+		short := func(i int) bool {
+			n := cands[i].Node
+			k := 0
+			switch {
+			case n.SpeedMeasuredMbps > 0:
+				k = n.SpeedMeasuredMbps
+			case n.BwDownMbps > 0:
+				k = n.BwDownMbps
+			case n.BwUpMbps > 0:
+				k = n.BwUpMbps
+			}
+			return k > 0 && k < w.CapacityFloor
+		}
+		return func(a, b int) bool {
+			if sa, sb := short(a), short(b); sa != sb {
+				return !sa
+			}
+			return inner(a, b)
+		}
+	}
 	if policy == PolicyPriority || policy == PolicyQuality {
 		// Priority and quality modes skip the missing-price partition:
 		// price plays no part in an operator-set order or a measured one.
-		return byTier(less)
+		return byTier(byFloor(less))
 	}
 	if missingRule == MissingCostTreatZero {
-		return byTier(less)
+		return byTier(byFloor(less))
 	}
-	return byTier(func(a, b int) bool {
+	return byTier(byFloor(func(a, b int) bool {
 		if ma, mb := missing(a), missing(b); ma != mb {
 			return !ma
 		}
 		return less(a, b)
-	})
+	}))
 }
 
 // Peak switch threshold: the primary metric must be clearly better (saving 30% or more) to move, preventing trail churn (E-22).
