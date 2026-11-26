@@ -127,6 +127,7 @@ func run(ctx context.Context, base config.RelaySpec, overridePath string, hup <-
 					effectiveMaxStreams(next) == effectiveMaxStreams(*old) &&
 					effectiveRateKbps(next) == effectiveRateKbps(*old) &&
 					effectiveRetries(next) == effectiveRetries(*old) &&
+					effectiveIdleTimeout(next) == effectiveIdleTimeout(*old) &&
 					tunnelPluginOf(next) == tunnelPluginOf(*old) {
 					continue // no change means no switch, avoiding pointless logs
 				}
@@ -185,12 +186,13 @@ func run(ctx context.Context, base config.RelaySpec, overridePath string, hup <-
 			if ceiling > 0 {
 				defer streams.Add(-1)
 			}
-			serveConn(ctx, tn, s.LandingAddr, effectiveRateKbps(*s), effectiveRetries(*s), front, logger, func() {
-				// F-0813: a failed dial invalidates the cached plugin instance;
-				// the next connection rebuilds a fresh session.
-				tunnels.drop(*s)
-				_ = tn.Close()
-			})
+			serveConn(ctx, tn, s.LandingAddr, effectiveRateKbps(*s), effectiveRetries(*s),
+				effectiveIdleTimeout(*s), front, logger, func() {
+					// F-0813: a failed dial invalidates the cached plugin instance;
+					// the next connection rebuilds a fresh session.
+					tunnels.drop(*s)
+					_ = tn.Close()
+				})
 		}(front)
 	}
 }
@@ -198,7 +200,7 @@ func run(ctx context.Context, base config.RelaySpec, overridePath string, hup <-
 // serveConn dials the landing for one frontend connection and copies both ways; either direction ending tears down the whole connection.
 // A dial failure retries up to retries times (F-0813) after a short backoff;
 // between attempts the cached tunnel is evicted so a broken session is rebuilt.
-func serveConn(ctx context.Context, tn tunnel.Tunnel, landing string, rateKbps, retries int, front net.Conn, logger *log.Logger, onDialFail func()) {
+func serveConn(ctx context.Context, tn tunnel.Tunnel, landing string, rateKbps, retries int, idle time.Duration, front net.Conn, logger *log.Logger, onDialFail func()) {
 	var (
 		back net.Conn
 		err  error
@@ -224,6 +226,15 @@ func serveConn(ctx context.Context, tn tunnel.Tunnel, landing string, rateKbps, 
 		}
 	}
 	defer back.Close()
+	// Idle cleanup (F-0814): with a positive idle timeout both ends carry a
+	// sliding read deadline refreshed on every successful read; a silent
+	// connection hits the deadline and both ends are closed. Connections whose
+	// transport cannot set deadlines (some plugin conns) are skipped rather
+	// than failing the forward.
+	if idle > 0 {
+		front = &deadlineConn{Conn: front, idle: idle}
+		back = &deadlineConn{Conn: back, idle: idle}
+	}
 	// Bandwidth limit (F-0810): applied per direction per connection; 0 means
 	// unlimited. The limiter wraps the source side of io.Copy in both directions.
 	fwd := newRateReader(front, rateKbps, time.Now)
@@ -271,6 +282,9 @@ func mergeSpec(base, ov config.RelaySpec) config.RelaySpec {
 	}
 	if ov.DialRetries > 0 {
 		s.DialRetries = ov.DialRetries
+	}
+	if ov.IdleTimeoutSec > 0 {
+		s.IdleTimeoutSec = ov.IdleTimeoutSec
 	}
 	if ov.ServerName != "" {
 		s.ServerName = ov.ServerName
