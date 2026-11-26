@@ -12,6 +12,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/cuihairu/ferry/server/internal/herald"
@@ -45,6 +46,11 @@ const (
 const (
 	DefaultSustainedAfter = 10 * time.Minute
 	DefaultLevelTimeout   = 10 * time.Minute
+	// DefaultCooldown is the quiet period after a pipeline finishes (done or
+	// failed) before the same node may enter a new one (F-1644): a failed L1→L3
+	// pass leaves the node suspended, and without a cooldown every sweep would
+	// re-open the pipeline — an endless provision loop (F-1646's guard rail).
+	DefaultCooldown = time.Hour
 )
 
 // Options holds the verdict/advancement rules; zero values fall back to defaults.
@@ -54,6 +60,9 @@ type Options struct {
 	SustainedAfter time.Duration
 	// LevelTimeout is the wait window for a single-level action: timeout without recovery advances.
 	LevelTimeout time.Duration
+	// Cooldown is how long after a pipeline's terminal state (done/failed) the
+	// node is barred from a fresh verdict (F-1644).
+	Cooldown time.Duration
 	// OnDone is the hook fired when recovery completes (probe-recovery finish;
 	// failed does not trigger it), injected by the main assembly (BR-2: domain front
 	// switch back to the normal IP). Runs synchronously — done has only a few rows per round and downstream channels carry their own timeouts, so tests can assert deterministically.
@@ -66,6 +75,9 @@ func (o Options) normalize() Options {
 	}
 	if o.LevelTimeout <= 0 {
 		o.LevelTimeout = DefaultLevelTimeout
+	}
+	if o.Cooldown <= 0 {
+		o.Cooldown = DefaultCooldown
 	}
 	return o
 }
@@ -175,6 +187,21 @@ func Sweep(db *gorm.DB, now time.Time, opts Options, reg Registry, logger *log.L
 	for _, rec := range running {
 		existing[rec.NodeID] = true
 	}
+	// Cooldown (F-1644): a node whose last pipeline reached a terminal state
+	// (done/failed) within the cooldown window stays quiet — no fresh verdict.
+	// A failed pass leaves the node suspended, so without this the next sweep
+	// would re-open the pipeline and loop the whole L1→L3 chain forever. No
+	// per-round log: the skip repeats every sweep for the whole cooldown.
+	var cooledIDs []uint
+	if err := db.Model(&storage.Recovery{}).
+		Where("state IN ?", []string{StateDone, StateFailed}).
+		Group("node_id").Having("MAX(updated_at) > ?", now.Add(-opts.Cooldown)).
+		Pluck("node_id", &cooledIDs).Error; err != nil {
+		return err
+	}
+	for _, id := range cooledIDs {
+		existing[id] = true
+	}
 	for _, n := range blocked {
 		if existing[n.ID] {
 			continue
@@ -184,7 +211,22 @@ func Sweep(db *gorm.DB, now time.Time, opts Options, reg Registry, logger *log.L
 			LevelStartedAt: now, StartedAt: now, UpdatedAt: now,
 		}
 		if err := db.Create(&rec).Error; err != nil {
-			return err
+			if !isDupKey(err) {
+				return err
+			}
+			// The table keeps one row per node (uniqueIndex): a row left over
+			// from an earlier terminal pipeline is reset into a fresh L1 run
+			// instead of aborting the whole sweep on the violation.
+			if err := db.Model(&storage.Recovery{}).Where("node_id = ?", n.ID).
+				Updates(map[string]any{
+					"state": StateRunning, "level": 1,
+					"action": "", "action_state": ActionUnset, "last_err": "",
+					"level_started_at": now, "started_at": now, "updated_at": now,
+					"finished_at": nil,
+				}).Error; err != nil {
+				return err
+			}
+			logger.Printf("recovery reopen: node=%d %s（冷却结束，重开 L1）", n.ID, n.Name)
 		}
 		existing[n.ID] = true
 		logger.Printf("recovery open: node=%d %s（摘除持续 %s 判封，进入 L1）",
@@ -335,6 +377,17 @@ func finishTrace(db *gorm.DB, rec storage.Recovery, state, detail string, now ti
 	if res.Error != nil {
 		logger.Printf("recovery trace finish: node=%d %v", rec.NodeID, res.Error)
 	}
+}
+
+// isDupKey reports unique-constraint violations across drivers (glebarez
+// sqlite phrases it "duplicated key", others "UNIQUE constraint").
+func isDupKey(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "UNIQUE") || strings.Contains(msg, "unique") ||
+		strings.Contains(msg, "duplicated key")
 }
 
 // finishRecovery closes the pipeline: on the failed transition it sends an

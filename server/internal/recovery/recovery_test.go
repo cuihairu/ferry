@@ -694,3 +694,45 @@ func TestTraceHelpersOnClosedDB(t *testing.T) {
 		t.Fatalf("trace logs = %q", buf.String())
 	}
 }
+
+// TestCooldownGuardsVerdict covers F-1644: after a pipeline reaches a terminal
+// state (failed here), the still-suspended node sits out the cooldown instead
+// of re-entering a fresh pipeline on the next sweep; once the cooldown passes,
+// the verdict opens again.
+func TestCooldownGuardsVerdict(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Now()
+	cool := 30 * time.Minute
+	suspendedNode(t, db, "entry-cd", "连续 3 次探测 sick", now.Add(-15*time.Minute))
+
+	// Round 1: the pipeline opens, then terminates as failed (the node stays suspended).
+	if err := Sweep(db, now, Options{Cooldown: cool}, Registry{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	rec := loadRecovery(t, db, 1)
+	if err := db.Model(&storage.Recovery{}).Where("id = ?", rec.ID).
+		Updates(map[string]any{"state": StateFailed, "finished_at": now, "updated_at": now, "last_err": "L3 timeout"}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// Round 2 inside the cooldown: no fresh verdict for the suspended node.
+	if err := Sweep(db, now.Add(5*time.Minute), Options{Cooldown: cool}, Registry{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	var n int64
+	db.Model(&storage.Recovery{}).Count(&n)
+	if n != 1 {
+		t.Fatalf("cooldown should bar a new pipeline, rows = %d", n)
+	}
+
+	// Round 3 past the cooldown: the same row (one per node, uniqueIndex) is
+	// reset into a fresh L1 run.
+	if err := Sweep(db, now.Add(cool+time.Minute), Options{Cooldown: cool}, Registry{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	var rows []storage.Recovery
+	db.Order("id").Find(&rows)
+	if len(rows) != 1 || rows[0].State != StateRunning || rows[0].Level != 1 || rows[0].FinishedAt != nil {
+		t.Fatalf("post-cooldown verdict = %+v", rows)
+	}
+}
