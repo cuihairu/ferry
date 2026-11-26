@@ -148,6 +148,12 @@ func (h *Handler) listBillRecords(c *gin.Context) {
 	if s := c.Query("region"); s != "" {
 		q = q.Where("region = ?", s)
 	}
+	if s := c.Query("resource"); s != "" {
+		// Resource-level bills live on the line items (F-0636): a record
+		// matches when any of its items carries the resource id.
+		q = q.Where("id IN (?)", h.db.Model(&storage.CostItem{}).
+			Select("cost_record_id").Where("resource_id = ?", s))
+	}
 	if s := c.Query("from"); s != "" {
 		q = q.Where("incurred_at >= ?", s)
 	}

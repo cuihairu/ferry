@@ -83,6 +83,15 @@ func TestBillingAPI(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "INV-10") {
 		t.Fatalf("source filter: %s", rec.Body.String())
 	}
+	// Resource filter (F-0636): the record matches through its line item.
+	rec = doJSON(t, r, http.MethodGet, "/api/cost/records?resource=vm-x", nil)
+	if !strings.Contains(rec.Body.String(), "INV-10") {
+		t.Fatalf("resource filter: %s", rec.Body.String())
+	}
+	rec = doJSON(t, r, http.MethodGet, "/api/cost/records?resource=vm-none", nil)
+	if strings.Contains(rec.Body.String(), "INV-10") {
+		t.Fatalf("resource filter must not match other resources: %s", rec.Body.String())
+	}
 	rec = doJSON(t, r, http.MethodGet, "/api/cost/records/1/items", nil)
 	if !strings.Contains(rec.Body.String(), `"category":"instance"`) {
 		t.Fatalf("items: %s", rec.Body.String())
