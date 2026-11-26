@@ -1826,8 +1826,10 @@ External Client
     - 备注（Task ID: F-1246 | Status: Done | Evidence: agentws.go:291 saveUserTraffic→traffic_logs；TestAgentWSUserTraffic | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1247` 支持 Node 维度统计。
     - 备注（Task ID: F-1247 | Status: Done | Evidence: agentws.go:269 saveNodeTraffic→node_traffic_logs；TestAgentWSTrafficReport | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1248` 支持 Path 维度统计。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1248 | 未满足：无 Path 模型/维度；统计仅用户×日（traffic.go:134-135）与节点×进程（models.go:262-273）。）
+-   [x] `F-1248` 支持 Path 维度统计。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 证据（F-1248 | 已落地：GET /api/paths/:id/traffic 路径维度视图（paths.go pathTraffic）：单端计量（F-1242/1243）下 out 向读 entry 台账、in 向读 landing 台账，按日聚合同 userTraffic 形状；共享计量节点的多路径按台账行重复计入（台账无逐流路径标签，注释钉死口径，agent 侧打标签属协议变更不在本行）。
+    - 验证：TestPathTrafficDimension 钉 out/in 计量端翻转、他端行不泄漏、按日分组、未知路径 404；全量 51 ok / FAIL=0 / exit=0。
+    - Commit: 4800f8d
 -   [x] `F-1249` 支持周期配额重置。
     - 备注（Task ID: F-1249 | Status: Done | Evidence: quota.go:54 UsedBytes 周期窗；TestSubResetCycleWindow | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1250` 支持重复上报去重。
