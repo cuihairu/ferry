@@ -1780,7 +1780,8 @@ External Client
     - 备注（Task ID: F-1208 | Status: Done | Evidence: DeviceLimit/IPLimit；TestSubscriptionDeviceLimit+TestSubscriptionIPLimit | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1209` 明确流量耗尽处理策略。
     - 备注（Task ID: F-1209 | Status: Done | Evidence: review 耗尽停用+订阅空；TestDisableInactive+TestSubscription | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1210` 支持套餐升级和降级。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1210` 支持套餐升级和降级。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1210 | Status: Done | Evidence: 升级/降级=对同一用户 apply 另一套餐（applyPlan 覆盖写全部限额+reset_cycle，expires_days>0 改写到期）；apply 现同时写 plan_id 绑定，交付面套餐域（节点绑定 F-1142+plan 域策略 F-1207）随切换走不再滞后；无按比例折算（维持原审计结论） | Verification: TestPlanSwitchUpDown（pro→lite 降级全值覆盖+绑定+30 天到期；lite→pro 升级回来且 lite 发的到期保留）| Commit: 632fb4a）
     - 待补（F-1210 | 部分：字段级变更齐（PATCH user.go:219-268+卡密发放 redeem.go:179-209+SAVE-6 自动降档）；无命名套餐升级/降级流程、无按比例折算。）
 -   [ ] `F-1211` 支持套餐变更历史。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1211 | 部分：无套餐变更历史表；仅间接留痕：AuditLog 请求体快照（models.go:735-745）+Grant.Snapshot 变更前后快照（models.go:441-450）。）
