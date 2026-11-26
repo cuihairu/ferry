@@ -1690,8 +1690,8 @@ External Client
     - 备注（Task ID: F-1104 | Status: Done | Evidence: nodeConfig{UUID,Password,Method,TLS,SNI,Host,Path,Net,...}(links.go:21-38)+parseConfig(links.go:40-50) 三适配器共用 | Verification: 上述测试 | Commit: 842a7dd）
 -   [x] `F-1105` 统一 TLS、SNI、Transport 和相关参数表达。
     - 备注（Task ID: F-1105 | Status: Done | Evidence: nodeConfig TLS/SNI/Host/Path/Net 各适配器映射自身 schema(v2ray 参数 links.go:67-81/clash servername+applyTransport clash.go:181-201/sing-box tls.server_name+singBoxTransport singbox.go:103-161) | Verification: 上述测试 | Commit: 842a7dd）
--   [ ] `F-1106` 统一 UDP 支持声明。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1106 | 区级未满足原因：区级现状：F-1102/1103/1104/1105 已关；其余——UDP 声明未满足(nodeConfig 与 storage.Node 均无 udp 字段)、标签/地区/排序部分(entryRegion/entryRemark/orderByProbe 统一但 Node.Labels 从未读取)、订阅版本/更新时间未满足(头仅 Subscription-Userinfo/Profile-Update-Interval/Profile-Title)。）
+-   [x] `F-1106` 统一 UDP 支持声明。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1106 | Status: Done | Evidence: storage.Node.UdpOpen(models.go) 单一声明字段+NodeInput.udp_open 面板面(create set/absent keep/false clear)+clash 渲染 ClashProxy.Udp(protocol/clash.go baseClashProxy 读 rc.Node.UdpOpen, omitempty 未声明节点字节不变 golden 门控)；v2ray 链接与 sing-box outbound 无 UDP 表达面，声明保持静默 | Verification: TestPackClashUdpDeclaration+TestNodeUdpOpen+go vet+server 全套件 green exit=0（51 ok）2026-11-27 | Commit: fd6c18b）
 -   [ ] `F-1107` 统一节点标签、地区和排序信息。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [ ] `F-1108` 统一订阅版本和更新时间。（依赖：无；完成条件：需求落地+测试绿+证据行）
 
