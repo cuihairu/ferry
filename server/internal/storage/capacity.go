@@ -18,6 +18,8 @@ const LoadFresh = 30 * time.Minute
 // floods over.
 func (n Node) CapacityMbps() int {
 	switch {
+	case n.CapacityOverrideMbps > 0:
+		return n.CapacityOverrideMbps
 	case n.SpeedMeasuredMbps > 0:
 		return n.SpeedMeasuredMbps
 	case n.BwDownMbps > 0:

@@ -18,6 +18,7 @@ func TestNodeCapacityMbps(t *testing.T) {
 		{"uplink only", Node{BwUpMbps: 30}, 30},
 		{"downlink wins over uplink", Node{BwUpMbps: 30, BwDownMbps: 100}, 100},
 		{"measured wins", Node{BwUpMbps: 30, BwDownMbps: 100, SpeedMeasuredMbps: 80}, 80},
+		{"override leads", Node{BwUpMbps: 30, BwDownMbps: 100, SpeedMeasuredMbps: 80, CapacityOverrideMbps: 200}, 200},
 	}
 	for _, tc := range cases {
 		if got := tc.n.CapacityMbps(); got != tc.want {

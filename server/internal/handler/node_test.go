@@ -492,3 +492,55 @@ func TestNodeMaxStreams(t *testing.T) {
 		t.Fatalf("explicit 0 clear failed: %+v", row)
 	}
 }
+
+// TestNodeCapacityOverride covers the admin capacity override's panel
+// surface (F-1070): create sets it, an absent field keeps it, an explicit 0
+// clears it back to the measured value.
+func TestNodeCapacityOverride(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
+		"name": "ovr-1", "address": "ovr1.example.com", "port": 443,
+		"protocol": "vless", "capacity_override_mbps": 250,
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s", rec.Code, rec.Body)
+	}
+	var created storage.Node
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.CapacityOverrideMbps != 250 {
+		t.Fatalf("created capacity_override_mbps = %d", created.CapacityOverrideMbps)
+	}
+	if created.CapacityMbps() != 250 {
+		t.Fatalf("override must lead the chain: %d", created.CapacityMbps())
+	}
+
+	// an absent field keeps the override
+	if rec = doJSON(t, r, "PUT", "/api/nodes/"+utoa(created.ID), map[string]any{
+		"line_type": "cn2_gia",
+	}); rec.Code != http.StatusOK {
+		t.Fatalf("keep status = %d %s", rec.Code, rec.Body)
+	}
+	var row storage.Node
+	if err := db.First(&row, created.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if row.CapacityOverrideMbps != 250 {
+		t.Fatalf("absent override must keep: %+v", row)
+	}
+
+	// an explicit 0 clears the override
+	if rec = doJSON(t, r, "PUT", "/api/nodes/"+utoa(created.ID), map[string]any{
+		"capacity_override_mbps": 0,
+	}); rec.Code != http.StatusOK {
+		t.Fatalf("clear status = %d %s", rec.Code, rec.Body)
+	}
+	if err := db.First(&row, created.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if row.CapacityOverrideMbps != 0 {
+		t.Fatalf("explicit 0 clear failed: %+v", row)
+	}
+}

@@ -136,6 +136,10 @@ func newPersistedNode(db *gorm.DB, in *model.NodeInput) (*storage.Node, error) {
 	if in.MaxStreams != nil {
 		n.MaxStreams = *in.MaxStreams
 	}
+	// capacity override (F-1070): panel-set, agent registration reports ignore it.
+	if in.CapacityOverrideMbps != nil {
+		n.CapacityOverrideMbps = *in.CapacityOverrideMbps
+	}
 	if in.TrafficPriceCents != nil {
 		n.TrafficPriceCents = *in.TrafficPriceCents
 	}
@@ -261,6 +265,11 @@ func (h *Handler) updateNode(c *gin.Context) {
 	// Stream cap (F-1066): panel-set; 0 clears it back to unlimited.
 	if in.MaxStreams != nil {
 		updates["max_streams"] = *in.MaxStreams
+		metaProvided = true
+	}
+	// Capacity override (F-1070): panel-set; 0 clears it back to measured.
+	if in.CapacityOverrideMbps != nil {
+		updates["capacity_override_mbps"] = *in.CapacityOverrideMbps
 		metaProvided = true
 	}
 	if metaProvided {

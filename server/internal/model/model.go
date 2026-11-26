@@ -75,6 +75,9 @@ type NodeInput struct {
 	// MaxStreams caps concurrent relay streams (F-1066): 0 = unlimited; the
 	// sweep skips candidates at or above the cap.
 	MaxStreams *int `json:"max_streams,omitempty"`
+	// CapacityOverrideMbps is the admin capacity override (F-1070): it leads
+	// the capacity chain ahead of measurements; 0 = no override.
+	CapacityOverrideMbps *int `json:"capacity_override_mbps,omitempty"`
 	// PlanID binds the node to one subscription plan (F-1047): 0 = serves
 	// every plan. nil keeps the current value.
 	PlanID *uint `json:"plan_id,omitempty"`

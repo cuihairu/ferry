@@ -228,6 +228,10 @@ type Node struct {
 	Burst                    bool       `gorm:"default:false" json:"burst"`
 	SpeedMeasuredMbps        int        `gorm:"default:0" json:"speed_measured_mbps"` // speed-calibrated measured capacity
 	SpeedCalibratedAt        *time.Time `json:"speed_calibrated_at"`
+	// CapacityOverrideMbps is the admin capacity override (F-1070): when set
+	// it leads the CapacityMbps chain ahead of measurements and plan values
+	// (panel-set, 0 = no override).
+	CapacityOverrideMbps int `gorm:"default:0" json:"capacity_override_mbps"`
 	// MaxConns caps the node's online connections (F-1065): 0 = unlimited.
 	// The sweep skips a candidate at or above its cap (with a trailed
 	// exclusion) so a small pipe never receives new traffic past its limit.
