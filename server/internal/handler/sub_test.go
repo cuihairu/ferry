@@ -212,7 +212,9 @@ func TestSubscriptionAvailability(t *testing.T) {
 	if err != nil || !strings.Contains(string(raw), "vless://u-1@a:443") {
 		t.Fatalf("unlimited user should get node: %v %q", err, string(raw))
 	}
-	if info := rec.Header().Get("Subscription-Userinfo"); !strings.Contains(info, "upload=1") || !strings.Contains(info, "download=2") {
+	// Unified convention (F-1245): upload = Tx (user sent), download = Rx
+	// (user received) -- the seeded row is Rx=1/Tx=2.
+	if info := rec.Header().Get("Subscription-Userinfo"); !strings.Contains(info, "upload=2") || !strings.Contains(info, "download=1") {
 		t.Fatalf("userinfo = %q", info)
 	}
 }

@@ -321,8 +321,13 @@ func (h *Handler) recordSubAccess(c *gin.Context) {
 	}
 }
 
+// userinfoHeader renders the Subscription-Userinfo header in the unified
+// uplink/downlink convention (F-1245): the ledger's Rx is what the user
+// received (download) and Tx what the user sent (upload), exactly as the
+// agent-side stats define them (agentproto.UserTraffic: Rx = xray downlink,
+// Tx = xray uplink). Clients render their usage display from this header.
 func userinfoHeader(u storage.User, usage trafficUsage) string {
-	s := fmt.Sprintf("upload=%d; download=%d; total=%d", usage.Rx, usage.Tx, u.QuotaBytes)
+	s := fmt.Sprintf("upload=%d; download=%d; total=%d", usage.Tx, usage.Rx, u.QuotaBytes)
 	if u.ExpiresAt != nil {
 		s += fmt.Sprintf("; expire=%d", u.ExpiresAt.Unix())
 	}
