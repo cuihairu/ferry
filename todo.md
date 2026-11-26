@@ -1478,7 +1478,8 @@ External Client
     - 备注（Task ID: F-0911 | Status: Done | Evidence: ProbeSpec.proto=http/https + http_path/expect_status（config 校验：path 必须以 / 开头、status 100-599、payload 仅 udp）；measureHTTP 每轮 HEAD 请求（重定向不跟随、视为已应答），expect_status 精确匹配才算成功，rtt=请求到响应头；https 走系统根证书（私有 CA 的 https 基线留待有真实需求时加 CAFile） | Verification: TestMeasureHTTPHealthy+TestMeasureHTTPExpectStatus（500+expect200 拒/302 无 expect 算/302 精确匹配过）+TestMeasureHTTPDeadService；config TestValidate 3 新用例；agent 全套 20 包 ok 2026-11-26 | Commit: 3b1923f）
 -   [x] `F-0912` 支持公网出口探测。
     - 备注（Task ID: F-0912 | Status: Done | Evidence: config.Load 注入默认公网出口基线 `egress-baseline`（exit kind + https HEAD www.gstatic.com:443/generate_204 期望 204，60s 间隔）——零配置下每个 agent 都自测公网出口并回报，直接喂 F-0905 的 egresshealth；文件里显式 exit 探针优先生效 | Verification: TestEgressBaselineDefault（无 exit→注入 https/204；显式 exit→压制默认）+TestProbeDirectionDefault（fixture 含 exit 探针，数量不变）；agent 全套 20 包 ok 2026-11-26 | Commit: 95f149e）
--   [ ] `F-0913` 支持探测超时和错误分类。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0913` 支持探测超时和错误分类。
+    - 备注（Task ID: F-0913 | Status: Done | Evidence: ProbeSpec.timeout_sec（1-60，缺省回 3s）约束每轮拨号/TLS/UDP 等待；classifyNetErr 把失败归入 dns/timeout/refused/reset/tls/other（UDP 无回复=no_reply、前缀不符=mismatch、HTTP 状态不符=http_status），summarize 多数票取类、任一轮成功则空；wire ProbeReport.err_class（omitempty）→ storage → /api/nodes/:id/status → dash「失败类型」 | Verification: TestClassifyNetErr+TestMeasureErrClass（tcp refused/http_status/http refused/udp mismatch/udp no_reply）+config timeout_sec 用例+TestAgentWSProbeReport（落库断言 timeout） | Commit: 2c13a4e）
 -   [x] `F-0914` 支持探测结果去重。
     - 备注（Task ID: F-0914 | Status: Done | Evidence: agentws repeatReport+dedupe；TestReportDeduperWindow+TestReportDeduperTTL | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0915` 支持探测结果过期处理。
