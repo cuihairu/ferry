@@ -28,6 +28,10 @@ const (
 	StateRunning = "running"
 	StateDone    = "done"
 	StateFailed  = "failed"
+	// StateManual (F-1645) is the human-intervention terminal state: the whole
+	// L1→L3 chain spent without recovery means the robot is out of options; the
+	// node stays here (and barred from auto re-verdict) until an admin acks it.
+	StateManual = "manual"
 
 	// ActionUnset/ActionRunning etc. are the action-state values (Recovery.ActionState);
 	// ActionTimeout only appears on trace rows (RecoveryAction.State, BR-5).
@@ -202,6 +206,16 @@ func Sweep(db *gorm.DB, now time.Time, opts Options, reg Registry, logger *log.L
 	for _, id := range cooledIDs {
 		existing[id] = true
 	}
+	// Manual rows (F-1645) bar re-verdict with no time bound: only an admin
+	// ack moves them aside, auto never overrides a human-intervention state.
+	var manualIDs []uint
+	if err := db.Model(&storage.Recovery{}).Where("state = ?", StateManual).
+		Pluck("node_id", &manualIDs).Error; err != nil {
+		return err
+	}
+	for _, id := range manualIDs {
+		existing[id] = true
+	}
 	for _, n := range blocked {
 		if existing[n.ID] {
 			continue
@@ -315,7 +329,9 @@ func advance(db *gorm.DB, rec storage.Recovery, node storage.Node, now time.Time
 // advanceNext moves to the next level; past MaxLevel records failed and
 func advanceNext(db *gorm.DB, rec storage.Recovery, now time.Time, logger *log.Logger) error {
 	if rec.Level >= MaxLevel {
-		return finishRecovery(db, rec, StateFailed, "L1-L3 全级耗尽仍未恢复")
+		// F-1645: full exhaustion is not a plain failure — the automated
+		// tiers are spent, so the row lands in the human-intervention state.
+		return finishRecovery(db, rec, StateManual, "L1-L3 全级耗尽仍未恢复")
 	}
 	if err := db.Model(&storage.Recovery{}).Where("id = ?", rec.ID).
 		Updates(map[string]any{"level": rec.Level + 1, "action_state": ActionUnset, "action": "",
@@ -395,18 +411,22 @@ func isDupKey(err error) bool {
 func finishRecovery(db *gorm.DB, rec storage.Recovery, state, reason string) error {
 	now := time.Now()
 	updates := map[string]any{"state": state, "finished_at": now, "updated_at": now}
-	if state == StateFailed {
+	if state == StateFailed || state == StateManual {
 		updates["last_err"] = reason // the done state does not write last_err; the failure reason lives here
 	}
 	if err := db.Model(&storage.Recovery{}).Where("id = ?", rec.ID).Updates(updates).Error; err != nil {
 		return err
 	}
-	if state == StateFailed {
+	if state == StateFailed || state == StateManual {
 		// Escalate to a human (BR-5): drop an event into the outbox for unified
 		// delivery (HERALD-3); the webhook channel is kept during the parallel
+		label := "恢复流水线失败"
+		if state == StateManual {
+			label = "恢复流水线转人工介入"
+		}
 		if _, err := herald.Emit(db, herald.EmitInput{
 			Kind: herald.KindRecoveryFailed, Severity: herald.SeverityCritical,
-			Title:    fmt.Sprintf("节点 %s 恢复流水线失败", rec.NodeName),
+			Title:    fmt.Sprintf("节点 %s %s", rec.NodeName, label),
 			Body:     reason + "，需人工介入",
 			Target:   herald.TargetAdmin,
 			DedupKey: fmt.Sprintf("recovery:%d:recovery_failed", rec.ID),
@@ -417,8 +437,8 @@ func finishRecovery(db *gorm.DB, rec storage.Recovery, state, reason string) err
 		if n := notify.FromDB(db); n.Enabled() {
 			_ = n.Send(notify.Event{
 				Event: "recovery_failed",
-				Text: fmt.Sprintf("节点 %s 恢复流水线失败：%s，需人工介入",
-					rec.NodeName, reason),
+				Text: fmt.Sprintf("节点 %s %s：%s，需人工介入",
+					rec.NodeName, label, reason),
 				Fields: map[string]any{
 					"recovery_id": rec.ID, "node_id": rec.NodeID,
 					"node_name": rec.NodeName, "level": rec.Level, "reason": reason,

@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/cuihairu/ferry/server/internal/config"
+	"github.com/cuihairu/ferry/server/internal/recovery"
 	"github.com/cuihairu/ferry/server/internal/secret"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"gorm.io/gorm"
@@ -370,5 +371,41 @@ func TestRecoveryListErrors(t *testing.T) {
 		if rec := doJSON(t, r6, "GET", sc.path, nil); rec.Code != http.StatusInternalServerError {
 			t.Fatalf("%s query fail: %d %s", sc.name, rec.Code, rec.Body)
 		}
+	}
+}
+
+// TestRecoveryAck covers the human-intervention resolve endpoint (F-1645):
+// only a manual row can be acked (manual -> failed), non-manual rows and
+// unknown ids are rejected.
+func TestRecoveryAck(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	now := time.Now()
+	node := storage.Node{Name: "ack-1", Port: 443, Protocol: "vless", Enabled: true, Token: "t-ack-1",
+		Status: "online", Role: "entry", PoolState: "suspended", PoolReason: "连续 3 次探测 sick"}
+	if err := db.Create(&node).Error; err != nil {
+		t.Fatal(err)
+	}
+	rec := storage.Recovery{NodeID: node.ID, NodeName: node.Name, Level: 3, State: recovery.StateManual,
+		LastErr: "L1-L3 全级耗尽仍未恢复", LevelStartedAt: now, StartedAt: now, UpdatedAt: now}
+	if err := db.Create(&rec).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if rec2 := doJSON(t, r, "POST", "/api/recoveries/999/ack", nil); rec2.Code != http.StatusNotFound {
+		t.Fatalf("ack unknown: %d", rec2.Code)
+	}
+	if rec2 := doJSON(t, r, "POST", "/api/recoveries/"+itoa64(int(rec.ID))+"/ack", nil); rec2.Code != http.StatusOK {
+		t.Fatalf("ack manual: %d %s", rec2.Code, rec2.Body)
+	}
+	var got storage.Recovery
+	if err := db.First(&got, rec.ID).Error; err != nil || got.State != recovery.StateFailed {
+		t.Fatalf("acked state = %s err=%v", got.State, err)
+	}
+	// A second ack hits the now-failed row -> conflict; the row stays failed.
+	if rec2 := doJSON(t, r, "POST", "/api/recoveries/"+itoa64(int(rec.ID))+"/ack", nil); rec2.Code != http.StatusConflict {
+		t.Fatalf("ack failed row: %d", rec2.Code)
+	}
+	if err := db.First(&got, rec.ID).Error; err != nil || got.State != recovery.StateFailed {
+		t.Fatalf("post-conflict state = %s err=%v", got.State, err)
 	}
 }

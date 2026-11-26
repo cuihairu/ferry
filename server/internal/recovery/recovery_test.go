@@ -174,7 +174,8 @@ func TestRecoveryDoneOnResume(t *testing.T) {
 }
 
 // TestTimeoutExhaustFails covers level-timeout advancement and full exhaustion:
-// L3 action timeout → no next level → pipeline failed (escalation is BR-5's job).
+// L3 action timeout → no next level → pipeline lands in the human-intervention
+// state (F-1645; escalation is BR-5's job).
 func TestTimeoutExhaustFails(t *testing.T) {
 	db := newTestDB(t)
 	now := time.Now()
@@ -190,13 +191,13 @@ func TestTimeoutExhaustFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := loadRecovery(t, db, n.ID)
-	if got.State != StateFailed || got.LastErr == "" {
-		t.Fatalf("failed = %+v", got)
+	if got.State != StateManual || got.LastErr == "" {
+		t.Fatalf("manual = %+v", got)
 	}
 }
 
 // TestActionFailedAdvances covers failing immediately into the next level and eventually
-// exhausting: L3 action error → pipeline failed with the reason recorded.
+// exhausting: L3 action error → pipeline lands in the human-intervention state with the reason recorded.
 func TestActionFailedAdvances(t *testing.T) {
 	db := newTestDB(t)
 	now := time.Now()
@@ -219,8 +220,8 @@ func TestActionFailedAdvances(t *testing.T) {
 	if l3.runs.Load() != 1 {
 		t.Fatalf("runs = %d", l3.runs.Load())
 	}
-	if got.State != StateFailed || got.LastErr == "" {
-		t.Fatalf("failed = %+v", got)
+	if got.State != StateManual || got.LastErr == "" {
+		t.Fatalf("manual = %+v", got)
 	}
 }
 
@@ -734,5 +735,26 @@ func TestCooldownGuardsVerdict(t *testing.T) {
 	db.Order("id").Find(&rows)
 	if len(rows) != 1 || rows[0].State != StateRunning || rows[0].Level != 1 || rows[0].FinishedAt != nil {
 		t.Fatalf("post-cooldown verdict = %+v", rows)
+	}
+}
+
+// TestManualBarsVerdict covers F-1645's guard: a manual (human-intervention)
+// row is never reset or re-pipelined by auto sweep, cooldown or not.
+func TestManualBarsVerdict(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Now()
+	n := suspendedNode(t, db, "entry-manual", "连续 3 次探测 sick", now.Add(-15*time.Minute))
+	start := now.Add(-2 * time.Hour)
+	rec := storage.Recovery{NodeID: n.ID, NodeName: n.Name, Level: 3, State: StateManual,
+		LastErr: "L1-L3 全级耗尽仍未恢复", LevelStartedAt: start, StartedAt: start, UpdatedAt: start}
+	if err := db.Create(&rec).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := Sweep(db, now.Add(time.Hour), Options{Cooldown: time.Minute}, Registry{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	got := loadRecovery(t, db, n.ID)
+	if got.State != StateManual || got.UpdatedAt.Equal(now.Add(time.Hour).Truncate(time.Second)) {
+		t.Fatalf("manual row touched by sweep: %+v", got)
 	}
 }

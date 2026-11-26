@@ -240,6 +240,7 @@ func NewRouterWithTasks(db *gorm.DB, cfg config.Config, mgr *tasks.Manager) (*gi
 		api.GET("/provision-jobs", h.listProvisionJobs)
 		api.GET("/recoveries", h.listRecoveries)
 		api.GET("/recoveries/:id/actions", h.listRecoveryActions)
+		api.POST("/recoveries/:id/ack", h.ackRecovery)
 		// Domain fronting (BR-2): DNS provider credentials and fronting records.
 		api.GET("/dns-providers", h.listDNSProviders)
 		api.POST("/dns-providers", h.createDNSProvider)

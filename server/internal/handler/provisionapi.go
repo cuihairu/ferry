@@ -3,12 +3,16 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/cuihairu/ferry/server/internal/provision"
+	"github.com/cuihairu/ferry/server/internal/recovery"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // Admin side of provisioning execution (OS-2): controlled triggering of template
@@ -149,6 +153,38 @@ func (h *Handler) listRecoveries(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, out)
+}
+
+// ackRecovery resolves a human-intervention pipeline (F-1645): manual -> failed
+// so the row closes and the node rides the normal cooldown/reopen path; only a
+// manual row can be acked.
+func (h *Handler) ackRecovery(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id < 1 {
+		fail(c, http.StatusBadRequest, errors.New("invalid id"))
+		return
+	}
+	var rec storage.Recovery
+	if err := h.db.First(&rec, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			fail(c, http.StatusNotFound, err)
+			return
+		}
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	if rec.State != recovery.StateManual {
+		fail(c, http.StatusConflict, fmt.Errorf("recovery is %s; only manual pipelines can be acked", rec.State))
+		return
+	}
+	now := time.Now()
+	if err := h.db.Model(&storage.Recovery{}).Where("id = ? AND state = ?", rec.ID, recovery.StateManual).
+		Updates(map[string]any{"state": recovery.StateFailed, "updated_at": now}).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	rec.State = recovery.StateFailed
+	c.JSON(http.StatusOK, rec)
 }
 
 // listRecoveryActions returns one pipeline's action trail (BR-5 replay, levels
