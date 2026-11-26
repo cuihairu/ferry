@@ -1330,7 +1330,7 @@ External Client
 ## 5.3 节点管理
 
 -   [ ] `F-0741` 支持节点注册审批。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0741 | 未满足原因：未满足：无审批流，注册令牌即授权(enroll.go:124/159)；凭据即授权。）
+    - 备注（Task ID: F-0741 | Status: Done | Evidence: 审批流落地——enrollment token 增 require_approval（凭证级开关，默认保持令牌即授权）；开启后 enroll 事务落 node 为 disabled+status=pending+note『pending approval』，authNode 因 enabled=false 拒连（agentws_test 用例验证 hello 被拒）；POST /api/nodes/:id/approve 激活（enabled+status=unknown+清 note），POST /api/nodes/:id/reject 落 rejected 终态（不可再 approve）；TestEnrollmentApproval/TestEnrollmentNoApprovalKeepsBehavior | Verification: go test ./... 全绿 2026-11-26（server -timeout=30m exit 0） | Commit: d06c2f6）
 -   [x] `F-0742` 支持节点元数据自动采集。
     - 备注（Task ID: F-0742 | Status: Done | Evidence: syncNodeMeta 注册元数据采集（meta_init 面板为准）；TestAgentWSHelloMeta | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0743` 支持管理员编辑业务元数据。（依赖：无；完成条件：需求落地+测试绿+证据行）
