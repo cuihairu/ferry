@@ -1385,24 +1385,32 @@ External Client
     - 备注（Task ID: F-0802 | Status: Done | Evidence: config.RelaySpec(config.go:47-61) 统一模型(Listen/LandingAddr/Tunnel/ServerName/CAFile+ssh 参数)+relay.Run 消费+mergeSpec(relay.go:195-210) | Verification: relay_test | Commit: 842a7dd）
 -   [x] `F-0803` 统一 Relay 状态模型。
     - 备注（Task ID: F-0803 | Status: Done | Evidence: agentproto.ProcStatus State=running/stopped/crashed(messages.go:124-139)+procs.Manager.Statuses 喂心跳(app.go:463-465)+ProcReport 状态变化推送(app.go:175-183) | Verification: TestBuildHeartbeatAndStartHeartbeat | Commit: 842a7dd）
--   [ ] `F-0804` 统一 Relay 能力声明。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0804 | 区级未满足原因：区级现状：F-0802/0803 已关；其余——能力声明未满足(relay 无 UDP/feature 字段)、连接数限制部分(maxConns=128 relay.go:35 但无 drop 路径测试)、并发流/带宽限制未满足(无流限/限速)、UDP 未满足(serveConn 仅 TCP io.Copy relay.go:162-190)、隧道断线重连部分(仅插件级一次重试，无 relay 侧重连器)、空闲清理未满足(无 SetDeadline)、指标采集未满足(relay 无 metrics 端点/计数器)、版本管理未满足(共享 build version)。）
+-   [x] `F-0804` 统一 Relay 能力声明。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0804 | Status: Done | Evidence: agentproto.RelayCaps 结构(10 字段)+Heartbeat.RelayCaps(messages.go)+agent relayCaps(cfg) 心跳推导(caps.go；UDP 恒 false；MaxConns 0→128)+server Node.RelayCaps 列+agentws 心跳持久化(缺省不抹除)+GET /api/nodes/:id/status relay_caps(nodestatus.go)+dash 状态对话框能力标签(NodesView.vue relayCapTags)；TestRelayCaps+TestHeartbeatRelayCapsRoundTrip+TestHeartbeatRelayCapsPersistence | Commit: abad8f0）
 -   [x] `F-0805` 支持 Relay 独立启停。
     - 备注（Task ID: F-0805 | Status: Done | Evidence: roles.go:31 relay Standalone:true+cmd -role；TestRegistry+TestRelayRunFile | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0806` 支持 Relay 配置校验。
     - 备注（Task ID: F-0806 | Status: Done | Evidence: relay 配置校验；TestRelayValidation | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0807` 支持 Relay 配置热更新。
     - 备注（Task ID: F-0807 | Status: Done | Evidence: loadOverride 热更新；TestRelayHotRepoint | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0808` 支持 Relay 连接数限制。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0809` 支持并发流限制。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0810` 支持带宽限制。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0808` 支持 Relay 连接数限制。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0808 | Status: Done | Evidence: config.RelaySpec.MaxConns+relay effectiveMaxConns(0→128)+accept 超限拒弃(active>limit 计 dropped 并日志)+热更对比/mergeSpec；TestRelayMaxConnsRefusesOverflow+TestEffectiveMaxConns+TestMergeSpecMaxConns | Commit: 9ed5e03）
+-   [x] `F-0809` 支持并发流限制。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0809 | Status: Done | Evidence: config.RelaySpec.MaxStreams+relay streamLimit 原子顶(0=无限)+超限拒弃(streamDrops)+热更/mergeSpec；TestRelayMaxStreamsRefusesOverflow+TestEffectiveMaxConns 族 | Commit: 9ed5e03）
+-   [x] `F-0810` 支持带宽限制。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0810 | Status: Done | Evidence: config.RelaySpec.RateLimitKbps+ratelimit.go 令牌桶 rateReader(双向包裹, 突发=rate)+热更/mergeSpec；TestRateReaderBucket(假时钟)+TestRateReaderUnlimited+TestEffectiveRateKbps | Commit: 9ed5e03）
 -   [x] `F-0811` 支持 TCP 转发。
     - 备注（Task ID: F-0811 | Status: Done | Evidence: roles/relay serveConn；TestRelayForwards | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0812` 支持 UDP 转发。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0813` 支持隧道断线重连。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0814` 支持空闲连接清理。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0815` 支持 Relay 运行指标采集。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0816` 支持 Relay 版本管理。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 待补（F-0812 | 未落地：P0 契约 relay 为单流 TCP io.Copy，landing 侧无 UDP 终结/多路分解能力，无 ferry 握手无法承载 UDP 会话；能力声明已如实上报 UDPForward=false（F-0804）。依赖 F-10006/F-10007 的 landing 侧改造，环境不具备，保持未勾。）
+-   [x] `F-0813` 支持隧道断线重连。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0813 | Status: Done | Evidence: serveConn 重试环(effectiveRetries, 0→1)+retryBackoff 200ms+失败 tunnelCache.drop(spec) 缓存失效重拨；TestRelayDialRetryRecovers+TestRelayDialRetriesExhausted+TestEffectiveRetries | Commit: 4903519）
+-   [x] `F-0814` 支持空闲连接清理。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0814 | Status: Done | Evidence: config.RelaySpec.IdleTimeoutSec+idletimeout.go deadlineConn(Read 前置 SetReadDeadline, Write 也续期保单向流)+双向包裹；TestRelayIdleCleanup(空闲 1s 关闭, 活跃保活)+TestEffectiveIdleTimeout | Commit: d88da00）
+-   [x] `F-0815` 支持 Relay 运行指标采集。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0815 | Status: Done | Evidence: relayMetrics 原子计数器(conns/dropped/streamDrops/dials/dialFailures/bytesRx/bytesTx)+metrics.go serveMetrics 本地 /metrics(key value 行, 兼容 procs metricsParser)；TestRelayMetricsEndpoint+TestRelayMetricsSnapshot | Commit: e0be741）
+-   [x] `F-0816` 支持 Relay 版本管理。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0816 | Status: Done | Evidence: procs.Manager.version(NewWithVersion)+ProcStatus.Version(同二进制部署 core 填自身 build)+NodeProcStatus.Version 列(空不抹除)+GET status/procs 输出版本；TestProcStatusVersion+procstatus/nodestatus 测试断言 v1.2.3 | Commit: 66b1c72）
 
 ## 6.2 传输插件
 
@@ -1423,9 +1431,10 @@ External Client
 
 ## 6.3 故障隔离
 
--   [ ] `F-0831` 验证 Relay 进程故障不影响 Agent 心跳。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0831 | 区级未满足原因：区级现状：F-0833/0835 已关；其余——进程故障隔离部分(独立进程+crash 自动重启 manager.go:226-243 但无「杀 relay 断言心跳持续」测试)、故障不影响 Server 未满足(无测试)、Path 状态更新未满足(无 Path 模型)、仅凭进程存活判可用 部分(池/聚合不读 ProcStatus pool.go:143-150 但无显式守卫测试)。）
--   [ ] `F-0832` 验证 Relay 故障不影响 Server 管理节点。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0831` 验证 Relay 进程故障不影响 Agent 心跳。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0831 | Status: Done | Evidence: agent faultisolation_test.go TestRelayCrashDoesNotStopHeartbeat：SIGKILL relay 后心跳 ≥3 条持续到达+supervisor 15s 内重启(Restarts≥1) | Verification: 测试绿（agent 全套 20/20 ok, server 全套 47/47 ok, 2026-11-26） | Commit: 2478350）
+-   [x] `F-0832` 验证 Relay 故障不影响 Server 管理节点。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0832 | Status: Done | Evidence: server faultisolation_test.go TestRelayCrashDoesNotBlockNodeManagement：relay=crashed 行下 GET /api/nodes 正常、PUT 全字段 200、proc 操作 502(agent 离线语义)、status 保持 crashed | Verification: 测试绿（server 全套 47/47 ok, 2026-11-26） | Commit: 2478350）
 -   [x] `F-0833` 验证 Relay 重启后恢复最后有效配置。
     - 备注（Task ID: F-0833 | Status: Done | Evidence: loadOverride 启动重读(relay.go:63-68,213-226)+configd 原子回滚(configd.go:107-126,205-238) | Verification: TestRelayRunFile/TestRelayHotRepoint(损坏 override 保当前)/TestLoadOverrideMissingAndError/TestApplyReloadFailRollsBack | Commit: 842a7dd）
 -   [ ] `F-0834` Relay 失联时更新关联 Path 状态。（依赖：无；完成条件：需求落地+测试绿+证据行）
