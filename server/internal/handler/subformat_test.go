@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
+	"gopkg.in/yaml.v3"
 	"gorm.io/gorm"
 )
 
@@ -180,5 +182,79 @@ func TestProtocolsFormatsG1(t *testing.T) {
 	}
 	if byName["hysteria2"]["xray"] || !byName["hysteria2"]["mihomo"] {
 		t.Fatalf("hysteria2 formats = %v", byName["hysteria2"])
+	}
+}
+
+// TestSubscriptionUARealClients negotiates with real client UA strings
+// (versioned, from the wild) and parses the body the way that client parses
+// it (F-1129): the v2ray family base64-decodes into link/comment lines, the
+// clash family strict-unmarshals the YAML document, and the JSON targets
+// decode into their outbounds shapes.
+func TestSubscriptionUARealClients(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	subPath := "/sub/" + panelUserOf(t, r, "ua-real", nil)
+	g1Node(t, r, db, "ua-vless", "vless", `{"uuid":"u-9","tls":true,"sni":"s.example.com"}`)
+
+	cases := []struct{ ua, target string }{
+		{"v2rayNG/1.8.23", "v2ray"},
+		{"SFA/1.9.3 (678) sing-box/1.9.3", "singbox"},
+		{"ClashMetaForAndroid/2.10.3.Meta", "mihomo"},
+		{"clash-verge/v2.0.0", "mihomo"},
+		{"FlClash/0.8.0", "mihomo"},
+		{"ClashforWindows/0.20.39", "clash"},
+		{"Shadowrocket/1985", "v2ray"},
+		{"Xray/24.9.30", "xray"},
+		{"Hiddify/1.4.5", "v2ray"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.ua, func(t *testing.T) {
+			rec := getSub(t, r, subPath, tc.ua)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d %s", rec.Code, rec.Body)
+			}
+			switch tc.target {
+			case "v2ray":
+				if !strings.Contains(rec.Header().Get("Content-Type"), "text/plain") {
+					t.Fatalf("content type = %q", rec.Header().Get("Content-Type"))
+				}
+				raw, err := base64.StdEncoding.DecodeString(rec.Body.String())
+				if err != nil {
+					t.Fatalf("body not base64: %v", err)
+				}
+				if !strings.Contains(string(raw), "vless://u-9@ua-vless.example.com:443") {
+					t.Fatalf("no vless link: %q", string(raw))
+				}
+			case "clash", "mihomo":
+				if !strings.Contains(rec.Header().Get("Content-Type"), "text/yaml") {
+					t.Fatalf("content type = %q", rec.Header().Get("Content-Type"))
+				}
+				var doc map[string]any
+				dec := yaml.NewDecoder(bytes.NewReader(rec.Body.Bytes()))
+				dec.KnownFields(true) // the clash family rejects unknown keys
+				if err := dec.Decode(&doc); err != nil {
+					t.Fatalf("yaml strict parse: %v", err)
+				}
+				proxies, ok := doc["proxies"].([]any)
+				if !ok || len(proxies) == 0 {
+					t.Fatalf("no proxies: %#v", doc["proxies"])
+				}
+			case "singbox":
+				var arr []map[string]any
+				if err := json.Unmarshal(rec.Body.Bytes(), &arr); err != nil {
+					t.Fatalf("singbox parse: %v", err)
+				}
+				if len(arr) == 0 {
+					t.Fatal("empty outbounds")
+				}
+			case "xray":
+				var arr []map[string]any
+				if err := json.Unmarshal(rec.Body.Bytes(), &arr); err != nil {
+					t.Fatalf("xray parse: %v", err)
+				}
+				if len(arr) == 0 || arr[0]["protocol"] == nil {
+					t.Fatalf("empty outbounds: %v", arr)
+				}
+			}
+		})
 	}
 }
