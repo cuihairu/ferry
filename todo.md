@@ -1623,7 +1623,8 @@ External Client
 
 -   [x] `F-1041` 定义 manual 调度模式。
     - 备注（Task ID: F-1041 | Status: Done | Evidence: alloc.go:473 hasManualAssignment 优先+LandingAssignment manual；TestSweepManualWins+TestLandingAssignment | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1042` 定义 priority 调度模式。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1042` 定义 priority 调度模式。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1042 | Status: Done | Evidence: PolicyPriority="priority" 入 ValidPolicy（ValidPolicy 仅 4 种的限制解除）：比较只看运维 SchedPriority 层级（F-1029 byTier 包裹承担层级序，层级内唯一 tiebreak 是名字，负载/单价/优质线/缺价分区全部不参与，operator 手定序不漂移）；shouldSwitch 同层不因负载换线（跨层升级/降级规则沿用 F-1029 头规则），SavePolicy 校验文案加 priority；TestPickPriorityMode（层级压价压载/层内名字序/峰时同层不churn+升级必动+降级等待）+TestSweepPriorityMode（sweep 级最贵 tier-0 胜出+ settled 不churn）+TestAllocPolicyPriority（policy API 收 priority/explain 出 top tier/模拟 cost_first 仍被 F-1029 层级分区管住/零持久化） | Verification: go vet + server 全套件 green exit=0（51 ok）2026-11-26 | Commit: c4eff6c）
     - 待补（F-1042 | 区级未满足原因：本区 F-1049 已关；其余：priority/quality 模式未满足(ValidPolicy 仅 4 种 alloc.go:46-52)、按套餐/业务类型配置未满足(PolicySetting 仅 per-direction)、覆盖到期自动恢复未满足(无 TTL、sweep 跳过 manual)、国内直连优先/中继更优/回退/比较依据 部分(perf_first 优质线路偏好近似，无直连vs中继比较依据记录)。）
 -   [x] `F-1043` 定义 balanced 调度模式。
     - 备注（Task ID: F-1043 | Status: Done | Evidence: PolicyBalanced；TestPickBalanced | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
