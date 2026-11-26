@@ -2199,8 +2199,8 @@ External Client
     - 备注（Task ID: F-1656 | Status: Done | Evidence: cloudinit 注册+agent-install 同口径；TestCloudInit+TestProvisionPipeline | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1657` 支持节点入池检查。
     - 备注（Task ID: F-1657 | Status: Done | Evidence: OS-4 入池检查；TestProvisionPipeline | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1658` 创建失败时按策略清理部分资源。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1658 | 未满足：无失败清理——provision 仅 plan/apply（provision.go:172），全仓无 tofu destroy。）
+-   [x] `F-1658` 创建失败时按策略清理部分资源。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1658 | Status: Done | Evidence: provision.Execute 接受 destroy 动作（同 workspace 同 HCL 回滚，tofu state 按 template 目录隔离，绝不波及他模板实例）；策略开关 cfg.ProvisionCleanupOnFail（默认开，FERRY_TOFU_CLEANUP_ON_FAIL 可关——失败 apply 留下在跑的付费资源即成本泄漏）；applyWithCleanup 共享助手（tasksapi.go）：apply 失败+策略开→跑 destroy 并在 ProvisionJob.Log 追加 "cleanup-on-fail: destroy ok/failed: <尾行>"，apply 状态/日志原样透传；cloud.create 任务 Run 与 runProvision 的兜底 goroutine 两条 apply 路径都走该助手；测试 TestExecuteDestroyAction（destroy 到 runner 带 -auto-approve、bogus 动作被拒不触 runner）+TestApplyWithCleanup（失败+策略开→job log 有 cleanup 行；策略关→日志不动），TestApplyLifecycle 非法动作样例由 destroy 改 reap | Verification: gofmt 清洁，go build/vet 通过，server 全套 52 ok exit=0 FAIL=0 | Commit: 2360ba1）
 -   [ ] `F-1659` 支持资源销毁前依赖检查。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1659 | 未满足：无销毁流程即无销毁前依赖检查。）
 -   [ ] `F-1660` 支持资源销毁审批和二次确认。（依赖：无；完成条件：需求落地+测试绿+证据行）
