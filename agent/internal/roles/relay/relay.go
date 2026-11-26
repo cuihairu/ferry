@@ -34,6 +34,9 @@ import (
 // maxConns caps concurrent forwarding: protects small entry machines, and new connections beyond the limit are refused outright.
 const maxConns = 128
 
+// defaultMaxConns is the fallback when RelaySpec.MaxConns is unset (F-0808).
+const defaultMaxConns = maxConns
+
 // dialTimeout is the landing dial timeout of one forwarded connection.
 const dialTimeout = 15 * time.Second
 
@@ -89,6 +92,14 @@ func run(ctx context.Context, base config.RelaySpec, overridePath string, hup <-
 
 	var curSpec atomic.Pointer[config.RelaySpec]
 	curSpec.Store(&cur)
+	// limit holds the current concurrent-forwarding ceiling; it starts at the base spec's
+	// value and is refreshed on every successful hot reload.
+	var limit atomic.Int64
+	// Stream cap: 0 disables it (P0 single-stream forwarding); the ceiling is
+	// refreshed on hot reload without touching in-flight dials.
+	var streamLimit atomic.Int64
+	var streams atomic.Int64
+	streamLimit.Store(int64(effectiveMaxStreams(cur)))
 
 	// hot reload: a SIGHUP re-reads the override file to switch the landing target; a corrupt file or an empty landing keeps the current one and only logs.
 	if overridePath != "" && hup != nil {
@@ -112,16 +123,24 @@ func run(ctx context.Context, base config.RelaySpec, overridePath string, hup <-
 				old := curSpec.Load()
 				if next.LandingAddr == old.LandingAddr &&
 					next.ServerName == old.ServerName && next.CAFile == old.CAFile &&
+					effectiveMaxConns(next) == effectiveMaxConns(*old) &&
+					effectiveMaxStreams(next) == effectiveMaxStreams(*old) &&
+					effectiveRateKbps(next) == effectiveRateKbps(*old) &&
 					tunnelPluginOf(next) == tunnelPluginOf(*old) {
 					continue // no change means no switch, avoiding pointless logs
 				}
 				curSpec.Store(&next)
-				logger.Printf("relay repointed -> %s via %s", next.LandingAddr, tunnelPluginOf(next))
+				limit.Store(int64(effectiveMaxConns(next)))
+				streamLimit.Store(effectiveMaxStreams(next))
+				logger.Printf("relay repointed -> %s via %s (max_conns=%d)", next.LandingAddr, tunnelPluginOf(next), effectiveMaxConns(next))
 			}
 		}()
 	}
 
-	sem := make(chan struct{}, maxConns)
+	// The active count is atomic so a SIGHUP can change the ceiling without
+	// dropping established connections or rebuilding a semaphore used by live goroutines.
+	var active atomic.Int64
+	limit.Store(int64(effectiveMaxConns(cur)))
 	go func() {
 		<-ctx.Done()
 		_ = ln.Close()
@@ -137,15 +156,15 @@ func run(ctx context.Context, base config.RelaySpec, overridePath string, hup <-
 				continue
 			}
 		}
-		select {
-		case sem <- struct{}{}:
-		default:
+		ceiling := int(limit.Load())
+		if active.Add(1) > int64(ceiling) {
+			active.Add(-1)
 			logger.Printf("relay overloaded, dropping %s", front.RemoteAddr())
 			_ = front.Close()
 			continue
 		}
 		go func(front net.Conn) {
-			defer func() { <-sem }()
+			defer active.Add(-1)
 			defer front.Close()
 			s := curSpec.Load()
 			tn, err := tunnels.get(*s)
@@ -153,13 +172,25 @@ func run(ctx context.Context, base config.RelaySpec, overridePath string, hup <-
 				logger.Printf("relay tunnel %s: %v", tunnelPluginOf(*s), err)
 				return
 			}
-			serveConn(ctx, tn, s.LandingAddr, front, logger)
+			// Stream ceiling (F-0809): the backend dial is a distinct resource
+			// from the frontend connection; when a plugin multiplexes streams
+			// this cap still governs how many can be open concurrently.
+			ceiling := int(streamLimit.Load())
+			if ceiling > 0 && streams.Add(1) > int64(ceiling) {
+				streams.Add(-1)
+				logger.Printf("relay stream limit reached, dropping %s", front.RemoteAddr())
+				return
+			}
+			if ceiling > 0 {
+				defer streams.Add(-1)
+			}
+			serveConn(ctx, tn, s.LandingAddr, effectiveRateKbps(*s), front, logger)
 		}(front)
 	}
 }
 
 // serveConn dials the landing for one frontend connection and copies both ways; either direction ending tears down the whole connection.
-func serveConn(ctx context.Context, tn tunnel.Tunnel, landing string, front net.Conn, logger *log.Logger) {
+func serveConn(ctx context.Context, tn tunnel.Tunnel, landing string, rateKbps int, front net.Conn, logger *log.Logger) {
 	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
 	defer cancel()
 	back, err := tn.Dial(dialCtx, landing)
@@ -168,15 +199,19 @@ func serveConn(ctx context.Context, tn tunnel.Tunnel, landing string, front net.
 		return
 	}
 	defer back.Close()
+	// Bandwidth limit (F-0810): applied per direction per connection; 0 means
+	// unlimited. The limiter wraps the source side of io.Copy in both directions.
+	fwd := newRateReader(front, rateKbps, time.Now)
+	rev := newRateReader(back, rateKbps, time.Now)
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		_, _ = io.Copy(back, front)
+		_, _ = io.Copy(back, fwd)
 	}()
 	go func() {
 		defer wg.Done()
-		_, _ = io.Copy(front, back)
+		_, _ = io.Copy(front, rev)
 	}()
 	done := make(chan struct{})
 	go func() {
@@ -200,6 +235,15 @@ func mergeSpec(base, ov config.RelaySpec) config.RelaySpec {
 	if ov.Tunnel != "" {
 		s.Tunnel = ov.Tunnel
 	}
+	if ov.MaxConns > 0 {
+		s.MaxConns = ov.MaxConns
+	}
+	if ov.MaxStreams > 0 {
+		s.MaxStreams = ov.MaxStreams
+	}
+	if ov.RateLimitKbps > 0 {
+		s.RateLimitKbps = ov.RateLimitKbps
+	}
 	if ov.ServerName != "" {
 		s.ServerName = ov.ServerName
 	}
@@ -207,6 +251,30 @@ func mergeSpec(base, ov config.RelaySpec) config.RelaySpec {
 		s.CAFile = ov.CAFile
 	}
 	return s
+}
+
+// effectiveRateKbps normalizes the bandwidth ceiling: negatives mean unlimited.
+func effectiveRateKbps(spec config.RelaySpec) int {
+	if spec.RateLimitKbps > 0 {
+		return spec.RateLimitKbps
+	}
+	return 0
+}
+
+// effectiveMaxStreams normalizes the stream ceiling: 0 (and negatives) means unlimited.
+func effectiveMaxStreams(spec config.RelaySpec) int64 {
+	if spec.MaxStreams > 0 {
+		return int64(spec.MaxStreams)
+	}
+	return 0
+}
+
+// effectiveMaxConns normalizes the connection ceiling: 0 and negatives take the default.
+func effectiveMaxConns(spec config.RelaySpec) int {
+	if spec.MaxConns > 0 {
+		return spec.MaxConns
+	}
+	return defaultMaxConns
 }
 
 // loadOverride reads the override file; a missing file is a normal state (nothing has been pushed yet) and returns zero values without an error.

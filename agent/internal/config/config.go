@@ -51,6 +51,14 @@ type RelaySpec struct {
 	Tunnel      string `json:"tunnel"`       // transport plugin name; empty = the default tls-camo
 	ServerName  string `json:"server_name"`  // TLS camouflage domain; empty = the landing hostname; ssh = an sshd address
 	CAFile      string `json:"ca_file"`      // private CA; empty = the system root certificates
+	// MaxConns caps concurrent forwarded connections (F-0808): the limit can be
+	// changed on hot reload; 0 falls back to defaultMaxConns.
+	MaxConns int `json:"max_conns,omitempty"`
+	// MaxStreams caps concurrent outbound backend dials (F-0809); 0 means unlimited
+	// (the P0 relay contract is one stream per forwarded connection).
+	MaxStreams int `json:"max_streams,omitempty"`
+	// RateLimitKbps caps per-connection bandwidth in kilobits/sec, per direction (F-0810); 0 = unlimited.
+	RateLimitKbps int `json:"rate_limit_kbps,omitempty"`
 
 	// ssh plugin parameters (E-28, ignored by other transports): the key and known_hosts are local
 	// path references, and the key content goes neither into config nor into the database (the credential encryption scope R24 covers only in-database secrets).
