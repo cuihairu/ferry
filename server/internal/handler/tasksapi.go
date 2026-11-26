@@ -241,11 +241,11 @@ func registerTaskConsumers(h *Handler, mgr *tasks.Manager) {
 				return err
 			}
 			m := h.getProvisionManager()
-			status, logTail := m.Execute(ctx, provision.ExecParams{
+			status, logTail := applyWithCleanup(ctx, m, db, h.cfg.ProvisionCleanupOnFail, provision.ExecParams{
 				Template: tpl, ProviderType: prov.Type, APIKey: apiKey,
 				InstanceName: job.InstanceName, Action: "apply",
 				UserData: provision.CloudInit(cfgJSON, h.cfg.AgentDownloadBase, h.cfg.AgentVersion),
-			})
+			}, job.ID)
 			m.FinishJob(job.ID, status, logTail)
 			if status != "ok" {
 				return fmt.Errorf("apply job %d failed: %s", job.ID, tailLine(logTail))
@@ -284,6 +284,28 @@ func tailLine(s string) string {
 		return s[i+1:]
 	}
 	return s
+}
+
+// applyWithCleanup runs one apply and, when it fails with the cleanup policy
+// on (F-1658), destroys the same workspace's partial state — tofu state is
+// per-template workdir, so the rollback only touches instances this template
+// manages. The cleanup outcome is appended to the job's log; the apply status
+// and log are passed through unchanged.
+func applyWithCleanup(ctx context.Context, m *provision.Manager, db *gorm.DB, cleanup bool, p provision.ExecParams, jobID uint) (string, string) {
+	status, logTail := m.Execute(ctx, p)
+	if status == "ok" || !cleanup {
+		return status, logTail
+	}
+	dp := p
+	dp.Action = "destroy"
+	dstatus, dlog := m.Execute(ctx, dp)
+	note := "\ncleanup-on-fail: destroy " + dstatus
+	if dstatus != "ok" {
+		note += ": " + tailLine(dlog)
+	}
+	_ = db.Model(&storage.ProvisionJob{}).Where("id = ?", jobID).
+		Update("log", gorm.Expr("COALESCE(log, '') || ?", note))
+	return status, logTail
 }
 
 // taskActor names the caller for the task's actor column (F-1613).

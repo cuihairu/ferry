@@ -193,8 +193,10 @@ func TestApplyLifecycle(t *testing.T) {
 		t.Fatalf("job2 = %+v", job2)
 	}
 
-	// An illegal action: traced as failed without aborting (same convention as an execution failure).
-	job3, err := m.Apply(context.Background(), execParams(tpl, "vultr", "k", "x", "destroy"))
+	// An illegal action: traced as failed without aborting (same convention as an
+	// execution failure). destroy is legal since F-1658 (the cleanup leg), so a
+	// made-up action stands in for the illegal case.
+	job3, err := m.Apply(context.Background(), execParams(tpl, "vultr", "k", "x", "reap"))
 	if err != nil || job3.Status != "failed" {
 		t.Fatalf("invalid action job = %+v err=%v", job3, err)
 	}
@@ -339,5 +341,35 @@ func TestRealRunnerCancelledCtx(t *testing.T) {
 	out, err := realRunner(ctx, t.TempDir(), []string{"version"}, map[string]string{"TF_IN_AUTOMATION": "1"})
 	if err == nil {
 		t.Fatalf("realRunner with cancelled ctx = %q, nil; want error", out)
+	}
+}
+
+// TestExecuteDestroyAction covers the F-1658 cleanup leg: the destroy action
+// reaches the runner with -auto-approve, an unknown action is refused by the
+// guard (so a typo can never execute anything).
+func TestExecuteDestroyAction(t *testing.T) {
+	db := newTestDB(t)
+	tpl := storage.ProvisionTemplate{Name: "hk-3t", Plan: "vc2-1c-1gb", Region: "hkg"}
+	if err := db.Create(&tpl).Error; err != nil {
+		t.Fatal(err)
+	}
+	var calls []string
+	m := New(db, "tofu", t.TempDir(), func(ctx context.Context, dir string, args []string, env map[string]string) (string, error) {
+		calls = append(calls, args[0])
+		return "ok", nil
+	})
+	status, _ := m.Execute(context.Background(), execParams(tpl, "vultr", "sk-test", "inst", "destroy"))
+	if status != "ok" {
+		t.Fatalf("destroy status = %s", status)
+	}
+	if len(calls) != 2 || calls[0] != "init" || calls[1] != "destroy" {
+		t.Fatalf("calls = %v", calls)
+	}
+	status, msg := m.Execute(context.Background(), execParams(tpl, "vultr", "sk-test", "inst", "bogus"))
+	if status != "failed" || !strings.Contains(msg, "plan/apply/destroy") {
+		t.Fatalf("bogus action = %s %q", status, msg)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("bogus action must not reach the runner: %v", calls)
 	}
 }

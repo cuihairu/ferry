@@ -16,6 +16,7 @@ import (
 	"github.com/cuihairu/ferry/packages/agentproto"
 	"github.com/cuihairu/ferry/server/internal/cloudprov"
 	"github.com/cuihairu/ferry/server/internal/config"
+	"github.com/cuihairu/ferry/server/internal/provision"
 	"github.com/cuihairu/ferry/server/internal/secret"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/cuihairu/ferry/server/internal/tasks"
@@ -481,5 +482,60 @@ func TestPostCreateSync(t *testing.T) {
 	}
 	if !strings.Contains(jj2.Log, "post-create sync error: no adapter registered") {
 		t.Fatalf("job log missing error line: %q", jj2.Log)
+	}
+}
+
+// TestApplyWithCleanup covers the F-1658 policy wiring: a failed apply with
+// the policy on appends a "cleanup-on-fail: destroy ..." line to the job log
+// (tofu is absent here, so both legs fail and the note carries the failure);
+// with the policy off the log is left untouched.
+func TestApplyWithCleanup(t *testing.T) {
+	db, err := storage.Open(storage.DriverSQLite, filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	m := provision.New(db, "no-such-tofu", t.TempDir(), nil)
+	tpl := storage.ProvisionTemplate{Name: "hk-3t", Plan: "vc2-1c-1gb", Region: "hkg"}
+	p := provision.ExecParams{Template: tpl, ProviderType: "vultr", APIKey: "k",
+		InstanceName: "ferry-hk-3t", Action: "apply"}
+
+	job := storage.ProvisionJob{TemplateID: 1, TemplateName: "hk-3t",
+		InstanceName: "ferry-hk-3t", Action: "apply", Status: "running", Log: "leg one"}
+	if err := db.Create(&job).Error; err != nil {
+		t.Fatal(err)
+	}
+	status, _ := applyWithCleanup(context.Background(), m, db, true, p, job.ID)
+	if status != "failed" {
+		t.Fatalf("status = %s", status)
+	}
+	var jj storage.ProvisionJob
+	if err := db.First(&jj, job.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(jj.Log, "cleanup-on-fail: destroy failed") {
+		t.Fatalf("job log missing cleanup note: %q", jj.Log)
+	}
+
+	// Policy off: the failed apply leaves the log untouched.
+	job2 := storage.ProvisionJob{TemplateID: 1, TemplateName: "hk-3t",
+		InstanceName: "ferry-hk-4t", Action: "apply", Status: "running", Log: "leg two"}
+	if err := db.Create(&job2).Error; err != nil {
+		t.Fatal(err)
+	}
+	status, _ = applyWithCleanup(context.Background(), m, db, false, p, job2.ID)
+	if status != "failed" {
+		t.Fatalf("status = %s", status)
+	}
+	var jj2 storage.ProvisionJob
+	if err := db.First(&jj2, job2.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if jj2.Log != "leg two" {
+		t.Fatalf("policy off must not touch the log: %q", jj2.Log)
 	}
 }

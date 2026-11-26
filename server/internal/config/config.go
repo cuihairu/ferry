@@ -100,6 +100,11 @@ type Config struct {
 	AgentDownloadBase string `json:"-"`
 	// AgentVersion is the agent version installed on provisioned nodes (matching release tag vV).
 	AgentVersion string `json:"-"`
+	// ProvisionCleanupOnFail destroys a failed apply's partial workspace state
+	// (F-1658): tofu state is per-template workdir, so the destroy only ever
+	// touches instances this template manages, never other nodes. Default on:
+	// a failed apply that leaves paid resources running is a cost leak.
+	ProvisionCleanupOnFail bool `json:"-"`
 	// RecoveryIntervalSec is the block-recovery pipeline state machine sweep period (BR-1).
 	RecoveryIntervalSec int
 	// RecoveryTemplateID is the provisioning template ID used by recovery L3 one-click relaunch (0 = L3 disabled).
@@ -205,36 +210,37 @@ type Config struct {
 // FERRY_DB still works as a compatibility alias for the sqlite file path.
 func Load() Config {
 	return Config{
-		Addr:                 envOr("FERRY_ADDR", ":8080"),
-		DBDriver:             envOr("FERRY_DB_DRIVER", "sqlite"),
-		DBDSN:                envOr("FERRY_DB_DSN", envOr("FERRY_DB", "ferry.db")),
-		BaseURL:              envOr("FERRY_BASE_URL", "http://localhost:8080"),
-		HeartbeatIntervalSec: envIntOr("FERRY_HEARTBEAT_SEC", 30),
-		MonitorIntervalSec:   envIntOr("FERRY_MONITOR_SEC", 30),
-		ReviewIntervalSec:    envIntOr("FERRY_REVIEW_SEC", 60),
-		PoolIntervalSec:      envIntOr("FERRY_POOL_SEC", 60),
-		AllocIntervalSec:     envIntOr("FERRY_ALLOC_SEC", 300),
-		CostIntervalSec:      envIntOr("FERRY_COST_SEC", 3600),
-		RedeemLimiter:        &ratelimit.Options{Window: time.Minute, MaxAttempts: 10, FailLimit: 5, Lockout: 15 * time.Minute},
-		AdminSecret:          envOr("FERRY_ADMIN_SECRET", ""),
-		ApiTokenSecret:       envOr("FERRY_API_SECRET", ""),
-		AdminUser:            envOr("FERRY_ADMIN_USER", "admin"),
-		AdminPassword:        os.Getenv("FERRY_ADMIN_PASSWORD"),
-		SecretKey:            envOr("FERRY_SECRET_KEY", ""),
-		Env:                  os.Getenv("FERRY_ENV"),
-		KeyFile:              envOr("FERRY_KEYFILE", ""),
-		TofuBin:              envOr("FERRY_TOFU_BIN", "tofu"),
-		TofuWorkdir:          envOr("FERRY_TOFU_DIR", "/var/lib/ferry/tofu"),
-		AgentDownloadBase:    envOr("FERRY_AGENT_BASE", "https://github.com/cuihairu/ferry/releases/download"),
-		AgentVersion:         envOr("FERRY_AGENT_VERSION", "latest"),
-		RecoveryIntervalSec:  envIntOr("FERRY_RECOVERY_SEC", 60),
-		RecoveryTemplateID:   uint(envIntOr("FERRY_RECOVERY_TEMPLATE_ID", 0)),
-		ReplenishIntervalSec: envIntOr("FERRY_REPLENISH_SEC", 300),
-		PoolTemplateID:       uint(envIntOr("FERRY_POOL_TEMPLATE_ID", 0)),
-		AcmeBin:              envOr("FERRY_ACME_BIN", "acme.sh"),
-		AcmeHome:             envOr("FERRY_ACME_HOME", "/var/lib/ferry/acme"),
-		AcmeWebroot:          envOr("FERRY_ACME_WEBROOT", "/var/www/acme"),
-		CertIntervalSec:      envIntOr("FERRY_CERT_SEC", 21600),
+		Addr:                   envOr("FERRY_ADDR", ":8080"),
+		DBDriver:               envOr("FERRY_DB_DRIVER", "sqlite"),
+		DBDSN:                  envOr("FERRY_DB_DSN", envOr("FERRY_DB", "ferry.db")),
+		BaseURL:                envOr("FERRY_BASE_URL", "http://localhost:8080"),
+		HeartbeatIntervalSec:   envIntOr("FERRY_HEARTBEAT_SEC", 30),
+		MonitorIntervalSec:     envIntOr("FERRY_MONITOR_SEC", 30),
+		ReviewIntervalSec:      envIntOr("FERRY_REVIEW_SEC", 60),
+		PoolIntervalSec:        envIntOr("FERRY_POOL_SEC", 60),
+		AllocIntervalSec:       envIntOr("FERRY_ALLOC_SEC", 300),
+		CostIntervalSec:        envIntOr("FERRY_COST_SEC", 3600),
+		RedeemLimiter:          &ratelimit.Options{Window: time.Minute, MaxAttempts: 10, FailLimit: 5, Lockout: 15 * time.Minute},
+		AdminSecret:            envOr("FERRY_ADMIN_SECRET", ""),
+		ApiTokenSecret:         envOr("FERRY_API_SECRET", ""),
+		AdminUser:              envOr("FERRY_ADMIN_USER", "admin"),
+		AdminPassword:          os.Getenv("FERRY_ADMIN_PASSWORD"),
+		SecretKey:              envOr("FERRY_SECRET_KEY", ""),
+		Env:                    os.Getenv("FERRY_ENV"),
+		KeyFile:                envOr("FERRY_KEYFILE", ""),
+		TofuBin:                envOr("FERRY_TOFU_BIN", "tofu"),
+		TofuWorkdir:            envOr("FERRY_TOFU_DIR", "/var/lib/ferry/tofu"),
+		AgentDownloadBase:      envOr("FERRY_AGENT_BASE", "https://github.com/cuihairu/ferry/releases/download"),
+		AgentVersion:           envOr("FERRY_AGENT_VERSION", "latest"),
+		ProvisionCleanupOnFail: envBoolOr("FERRY_TOFU_CLEANUP_ON_FAIL", true),
+		RecoveryIntervalSec:    envIntOr("FERRY_RECOVERY_SEC", 60),
+		RecoveryTemplateID:     uint(envIntOr("FERRY_RECOVERY_TEMPLATE_ID", 0)),
+		ReplenishIntervalSec:   envIntOr("FERRY_REPLENISH_SEC", 300),
+		PoolTemplateID:         uint(envIntOr("FERRY_POOL_TEMPLATE_ID", 0)),
+		AcmeBin:                envOr("FERRY_ACME_BIN", "acme.sh"),
+		AcmeHome:               envOr("FERRY_ACME_HOME", "/var/lib/ferry/acme"),
+		AcmeWebroot:            envOr("FERRY_ACME_WEBROOT", "/var/www/acme"),
+		CertIntervalSec:        envIntOr("FERRY_CERT_SEC", 21600),
 
 		NotifyScanIntervalSec: envIntOr("FERRY_NOTIFY_SCAN_SEC", 3600),
 		OrderSweepIntervalSec: envIntOr("FERRY_ORDER_SWEEP_SEC", 60),

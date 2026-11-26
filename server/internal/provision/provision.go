@@ -169,8 +169,10 @@ func (m *Manager) Apply(ctx context.Context, p ExecParams) (*storage.ProvisionJo
 // plus the log tail, without tracing (the caller handles tracing, so an existing job row can be reused).
 func (m *Manager) Execute(ctx context.Context, p ExecParams) (string, string) {
 	action := p.Action
-	if action != "plan" && action != "apply" {
-		return "failed", "provision: action must be plan/apply"
+	// destroy (F-1658) is the cleanup leg: the same workspace/HCL rolled back,
+	// so a failed apply never leaves paid partial resources behind.
+	if action != "plan" && action != "apply" && action != "destroy" {
+		return "failed", "provision: action must be plan/apply/destroy"
 	}
 	failed := func(log string) (string, string) { return "failed", tailLog(log) }
 

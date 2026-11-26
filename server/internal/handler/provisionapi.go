@@ -113,7 +113,8 @@ func (h *Handler) runProvision(c *gin.Context, action string) {
 		}
 		if !ran {
 			go func(p *provision.Prepared) {
-				status, log := m.Execute(context.Background(), p.Params)
+				status, log := applyWithCleanup(context.Background(), m, h.db,
+					h.cfg.ProvisionCleanupOnFail, p.Params, p.Job.ID)
 				m.FinishJob(p.Job.ID, status, log)
 			}(prep)
 		}
