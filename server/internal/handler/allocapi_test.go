@@ -502,3 +502,26 @@ func TestAllocPolicyPriority(t *testing.T) {
 		t.Fatalf("simulate persisted policy: %+v", pol.Policy)
 	}
 }
+
+// TestAllocPolicyQualityAccepted covers the quality policy's API surface
+// (F-1044): the tier persists and reads back like the other modes.
+func TestAllocPolicyQualityAccepted(t *testing.T) {
+	r, _ := newTestRouterWithDB(t)
+	rec := doJSON(t, r, "PUT", "/api/alloc/policy",
+		map[string]any{"out": "quality", "in": "perf_first", "rebalance_start": 1, "rebalance_end": 7})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("put quality status = %d body=%s", rec.Code, rec.Body)
+	}
+	rec = doJSON(t, r, "GET", "/api/alloc", nil)
+	var pol struct {
+		Policy struct {
+			Out string `json:"out"`
+		} `json:"policy"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &pol); err != nil {
+		t.Fatal(err)
+	}
+	if pol.Policy.Out != "quality" {
+		t.Fatalf("policy out = %s", pol.Policy.Out)
+	}
+}

@@ -64,6 +64,10 @@ const (
 	qualityRttCapMs  = 500
 	qualityLossCap   = 100
 	qualityLossShare = 0.7 // loss dominates: a lossy line is unusable before it is slow
+	// qualitySwitchMargin is the peak switch threshold for the quality policy
+	// (F-1044): the winner's score must beat the current by this much to
+	// move, the same conservatism the balanced policy applies.
+	qualitySwitchMargin = 0.15
 )
 
 // QualityScore folds a candidate's probe quality into a [0,1] score: loss

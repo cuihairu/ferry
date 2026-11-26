@@ -31,7 +31,11 @@ const (
 	// alone (F-1029): the best tier available always serves, and within a
 	// tier the order never drifts with load or cost.
 	PolicyPriority = "priority"
-	PolicyManual   = "manual"
+	// PolicyQuality (F-1044) ranks by fresh probe quality (F-1028): the
+	// best-measured line serves, loss weighted over RTT, and an unknown
+	// score stays neutral without blocking the choice.
+	PolicyQuality = "quality"
+	PolicyManual  = "manual"
 )
 
 // settingKey is the policy persistence key (panel KV); the value is JSON: one tier per direction.
@@ -52,7 +56,7 @@ const (
 // ValidPolicy reports whether the policy value is valid.
 func ValidPolicy(p string) bool {
 	switch p {
-	case PolicyLeastConn, PolicyCostFirst, PolicyPerfFirst, PolicyBalanced, PolicyPriority:
+	case PolicyLeastConn, PolicyCostFirst, PolicyPerfFirst, PolicyBalanced, PolicyPriority, PolicyQuality:
 		return true
 	}
 	return false
@@ -195,7 +199,7 @@ func ValidateSetting(setting PolicySetting) (PolicySetting, error) {
 		setting.In = DefaultPolicyIn
 	}
 	if !ValidPolicy(setting.Out) || !ValidPolicy(setting.In) {
-		return setting, fmt.Errorf("policy must be %s/%s/%s/%s/%s", PolicyLeastConn, PolicyCostFirst, PolicyPerfFirst, PolicyBalanced, PolicyPriority)
+		return setting, fmt.Errorf("policy must be %s/%s/%s/%s/%s/%s", PolicyLeastConn, PolicyCostFirst, PolicyPerfFirst, PolicyBalanced, PolicyPriority, PolicyQuality)
 	}
 	if !validWindow(setting.RebalanceStart, setting.RebalanceEnd) {
 		return setting, fmt.Errorf("rebalance window must be 0-23 with start < end")
@@ -414,6 +418,18 @@ func LessFor(policy, direction, missingRule string, w ScoreWeights, cands []Cand
 			}
 			return byName(a, b)
 		}
+	case PolicyQuality:
+		// Quality mode (F-1044) compares nothing but fresh probe quality
+		// (F-1028): loss weighted 0.7 over RTT, no sample = neutral 0.5.
+		// Price plays no part, so the missing-price partition below is
+		// skipped for this mode like for priority.
+		score := func(i int) float64 { return QualityScore(cands[i].Quality) }
+		less = func(a, b int) bool {
+			if sa, sb := score(a), score(b); sa != sb {
+				return sa > sb
+			}
+			return byName(a, b)
+		}
 	default: // least_conn
 		less = func(a, b int) bool {
 			if load(a) != load(b) {
@@ -439,9 +455,9 @@ func LessFor(policy, direction, missingRule string, w ScoreWeights, cands []Cand
 			return inner(a, b)
 		}
 	}
-	if policy == PolicyPriority {
-		// Priority mode skips the missing-price partition: price plays no
-		// part in an operator-set order.
+	if policy == PolicyPriority || policy == PolicyQuality {
+		// Priority and quality modes skip the missing-price partition:
+		// price plays no part in an operator-set order or a measured one.
 		return byTier(less)
 	}
 	if missingRule == MissingCostTreatZero {
@@ -519,6 +535,10 @@ func shouldSwitch(policy, direction, missingRule string, w ScoreWeights, cands [
 		// Same tier reached here (the F-1029 head rule already moves between
 		// tiers): an operator's tier order never churns on load at peak.
 		return false
+	case PolicyQuality:
+		// Peak only moves on a clearly better measurement; off-peak the
+		// quality total order decides without the margin.
+		return QualityScore(cands[win].Quality) > QualityScore(cands[cur].Quality)+qualitySwitchMargin
 	default: // least_conn
 		curLoad := loadRatio(cands[cur])
 		return loadRatio(cands[win]) < curLoad*peakSwitchMargin

@@ -120,3 +120,98 @@ func TestDecideCarriesQuality(t *testing.T) {
 		t.Fatalf("unknown quality = %v, want neutral 0.5", got)
 	}
 }
+
+// TestPickQualityMode covers the quality policy (F-1044): the best-measured
+// line wins regardless of price and load, an unprobed candidate scores the
+// neutral 0.5 and loses to any genuinely measured line, and equal scores
+// break by name.
+func TestPickQualityMode(t *testing.T) {
+	w := DefaultPolicySetting().Weights()
+	mk := func(name string, rtt, loss, samples int, price int64, conns int) Candidate {
+		return Candidate{Node: storage.Node{Name: name, BillingType: "按流量",
+			TrafficPriceCents: price, BwDownMbps: 100, UpdatedAt: testNow},
+			Healthy: true, Conns: conns, CostKnown: true, CostFresh: true,
+			Quality: Quality{RttMs: rtt, LossPct: loss, Samples: samples}}
+	}
+
+	// a measured good line beats the cheap-but-unprobed one
+	cands := []Candidate{mk("cheap-dark", 0, 0, 0, 5, 0), mk("pricey-clean", 50, 0, 2, 90, 99)}
+	if idx, ok := Pick(PolicyQuality, "out", MissingCostDeprioritize, w, cands); !ok || cands[idx].Node.Name != "pricey-clean" {
+		t.Fatalf("measured quality must win: idx=%d ok=%v", idx, ok)
+	}
+
+	// equal scores (both 0.97) fall back to the name
+	cands = []Candidate{mk("zeta", 50, 0, 1, 5, 0), mk("alpha", 50, 0, 1, 90, 99)}
+	if idx, ok := Pick(PolicyQuality, "out", MissingCostDeprioritize, w, cands); !ok || cands[idx].Node.Name != "alpha" {
+		t.Fatalf("tie must break by name: idx=%d", idx)
+	}
+}
+
+// TestShouldSwitchQualityMode covers the quality policy's peak rule
+// (F-1044): a clearly better measurement moves, a marginal one waits for the
+// off-peak rebalance, and a worse one never moves at peak.
+func TestShouldSwitchQualityMode(t *testing.T) {
+	w := DefaultPolicySetting().Weights()
+	mk := func(name string, rtt, loss, samples int) Candidate {
+		return Candidate{Node: storage.Node{Name: name, BwDownMbps: 100}, Healthy: true,
+			Quality: Quality{RttMs: rtt, LossPct: loss, Samples: samples}}
+	}
+
+	// 0.97 vs neutral 0.5: clearly better
+	cands := []Candidate{mk("cur", 0, 0, 0), mk("better", 50, 0, 2)}
+	if !shouldSwitch(PolicyQuality, "out", MissingCostDeprioritize, w, cands, 0, 1) {
+		t.Fatalf("clear quality gain must move at peak")
+	}
+	// 0.615 vs 0.5: inside the 0.15 margin
+	cands = []Candidate{mk("cur", 0, 0, 0), mk("edge", 0, 55, 1)}
+	if shouldSwitch(PolicyQuality, "out", MissingCostDeprioritize, w, cands, 0, 1) {
+		t.Fatalf("marginal gain must wait for off-peak")
+	}
+	// 0.2 vs 0.97: a downgrade never moves at peak
+	cands = []Candidate{mk("cur", 50, 0, 2), mk("worse", 400, 80, 1)}
+	if shouldSwitch(PolicyQuality, "out", MissingCostDeprioritize, w, cands, 0, 1) {
+		t.Fatalf("worse quality must not move at peak")
+	}
+}
+
+// TestSweepQualityMode covers the quality policy at sweep level (F-1044):
+// with out=quality the sweep serves the freshly measured line even when it
+// is the priciest, and a settled round does not churn.
+func TestSweepQualityMode(t *testing.T) {
+	db := newTestDB(t)
+	seedNode(t, db, "qm-entry", "entry", "out", nil)
+	seedNode(t, db, "qm-dark", "landing", "out", func(n *storage.Node) {
+		n.BillingType, n.TrafficPriceCents = "按流量", 5
+	})
+	clean := seedNode(t, db, "qm-clean", "landing", "out", func(n *storage.Node) {
+		n.BillingType, n.TrafficPriceCents = "按流量", 90
+	})
+	// a fresh strong probe for the pricey landing only
+	tid := clean.ID
+	if err := db.Create(&storage.ProbeReport{
+		NodeID: 777, TargetKind: agentproto.ProbeTargetTunnel, TargetNodeID: &tid,
+		Verdict: agentproto.ProbeVerdictHealthy, RttMs: 40, LossPct: 0, ProbedAt: time.Now(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	setting := DefaultPolicySetting()
+	setting.Out = PolicyQuality
+	if err := SavePolicy(db, setting); err != nil {
+		t.Fatal(err)
+	}
+	events, err := Sweep(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].ToName != clean.Name {
+		t.Fatalf("quality mode must serve the measured line: %+v", events)
+	}
+	// the settled round is quiet
+	if events, err = Sweep(db); err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("quality mode churned: %+v", events)
+	}
+}
