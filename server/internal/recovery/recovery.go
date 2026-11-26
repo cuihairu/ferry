@@ -55,6 +55,10 @@ const (
 	// pass leaves the node suspended, and without a cooldown every sweep would
 	// re-open the pipeline — an endless provision loop (F-1646's guard rail).
 	DefaultCooldown = time.Hour
+	// DefaultMaxReopens caps automatic re-entries per node row (F-1646): even a
+	// flapping node that keeps degrading again after each probe recovery stops
+	// being auto-pipelined past this and waits for a human.
+	DefaultMaxReopens = 5
 )
 
 // Options holds the verdict/advancement rules; zero values fall back to defaults.
@@ -67,6 +71,9 @@ type Options struct {
 	// Cooldown is how long after a pipeline's terminal state (done/failed) the
 	// node is barred from a fresh verdict (F-1644).
 	Cooldown time.Duration
+	// MaxReopens is the auto re-entry budget per node row (F-1646); past it the
+	// reopen lands the row in the human-intervention state instead.
+	MaxReopens int
 	// OnDone is the hook fired when recovery completes (probe-recovery finish;
 	// failed does not trigger it), injected by the main assembly (BR-2: domain front
 	// switch back to the normal IP). Runs synchronously — done has only a few rows per round and downstream channels carry their own timeouts, so tests can assert deterministically.
@@ -82,6 +89,9 @@ func (o Options) normalize() Options {
 	}
 	if o.Cooldown <= 0 {
 		o.Cooldown = DefaultCooldown
+	}
+	if o.MaxReopens <= 0 {
+		o.MaxReopens = DefaultMaxReopens
 	}
 	return o
 }
@@ -229,18 +239,38 @@ func Sweep(db *gorm.DB, now time.Time, opts Options, reg Registry, logger *log.L
 				return err
 			}
 			// The table keeps one row per node (uniqueIndex): a row left over
-			// from an earlier terminal pipeline is reset into a fresh L1 run
-			// instead of aborting the whole sweep on the violation.
+			// from an earlier terminal pipeline is re-entered instead of
+			// aborting the whole sweep on the violation. The re-entry budget is
+			// counted (F-1646): past MaxReopens the row lands manual — auto
+			// stops, a human decides.
+			var prev storage.Recovery
+			if err := db.Where("node_id = ?", n.ID).First(&prev).Error; err != nil {
+				return err
+			}
+			reopens := prev.Reopens + 1
+			if reopens > opts.MaxReopens {
+				if err := db.Model(&storage.Recovery{}).Where("node_id = ?", n.ID).
+					Updates(map[string]any{"reopens": prev.Reopens, "updated_at": now}).Error; err != nil {
+					return err
+				}
+				if err := finishRecovery(db, prev, StateManual,
+					fmt.Sprintf("自动恢复重开 %d 次仍未根治，停止自动重试", prev.Reopens)); err != nil {
+					return err
+				}
+				logger.Printf("recovery reopen capped: node=%d %s reopens=%d（转人工）", n.ID, n.Name, prev.Reopens)
+				existing[n.ID] = true
+				continue
+			}
 			if err := db.Model(&storage.Recovery{}).Where("node_id = ?", n.ID).
 				Updates(map[string]any{
-					"state": StateRunning, "level": 1,
+					"state": StateRunning, "level": 1, "reopens": reopens,
 					"action": "", "action_state": ActionUnset, "last_err": "",
 					"level_started_at": now, "started_at": now, "updated_at": now,
 					"finished_at": nil,
 				}).Error; err != nil {
 				return err
 			}
-			logger.Printf("recovery reopen: node=%d %s（冷却结束，重开 L1）", n.ID, n.Name)
+			logger.Printf("recovery reopen: node=%d %s reopens=%d（冷却结束，重开 L1）", n.ID, n.Name, reopens)
 		}
 		existing[n.ID] = true
 		logger.Printf("recovery open: node=%d %s（摘除持续 %s 判封，进入 L1）",

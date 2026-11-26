@@ -758,3 +758,46 @@ func TestManualBarsVerdict(t *testing.T) {
 		t.Fatalf("manual row touched by sweep: %+v", got)
 	}
 }
+
+// TestReopenCapStopsLoop covers F-1646: automatic re-entries on the same node
+// row are counted; past the cap the next re-entry lands the row in the
+// human-intervention state instead of running the pipeline again.
+func TestReopenCapStopsLoop(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Now()
+	cool := 30 * time.Minute
+	n := suspendedNode(t, db, "entry-loop", "连续 3 次探测 sick", now.Add(-15*time.Minute))
+	start := now.Add(-2 * time.Hour)
+	// A row that already burned its budget (max reopens) and finished done.
+	rec := storage.Recovery{NodeID: n.ID, NodeName: n.Name, Level: 3, State: StateDone,
+		Reopens: 5, LevelStartedAt: start, StartedAt: start, UpdatedAt: start}
+	if err := db.Create(&rec).Error; err != nil {
+		t.Fatal(err)
+	}
+	opts := Options{Cooldown: cool, MaxReopens: 5}
+
+	// At the cap: the re-entry lands manual, the counter stays put.
+	if err := Sweep(db, now.Add(cool+time.Minute), opts, Registry{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	got := loadRecovery(t, db, n.ID)
+	if got.State != StateManual || got.Reopens != 5 || got.LastErr == "" {
+		t.Fatalf("capped = %+v", got)
+	}
+
+	// Under the cap: the re-entry resets to a fresh L1 run and bumps the counter.
+	db2 := newTestDB(t)
+	n2 := suspendedNode(t, db2, "entry-loop2", "连续 3 次探测 sick", now.Add(-15*time.Minute))
+	rec2 := storage.Recovery{NodeID: n2.ID, NodeName: n2.Name, Level: 3, State: StateDone,
+		Reopens: 2, LevelStartedAt: start, StartedAt: start, UpdatedAt: start}
+	if err := db2.Create(&rec2).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := Sweep(db2, now.Add(cool+time.Minute), opts, Registry{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	got2 := loadRecovery(t, db2, n2.ID)
+	if got2.State != StateRunning || got2.Level != 1 || got2.Reopens != 3 || got2.FinishedAt != nil {
+		t.Fatalf("reopen = %+v", got2)
+	}
+}

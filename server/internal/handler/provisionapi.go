@@ -178,8 +178,10 @@ func (h *Handler) ackRecovery(c *gin.Context) {
 		return
 	}
 	now := time.Now()
+	// The ack doubles as a fresh re-entry budget (F-1646): a human reviewed the
+	// node, so the capped counter starts over from here.
 	if err := h.db.Model(&storage.Recovery{}).Where("id = ? AND state = ?", rec.ID, recovery.StateManual).
-		Updates(map[string]any{"state": recovery.StateFailed, "updated_at": now}).Error; err != nil {
+		Updates(map[string]any{"state": recovery.StateFailed, "reopens": 0, "updated_at": now}).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}

@@ -891,11 +891,14 @@ type ProvisionJob struct {
 // advancing L1→L2→L3 in tiers, each tier timing out into the next, and probe recovery (attach/detach reset) completes it.
 // Action-level trail and failure escalation to a human are carried by the later recovery_actions (BR-5).
 type Recovery struct {
-	ID             uint       `gorm:"primaryKey" json:"id"`
-	NodeID         uint       `gorm:"uniqueIndex;not null" json:"node_id"`
-	NodeName       string     `gorm:"size:64" json:"node_name"`
-	Level          int        `json:"level"` // current advancement level 1-3
-	State          string     `gorm:"size:16" json:"state"`
+	ID       uint   `gorm:"primaryKey" json:"id"`
+	NodeID   uint   `gorm:"uniqueIndex;not null" json:"node_id"`
+	NodeName string `gorm:"size:64" json:"node_name"`
+	Level    int    `json:"level"` // current advancement level 1-3
+	State    string `gorm:"size:16" json:"state"`
+	// Reopens counts auto re-entries on the same row (F-1646): each reset-path
+	// reopen bumps it; past the cap the row lands manual instead of running.
+	Reopens        int        `gorm:"default:0" json:"reopens"`
 	Action         string     `gorm:"size:32" json:"action"`       // the current level's action name (empty = not started)
 	ActionState    string     `gorm:"size:16" json:"action_state"` // running/ok/failed/skipped/empty
 	LastErr        string     `gorm:"size:512" json:"last_error,omitempty"`

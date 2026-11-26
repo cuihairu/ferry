@@ -386,7 +386,7 @@ func TestRecoveryAck(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := storage.Recovery{NodeID: node.ID, NodeName: node.Name, Level: 3, State: recovery.StateManual,
-		LastErr: "L1-L3 全级耗尽仍未恢复", LevelStartedAt: now, StartedAt: now, UpdatedAt: now}
+		Reopens: 5, LastErr: "L1-L3 全级耗尽仍未恢复", LevelStartedAt: now, StartedAt: now, UpdatedAt: now}
 	if err := db.Create(&rec).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -400,6 +400,9 @@ func TestRecoveryAck(t *testing.T) {
 	var got storage.Recovery
 	if err := db.First(&got, rec.ID).Error; err != nil || got.State != recovery.StateFailed {
 		t.Fatalf("acked state = %s err=%v", got.State, err)
+	}
+	if got.Reopens != 0 { // the ack grants a fresh re-entry budget (F-1646)
+		t.Fatalf("acked reopens = %d, want 0", got.Reopens)
 	}
 	// A second ack hits the now-failed row -> conflict; the row stays failed.
 	if rec2 := doJSON(t, r, "POST", "/api/recoveries/"+itoa64(int(rec.ID))+"/ack", nil); rec2.Code != http.StatusConflict {
