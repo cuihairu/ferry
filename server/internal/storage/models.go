@@ -459,7 +459,7 @@ type NodeConfig struct {
 type Alert struct {
 	ID         uint       `gorm:"primaryKey" json:"id"`
 	NodeID     uint       `gorm:"index;not null" json:"node_id"`
-	Kind       string     `gorm:"size:32;not null;index" json:"kind"` // proc_crash/cert_expiry/high_load/config_error
+	Kind       string     `gorm:"size:32;not null;index" json:"kind"` // proc_crash/cert_expiry/high_load/config_error/overload
 	Severity   string     `gorm:"size:16;not null" json:"severity"`   // warning/critical
 	Proc       string     `gorm:"size:64" json:"proc,omitempty"`
 	Message    string     `gorm:"type:text" json:"message"`

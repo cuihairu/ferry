@@ -1,6 +1,9 @@
 package storage
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 // TestNodeCapacityMbps covers the shared fallback chain (F-1061/1062/1063):
 // measured calibration wins, then plan downlink, then plan uplink, and the
@@ -34,5 +37,48 @@ func TestUtilizationPct(t *testing.T) {
 	}
 	if got := UtilizationPct(99, 100, false); got != -1 {
 		t.Fatalf("inactive = %d, want -1", got)
+	}
+}
+
+// TestLatestLoad covers the shared sampling (F-1064): the connection count
+// takes each proc's latest sample, throughput diffs the newest pair per
+// proc, and a lone sample counts toward conns only.
+func TestLatestLoad(t *testing.T) {
+	db := openTest(t)
+	now := time.Now()
+	seed := func(node uint, proc string, rx, conns int64, at time.Time) {
+		t.Helper()
+		if err := db.Create(&NodeTrafficLog{
+			NodeID: node, Proc: proc, RxBytes: rx, TxBytes: 0, Conns: int(conns), RecordedAt: at,
+		}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	n1 := Node{Name: "load-1", Token: "t1"}
+	n2 := Node{Name: "load-2", Token: "t2"}
+	if err := db.Create(&n1).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&n2).Error; err != nil {
+		t.Fatal(err)
+	}
+	// n1 relay: 400MB over 60s -> 53.3Mbps, latest conns 12
+	seed(n1.ID, "relay", 100e6, 10, now.Add(-2*time.Minute))
+	seed(n1.ID, "relay", 500e6, 12, now.Add(-time.Minute))
+	// n1 xray: one lone sample -> conns only
+	seed(n1.ID, "xray", 0, 3, now.Add(-time.Minute))
+	// n2: stale only -> absent
+	seed(n2.ID, "relay", 900e6, 99, now.Add(-LoadFresh-time.Minute))
+
+	samples, err := LatestLoad(db, now.Add(-LoadFresh))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s1 := samples[n1.ID]
+	if s1.Conns != 15 || s1.Mbps < 53.0 || s1.Mbps > 53.7 {
+		t.Fatalf("n1 sample = %+v, want conns 15 mbps ~53.3", s1)
+	}
+	if _, ok := samples[n2.ID]; ok {
+		t.Fatalf("stale-only node must be absent: %+v", samples[n2.ID])
 	}
 }

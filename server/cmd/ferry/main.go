@@ -133,6 +133,10 @@ func run(ctx context.Context, cfg config.Config) error {
 	// Region/ISP aggregate determination: periodically aggregates probe conclusions, merging alerts on state transitions.
 	go monitor.Run(ctx, db, time.Duration(cfg.MonitorIntervalSec)*time.Second, nil)
 
+	// Node overload warning (F-1067): evaluates the unified bandwidth
+	// utilization per node and keeps one active overload alert per node.
+	go monitor.RunOverload(ctx, db, time.Duration(cfg.MonitorIntervalSec)*time.Second, nil)
+
 	// Entry pool auto removal/restore (E-16): consecutive sick removals and restores reset, the subscription entry pool takes effect immediately;
 	// pool state transitions trigger per-region reconciliation via the OnChange hook (E-27 §C.8: event-driven, no
 	// polling built - removing/restoring the representative entry syncs the {region-slug}.{front-domain} A record).
