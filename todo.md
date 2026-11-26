@@ -1255,18 +1255,24 @@ External Client
 
 -   [x] `F-0621` 增加成本总览页面。
     - 备注（Task ID: F-0621 | Status: Done | Evidence: dash CostView.vue；TestCostAPI+TestCostThresholdGuards+build 绿 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0622` 展示本月实际账单。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0622 | 区级未满足原因：本区 F-0623(月度预估)/F-0627(区域排序) 已关；其余未满足：无实际账单页/Provider-账号维度/Path 成本/成本趋势/账单同步与明细页/分摊规则页/筛选导出。）
+-   [x] `F-0622` 展示本月实际账单。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0622 | Status: Done | Evidence: CostView.vue「本月实际账单（实际）」区块：月份选择+厂商账单记录表（账单号/来源/账号/区域/原币种金额/税额/发生时间）+按币种合计（不跨币种合并 F-0594）；GET /api/cost/records；dash vue-tsc -b+vite build 绿 | Verification: dash build 绿 2026-11-26 | Commit: 10efacd）
 -   [x] `F-0623` 展示本月估算成本。
     - 备注（Task ID: F-0623 | Status: Done | Evidence: CostView.vue:288 月度预估+区域/运营商汇总；后端 ProjectedCents | Verification: TestBuild+TestCostAPI | Commit: 506d045）
--   [ ] `F-0624` 展示估算与实际差异。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0625` 展示 Provider 成本排名。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0626` 展示账号成本排名。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0624` 展示估算与实际差异。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0624 | Status: Done | Evidence: CostView.vue「估算与实际差异」表：估算（月度预估，面板口径）vs 实际（账单按币种合计），差异仅对 CNY 币种诚实比较，非本月账单标注不可比 | Verification: dash vue-tsc -b+vite build 绿 2026-11-26 | Commit: 10efacd）
+-   [x] `F-0625` 展示 Provider 成本排名。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0625 | Status: Done | Evidence: CostView.vue「实际成本排名」scope=provider（按实际金额降序，逐币种展示实际/分摊/估算）；GET /api/cost/spend | Verification: dash build 绿 2026-11-26 | Commit: 75813fa）
+-   [x] `F-0626` 展示账号成本排名。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0626 | Status: Done | Evidence: CostView.vue「实际成本排名」scope=account | Verification: dash build 绿 2026-11-26 | Commit: 75813fa）
 -   [x] `F-0627` 展示区域成本排名。
     - 备注（Task ID: F-0627 | Status: Done | Evidence: 区域汇总按 projected 降序(cost.go:176 sortedGroups) | Verification: TestBuild(regions ordering) | Commit: 506d045）
--   [ ] `F-0628` 展示 Node 成本排名。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0629` 展示 Path 成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0630` 展示流量成本趋势。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0628` 展示 Node 成本排名。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0628 | Status: Done | Evidence: CostView.vue「实际成本排名」scope=node（分摊金额为节点口径） | Verification: dash build 绿 2026-11-26 | Commit: 75813fa）
+-   [x] `F-0629` 展示 Path 成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0629 | Status: Done | Evidence: CostView.vue「Path 成本估算（估算）」表：逐腿展开 explain + 精确徽章（未知/过期价标「含未知价」）；GET /api/cost/path-estimates（90fbb69 后端） | Verification: dash build 绿 2026-11-26 | Commit: 75813fa）
+-   [x] `F-0630` 展示流量成本趋势。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0630 | Status: Done | Evidence: CostView.vue「实际成本趋势」按天/月/账期分桶；GET /api/cost/spend/trend（逐币种） | Verification: dash build 绿 2026-11-26 | Commit: 75813fa）
 -   [x] `F-0631` 展示异常成本提醒。
     - 备注（Task ID: F-0631 | Status: Done | Evidence: cost.CheckAlerts 阈值告警+CostView 高亮；TestCheckAlerts+TestLoopChecksAlertsUntilCancel | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0632` 增加账单同步任务页面。（依赖：无；完成条件：需求落地+测试绿+证据行）
