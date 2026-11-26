@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { get, post, put, del, resolveAlert, upgradeNode, getNodeProcs, getNodeStatus, getNodeConfigs, rotateNodeToken, revokeNodeToken, getPaths, getPathGroups, getPathGroupHealth, type Node, type DimensionStatus, type NodeShare, type BatchProcResult, type BatchConfigResult, type Alert, type NodeLoad, type NodeProcRow, type NodeStatusAggregate, type NodeConfigRow, type Path, type PathGroup, type PathGroupHealth } from '../api'
+import { get, post, put, del, resolveAlert, upgradeNode, getNodeProcs, getNodeStatus, getNodeConfigs, getProbeReports, rotateNodeToken, revokeNodeToken, getPaths, getPathGroups, getPathGroupHealth, type Node, type DimensionStatus, type NodeShare, type BatchProcResult, type BatchConfigResult, type Alert, type NodeLoad, type NodeProcRow, type NodeStatusAggregate, type NodeConfigRow, type ProbeReportRow, type Path, type PathGroup, type PathGroupHealth } from '../api'
 import QRCode from 'qrcode'
 import RuleLibDialog from '../components/RuleLibDialog.vue'
 
@@ -417,14 +417,56 @@ async function openStatus(n: Node) {
   statusFor.value = n
   statusVisible.value = true
   statusBusy.value = true
+  probeHistory.value = []
   try {
-    statusData.value = await getNodeStatus(n.id)
+    const [st, history] = await Promise.all([
+      getNodeStatus(n.id),
+      getProbeReports(n.id).catch(() => [] as ProbeReportRow[]),
+    ])
+    statusData.value = st
+    probeHistory.value = history
   } catch (e) {
     ElMessage.error(String(e))
   } finally {
     statusBusy.value = false
   }
 }
+
+// Probe history + quality trend (F-1432): the node's recent probe rounds (newest
+// first, capped by the API) bucketed per hour — samples, mean RTT/loss and the
+// healthy share — so degradation over the window reads at a glance.
+const probeHistory = ref<ProbeReportRow[]>([])
+
+interface ProbeHourRow {
+  hour: string
+  samples: number
+  avgRtt: number
+  avgLoss: number
+  healthyPct: number
+}
+
+const probeTrend = computed<ProbeHourRow[]>(() => {
+  const buckets = new Map<string, { rtt: number; loss: number; n: number; healthy: number }>()
+  for (const r of probeHistory.value) {
+    const at = new Date(r.probed_at)
+    const key = `${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')} ${String(at.getHours()).padStart(2, '0')}:00`
+    const b = buckets.get(key) ?? { rtt: 0, loss: 0, n: 0, healthy: 0 }
+    b.rtt += r.rtt_ms
+    b.loss += r.loss_pct
+    b.n += 1
+    if (r.verdict === 'healthy') b.healthy += 1
+    buckets.set(key, b)
+  }
+  return [...buckets.entries()]
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    .map(([hour, b]) => ({
+      hour,
+      samples: b.n,
+      avgRtt: Math.round(b.rtt / b.n),
+      avgLoss: Math.round((b.loss / b.n) * 10) / 10,
+      healthyPct: Math.round((b.healthy / b.n) * 100),
+    }))
+})
 
 // Node detail dialog (F-1422): one read-only aggregate of identity, runtime and
 // path membership. Identity/runtime come from the loaded node row and load
@@ -1304,6 +1346,41 @@ async function remove(n: Node) {
             <span v-else>暂无声明（旧版 agent）</span>
           </el-descriptions-item>
         </el-descriptions>
+
+        <!-- Probe history + quality trend (F-1432): per-node probe rounds, hourly buckets -->
+        <div class="detail-paths-head">质量趋势（按小时）</div>
+        <el-table :data="probeTrend" size="small" max-height="200" empty-text="暂无探测记录">
+          <el-table-column prop="hour" label="小时" min-width="110" />
+          <el-table-column prop="samples" label="样本" width="70" />
+          <el-table-column prop="avgRtt" label="平均 RTT (ms)" width="110" />
+          <el-table-column prop="avgLoss" label="平均丢包 (%)" width="110" />
+          <el-table-column label="健康占比" min-width="130">
+            <template #default="{ row }">
+              <el-progress :percentage="row.healthyPct" :stroke-width="10" />
+            </template>
+          </el-table-column>
+        </el-table>
+        <div class="detail-paths-head">探测历史（最近 {{ Math.min(probeHistory.length, 10) }} 条 / 共 {{ probeHistory.length }}）</div>
+        <el-table :data="probeHistory.slice(0, 10)" size="small" max-height="240" empty-text="暂无探测记录">
+          <el-table-column label="时间" min-width="140">
+            <template #default="{ row }">{{ new Date(row.probed_at).toLocaleString() }}</template>
+          </el-table-column>
+          <el-table-column prop="target_kind" label="目标" width="80" />
+          <el-table-column label="方向" width="70">
+            <template #default="{ row }">{{ DIR_TEXT[row.direction] ?? row.direction }}</template>
+          </el-table-column>
+          <el-table-column prop="rtt_ms" label="RTT (ms)" width="90" />
+          <el-table-column prop="jitter_ms" label="抖动 (ms)" width="90" />
+          <el-table-column prop="loss_pct" label="丢包 (%)" width="90" />
+          <el-table-column label="判定" width="90">
+            <template #default="{ row }">
+              <el-tag size="small" :type="row.verdict === 'healthy' ? 'success' : 'danger'" disable-transitions>{{ row.verdict }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="失败类型" min-width="100">
+            <template #default="{ row }">{{ row.err_class || '—' }}</template>
+          </el-table-column>
+        </el-table>
       </div>
       <template #footer>
         <el-button :disabled="!statusFor" :loading="statusBusy" @click="statusFor && openStatus(statusFor)">刷新</el-button>

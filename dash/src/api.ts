@@ -1995,3 +1995,31 @@ export interface AllocExplainDecision {
 export function explainAlloc(entryId?: number): Promise<{ round_at: string; policy: AllocPolicy; decisions: AllocExplainDecision[]; manual: number[] }> {
   return get(`/api/alloc/explain${entryId ? `?entry_id=${entryId}` : ''}`)
 }
+
+/** ProbeReportRow is one probe round's verdict (GET /api/probe-reports, newest first; node_id filters per node). */
+export interface ProbeReportRow {
+  id: number
+  node_id: number
+  target_kind: string
+  target_node_id: number | null
+  target_host: string
+  direction: string
+  rtt_ms: number
+  jitter_ms: number
+  loss_pct: number
+  connect_ms: number
+  tls_ms: number
+  ttfb_ms: number
+  throughput_kbps: number
+  err_class: string
+  reachable: boolean
+  blocked: boolean
+  verdict: string
+  region: string
+  probed_at: string
+}
+
+export function getProbeReports(nodeId?: number, limit = 200): Promise<ProbeReportRow[]> {
+  const q = nodeId ? `node_id=${nodeId}&` : ''
+  return get(`/api/probe-reports?${q}limit=${limit}`)
+}
