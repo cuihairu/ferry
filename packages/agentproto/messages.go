@@ -297,6 +297,7 @@ type ProbeReport struct {
 	TargetHost string    `json:"target_host,omitempty"` // exit probe target
 	Direction  string    `json:"direction"`             // out/in, probe direction
 	RttMs      int       `json:"rtt_ms,omitempty"`      // round-trip latency (ms)
+	JitterMs   int       `json:"jitter_ms,omitempty"`   // RTT jitter (ms, mean |Δ| across this probe's successful rounds; F-0907)
 	LossPct    int       `json:"loss_pct,omitempty"`    // loss percentage 0-100
 	Reachable  bool      `json:"reachable"`             // whether reachable
 	Blocked    bool      `json:"blocked"`               // whether judged blocked

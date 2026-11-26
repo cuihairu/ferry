@@ -47,14 +47,14 @@ func TestNodeStatusAggregate(t *testing.T) {
 	}
 	if err := db.Create(&storage.ProbeReport{
 		NodeID: node.ID, TargetKind: "tunnel", Direction: "out",
-		RttMs: 120, LossPct: 2, Reachable: true, Verdict: "healthy", ProbedAt: now,
+		RttMs: 120, JitterMs: 15, LossPct: 2, Reachable: true, Verdict: "healthy", ProbedAt: now,
 	}).Error; err != nil {
 		t.Fatalf("probe report: %v", err)
 	}
 	rec = doJSON(t, r, http.MethodGet, "/api/nodes/"+itoa(node.ID)+"/status", nil)
 	body = rec.Body.String()
 	for _, want := range []string{`"state":"running"`, `"pid":42`, `"role":"relay"`,
-		`"version":"v1.2.3"`, `"verdict":"healthy"`, `"rtt_ms":120`, `"loss_pct":2`} {
+		`"version":"v1.2.3"`, `"verdict":"healthy"`, `"rtt_ms":120`, `"jitter_ms":15`, `"loss_pct":2`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("aggregate must contain %s: %s", want, body)
 		}
@@ -122,5 +122,18 @@ func TestNodeStatusHealth(t *testing.T) {
 	rec = doJSON(t, r, http.MethodGet, "/api/nodes/"+itoa(nodes[1].ID)+"/status", nil)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"health":"degraded"`) {
 		t.Fatalf("suspended health: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// F-0905 wiring: the aggregate also carries the node's own egress health
+	// from its exit baseline probes, distinct from health.
+	if err := db.Create(&storage.ProbeReport{
+		NodeID: nodes[0].ID, TargetKind: "exit", TargetHost: "baseline.example",
+		Verdict: "sick", ProbedAt: time.Now(),
+	}).Error; err != nil {
+		t.Fatalf("exit report: %v", err)
+	}
+	rec = doJSON(t, r, http.MethodGet, "/api/nodes/"+itoa(nodes[0].ID)+"/status", nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"egress":"degraded"`) {
+		t.Fatalf("sick exit egress: %d %s", rec.Code, rec.Body.String())
 	}
 }

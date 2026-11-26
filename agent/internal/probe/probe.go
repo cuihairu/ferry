@@ -88,13 +88,14 @@ func (r *Runner) loop(ctx context.Context, spec config.ProbeSpec) {
 
 // probeOnce runs one multi-round probe and reports the conclusion; dropped silently when offline.
 func (r *Runner) probeOnce(spec config.ProbeSpec) {
-	rtt, loss, reachable := measure(spec.Target)
+	rtt, jitter, loss, reachable := measure(spec.Target)
 	// region/ISP snapshots are filled in by the panel when it stores the target node.
 	report := agentproto.ProbeReport{
 		TargetKind: spec.TargetKind,
 		TargetHost: spec.Target,
 		Direction:  spec.Direction,
 		RttMs:      rtt,
+		JitterMs:   jitter,
 		LossPct:    loss,
 		Reachable:  reachable,
 		Verdict:    verdictOf(loss, reachable),
@@ -120,9 +121,10 @@ func (r *Runner) probeOnce(spec config.ProbeSpec) {
 }
 
 // measure dials the target probeRounds times over TCP: it returns the average successful RTT (ms),
-// the packet loss rate 0-100 and reachability (any successful round means reachable).
-func measure(target string) (rttMs, lossPct int, reachable bool) {
-	ok, sum := 0, 0
+// the RTT jitter across this probe's successful rounds (F-0907), the packet loss rate 0-100 and
+// reachability (any successful round means reachable).
+func measure(target string) (rttMs, jitterMs, lossPct int, reachable bool) {
+	var samples []int
 	for i := 0; i < probeRounds; i++ {
 		if i > 0 {
 			time.Sleep(roundSpacing)
@@ -133,13 +135,34 @@ func measure(target string) (rttMs, lossPct int, reachable bool) {
 			continue
 		}
 		_ = conn.Close()
-		ok++
-		sum += int(time.Since(start).Milliseconds())
+		samples = append(samples, int(time.Since(start).Milliseconds()))
 	}
-	if ok == 0 {
-		return 0, 100, false
+	if len(samples) == 0 {
+		return 0, 0, 100, false
 	}
-	return sum / ok, (probeRounds - ok) * 100 / probeRounds, true
+	sum := 0
+	for _, s := range samples {
+		sum += s
+	}
+	return sum / len(samples), jitterOf(samples), (probeRounds - len(samples)) * 100 / probeRounds, true
+}
+
+// jitterOf is the mean absolute difference between consecutive successful round
+// RTTs (F-0907): 0 for a perfectly stable path, larger the more the latency
+// wobbles within one probe; fewer than two samples means no jitter datum (0).
+func jitterOf(samples []int) int {
+	if len(samples) < 2 {
+		return 0
+	}
+	sum := 0
+	for i := 1; i < len(samples); i++ {
+		d := samples[i] - samples[i-1]
+		if d < 0 {
+			d = -d
+		}
+		sum += d
+	}
+	return sum / (len(samples) - 1)
 }
 
 // verdictOf decides by reachability and loss: unreachable or over half the rounds failing means sick --

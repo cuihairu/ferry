@@ -192,7 +192,7 @@ func TestAgentWSHelloMeta(t *testing.T) {
 }
 
 func TestAgentWSProbeReport(t *testing.T) {
-	r := newTestRouter(t)
+	r, db := newTestRouterWithDB(t)
 
 	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
 		"name": "probe-1", "address": "sh.example.com", "port": 443, "protocol": "vless",
@@ -229,7 +229,7 @@ func TestAgentWSProbeReport(t *testing.T) {
 		Items: []agentproto.ProbeReport{
 			{
 				TargetKind: agentproto.ProbeTargetTunnel, TargetNode: 2,
-				Direction: agentproto.DirectionOut, RttMs: 48,
+				Direction: agentproto.DirectionOut, RttMs: 48, JitterMs: 6,
 				Reachable: true, Verdict: agentproto.ProbeVerdictHealthy,
 				Region: "华东", ISP: "电信", ProbedAt: time.Now(),
 			},
@@ -248,6 +248,15 @@ func TestAgentWSProbeReport(t *testing.T) {
 	}
 	if ack.Recorded != 1 {
 		t.Fatalf("recorded = %d, want 1", ack.Recorded)
+	}
+
+	// F-0907: the jitter statistic rides along into storage with the verdict.
+	var row storage.ProbeReport
+	if err := db.Where("node_id=?", node["id"].(float64)).Order("id DESC").First(&row).Error; err != nil {
+		t.Fatalf("stored report: %v", err)
+	}
+	if row.RttMs != 48 || row.JitterMs != 6 {
+		t.Fatalf("stored rtt/jitter = %d/%d, want 48/6", row.RttMs, row.JitterMs)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/egresshealth"
 	"github.com/cuihairu/ferry/server/internal/nodehealth"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
@@ -63,6 +64,7 @@ type nodeProbeStatus struct {
 	TargetKind string    `json:"target_kind"`
 	Direction  string    `json:"direction"`
 	RttMs      int       `json:"rtt_ms"`
+	JitterMs   int       `json:"jitter_ms"`
 	LossPct    int       `json:"loss_pct"`
 	Reachable  bool      `json:"reachable"`
 	Verdict    string    `json:"verdict"`
@@ -76,7 +78,11 @@ type nodeStatus struct {
 	Probe *nodeProbeStatus `json:"probe"`
 	// Health is the node's own derived health (F-0902), distinct from the
 	// per-path health pathhealth reports.
-	Health    string         `json:"health"`
+	Health string `json:"health"`
+	// Egress is the node's own public-egress health (F-0905) from its exit
+	// baseline probes -- "this node can reach the outside", as opposed to
+	// Health's "others can reach this node".
+	Egress    string         `json:"egress"`
 	RelayCaps *nodeRelayCaps `json:"relay_caps,omitempty"`
 }
 
@@ -96,6 +102,7 @@ func (h *Handler) nodeStatus(c *gin.Context) {
 	// Node health (F-0902) derives from the node's own signals; computed on
 	// read so it is always as fresh as the underlying state.
 	out.Health = nodehealth.Evaluate(h.db, []storage.Node{*n}, time.Now())[n.ID]
+	out.Egress = egresshealth.Evaluate(h.db, []storage.Node{*n}, time.Now())[n.ID]
 	if n.RelayCaps != "" {
 		var caps nodeRelayCaps
 		if err := json.Unmarshal([]byte(n.RelayCaps), &caps); err == nil {
@@ -127,6 +134,7 @@ func (h *Handler) nodeStatus(c *gin.Context) {
 			TargetKind: rep.TargetKind,
 			Direction:  rep.Direction,
 			RttMs:      rep.RttMs,
+			JitterMs:   rep.JitterMs,
 			LossPct:    rep.LossPct,
 			Reachable:  rep.Reachable,
 			Verdict:    rep.Verdict,

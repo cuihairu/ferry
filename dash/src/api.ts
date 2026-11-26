@@ -1054,6 +1054,7 @@ export interface NodeStatusAggregate {
     target_kind: string
     direction: string
     rtt_ms: number
+    jitter_ms: number
     loss_pct: number
     reachable: boolean
     verdict: string
@@ -1074,6 +1075,8 @@ export interface NodeStatusAggregate {
   } | null
   /** derived per-node health (F-0902): healthy/unknown/degraded/off */
   health: string
+  /** derived per-node egress health (F-0905) from its own exit baseline probes */
+  egress: string
 }
 
 export function getNodeStatus(id: number): Promise<NodeStatusAggregate> {

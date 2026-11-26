@@ -155,9 +155,31 @@ func TestMeasureUnreachable(t *testing.T) {
 	addr := ln.Addr().String()
 	_ = ln.Close()
 
-	rtt, loss, reachable := measure(addr)
-	if reachable || loss != 100 || rtt != 0 {
-		t.Fatalf("want unreachable loss=100, got rtt=%d loss=%d reachable=%v", rtt, loss, reachable)
+	rtt, jitter, loss, reachable := measure(addr)
+	if reachable || loss != 100 || rtt != 0 || jitter != 0 {
+		t.Fatalf("want unreachable loss=100, got rtt=%d jitter=%d loss=%d reachable=%v", rtt, jitter, loss, reachable)
+	}
+}
+
+// TestJitterOf covers F-0907's jitter computation: the mean absolute
+// difference between consecutive round RTTs, 0 for stable or single samples.
+func TestJitterOf(t *testing.T) {
+	cases := []struct {
+		name    string
+		samples []int
+		want    int
+	}{
+		{"stable", []int{10, 10, 10, 10, 10}, 0},
+		{"wobble", []int{10, 20, 10, 20}, 10},
+		{"drift down", []int{50, 40, 30}, 10},
+		{"single sample", []int{42}, 0},
+		{"empty", nil, 0},
+		{"two samples", []int{7, 12}, 5},
+	}
+	for _, tc := range cases {
+		if got := jitterOf(tc.samples); got != tc.want {
+			t.Fatalf("%s: jitterOf(%v) = %d, want %d", tc.name, tc.samples, got, tc.want)
+		}
 	}
 }
 

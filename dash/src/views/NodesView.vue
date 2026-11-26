@@ -1048,12 +1048,18 @@ async function remove(n: Node) {
             </el-tag>
             <span class="status-meta">节点自身状态（区别于单条线路健康）</span>
           </el-descriptions-item>
+          <el-descriptions-item label="出口健康">
+            <el-tag :type="healthTagType(statusData.egress)" size="small" disable-transitions>
+              {{ statusData.egress }}
+            </el-tag>
+            <span class="status-meta">节点自身公网出口（区别于「别人能否访问本节点」）</span>
+          </el-descriptions-item>
           <el-descriptions-item label="探测判定">
             <template v-if="statusData.probe">
               <el-tag :type="statusData.probe.verdict === 'healthy' ? 'success' : 'warning'" size="small" disable-transitions>
                 {{ statusData.probe.verdict }}
               </el-tag>
-              <span class="status-meta">{{ statusData.probe.direction }} · RTT {{ statusData.probe.rtt_ms }}ms · 丢包 {{ statusData.probe.loss_pct }}%</span>
+              <span class="status-meta">{{ statusData.probe.direction }} · RTT {{ statusData.probe.rtt_ms }}ms · 抖动 {{ statusData.probe.jitter_ms }}ms · 丢包 {{ statusData.probe.loss_pct }}%</span>
             </template>
             <span v-else>暂无探测记录</span>
           </el-descriptions-item>
