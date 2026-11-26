@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -187,5 +188,104 @@ func TestSubscriptionGroupDelivery(t *testing.T) {
 	raw = decoded(t, body)
 	if !strings.Contains(raw, "gentry-a.example.com") || !strings.Contains(raw, "gentry-b.example.com") {
 		t.Fatalf("unpinned subscription missing entries: %s", raw)
+	}
+}
+
+// TestSubXPolicyAndGroupParity covers the custom subscription surface's
+// parity with the main one (F-1143/F-1144): the scoped policy chain filters
+// the candidates and a path group pin serves only the resolved path's entry,
+// the same semantics as TestSubscriptionPolicyFilter /
+// TestSubscriptionGroupDelivery.
+func TestSubXPolicyAndGroupParity(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	panel := panelUserOf(t, r, "xparity-panel", nil)
+	rec := doJSONToken(t, r, panel, "POST", "/api/subscriptions", map[string]any{"name": "parity"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create sub: %d %s", rec.Code, rec.Body)
+	}
+	var s storage.Subscription
+	_ = json.Unmarshal(rec.Body.Bytes(), &s)
+	var owner storage.User
+	if err := db.Where("username = ?", "xparity-panel").First(&owner).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	mkNode := func(name string) storage.Node {
+		n := storage.Node{Name: name, Token: name, Address: name + ".example.com", Port: 443,
+			Protocol: "vless", Config: `{"uuid":"u-1"}`, Role: "entry", Enabled: true,
+			Status: "online", PoolState: "active"}
+		if err := db.Create(&n).Error; err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	entryA := mkNode("xentry-a")
+	entryB := mkNode("xentry-b")
+	landA := mkNode("xland-a")
+	landB := mkNode("xland-b")
+
+	pathA := storage.Path{Name: "xpath-a", EntryNodeID: entryA.ID, LandingNodeID: landA.ID}
+	pathB := storage.Path{Name: "xpath-b", EntryNodeID: entryB.ID, LandingNodeID: landB.ID}
+	if err := db.Create(&pathA).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&pathB).Error; err != nil {
+		t.Fatal(err)
+	}
+	group := storage.PathGroup{Name: "xparity-group", Direction: "out", DefaultPathID: &pathA.ID}
+	if err := db.Create(&group).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []storage.PathGroupMember{
+		{GroupID: group.ID, PathID: pathA.ID, Position: 0},
+		{GroupID: group.ID, PathID: pathB.ID, Position: 1},
+	} {
+		if err := db.Create(&m).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Both path landings healthy: the default path wins the pin.
+	now := time.Now()
+	verdict := func(prober, target uint, v string) {
+		if err := db.Create(&storage.ProbeReport{
+			NodeID: prober, TargetKind: "peer", TargetNodeID: &target,
+			Verdict: v, ProbedAt: now.Add(-time.Minute),
+		}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	verdict(entryA.ID, landA.ID, "healthy")
+	verdict(entryB.ID, landB.ID, "healthy")
+
+	// The subscription owner's user policy pins the group.
+	rec = doJSON(t, r, "POST", "/api/policies", map[string]any{
+		"scope": "user", "subject_id": owner.ID,
+		"constraints": map[string]any{"path_group_id": group.ID},
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create policy: %d %s", rec.Code, rec.Body)
+	}
+
+	body := getSub(t, r, "/sub/x/"+s.Token, "v2rayNG/1.8")
+	if body.Code != http.StatusOK {
+		t.Fatalf("sub fetch: %d %s", body.Code, body.Body)
+	}
+	raw := decoded(t, body)
+	if !strings.Contains(raw, "xentry-a.example.com") || strings.Contains(raw, "xentry-b.example.com") {
+		t.Fatalf("group pin not honored on the custom surface: %s", raw)
+	}
+
+	// Removing the pin restores both entries.
+	var pol storage.Policy
+	if err := db.Where("scope = ?", "user").First(&pol).Error; err != nil {
+		t.Fatal(err)
+	}
+	if rec = doJSON(t, r, "DELETE", "/api/policies/"+utoa(pol.ID), nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete policy: %d %s", rec.Code, rec.Body)
+	}
+	raw = decoded(t, getSub(t, r, "/sub/x/"+s.Token, "v2rayNG/1.8"))
+	if !strings.Contains(raw, "xentry-a.example.com") || !strings.Contains(raw, "xentry-b.example.com") {
+		t.Fatalf("unpinned custom subscription missing entries: %s", raw)
 	}
 }

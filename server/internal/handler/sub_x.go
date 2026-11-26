@@ -15,6 +15,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/pathhealth"
+	"github.com/cuihairu/ferry/server/internal/policy"
 	"github.com/cuihairu/ferry/server/internal/pool"
 	"github.com/cuihairu/ferry/server/internal/quota"
 	"github.com/cuihairu/ferry/server/internal/storage"
@@ -100,9 +102,41 @@ func (h *Handler) subscriptionFiltered(c *gin.Context) {
 			return
 		}
 		rtt := h.entryRttMs()
+		// Scoped policy constraints (F-0282~F-0293), the same chain as the
+		// main subscription so the two surfaces cannot drift (F-1144).
+		eff, _, err := policy.Resolve(h.db, u.ID, 0)
+		if err != nil {
+			fail(c, http.StatusInternalServerError, err)
+			return
+		}
+		nodes, _ = policy.ApplyConstraints(nodes, eff)
 		entries = make([]sub.Entry, 0, len(nodes))
 		for _, n := range nodes {
 			entries = append(entries, sub.Entry{Node: n, RttMs: rtt[n.ID]})
+		}
+		// Group↔subscription policy link (F-0270), the same pin as the main
+		// subscription (F-1143): a policy chain pinning a path group serves
+		// only the resolved serving path's entry node. Nothing usable
+		// resolves to an empty subscription.
+		if eff.PathGroupID != 0 {
+			resolved, err := pathhealth.ResolveGroupPath(h.db, eff.PathGroupID, time.Now())
+			if err != nil {
+				fail(c, http.StatusInternalServerError, err)
+				return
+			}
+			passing := map[uint]bool{}
+			for _, n := range nodes {
+				passing[n.ID] = true
+			}
+			filtered := entries[:0]
+			if resolved != nil && passing[resolved.EntryNodeID] {
+				for _, e := range entries {
+					if e.Node.ID == resolved.EntryNodeID {
+						filtered = append(filtered, e)
+					}
+				}
+			}
+			entries = filtered
 		}
 		// Per-sub three-dimension filtering (in memory); a labels parse failure counts as
 		// no labels and never becomes a 500.
