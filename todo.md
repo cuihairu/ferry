@@ -1628,7 +1628,8 @@ External Client
     - 待补（F-1042 | 区级未满足原因：本区 F-1049 已关；其余：priority/quality 模式未满足(ValidPolicy 仅 4 种 alloc.go:46-52)、按套餐/业务类型配置未满足(PolicySetting 仅 per-direction)、覆盖到期自动恢复未满足(无 TTL、sweep 跳过 manual)、国内直连优先/中继更优/回退/比较依据 部分(perf_first 优质线路偏好近似，无直连vs中继比较依据记录)。）
 -   [x] `F-1043` 定义 balanced 调度模式。
     - 备注（Task ID: F-1043 | Status: Done | Evidence: PolicyBalanced；TestPickBalanced | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1044` 定义 quality 调度模式。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1044` 定义 quality 调度模式。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1044 | Status: Done | Evidence: PolicyQuality="quality" 入 ValidPolicy：比较只看新鲜探针质量（F-1028 QualityScore，loss 0.7>RTT 0.3，无样本=中性 0.5 不罚冷启动），层内 score 高者胜、同分按名字，价格完全不参与（跳过缺价分区，同 priority 模式）；shouldSwitch 峰时只在 win 分数超 cur+0.15（qualitySwitchMargin，同 balanced 保守度）才动，谷值窗口按全序重排；SavePolicy 校验文案加 quality；TestPickQualityMode（实测压价压载/同分名字序）+TestShouldSwitchQualityMode（显著改善动/边际等待/劣化不动）+TestSweepQualityMode（sweep 级最贵实测线胜出+settled 不churn）+TestAllocPolicyQualityAccepted（API 收 quality 回读） | Verification: go vet + server 全套件 green exit=0（51 ok）2026-11-26 | Commit: 2915e29）
 -   [x] `F-1045` 定义 cost 调度模式。
     - 备注（Task ID: F-1045 | Status: Done | Evidence: PolicyCostFirst；TestPickCostFirst | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1046` 为每种模式定义确定性的评分和约束规则。
