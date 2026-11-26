@@ -1703,3 +1703,86 @@ export function importBillsFile(id: number, file: File): Promise<{ ok: boolean; 
   form.append('file', file)
   return request(`/api/cost/sources/${id}/import-file`, { method: 'POST', body: form })
 }
+
+export interface CostReconciliationRow {
+  id: number
+  scope_kind: string
+  target_id: number
+  target_key: string
+  period_start: string
+  period_end: string
+  currency: string
+  estimate_cents: number
+  actual_cents: number
+  diff_cents: number
+  status: string
+  note: string
+  approved_by: string
+  created_at: string
+}
+
+export interface CostAllocationRow {
+  id: number
+  cost_item_id: number
+  rule_id: number
+  rule_version: number
+  target_kind: string
+  target_id: number
+  target_key: string
+  basis: string
+  ratio_ppm: number
+  original_cents: number
+  allocated_cents: number
+  currency: string
+}
+
+export interface CostAllocationRuleRow {
+  id: number
+  name: string
+  kind: string
+  version: number
+  enabled: boolean
+  params?: string
+  note: string
+  created_at: string
+}
+
+export function getReconciliations(): Promise<{ reconciliations: CostReconciliationRow[] }> {
+  return get('/api/cost/reconciliations')
+}
+
+/** createReconciliation compares stored actual vs estimate for one scope/period. */
+export function createReconciliation(input: {
+  scope_kind: string
+  target_id?: number
+  target_key?: string
+  from: string
+  to: string
+  currency: string
+}): Promise<CostReconciliationRow> {
+  return post('/api/cost/reconciliations', input)
+}
+
+export function confirmReconciliation(id: number, status: string, note: string): Promise<CostReconciliationRow> {
+  return post(`/api/cost/reconciliations/${id}/confirm`, { status, note })
+}
+
+export function getAllocationRules(): Promise<{ rules: CostAllocationRuleRow[] }> {
+  return get('/api/cost/allocation-rules')
+}
+
+export function createAllocationRule(input: { name: string; kind: string; params: string; note: string }): Promise<CostAllocationRuleRow> {
+  return post('/api/cost/allocation-rules', input)
+}
+
+export function editAllocationRule(id: number, patch: { name?: string; kind?: string; params?: string; note?: string; enabled?: boolean }): Promise<CostAllocationRuleRow> {
+  return post(`/api/cost/allocation-rules/${id}/edit`, patch)
+}
+
+export function getAllocations(costItemId?: number): Promise<{ allocations: CostAllocationRow[] }> {
+  return get(`/api/cost/allocations${costItemId ? `?cost_item_id=${costItemId}` : ''}`)
+}
+
+export function recomputeAllocations(recordId: number, ruleId = 0, version = 0): Promise<{ count: number }> {
+  return post(`/api/cost/records/${recordId}/recompute`, { rule_id: ruleId, version })
+}
