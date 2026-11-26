@@ -330,3 +330,70 @@ func (h *Handler) pathCapacity(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, out)
 }
+
+// pathTrafficDay is one day's aggregated traffic on a path (F-1248).
+type pathTrafficDay struct {
+	Date string `json:"date"`
+	Rx   int64  `json:"rx"`
+	Tx   int64  `json:"tx"`
+}
+
+// pathTrafficSummary is the path-dimension traffic view (F-1248), day-grouped
+// like the per-user view (userTraffic).
+type pathTrafficSummary struct {
+	PathID      uint             `json:"path_id"`
+	Direction   string           `json:"direction"`
+	MeterNodeID uint             `json:"meter_node_id"` // the node whose metered ledger the view reads
+	TotalRx     int64            `json:"total_rx"`
+	TotalTx     int64            `json:"total_tx"`
+	Days        []pathTrafficDay `json:"days"`
+}
+
+// pathTraffic handles GET /paths/:id/traffic (F-1248): the path-dimension view
+// derived from the metered ledger. Single-end metering (F-1242/F-1243) bills a
+// user's bytes once, at the node holding the user inbound -- for out-direction
+// paths that is the entry, for in-direction paths the landing; relay nodes sit
+// mid-tunnel, never bill users and are not consulted. The view aggregates that
+// metering node's TrafficLog rows. Attribution caveat, by design: the ledger has
+// no per-flow path tag, so when several paths share the metering node the same
+// rows count toward each of them -- the view is a shared-node read, not a
+// per-flow split (agent-side path tagging would be a protocol change).
+func (h *Handler) pathTraffic(c *gin.Context) {
+	var p storage.Path
+	if err := h.db.First(&p, c.Param("id")).Error; err != nil {
+		fail(c, http.StatusNotFound, errors.New("path not found"))
+		return
+	}
+	meterID := p.EntryNodeID
+	if p.Direction == "in" {
+		meterID = p.LandingNodeID
+	}
+	var rows []storage.TrafficLog
+	if err := h.db.Select("rx_bytes", "tx_bytes", "recorded_at").
+		Where("node_id = ?", meterID).Order("recorded_at").Find(&rows).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	summary := pathTrafficSummary{
+		PathID: p.ID, Direction: p.Direction, MeterNodeID: meterID, Days: []pathTrafficDay{},
+	}
+	byDay := map[string]*pathTrafficDay{}
+	var order []string
+	for _, r := range rows {
+		summary.TotalRx += r.RxBytes
+		summary.TotalTx += r.TxBytes
+		day := r.RecordedAt.Format("2006-01-02")
+		d := byDay[day]
+		if d == nil {
+			d = &pathTrafficDay{Date: day}
+			byDay[day] = d
+			order = append(order, day)
+		}
+		d.Rx += r.RxBytes
+		d.Tx += r.TxBytes
+	}
+	for _, day := range order {
+		summary.Days = append(summary.Days, *byDay[day])
+	}
+	c.JSON(http.StatusOK, summary)
+}
