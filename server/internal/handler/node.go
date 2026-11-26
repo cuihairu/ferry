@@ -124,6 +124,10 @@ func newPersistedNode(db *gorm.DB, in *model.NodeInput) (*storage.Node, error) {
 	if in.BillingType != "" {
 		n.BillingType = in.BillingType
 	}
+	// plan binding (F-1047): panel-set, agent registration reports ignore it.
+	if in.PlanID != nil {
+		n.PlanID = *in.PlanID
+	}
 	if in.TrafficPriceCents != nil {
 		n.TrafficPriceCents = *in.TrafficPriceCents
 	}
@@ -234,6 +238,11 @@ func (h *Handler) updateNode(c *gin.Context) {
 	// 0 reset from absent.
 	if in.SchedPriority != nil {
 		updates["sched_priority"] = *in.SchedPriority
+		metaProvided = true
+	}
+	// Plan binding (F-1047): panel-set; 0 clears it back to "every plan".
+	if in.PlanID != nil {
+		updates["plan_id"] = *in.PlanID
 		metaProvided = true
 	}
 	if metaProvided {

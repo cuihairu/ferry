@@ -69,6 +69,9 @@ type NodeInput struct {
 	// higher priority, 0 = standard. nil keeps the current value (the pointer
 	// distinguishes an explicit 0 reset from absent).
 	SchedPriority *int `json:"sched_priority,omitempty"`
+	// PlanID binds the node to one subscription plan (F-1047): 0 = serves
+	// every plan. nil keeps the current value.
+	PlanID *uint `json:"plan_id,omitempty"`
 	// Cost fields (F-0743): editable by the admin, feeding the estimate engine
 	// (billing.EstimateNode); pointers distinguish "absent" from "explicitly 0".
 	BillingType       string `json:"billing_type,omitempty"`

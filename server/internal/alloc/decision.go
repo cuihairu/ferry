@@ -177,7 +177,7 @@ func Decide(req *Request) []Decision {
 			continue
 		}
 		direction := foldDirection(entry.Direction)
-		policyName := policyFor(req.Policy, direction)
+		policyName := policyForEntry(req.Policy, entry)
 		d := Decision{
 			EntryID: entry.ID, EntryName: entry.Name,
 			Direction: direction, Policy: policyName,

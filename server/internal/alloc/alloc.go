@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/cuihairu/ferry/packages/agentproto"
@@ -62,6 +63,25 @@ func ValidPolicy(p string) bool {
 	return false
 }
 
+// policyMustBeMsg is the shared validation message for any policy slot,
+// including the per-plan mode overrides (F-1047).
+func policyMustBeMsg() string {
+	return fmt.Sprintf("policy must be %s/%s/%s/%s/%s/%s",
+		PolicyLeastConn, PolicyCostFirst, PolicyPerfFirst, PolicyBalanced, PolicyPriority, PolicyQuality)
+}
+
+// policyForEntry returns the effective mode for one entry (F-1047): a
+// plan-bound entry takes its plan's override when present; everything else
+// falls back to the direction's system tier.
+func policyForEntry(p PolicySetting, entry storage.Node) string {
+	if entry.PlanID != 0 {
+		if mode, ok := p.SchedPlanModes[strconv.FormatUint(uint64(entry.PlanID), 10)]; ok {
+			return mode
+		}
+	}
+	return policyFor(p, entry.Direction)
+}
+
 // PolicySetting holds one tier per direction: outbound and inbound pools weight differently (design doc §C.5.2);
 // rebalancing happens in the off-peak window (hours, [Start,End) half-open) — a switch requires being strictly better
 // in the policy total order; switching during peak is conservative to prevent trail churn (E-22).
@@ -83,6 +103,11 @@ type PolicySetting struct {
 	// F-0605/F-0610: never treated as free) or treat_zero (legacy behavior).
 	MaxCostPerGB int64  `json:"max_cost_per_gb"`
 	MissingCost  string `json:"missing_cost"`
+	// Per-plan mode overrides (F-1047): the key is the plan id in decimal,
+	// the value a policy mode; entries bound to that plan (Node.PlanID)
+	// decide with that mode instead of the direction tiers. Only the mode is
+	// overridden -- the window, weights and cost guards stay system-wide.
+	SchedPlanModes map[string]string `json:"sched_plan_modes,omitempty"`
 }
 
 // Multiplicative score weight defaults (= the current formula 0.5*loadN + 0.3*costN - 0.2*premium).
@@ -199,7 +224,7 @@ func ValidateSetting(setting PolicySetting) (PolicySetting, error) {
 		setting.In = DefaultPolicyIn
 	}
 	if !ValidPolicy(setting.Out) || !ValidPolicy(setting.In) {
-		return setting, fmt.Errorf("policy must be %s/%s/%s/%s/%s/%s", PolicyLeastConn, PolicyCostFirst, PolicyPerfFirst, PolicyBalanced, PolicyPriority, PolicyQuality)
+		return setting, fmt.Errorf("%s", policyMustBeMsg())
 	}
 	if !validWindow(setting.RebalanceStart, setting.RebalanceEnd) {
 		return setting, fmt.Errorf("rebalance window must be 0-23 with start < end")
@@ -220,6 +245,16 @@ func ValidateSetting(setting PolicySetting) (PolicySetting, error) {
 	}
 	if !ValidMissingCost(setting.MissingCost) {
 		return setting, fmt.Errorf("missing cost must be %s/%s", MissingCostDeprioritize, MissingCostTreatZero)
+	}
+	// Per-plan mode overrides (F-1047): keys are plan ids, values modes.
+	for k, m := range setting.SchedPlanModes {
+		id, err := strconv.ParseUint(k, 10, 64)
+		if err != nil || id == 0 {
+			return setting, fmt.Errorf("sched_plan_modes key %q must be a positive plan id", k)
+		}
+		if !ValidPolicy(m) {
+			return setting, fmt.Errorf("sched_plan_modes[%s]: %s", k, policyMustBeMsg())
+		}
 	}
 	return setting, nil
 }

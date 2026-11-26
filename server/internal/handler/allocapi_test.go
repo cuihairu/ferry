@@ -525,3 +525,43 @@ func TestAllocPolicyQualityAccepted(t *testing.T) {
 		t.Fatalf("policy out = %s", pol.Policy.Out)
 	}
 }
+
+// TestAllocPolicyPlanModes covers the per-plan mode map's API surface
+// (F-1047): the map persists and reads back, and an invalid mode or key is
+// rejected with the full-window payload.
+func TestAllocPolicyPlanModes(t *testing.T) {
+	r, _ := newTestRouterWithDB(t)
+
+	rec := doJSON(t, r, "PUT", "/api/alloc/policy", map[string]any{
+		"out": "cost_first", "in": "perf_first", "rebalance_start": 1, "rebalance_end": 7,
+		"sched_plan_modes": map[string]string{"7": "priority", "9": "quality"},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("put status = %d body=%s", rec.Code, rec.Body)
+	}
+	rec = doJSON(t, r, "GET", "/api/alloc", nil)
+	var pol struct {
+		Policy struct {
+			SchedPlanModes map[string]string `json:"sched_plan_modes"`
+		} `json:"policy"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &pol); err != nil {
+		t.Fatal(err)
+	}
+	if pol.Policy.SchedPlanModes["7"] != "priority" || pol.Policy.SchedPlanModes["9"] != "quality" {
+		t.Fatalf("modes = %+v", pol.Policy.SchedPlanModes)
+	}
+
+	for name, modes := range map[string]any{
+		"invalid mode": map[string]string{"7": "greedy"},
+		"bad key":      map[string]string{"vip": "priority"},
+	} {
+		rec = doJSON(t, r, "PUT", "/api/alloc/policy", map[string]any{
+			"out": "cost_first", "in": "perf_first", "rebalance_start": 1, "rebalance_end": 7,
+			"sched_plan_modes": modes,
+		})
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s status = %d", name, rec.Code)
+		}
+	}
+}

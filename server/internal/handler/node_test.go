@@ -347,3 +347,52 @@ func TestNodeSchedPriority(t *testing.T) {
 		t.Fatalf("negative status = %d %s", rec.Code, rec.Body)
 	}
 }
+
+// TestNodePlanID covers the plan-binding API (F-1047): set at create,
+// nil-keeps / explicit-0-clears on update, and the value lands on the node
+// the sweep's per-plan mode resolution reads.
+func TestNodePlanID(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
+		"name": "plan-1", "address": "plan1.example.com", "port": 443,
+		"protocol": "vless", "plan_id": 5,
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s", rec.Code, rec.Body)
+	}
+	var created storage.Node
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.PlanID != 5 {
+		t.Fatalf("created plan_id = %d", created.PlanID)
+	}
+
+	// an absent field keeps the binding
+	if rec = doJSON(t, r, "PUT", "/api/nodes/"+utoa(created.ID), map[string]any{
+		"line_type": "cn2_gia",
+	}); rec.Code != http.StatusOK {
+		t.Fatalf("keep status = %d %s", rec.Code, rec.Body)
+	}
+	var row storage.Node
+	if err := db.First(&row, created.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if row.PlanID != 5 {
+		t.Fatalf("absent plan_id must keep: %+v", row)
+	}
+
+	// an explicit 0 clears the binding
+	if rec = doJSON(t, r, "PUT", "/api/nodes/"+utoa(created.ID), map[string]any{
+		"plan_id": 0,
+	}); rec.Code != http.StatusOK {
+		t.Fatalf("clear status = %d %s", rec.Code, rec.Body)
+	}
+	if err := db.First(&row, created.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if row.PlanID != 0 {
+		t.Fatalf("explicit 0 clear failed: %+v", row)
+	}
+}

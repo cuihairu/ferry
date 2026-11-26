@@ -207,6 +207,10 @@ type Node struct {
 	ProviderID *uint  `gorm:"index" json:"provider_id"`        // owning cloud Provider row, panel-set (F-0207)
 	Labels     string `gorm:"type:text" json:"labels"`         // JSON array
 	Group      string `gorm:"size:64;default:''" json:"group"` // free business grouping tag (F-0743)
+	// PlanID is the plan this node serves (F-1047): 0 = serves every plan;
+	// a plan-scoped scheduling mode (PolicySetting.SchedPlanModes) applies
+	// only to nodes bound to that plan. Panel-set, agent reports never touch it.
+	PlanID uint `gorm:"default:0" json:"plan_id"`
 	// SchedPriority is the scheduling priority tier (F-1029): lower value =
 	// higher priority, 0 = standard. The sweep prefers the best tier that has
 	// an allocatable candidate; the policy comparator decides within a tier.

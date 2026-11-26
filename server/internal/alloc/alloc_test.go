@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 	"time"
 
@@ -168,7 +169,9 @@ func TestPickHealthGate(t *testing.T) {
 func TestPolicyPersistence(t *testing.T) {
 	db := newTestDB(t)
 	setting, err := LoadPolicy(db)
-	if err != nil || setting != DefaultPolicySetting() {
+	// reflect.DeepEqual: PolicySetting carries a map (sched_plan_modes) and so
+	// is not comparable with ==.
+	if err != nil || !reflect.DeepEqual(setting, DefaultPolicySetting()) {
 		t.Fatalf("default policy = %+v err=%v", setting, err)
 	}
 
@@ -179,7 +182,7 @@ func TestPolicyPersistence(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := LoadPolicy(db)
-	if err != nil || got != setting {
+	if err != nil || !reflect.DeepEqual(got, setting) {
 		t.Fatalf("roundtrip = %+v err=%v", got, err)
 	}
 
