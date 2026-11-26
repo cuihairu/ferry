@@ -231,6 +231,10 @@ func run(ctx context.Context, cfg config.Config) error {
 	// settle-side already refuses non-pending orders, so the two ends close the same rule.
 	go handler.OrderLoop(ctx, db, time.Duration(cfg.OrderSweepIntervalSec)*time.Second, nil)
 
+	// Payment reconciliation task (F-1308): counts the ledger fault classes on schedule
+	// and lands one deduped admin alert per day when anything is off.
+	go handler.ReconLoop(ctx, db, time.Duration(cfg.ReconSweepIntervalSec)*time.Second, nil)
+
 	// Quota linkage (SAVE-6): subscriptions of users over the traffic/cost threshold auto-downgrade (only low-cost tier
 	// entries are emitted), trigger/release audit and in-app messages are scan-driven, the subscription egress reads the audit trail instantly.
 	go quota.LinkLoop(ctx, db, time.Duration(cfg.QuotaLinkIntervalSec)*time.Second, nil)

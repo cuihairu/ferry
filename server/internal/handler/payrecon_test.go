@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/herald"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"gorm.io/gorm"
 )
@@ -544,5 +545,72 @@ func TestReconcileSummaryWholeLedger(t *testing.T) {
 	}
 	if s.Grants != 250 {
 		t.Fatalf("grants = %d", s.Grants)
+	}
+}
+
+// TestReconSweep covers the scheduled reconciliation task (F-1308): each fault
+// class alone trips one deduped admin event, a clean ledger stays silent, and
+// a second sweep the same day adds nothing.
+func TestReconSweep(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	panelUserOf(t, r, "recon-buyer", nil)
+	var u storage.User
+	if err := db.Where("username = ?", "recon-buyer").First(&u).Error; err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+
+	// Clean ledger: silent.
+	if err := ReconSweep(db, now); err != nil {
+		t.Fatal(err)
+	}
+	var n int64
+	db.Model(&storage.Event{}).Where("kind = ?", herald.KindPayRecon).Count(&n)
+	if n != 0 {
+		t.Fatalf("clean ledger alerted: %d events", n)
+	}
+
+	// 缺发放: a paid order with a grant spec and no grant leg.
+	order := storage.PaymentOrder{OrderNo: "recon-grantless", UserID: u.ID, Provider: "epusdt",
+		Status: "paid", AmountCents: 1000, GrantType: "add_quota", GrantValue: 10 << 30, CreatedAt: now}
+	if err := db.Create(&order).Error; err != nil {
+		t.Fatal(err)
+	}
+	// 有流水未结算 + 孤儿流水: a pending order whose money already arrived, and a
+	// transaction pointing at a deleted (never-created) order.
+	if err := db.Create(&storage.PaymentOrder{OrderNo: "recon-stuck", UserID: u.ID, Provider: "epusdt",
+		Status: "pending", AmountCents: 2000, CreatedAt: now}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&storage.PaymentTransaction{OrderNo: "recon-stuck", Provider: "epusdt",
+		ExternalID: "recon-tx-1", AmountCents: 2000, Direction: "in", CreatedAt: now}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&storage.PaymentTransaction{OrderNo: "recon-ghost", Provider: "epusdt",
+		ExternalID: "recon-tx-2", AmountCents: 3000, Direction: "in", CreatedAt: now}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ReconSweep(db, now); err != nil {
+		t.Fatal(err)
+	}
+	var evs []storage.Event
+	if err := db.Where("kind = ?", herald.KindPayRecon).Find(&evs).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 || evs[0].Target != herald.TargetAdmin {
+		t.Fatalf("events = %+v", evs)
+	}
+	if evs[0].DedupKey != fmt.Sprintf("payrecon:%s", now.Format("2006-01-02")) {
+		t.Fatalf("dedup key = %s", evs[0].DedupKey)
+	}
+
+	// Same-day dedup.
+	if err := ReconSweep(db, now); err != nil {
+		t.Fatal(err)
+	}
+	db.Model(&storage.Event{}).Where("kind = ?", herald.KindPayRecon).Count(&n)
+	if n != 1 {
+		t.Fatalf("same-day sweep should dedup, got %d", n)
 	}
 }

@@ -1,13 +1,16 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/herald"
 	"github.com/cuihairu/ferry/server/internal/ringlog"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
@@ -371,4 +374,97 @@ func (h *Handler) loadReconcileRow(orderNo string) (*reconcileRow, bool) {
 	_ = h.db.Where("order_no = ?", orderNo).Order("id").Find(&row.Transactions).Error
 	_ = h.db.Where("order_no = ?", orderNo).Order("id").Find(&row.Grants).Error
 	return row, true
+}
+
+// payReconCounts tallies the four reconciliation fault classes over the whole
+// ledger: paid/refunded orders without a money leg (缺支付流水), paid orders
+// with a grant spec but no grant leg (缺发放), pending orders that already
+// carry money (有流水未结算), and orphan transactions pointing at no order.
+// These are the same faults the GET /payments/reconcile view lists per row;
+// the sweep just counts them.
+func payReconCounts(db *gorm.DB) (missingTxn, missingGrant, unsettled, orphanTxn int64, err error) {
+	if err = db.Model(&storage.PaymentOrder{}).
+		Where("status IN ? AND order_no NOT IN (?)", []string{"paid", "refunded"},
+			db.Model(&storage.PaymentTransaction{}).Select("order_no")).
+		Count(&missingTxn).Error; err != nil {
+		return
+	}
+	if err = db.Model(&storage.PaymentOrder{}).
+		Where("status = ? AND grant_type <> ? AND order_no NOT IN (?)", "paid", "",
+			db.Model(&storage.Grant{}).Select("order_no")).
+		Count(&missingGrant).Error; err != nil {
+		return
+	}
+	if err = db.Model(&storage.PaymentOrder{}).
+		Where("status = ? AND order_no IN (?)", "pending",
+			db.Model(&storage.PaymentTransaction{}).Select("order_no")).
+		Count(&unsettled).Error; err != nil {
+		return
+	}
+	err = db.Model(&storage.PaymentTransaction{}).
+		Where("order_no NOT IN (?)", db.Model(&storage.PaymentOrder{}).Select("order_no")).
+		Count(&orphanTxn).Error
+	return
+}
+
+// ReconSweep is the scheduled reconciliation task (F-1308): count the fault
+// classes and, when any is nonzero, land one admin Herald alert -- deduped
+// per day fleet-wide (one summary per day, not one per fault). A clean ledger
+// stays silent. The 缺发放 count in the alert body reminds the operator that
+// POST /api/payments/compensate is the standing remedy (F-1307).
+func ReconSweep(db *gorm.DB, now time.Time) error {
+	missingTxn, missingGrant, unsettled, orphanTxn, err := payReconCounts(db)
+	if err != nil {
+		return err
+	}
+	if missingTxn == 0 && missingGrant == 0 && unsettled == 0 && orphanTxn == 0 {
+		return nil
+	}
+	dedup := fmt.Sprintf("payrecon:%s", now.Format("2006-01-02"))
+	var n int64
+	if err := db.Model(&storage.Event{}).
+		Where("kind = ? AND dedup_key = ?", herald.KindPayRecon, dedup).
+		Count(&n).Error; err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	_, _ = herald.Emit(db, herald.EmitInput{
+		Kind:     herald.KindPayRecon,
+		Severity: herald.SeverityWarning,
+		Title:    "支付对账异常",
+		Body: fmt.Sprintf("对账任务发现异常账目：缺支付流水 %d、缺发放 %d（可执行 POST /api/payments/compensate 补偿）、有流水未结算 %d、孤儿流水 %d。",
+			missingTxn, missingGrant, unsettled, orphanTxn),
+		Target:   herald.TargetAdmin,
+		DedupKey: dedup,
+		Meta: map[string]any{
+			"missing_txn": missingTxn, "missing_grant": missingGrant,
+			"unsettled": unsettled, "orphan_txn": orphanTxn,
+		},
+	})
+	return nil
+}
+
+// ReconLoop is the timed reconciliation sweep (matching the Loop convention of
+// notifyscan/OrderLoop); hourly is advised -- the sweep is four indexed counts.
+func ReconLoop(ctx context.Context, db *gorm.DB, interval time.Duration, logger *log.Logger) {
+	if logger == nil {
+		logger = log.Default()
+	}
+	if interval <= 0 {
+		return
+	}
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if err := ReconSweep(db, time.Now()); err != nil {
+				logger.Printf("reconsweep: %v", err)
+			}
+		}
+	}
 }

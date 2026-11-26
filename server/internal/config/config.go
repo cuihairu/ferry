@@ -119,6 +119,8 @@ type Config struct {
 	NotifyScanIntervalSec int
 	// OrderSweepIntervalSec is the pending-order expiry sweep period (F-1303, 30-minute timeout rule).
 	OrderSweepIntervalSec int
+	// ReconSweepIntervalSec is the payment reconciliation sweep period (F-1308).
+	ReconSweepIntervalSec int
 	// PriceWatchIntervalSec is the price-watch scan period (seconds, E-32): snapshots of watched keys are taken
 	// from the reference price table and compared for price drops / targets; hourly is advised (prices do not move by the minute).
 	PriceWatchIntervalSec int
@@ -236,6 +238,7 @@ func Load() Config {
 
 		NotifyScanIntervalSec: envIntOr("FERRY_NOTIFY_SCAN_SEC", 3600),
 		OrderSweepIntervalSec: envIntOr("FERRY_ORDER_SWEEP_SEC", 60),
+		ReconSweepIntervalSec: envIntOr("FERRY_RECON_SEC", 3600),
 		PriceWatchIntervalSec: envIntOr("FERRY_PRICE_WATCH_SEC", 3600),
 		QuotaLinkIntervalSec:  envIntOr("FERRY_QUOTA_LINK_SEC", 600),
 		SaveStatsIntervalSec:  envIntOr("FERRY_SAVE_STATS_SEC", 600),
@@ -321,6 +324,7 @@ func Default() Config {
 
 		NotifyScanIntervalSec: 3600,
 		OrderSweepIntervalSec: 60,
+		ReconSweepIntervalSec: 3600,
 		PriceWatchIntervalSec: 3600,
 		QuotaLinkIntervalSec:  600,
 		EventFlushIntervalSec: 30,

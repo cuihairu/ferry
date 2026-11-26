@@ -35,6 +35,7 @@ const (
 	KindNodeBlocked     = "node_blocked"       // node judged banned, entered the recovery pipeline
 	KindNodeDown        = "node_down"          // single-point auto removal
 	KindCostExceeded    = "cost_exceeded"      // high-cost alert activated
+	KindPayRecon        = "payrecon_flag"      // payment reconciliation faults found by the scheduled task (F-1308, deduped per day fleet-wide)
 	KindProcCrashed     = "proc_crashed"       // process restart after crash failed
 	KindRecoveryFailed  = "recovery_failed"    // recovery pipeline exhausted all tiers (escalates to a human)
 	KindCertExpiring    = "cert_expiring"      // certificate nearing expiry
