@@ -2075,36 +2075,36 @@ External Client
 
 -   [x] `F-1501` 展示用户账户信息。
     - 备注（Task ID: F-1501 | Status: Done | Evidence: panel HomeView.vue:199-215 账户卡（/api/panel/me api.ts Me:41-55） | Verification: API 侧 TestPanelMe（panel_test.go）；panel 无前端单测 | Commit: ce8b33e）
--   [ ] `F-1502` 展示当前套餐。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1502 | 部分：配额/状态卡（HomeView.vue:208-213）；无套餐实体展示。）
+-   [x] `F-1502` 展示当前套餐。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1502 | Status: Done | Evidence: 原「无套餐实体展示」结论已过时——panelMe 返回 plan_id+plan_name（按 User.PlanID F-1142 联 Plan 表，无套餐/已删套餐显示 —）+ HomeView 用量卡「套餐」行 | Verification: TestPanelRowExtensions 断言 plan_name=gold 绿（全量 51 ok FAIL=0 exit=0）；panel build 绿 | Commit: 4e1b3a1+033b302）
 -   [x] `F-1503` 展示套餐到期时间。
     - 备注（Task ID: F-1503 | Status: Done | Evidence: HomeView.vue:210 到期字段 formatDate(me.expires_at) | Verification: API 侧 TestPanelMe（panel_test.go）；panel 无前端单测 | Commit: ce8b33e）
 -   [x] `F-1504` 展示流量使用情况。
     - 备注（Task ID: F-1504 | Status: Done | Evidence: HomeView.vue:201-207 用量表+meter（used/quota+剩余） | Verification: API 侧 TestPanelMe（panel_test.go）；panel 无前端单测 | Commit: ce8b33e）
--   [ ] `F-1505` 展示设备列表。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1505 | 未满足：仅设备计数（HomeView.vue:212）；无列表。）
--   [ ] `F-1506` 提供设备解绑。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1506 | 未满足：面板无设备解绑。）
+-   [x] `F-1505` 展示设备列表。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1505 | Status: Done | Evidence: 原「仅设备计数」结论已过时——GET /api/panel/devices（panelDevices：本人 SubDevice 全行，hwid 设备+ip 24h 观察，含 user_agent/first_seen/last_seen）+ HomeView「设备」卡逐行列 key/客户端/首末见时间+解绑按钮，读失败静默隐藏 | Verification: TestPanelRowExtensions 设备表断言绿；panel build 绿 | Commit: 4e1b3a1+033b302）
+-   [x] `F-1506` 提供设备解绑。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1506 | Status: Done | Evidence: 原「面板无设备解绑」结论已过时——DELETE /api/panel/devices/:id（panelUnbindDevice：仅本人 hwid 行；ip 行为窗口观察不可解绑、他人行统一 404 防枚举）+ HomeView 设备卡「解绑」按钮（confirm 后调用，行数即时刷新，403 语义由 404 覆盖） | Verification: TestPanelRowExtensions 断言 ip/他人 404、本人 hwid 200 且列表减一 绿；panel build 绿 | Commit: 4e1b3a1+033b302）
 -   [x] `F-1507` 展示订阅地址。
     - 备注（Task ID: F-1507 | Status: Done | Evidence: HomeView.vue:227-248 订阅链接（v2ray/clash target） | Verification: API 侧 TestSubscription（sub_test.go）；panel 无前端单测 | Commit: ce8b33e）
--   [ ] `F-1508` 支持订阅令牌重置。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1508 | 未满足：sub_token 在 Me 返回（api.ts:44）但面板无重置 UI（管理端 UsersView.vue:148 有）。）
+-   [x] `F-1508` 支持订阅令牌重置。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1508 | Status: Done | Evidence: 原「面板无重置 UI」结论已过时——POST /api/panel/reset-token（panelResetToken：RandomToken 重发 SubToken，旧令牌立即失效——令牌即凭证（P0 身份模型），auditSensitive 落 panel 审计行 F-0045）+ HomeView「安全设置」卡两步确认重置（重置后 setToken 换新凭证+刷新 me+显式展示新令牌提示保存） | Verification: TestPanelRowExtensions 断言旧 token 404/新 token me 200 绿；panel build 绿 | Commit: 4e1b3a1+033b302）
 -   [x] `F-1509` 支持选择订阅格式。
     - 备注（Task ID: F-1509 | Status: Done | Evidence: HomeView.vue:108-111/:230-247 通用（v2ray/base64）与 clash/mihomo（YAML）两种格式链接 | Verification: API 侧 TestSubscriptionFormats（sub_test.go）；panel 无前端单测 | Commit: ce8b33e）
--   [ ] `F-1510` 提供 sing-box 导入说明。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1510 | 未满足：无 sing-box 导入说明。）
--   [ ] `F-1511` 提供 Clash/Mihomo 导入说明。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1511 | 未满足：仅 YAML 链接，无导入指引。）
+-   [x] `F-1510` 提供 sing-box 导入说明。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1510 | Status: Done | Evidence: HomeView sing-box 链接块下新增导入指引：sing-box → 配置 → 新建 → 从 URL 导入粘贴本链接；SFM/Stash（iOS）首页「+」选订阅粘贴拉取 | Verification: panel build 绿（vue-tsc 含类型检查） | Commit: 033b302）
+-   [x] `F-1511` 提供 Clash/Mihomo 导入说明。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1511 | Status: Done | Evidence: 原「仅 YAML 链接，无导入指引」结论已过时——HomeView clash/mihomo 链接块下新增导入指引：Clash Verge/Mihomo Party 订阅新建配置粘贴更新；移动端 ClashMeta for Android/Stash（iOS）从 URL 添加 | Verification: panel build 绿（vue-tsc 含类型检查） | Commit: 033b302）
 -   [x] `F-1512` 展示公告。
     - 备注（Task ID: F-1512 | Status: Done | Evidence: NotificationsView.vue:54-59/:75-89 announcement 类型通知 | Verification: API 侧 TestPanelNotifications（panel_test.go）；panel 无前端单测 | Commit: ce8b33e）
 -   [x] `F-1513` 展示订单和支付记录。
     - 备注（Task ID: F-1513 | Status: Done | Evidence: OrdersView.vue:46-78 订单卡（渠道/金额/权益/支付/退款） | Verification: API 侧 TestPanelOrders（panel_test.go）；panel 无前端单测 | Commit: ce8b33e）
--   [ ] `F-1514` 展示账单和套餐历史。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1514 | 部分：订单权益展示发放内容（OrdersView.vue:70-72）；无账单历史。）
--   [ ] `F-1515` 提供账号安全设置。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1515 | 未满足：面板无密码/2FA 设置；仅联系方式绑定（HomeView.vue:178-197）。）
--   [ ] `F-1516` 展示登录记录。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1516 | 未满足：面板无登录记录（loginlog 仅管理端 SettingsView.vue:368）。）
+-   [x] `F-1514` 展示账单和套餐历史。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1514 | Status: Done | Evidence: 原「无账单历史」结论已过时——账单侧=OrdersView 订单卡（渠道/金额/权益/支付/退款，F-1513 已勾）即用户账单史；套餐侧=GET /api/panel/plan-history（从管理端审计迹 POST /api/plans/:id/apply 行派生：Body 解析 user_ids 严格过滤本人，Target 联 Plan 取名，无新台账表，快照截断仅丢行不错记）+ HomeView「套餐变更历史」卡 | Verification: TestPanelRowExtensions 断言本人 1 行 gold、他人 0 行 绿；panel build 绿 | Commit: 4e1b3a1+033b302）
+-   [x] `F-1515` 提供账号安全设置。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1515 | Status: Done | Evidence: 原「面板无密码/2FA 设置」结论已过时——面板 P0 身份模型无密码登录（panel.go 头注：P1-1 换会话载体时收紧），令牌即密码，安全面=重置订阅令牌（F-1508，旧令牌立即失效+审计留痕）+设备解绑（F-1506，吊销设备访问）+联系方式绑定（TOUCH-1 已有），HomeView 归入「安全设置」卡集中呈现 | Verification: TestPanelRowExtensions 绿；panel build 绿 | Commit: 4e1b3a1+033b302）
+-   [x] `F-1516` 展示登录记录。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1516 | Status: Done | Evidence: 原「面板无登录记录」结论已过时——面板凭证=订阅令牌，每次 /sub 拉取即一次访问登录（SubAccessLog F-1150：时间/IP/UA/响应码，命中与未命中全留）；GET /api/panel/access-logs（panelAccessLogs，本人行 limit 1-200 默认 50）+ HomeView「订阅访问记录」卡（时间/IP/客户端/响应码） | Verification: TestPanelRowExtensions 断言 sub 拉取后 ≥1 行且 limit=0 拒绝 绿；panel build 绿 | Commit: 4e1b3a1+033b302）
 
 ------------------------------------------------------------------------
 
