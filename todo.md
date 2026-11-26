@@ -1462,10 +1462,12 @@ External Client
     - 备注（Task ID: F-0903 | Status: Done | Evidence: ProbeTargetTunnel="tunnel"(agentproto/messages.go:247)+tunnel 探针(TestProbeTunnelReturnPath)+aggregate tunnel/peer(aggregate.go:69-70) | Verification: TestProbeTunnelReturnPath | Commit: fbcb525）
 -   [x] `F-0904` 区分 Path Health。
     - 备注（Task ID: F-0904 | Status: Done | Evidence: pathhealth.Evaluate/GroupHealth/Availability 为独立于 Node 健康的 path 级派生（F-0251/0268/0269 已落）；新增区分回归测试：entry 下线→该 node off、过它路径 degraded、无关路径/节点不受影响；landing 新鲜 verdict 按各自规则独立翻转 | Verification: TestNodeAndPathHealthIndependent（nodehealth/distinction_test.go） | Commit: f8ae7f8）
--   [ ] `F-0905` 区分 Egress Health。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0905` 区分 Egress Health。
+    - 备注（Task ID: F-0905 | Status: Done | Evidence: server/internal/egresshealth.Evaluate——节点自身 exit 基线探测决定（sick→degraded/healthy→healthy/无新鲜 verdict=unknown）、disabled/offline=off、池 suspended 刻意不进入本派生（挂起只影响入口池，agent 与探测照常）；GET /api/nodes/:id/status 增 `egress` 字段；dash 弹窗「出口健康」标签注明区别于「别人能否访问本节点」 | Verification: TestEvaluateRules+TestEgressDistinctFromNodeHealth（peer 判定健康+自身 exit sick → 节点 healthy/出口 degraded）+TestNodeStatusHealth；server 全套 49 包 ok 2026-11-26 | Commit: 7b787ba）
 -   [x] `F-0906` 支持 RTT 探测。
     - 备注（Task ID: F-0906 | Status: Done | Evidence: probe measure RTT；TestProbeHealthy | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0907` 支持 Jitter 统计。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0907` 支持 Jitter 统计。
+    - 备注（Task ID: F-0907 | Status: Done | Evidence: probe 每轮成功样本的平均相邻差 jitterOf（<2 样本=0）→ ProbeReport.JitterMs（wire `jitter_ms`，omitempty 向后兼容）→ storage.ProbeReport.JitterMs → saveProbeReports 落库 → /api/nodes/:id/status probe 块 `jitter_ms` → dash 弹窗「抖动 Xms」 | Verification: TestJitterOf+TestProbeReportJitterRoundTrip+TestAgentWSProbeReport（落库断言 48/6）+TestNodeStatusAggregate；agent 20 包/server 49 包全绿 2026-11-26 | Commit: 7b787ba）
 -   [x] `F-0908` 支持 Packet Loss 统计。
     - 备注（Task ID: F-0908 | Status: Done | Evidence: probe lossPct；TestVerdictOf+TestProbeUnreachable | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0909` 支持 TCP Connect 探测。
