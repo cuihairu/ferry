@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { get, post, put, del, resolveAlert, upgradeNode, getNodeProcs, getNodeStatus, rotateNodeToken, revokeNodeToken, getPaths, getPathGroups, getPathGroupHealth, type Node, type DimensionStatus, type NodeShare, type BatchProcResult, type BatchConfigResult, type Alert, type NodeLoad, type NodeProcRow, type NodeStatusAggregate, type Path, type PathGroup, type PathGroupHealth } from '../api'
+import { get, post, put, del, resolveAlert, upgradeNode, getNodeProcs, getNodeStatus, getNodeConfigs, rotateNodeToken, revokeNodeToken, getPaths, getPathGroups, getPathGroupHealth, type Node, type DimensionStatus, type NodeShare, type BatchProcResult, type BatchConfigResult, type Alert, type NodeLoad, type NodeProcRow, type NodeStatusAggregate, type NodeConfigRow, type Path, type PathGroup, type PathGroupHealth } from '../api'
 import QRCode from 'qrcode'
 import RuleLibDialog from '../components/RuleLibDialog.vue'
 
@@ -431,6 +431,9 @@ async function openStatus(n: Node) {
 // samples; path membership re-reads the path list so a just-created path shows up.
 const detailVisible = ref(false)
 const detailFor = ref<Node | null>(null)
+const detailConfigs = ref<NodeConfigRow[]>([])
+
+const CONFIG_STATE_TYPE: Record<string, string> = { applied: 'success', failed: 'danger', pending: 'warning' }
 
 interface DetailPathRow {
   id: number
@@ -461,8 +464,13 @@ const detailPaths = computed<DetailPathRow[]>(() => {
 function openDetail(n: Node) {
   detailFor.value = n
   detailVisible.value = true
+  detailConfigs.value = []
   getPaths()
     .then((d) => (paths.value = d.paths))
+    .catch(() => undefined)
+  // F-1425: the node's config push history (content-hash versions, newest first).
+  getNodeConfigs(n.id)
+    .then((rows) => (detailConfigs.value = rows))
     .catch(() => undefined)
 }
 
@@ -1187,6 +1195,36 @@ async function remove(n: Node) {
           </template>
         </el-table-column>
         <el-table-column prop="version" label="版本" width="70" />
+      </el-table>
+      <div class="detail-paths-head">配置下发历史（{{ detailConfigs.length }}）</div>
+      <el-table :data="detailConfigs" size="small" empty-text="暂无下发记录">
+        <el-table-column prop="proc" label="进程" min-width="90" />
+        <el-table-column prop="kind" label="类型" width="90">
+          <template #default="{ row }">{{ row.kind || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="配置版本" min-width="120">
+          <template #default="{ row }">
+            <span class="version-text" :title="row.version">{{ row.version.slice(0, 12) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="150">
+          <template #default="{ row }">
+            <el-tag size="small" :type="(CONFIG_STATE_TYPE[row.status] ?? 'info') as 'success' | 'danger' | 'warning' | 'info'" disable-transitions>{{ row.status }}</el-tag>
+            <el-tag v-if="row.reverted" size="small" type="warning" disable-transitions style="margin-left: 4px">已回滚</el-tag>
+            <el-tag v-if="row.validated" size="small" type="success" effect="plain" disable-transitions style="margin-left: 4px">已验证</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="时间" min-width="150">
+          <template #default="{ row }">{{ new Date(row.created_at).toLocaleString() }}</template>
+        </el-table-column>
+        <el-table-column label="错误" min-width="120">
+          <template #default="{ row }">
+            <el-tooltip v-if="row.error" :content="row.error" placement="top" :show-after="200">
+              <span class="provision-note">ⓘ</span>
+            </el-tooltip>
+            <span v-else>—</span>
+          </template>
+        </el-table-column>
       </el-table>
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>

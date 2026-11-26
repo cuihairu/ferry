@@ -1896,3 +1896,8 @@ export interface PathGroupHealth {
 export function getPathGroupHealth(id: number): Promise<PathGroupHealth> {
   return get(`/api/path-groups/${id}/health`)
 }
+
+/** getNodeConfigs reads one node's config push history (GET /api/nodes/:id/configs, newest first). */
+export function getNodeConfigs(id: number): Promise<NodeConfigRow[]> {
+  return get(`/api/nodes/${id}/configs`)
+}
