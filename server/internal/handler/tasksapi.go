@@ -3,10 +3,12 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
 
+	"github.com/cuihairu/ferry/packages/agentproto"
 	"github.com/cuihairu/ferry/server/internal/pool"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/cuihairu/ferry/server/internal/tasks"
@@ -15,15 +17,36 @@ import (
 )
 
 // Unified task surface (F-1602~F-1615): one list/detail/enqueue/cancel/retry
-// set over the shared tasks ledger, plus the built-in pool-operation consumers
-// (node.suspend / node.resume, F-1628/F-1629) that turn the manual suspend /
-// resume flips into tracked tasks.
+// set over the shared tasks ledger, plus the built-in consumers: pool
+// operations (node.suspend / node.resume, F-1628/F-1629) and the agent-link
+// operations (agent.restart F-1621, relay.restart F-1622, agent.rollback
+// F-1626, node.reprobe F-1627) that ride the panel->agent request/reply path.
+
+// agentOpTimeout covers one panel->agent request/reply round for the task
+// consumers (the runner's own per-attempt timeout is the outer bound).
+const agentOpTimeout = 15 * time.Second
+
+// agentRequest sends one panel->agent request and decodes the reply; offline
+// and timeout surface as plain errors so the task runner retries with backoff.
+func (h *Handler) agentRequest(nodeID int64, msgType string, payload, reply any) error {
+	env, err := agentproto.NewEnvelope(
+		fmt.Sprintf("task-%d-%d", nodeID, time.Now().UnixNano()), msgType, payload)
+	if err != nil {
+		return err
+	}
+	rep, err := h.hub.Request(nodeID, env, agentOpTimeout)
+	if err != nil {
+		return err
+	}
+	return rep.Decode(reply)
+}
 
 // registerTaskConsumers wires the built-in task kinds onto the shared runner.
-func registerTaskConsumers(db *gorm.DB, mgr *tasks.Manager) {
+func registerTaskConsumers(h *Handler, mgr *tasks.Manager) {
 	if mgr == nil {
 		return
 	}
+	db := h.db
 	// node.suspend (F-1628) / node.resume (F-1629): the same pool rules as the
 	// manual endpoints (re-suspending is an error, resume requires the suspended
 	// or standby state), but as tracked tasks with retry/backoff and an audit
@@ -72,6 +95,94 @@ func registerTaskConsumers(db *gorm.DB, mgr *tasks.Manager) {
 				go pool.OnChange(db)
 			}
 			return err
+		},
+	})
+
+	// nodeExists is the shared precheck for the agent-link kinds: the node row
+	// must exist (RefID is the node id for every consumer below).
+	nodeExists := func(ctx context.Context, t storage.Task) error {
+		var n storage.Node
+		return db.First(&n, t.RefID).Error
+	}
+
+	// agent.restart (F-1621): the plain restart command rides the agent link;
+	// the agent acks before re-exec'ing itself, so OK means accepted, and the
+	// reconnect after the restart refreshes its online status.
+	mgr.Register("agent.restart", tasks.Definition{
+		MaxAttempts: 3,
+		Timeout:     30 * time.Second,
+		Depends:     nodeExists,
+		Run: func(ctx context.Context, t *storage.Task) error {
+			var ack agentproto.AgentRestartAck
+			if err := h.agentRequest(int64(t.RefID), agentproto.MsgAgentRestart, struct{}{}, &ack); err != nil {
+				return err
+			}
+			if !ack.OK {
+				return errors.New("agent restart refused: " + ack.Error)
+			}
+			return nil
+		},
+	})
+
+	// relay.restart (F-1622): stop then start the managed relay proc over the
+	// same proc_ctl channel as the manual endpoints (stop waits for exit
+	// agent-side, so the pair is a true restart cycle regardless of the proc's
+	// reload policy).
+	mgr.Register("relay.restart", tasks.Definition{
+		MaxAttempts: 3,
+		Timeout:     90 * time.Second,
+		Depends:     nodeExists,
+		Run: func(ctx context.Context, t *storage.Task) error {
+			id := int64(t.RefID)
+			if _, _, err := h.procCtl(id, "relay", agentproto.ProcActionStop); err != nil {
+				return err
+			}
+			ack, _, err := h.procCtl(id, "relay", agentproto.ProcActionStart)
+			if err != nil {
+				return err
+			}
+			if !ack.OK {
+				return errors.New("relay start failed: " + ack.Error)
+			}
+			return nil
+		},
+	})
+
+	// agent.rollback (F-1626): panel-initiated rollback to the agent's backup
+	// binary (the watchdog path stays automatic); a missing backup fails the
+	// attempt with a clear error instead of silently doing nothing.
+	mgr.Register("agent.rollback", tasks.Definition{
+		MaxAttempts: 3,
+		Timeout:     30 * time.Second,
+		Depends:     nodeExists,
+		Run: func(ctx context.Context, t *storage.Task) error {
+			var ack agentproto.AgentRollbackAck
+			if err := h.agentRequest(int64(t.RefID), agentproto.MsgAgentRollback, struct{}{}, &ack); err != nil {
+				return err
+			}
+			if !ack.OK {
+				return errors.New("agent rollback failed: " + ack.Error)
+			}
+			return nil
+		},
+	})
+
+	// node.reprobe (F-1627): kick the agent's probe loops into an immediate
+	// cycle; the ack carries the kicked loop count, conclusions land via the
+	// usual report channel.
+	mgr.Register("node.reprobe", tasks.Definition{
+		MaxAttempts: 3,
+		Timeout:     30 * time.Second,
+		Depends:     nodeExists,
+		Run: func(ctx context.Context, t *storage.Task) error {
+			var ack agentproto.ProbeNowAck
+			if err := h.agentRequest(int64(t.RefID), agentproto.MsgProbeNow, struct{}{}, &ack); err != nil {
+				return err
+			}
+			if !ack.OK {
+				return errors.New("reprobe failed: " + ack.Error)
+			}
+			return nil
 		},
 	})
 }

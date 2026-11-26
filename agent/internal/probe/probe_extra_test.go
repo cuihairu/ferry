@@ -296,3 +296,49 @@ func TestProbeConcurrencyLimit(t *testing.T) {
 		t.Fatalf("uncapped peak concurrent rounds = %d; want >= 2", got)
 	}
 }
+
+// TestKickImmediateCycle covers F-1627: after the start-up cycle the next
+// scheduled cycle is an interval away, but a Kick forces an immediate second
+// report; a runner that never started reports 0 kicked loops.
+func TestKickImmediateCycle(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+
+	specs := []config.ProbeSpec{{
+		Name: "exit", TargetKind: agentproto.ProbeTargetExit,
+		Target: ln.Addr().String(), Direction: agentproto.DirectionOut,
+		IntervalSec: 120, // far out: only a kick can produce a second cycle in time
+	}}
+	r := New(specs, log.New(io.Discard, "", 0))
+	c := &collect{}
+	r.SetSend(c.send)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r.SetStartJitter(0) // keep the test timing deterministic
+	go r.Run(ctx)
+
+	waitReport(t, c) // start-up cycle
+
+	if n := r.Kick(); n == 0 {
+		t.Fatalf("Kick() = %d on a running runner", n)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(c.all()) >= 2 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("kick did not produce a second cycle: %d reports", len(c.all()))
+}
+
+func TestKickNotRunning(t *testing.T) {
+	r := New(nil, log.New(io.Discard, "", 0))
+	if n := r.Kick(); n != 0 {
+		t.Fatalf("Kick on a stopped runner = %d, want 0", n)
+	}
+}

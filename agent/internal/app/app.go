@@ -50,6 +50,11 @@ type App struct {
 	probe *probe.Runner
 	traf  *traffic.Reporter
 
+	// restartFn/rollbackFn are the F-1621/F-1626 actions, injectable for tests
+	// (defaults call the upgrade package's exec-based implementations).
+	restartFn  func()
+	rollbackFn func(logger *log.Logger) error
+
 	// Alarm throttling state (A-7): a certificate keyed by "domain+validity" is reported once; high load is gated by a cooldown period.
 	alarmMu    sync.Mutex
 	certAlarms map[string]time.Time
@@ -92,6 +97,8 @@ func New(cfg config.Config, version string) *App {
 		cfg.Probes = mergeProbes(cfg.Probes, dispatched)
 	}
 	a.probe = probe.New(cfg.Probes, a.log)
+	a.restartFn = upgrade.RestartNow
+	a.rollbackFn = upgrade.RollbackNow
 	a.probe.SetConcurrency(cfg.ProbeConcurrency) // F-0922
 	a.probe.SetSend(a.sendIfConnected)
 	a.traf = traffic.New(cfg.Procs, cfg.TrafficInterval(), traffic.Dispatch(cfg.Procs), a.log)
@@ -311,6 +318,36 @@ func (a *App) OnMessage(_ context.Context, env agentproto.Envelope, send func(ag
 			go a.doUpgrade(up, env.ID)
 		}
 		reply, _ := agentproto.NewEnvelope(env.ID, agentproto.MsgUpgradeAck, ack)
+		_ = a.sendIfConnected(reply)
+	case agentproto.MsgAgentRestart:
+		// Plain agent restart (F-1621): accept first, then re-exec in place --
+		// the reply must be on the wire before the process image is replaced.
+		ack := agentproto.AgentRestartAck{OK: true}
+		reply, _ := agentproto.NewEnvelope(env.ID, agentproto.MsgAgentRestartAck, ack)
+		_ = a.sendIfConnected(reply)
+		go a.restartFn()
+	case agentproto.MsgAgentRollback:
+		// Panel-triggered rollback (F-1626): refuses without a backup instead
+		// of blind-restarting; with one, restore + re-exec like the watchdog.
+		var req struct{}
+		ack := agentproto.AgentRollbackAck{}
+		_ = env.Decode(&req)
+		if err := a.rollbackFn(a.log); err != nil {
+			ack.OK = false
+			ack.Error = err.Error()
+			reply, _ := agentproto.NewEnvelope(env.ID, agentproto.MsgAgentRollbackAck, ack)
+			_ = a.sendIfConnected(reply)
+			break
+		}
+		ack.OK = true
+		reply, _ := agentproto.NewEnvelope(env.ID, agentproto.MsgAgentRollbackAck, ack)
+		_ = a.sendIfConnected(reply)
+	case agentproto.MsgProbeNow:
+		// Re-probe kick (F-1627): signal every active spec loop for an
+		// immediate cycle; the ack carries how many loops were kicked.
+		n := a.probe.Kick()
+		ack := agentproto.ProbeNowAck{OK: true, Probed: n}
+		reply, _ := agentproto.NewEnvelope(env.ID, agentproto.MsgProbeNowAck, ack)
 		_ = a.sendIfConnected(reply)
 	case agentproto.MsgProcCtl:
 		var ctl agentproto.ProcCtl

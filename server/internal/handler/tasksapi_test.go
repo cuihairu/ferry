@@ -4,9 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/cuihairu/ferry/packages/agentproto"
 	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/cuihairu/ferry/server/internal/tasks"
@@ -137,5 +141,149 @@ func TestTaskEndpoints(t *testing.T) {
 		if len(rows) != 2 {
 			t.Fatalf("list rows = %d", len(rows))
 		}
+	}
+}
+
+// TestTaskAgentLinkConsumers covers the agent-link task kinds (F-1621 agent
+// restart, F-1622 relay restart, F-1626 agent rollback, F-1627 node reprobe)
+// end to end: a fake agent answers on the wire while the test drives the sweep.
+func TestTaskAgentLinkConsumers(t *testing.T) {
+	_, db := newTestRouterWithDB(t)
+	mgr := tasks.NewManager(db, nil)
+	r, _ := NewRouterWithTasks(db, config.Default(), mgr)
+	ctx := context.Background()
+
+	id, token := createNodeFor(t, r, "tlink-1")
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+	c := fakeAgent(t, srv.URL, "tlink-1", token)
+
+	// Serving loop: answer every kind the consumers send, with a mutable
+	// switch that makes the next agent.restart refuse (OK=false).
+	var failRestart atomic.Bool
+	go func() {
+		for {
+			var env agentproto.Envelope
+			if err := c.ReadJSON(&env); err != nil {
+				return
+			}
+			var out agentproto.Envelope
+			switch env.Type {
+			case agentproto.MsgAgentRestart:
+				ack := agentproto.AgentRestartAck{OK: !failRestart.Load()}
+				if !ack.OK {
+					ack.Error = "restart refused by test"
+				}
+				out, _ = agentproto.NewEnvelope(env.ID, agentproto.MsgAgentRestartAck, ack)
+			case agentproto.MsgAgentRollback:
+				out, _ = agentproto.NewEnvelope(env.ID, agentproto.MsgAgentRollbackAck, agentproto.AgentRollbackAck{OK: true})
+			case agentproto.MsgProbeNow:
+				out, _ = agentproto.NewEnvelope(env.ID, agentproto.MsgProbeNowAck, agentproto.ProbeNowAck{OK: true, Probed: 2})
+			case agentproto.MsgProcCtl:
+				var ctl agentproto.ProcCtl
+				_ = env.Decode(&ctl)
+				out, _ = agentproto.NewEnvelope(env.ID, agentproto.MsgProcCtlAck, agentproto.ProcCtlAck{Proc: ctl.Proc, Action: ctl.Action, OK: true})
+			default:
+				continue
+			}
+			if err := c.WriteJSON(out); err != nil {
+				return
+			}
+		}
+	}()
+
+	// runTask enqueues one kind and drives the sweep until the row settles.
+	runTask := func(kind string, ref uint, key string) storage.Task {
+		t.Helper()
+		rec := doJSON(t, r, "POST", "/api/tasks", map[string]any{"kind": kind, "ref_id": ref, "idempotency_key": key})
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("enqueue %s: %d %s", kind, rec.Code, rec.Body)
+		}
+		var enq storage.Task
+		_ = json.Unmarshal(rec.Body.Bytes(), &enq)
+		deadline := time.Now().Add(12 * time.Second)
+		var got storage.Task
+		for time.Now().Before(deadline) {
+			mgr.LoopOnce(ctx)
+			_ = db.First(&got, enq.ID).Error
+			switch got.Status {
+			case tasks.StatusSucceeded, tasks.StatusFailed, tasks.StatusDead:
+				return got
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		t.Fatalf("task %s key=%s did not settle (last: %s attempts=%d next=%v err=%q log=%q)", kind, key, got.Status, got.Attempts, got.NextAttemptAt, got.Error, got.LogLines)
+		return storage.Task{}
+	}
+
+	if got := runTask("agent.restart", id, "agr-1"); got.Status != tasks.StatusSucceeded {
+		t.Fatalf("agent.restart: %s (%s)", got.Status, got.Error)
+	}
+	if got := runTask("relay.restart", id, "rr-1"); got.Status != tasks.StatusSucceeded {
+		t.Fatalf("relay.restart: %s (%s)", got.Status, got.Error)
+	}
+	if got := runTask("agent.rollback", id, "arb-1"); got.Status != tasks.StatusSucceeded {
+		t.Fatalf("agent.rollback: %s (%s)", got.Status, got.Error)
+	}
+	if got := runTask("node.reprobe", id, "nrp-1"); got.Status != tasks.StatusSucceeded {
+		t.Fatalf("node.reprobe: %s (%s)", got.Status, got.Error)
+	}
+
+	// An agent-side refusal records the agent's reason on the failed attempt
+	// (the runner keeps retrying with backoff, so the recorded error — not the
+	// terminal status — is the evidence here).
+	failRestart.Store(true)
+	rec2 := doJSON(t, r, "POST", "/api/tasks", map[string]any{"kind": "agent.restart", "ref_id": id, "idempotency_key": "agr-2"})
+	if rec2.Code != http.StatusCreated {
+		t.Fatalf("enqueue refused restart: %d %s", rec2.Code, rec2.Body)
+	}
+	var refRow storage.Task
+	_ = json.Unmarshal(rec2.Body.Bytes(), &refRow)
+	var refused storage.Task
+	rDeadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(rDeadline) {
+		mgr.LoopOnce(ctx)
+		_ = db.First(&refused, refRow.ID).Error
+		if strings.Contains(refused.Error, "refused") {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	failRestart.Store(false)
+	if !strings.Contains(refused.Error, "refused") {
+		t.Fatalf("refused restart not recorded: %s %q", refused.Status, refused.Error)
+	}
+	for i := 0; i < 5; i++ { // stop the retry churn best-effort
+		if rec := doJSON(t, r, "POST", "/api/tasks/"+itoa64(int(refRow.ID))+"/cancel", nil); rec.Code == http.StatusOK {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Unknown node refs fail the Depends precheck on the first attempt.
+	rec3 := doJSON(t, r, "POST", "/api/tasks", map[string]any{"kind": "agent.restart", "ref_id": 99999})
+	if rec3.Code != http.StatusCreated {
+		t.Fatalf("enqueue unknown ref: %d %s", rec3.Code, rec3.Body)
+	}
+	var ghost storage.Task
+	_ = json.Unmarshal(rec3.Body.Bytes(), &ghost)
+	var dep storage.Task
+	dDeadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(dDeadline) {
+		mgr.LoopOnce(ctx)
+		_ = db.First(&dep, ghost.ID).Error
+		if dep.Error != "" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if dep.Stage != "depends" || dep.Error == "" {
+		t.Fatalf("unknown-ref precheck: stage=%s err=%q", dep.Stage, dep.Error)
+	}
+	for i := 0; i < 5; i++ {
+		if rec := doJSON(t, r, "POST", "/api/tasks/"+itoa64(int(ghost.ID))+"/cancel", nil); rec.Code == http.StatusOK {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }

@@ -93,7 +93,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 // auto re-pointing) reuse the same push chain.
 func NewRouterWithTasks(db *gorm.DB, cfg config.Config, mgr *tasks.Manager) (*gin.Engine, *relaypush.Pusher) {
 	h := &Handler{db: db, cfg: cfg, hub: agenthub.New(), tasks: mgr}
-	registerTaskConsumers(db, mgr)
+	registerTaskConsumers(h, mgr)
 	// External admin logins are off unless the config turns them on (G7).
 	if cfg.Oidc.Enabled {
 		h.oidc = idp.NewOIDC(cfg.Oidc)

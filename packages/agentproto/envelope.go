@@ -10,30 +10,36 @@ const ProtocolVersion = 1
 
 // Message types: agent→panel use the agent. prefix, panel→agent use the panel. prefix.
 const (
-	MsgHello         = "agent.hello"          // handshake, carries the node token
-	MsgHelloAck      = "panel.hello_ack"      // handshake reply
-	MsgHeartbeat     = "agent.heartbeat"      // periodic heartbeat
-	MsgHeartbeatAck  = "panel.heartbeat_ack"  // heartbeat reply
-	MsgAlarm         = "agent.alarm"          // anomaly alarm
-	MsgAlarmAck      = "panel.alarm_ack"      // alarm reply
-	MsgTraffic       = "agent.traffic"        // traffic and online-count report
-	MsgTrafficAck    = "panel.traffic_ack"    // traffic report reply
-	MsgProcReport    = "agent.proc_report"    // process state event report
-	MsgProcCtl       = "panel.proc_ctl"       // panel process control command
-	MsgProcCtlAck    = "agent.proc_ctl_ack"   // process control reply
-	MsgProcLogs      = "panel.proc_logs"      // panel process log fetch request (P1-11)
-	MsgProcLogsAck   = "agent.proc_logs_ack"  // process log fetch reply
-	MsgConfigPush    = "panel.config_push"    // config push
-	MsgConfigAck     = "agent.config_ack"     // config push reply
-	MsgProbeReport   = "agent.probe_report"   // edge probe verdict report
-	MsgProbeAck      = "panel.probe_ack"      // probe report reply
-	MsgProbeTask     = "panel.probe_task"     // probe task dispatch (F-0921)
-	MsgProbeTaskAck  = "agent.probe_task_ack" // probe task dispatch reply (F-0921)
-	MsgCalibrate     = "agent.calibrate"      // speed calibration report (E-8)
-	MsgCalibrateAck  = "panel.calibrate_ack"  // speed calibration reply
-	MsgUpgrade       = "panel.upgrade"        // self-upgrade command (A-23)
-	MsgUpgradeAck    = "agent.upgrade_ack"    // self-upgrade reply
-	MsgUpgradeStatus = "agent.upgrade_status" // self-upgrade progress report (F-0712)
+	MsgHello            = "agent.hello"              // handshake, carries the node token
+	MsgHelloAck         = "panel.hello_ack"          // handshake reply
+	MsgHeartbeat        = "agent.heartbeat"          // periodic heartbeat
+	MsgHeartbeatAck     = "panel.heartbeat_ack"      // heartbeat reply
+	MsgAlarm            = "agent.alarm"              // anomaly alarm
+	MsgAlarmAck         = "panel.alarm_ack"          // alarm reply
+	MsgTraffic          = "agent.traffic"            // traffic and online-count report
+	MsgTrafficAck       = "panel.traffic_ack"        // traffic report reply
+	MsgProcReport       = "agent.proc_report"        // process state event report
+	MsgProcCtl          = "panel.proc_ctl"           // panel process control command
+	MsgProcCtlAck       = "agent.proc_ctl_ack"       // process control reply
+	MsgProcLogs         = "panel.proc_logs"          // panel process log fetch request (P1-11)
+	MsgProcLogsAck      = "agent.proc_logs_ack"      // process log fetch reply
+	MsgConfigPush       = "panel.config_push"        // config push
+	MsgConfigAck        = "agent.config_ack"         // config push reply
+	MsgProbeReport      = "agent.probe_report"       // edge probe verdict report
+	MsgProbeAck         = "panel.probe_ack"          // probe report reply
+	MsgProbeTask        = "panel.probe_task"         // probe task dispatch (F-0921)
+	MsgProbeTaskAck     = "agent.probe_task_ack"     // probe task dispatch reply (F-0921)
+	MsgCalibrate        = "agent.calibrate"          // speed calibration report (E-8)
+	MsgCalibrateAck     = "panel.calibrate_ack"      // speed calibration reply
+	MsgUpgrade          = "panel.upgrade"            // self-upgrade command (A-23)
+	MsgUpgradeAck       = "agent.upgrade_ack"        // self-upgrade reply
+	MsgUpgradeStatus    = "agent.upgrade_status"     // self-upgrade progress report (F-0712)
+	MsgAgentRestart     = "panel.agent_restart"      // agent plain restart command (F-1621)
+	MsgAgentRestartAck  = "agent.agent_restart_ack"  // agent restart reply (F-1621)
+	MsgAgentRollback    = "panel.agent_rollback"     // agent rollback-to-backup command (F-1626)
+	MsgAgentRollbackAck = "agent.agent_rollback_ack" // agent rollback reply (F-1626)
+	MsgProbeNow         = "panel.probe_now"          // kick an immediate probe cycle (F-1627)
+	MsgProbeNowAck      = "agent.probe_now_ack"      // probe kick reply (F-1627)
 )
 
 // Envelope is the common wrapper for all messages. The requester sets ID; the replier echoes it back.

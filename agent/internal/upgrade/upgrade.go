@@ -94,6 +94,41 @@ func Exec(self string) {
 	execFn(self)
 }
 
+// RestartNow re-execs the current binary in place (F-1621: the panel's plain
+// agent restart task). The process image is replaced, arguments and
+// environment preserved; the ws connection drops and the hello re-handshake
+// carries the same identity.
+func RestartNow() {
+	self, err := os.Executable()
+	if err != nil {
+		log.Printf("restart: resolve self: %v", err)
+		execFn(os.Args[0])
+		return
+	}
+	execFn(self)
+}
+
+// RollbackNow restores the backup binary (F-1626: the panel's rollback task)
+// and re-execs; without a backup it reports instead of blind-restarting.
+func RollbackNow(logger *log.Logger) error {
+	if logger == nil {
+		logger = log.Default()
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve self: %w", err)
+	}
+	if _, err := os.Stat(bakPath(self)); errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("no backup binary at %s", bakPath(self))
+	}
+	if err := Rollback(self); err != nil {
+		return err
+	}
+	logger.Printf("panel-triggered rollback: restoring %s and re-exec", bakPath(self))
+	execFn(self)
+	return nil
+}
+
 // Do runs the whole upgrade flow: download -> verify -> back up -> replace -> write the marker -> restart.
 // any step failing returns an error and leaves the current binary untouched.
 func Do(ctx context.Context, self string, up agentproto.Upgrade, logger *log.Logger) error {

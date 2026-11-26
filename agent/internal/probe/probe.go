@@ -73,6 +73,7 @@ type Runner struct {
 	wg           sync.WaitGroup
 	sem          chan struct{} // measure permits (F-0922)
 	jitterWindow time.Duration // F-0926 anti-storm first-probe spread; 0 = off
+	kick         chan struct{} // panel re-probe kick (F-1627); nil until Run starts
 
 	sendMu sync.Mutex
 	send   func(agentproto.Envelope) error // sender of the current connection
@@ -192,6 +193,7 @@ func (r *Runner) startLoops() {
 	ctx, cancel := context.WithCancel(r.root)
 	r.cancel = cancel
 	specs := r.specs
+	r.kick = make(chan struct{}, len(specs)+1)
 	r.wg.Add(len(specs))
 	r.mu.Unlock()
 	for _, spec := range specs {
@@ -214,6 +216,27 @@ func (r *Runner) stopLoops() {
 	r.wg.Wait()
 }
 
+// Kick signals every active spec loop to probe immediately (F-1627: the
+// panel's re-probe task); best-effort, never blocks. Returns how many loops
+// could still be kicked (bounded by the channel capacity).
+func (r *Runner) Kick() int {
+	r.mu.Lock()
+	k := r.kick
+	r.mu.Unlock()
+	if k == nil {
+		return 0
+	}
+	n := 0
+	for {
+		select {
+		case k <- struct{}{}:
+			n++
+		default:
+			return n
+		}
+	}
+}
+
 // loop is the periodic probe loop for one spec; the next interval follows the
 // evening-peak rule plus the F-0925 fault speed-up after a sick verdict.
 func (r *Runner) loop(ctx context.Context, spec config.ProbeSpec) {
@@ -227,6 +250,9 @@ func (r *Runner) loop(ctx context.Context, spec config.ProbeSpec) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+		case <-r.kick:
+			// F-1627: the panel asked for an immediate cycle; the schedule
+			// resumes from this probe so cadence stays regular afterwards.
 		}
 		if sick := r.probeOnce(spec); sick {
 			boostUntil = time.Now().Add(sickBoostWindow)

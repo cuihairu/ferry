@@ -424,3 +424,25 @@ func ValidUpgradeState(s string) bool {
 	}
 	return false
 }
+
+// AgentRestartAck replies to the plain restart command: accepted means the agent
+// is about to re-exec itself (the connection drops right after).
+type AgentRestartAck struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
+// AgentRollbackAck replies to the rollback command: accepted means the agent
+// found a backup, is restoring it and re-execing; without a backup it refuses.
+type AgentRollbackAck struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
+// ProbeNowAck replies to the probe kick: how many probe specs were kicked for
+// an immediate cycle (0 is legal when no probes are configured).
+type ProbeNowAck struct {
+	OK     bool   `json:"ok"`
+	Probed int    `json:"probed"`
+	Error  string `json:"error,omitempty"`
+}
