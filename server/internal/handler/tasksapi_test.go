@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/cuihairu/ferry/packages/agentproto"
+	"github.com/cuihairu/ferry/server/internal/cloudprov"
 	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/secret"
 	"github.com/cuihairu/ferry/server/internal/storage"
@@ -393,5 +394,92 @@ func TestCloudCreateTask(t *testing.T) {
 	}
 	if t2.Error == "" {
 		t.Fatalf("finished job re-execution not refused: %+v", t2)
+	}
+}
+
+// TestPostCreateSync covers F-1655: the post-creation sync — a successful run
+// pulls the new instance into CloudResource and appends an ok line to the job
+// log with trigger "provision"; without an adapter the run still logs (sync
+// history + error line), never blocking the already-successful task.
+func TestPostCreateSync(t *testing.T) {
+	db, err := storage.Open(storage.DriverSQLite, filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	store := secret.NewStore("test-master-key")
+
+	prov := storage.Provider{Name: "vultr", Type: "vultr", Enabled: true}
+	sealed, encErr := store.Encrypt("sk-live")
+	if encErr != nil {
+		t.Fatal(encErr)
+	}
+	prov.AccessKey = sealed
+	if err := db.Create(&prov).Error; err != nil {
+		t.Fatal(err)
+	}
+	tpl := storage.ProvisionTemplate{Name: "hk-3t", ProviderID: prov.ID, Plan: "p", Region: "fra1"}
+
+	fk := cloudprov.NewFake()
+	fk.Seed(cloudprov.Resource{ResourceID: "i-1", Name: "ferry-hk-3t", Region: "fra1",
+		State: cloudprov.StateRunning})
+	cloudprov.Register("vultr", func(cloudprov.Account) (cloudprov.Adapter, error) { return fk, nil })
+	t.Cleanup(func() { cloudprov.Unregister("vultr") })
+
+	job := storage.ProvisionJob{TemplateID: tpl.ID, TemplateName: tpl.Name,
+		InstanceName: "ferry-hk-3t", Action: "apply", Status: "ok", Log: "apply complete"}
+	if err := db.Create(&job).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	postCreateSync(context.Background(), db, store, tpl, job.ID)
+
+	var cr storage.CloudResource
+	if err := db.Where("provider_id = ? AND external_id = ?", prov.ID, "i-1").First(&cr).Error; err != nil {
+		t.Fatalf("cloud resource row: %v", err)
+	}
+	if cr.Region != "fra1" || cr.Name != "ferry-hk-3t" {
+		t.Fatalf("cloud resource = %+v", cr)
+	}
+	var slog storage.CloudSyncLog
+	if err := db.Where("provider_id = ?", prov.ID).Order("id DESC").First(&slog).Error; err != nil {
+		t.Fatalf("sync log: %v", err)
+	}
+	if !slog.OK || slog.Trigger != "provision" || slog.Region != "fra1" || slog.Added != 1 {
+		t.Fatalf("sync log = %+v", slog)
+	}
+	var jj storage.ProvisionJob
+	if err := db.First(&jj, job.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(jj.Log, "post-create sync ok: added=1") {
+		t.Fatalf("job log missing ok line: %q", jj.Log)
+	}
+
+	// No adapter: the failure is recorded (sync history + job log error line).
+	cloudprov.Unregister("vultr")
+	job2 := storage.ProvisionJob{TemplateID: tpl.ID, TemplateName: tpl.Name,
+		InstanceName: "ferry-hk-4t", Action: "apply", Status: "ok", Log: "apply complete"}
+	if err := db.Create(&job2).Error; err != nil {
+		t.Fatal(err)
+	}
+	postCreateSync(context.Background(), db, store, tpl, job2.ID)
+	var slog2 storage.CloudSyncLog
+	if err := db.Where("provider_id = ?", prov.ID).Order("id DESC").First(&slog2).Error; err != nil {
+		t.Fatalf("failure sync log: %v", err)
+	}
+	if slog2.OK || slog2.Error == "" {
+		t.Fatalf("failure must be logged: %+v", slog2)
+	}
+	var jj2 storage.ProvisionJob
+	if err := db.First(&jj2, job2.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(jj2.Log, "post-create sync error: no adapter registered") {
+		t.Fatalf("job log missing error line: %q", jj2.Log)
 	}
 }

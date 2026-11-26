@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/cuihairu/ferry/packages/agentproto"
+	"github.com/cuihairu/ferry/server/internal/cloudsync"
 	"github.com/cuihairu/ferry/server/internal/pool"
 	"github.com/cuihairu/ferry/server/internal/provision"
+	"github.com/cuihairu/ferry/server/internal/secret"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/cuihairu/ferry/server/internal/tasks"
 	"github.com/gin-gonic/gin"
@@ -248,9 +250,30 @@ func registerTaskConsumers(h *Handler, mgr *tasks.Manager) {
 			if status != "ok" {
 				return fmt.Errorf("apply job %d failed: %s", job.ID, tailLine(logTail))
 			}
+			// F-1655: post-creation sync — pull the new instance into the
+			// CloudResource ledger right away instead of waiting for the next
+			// scheduled run. Bookkeeping only: failures land in the sync
+			// history and the job log, never fail the (already successful) task.
+			postCreateSync(ctx, db, h.secrets, tpl, job.ID)
 			return nil
 		},
 	})
+}
+
+// postCreateSync runs one region-scoped resource sync (trigger "provision")
+// after a successful creation and appends the outcome to the job's log tail;
+// the run itself is persisted to the CloudSyncLog history either way.
+func postCreateSync(ctx context.Context, db *gorm.DB, store *secret.Store, tpl storage.ProvisionTemplate, jobID uint) {
+	r, _, err := cloudsync.SyncAndLog(ctx, db, store, tpl.ProviderID, "provision",
+		cloudsync.SyncConfig{Region: tpl.Region}, time.Now())
+	line := fmt.Sprintf("post-create sync ok: added=%d updated=%d missing=%d", r.Added, r.Updated, r.Missing)
+	if err != nil {
+		line = "post-create sync error: " + err.Error()
+	} else if !r.OK {
+		line = "post-create sync error: " + r.Error
+	}
+	_ = db.Model(&storage.ProvisionJob{}).Where("id = ?", jobID).
+		Update("log", gorm.Expr("COALESCE(log, '') || ?", "\n"+line))
 }
 
 // tailLine returns the last non-empty line of a tofu log tail (the task row
