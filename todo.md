@@ -1930,20 +1930,20 @@ External Client
 
 ## 12.1 总览
 
--   [ ] `F-1401` 展示节点总数和在线数。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1401 | 部分：仅区域/ISP 维度在线/总数卡（NodesView.vue:207-226）；无全局节点总数/在线数。）
--   [ ] `F-1402` 展示健康与不健康节点数。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1402 | 部分：仅区域/ISP 维度 healthy/degraded/failed（NodesView.vue:228-239）；无不健康计数汇总。）
--   [ ] `F-1403` 展示 Entry、Landing 数量。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1403 | 未满足：无 Entry/Landing 数量展示。）
--   [ ] `F-1404` 展示 Relay 在线状态。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1404 | 未满足：relay 仅作受管进程选项（NodesView.vue:829）；无 relay 在线状态。）
--   [ ] `F-1405` 展示 Path 总数和可用率。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1405 | 部分：晚间报告有可用率/RTT/丢包（CostView.vue:590-637）；无 Path 计数。）
--   [ ] `F-1406` 展示当前总流量和连接数。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1406 | 部分：仅节点级 conns/Mbps 负载单元格（NodesView.vue:95-107）；无聚合总览。）
--   [ ] `F-1407` 展示区域资源分布。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1407 | 部分：区域维度卡（NodesView.vue:731-745）；无专门分布视图。）
+-   [x] `F-1401` 展示节点总数和在线数。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1401 | Status: Done | Evidence: NodesView.vue 总览条「节点 在线/总数」卡，口径同 dim 卡（enabled+online），数据源 GET /api/nodes | Verification: pnpm --filter ferry-dash build 绿（vue-tsc -b + vite build，10.4s） | Commit: ddfa3e5）
+-   [x] `F-1402` 展示健康与不健康节点数。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1402 | Status: Done | Evidence: NodesView.vue 总览条「健康/不健康」卡：健康=enabled+online，不健康=enabled 非 online（offline/unknown/provisioning），disabled 两边都不计（注释钉明） | Verification: pnpm --filter ferry-dash build 绿 | Commit: ddfa3e5）
+-   [x] `F-1403` 展示 Entry、Landing 数量。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1403 | Status: Done | Evidence: NodesView.vue 总览条「入口/落地」卡：entry=role entry|both，landing=role landing|both（both 双计，注释钉明） | Verification: pnpm --filter ferry-dash build 绿 | Commit: ddfa3e5）
+-   [x] `F-1404` 展示 Relay 在线状态。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1404 | Status: Done | Evidence: NodesView.vue 总览条「中转在线」卡：relay=paths 的 RelayNodeID 去重集合（api.ts getPaths），在线数查节点表 status，无中转显示 — | Verification: pnpm --filter ferry-dash build 绿 | Commit: ddfa3e5）
+-   [x] `F-1405` 展示 Path 总数和可用率。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1405 | Status: Done | Evidence: NodesView.vue 总览条「线路」卡：启用/总数来自 GET /api/paths；可用率=enabled 组的 availability（GET /api/path-groups/:id/health，F-0269 窗口）均值，无探针数据显示 —，单组失败软降级 | Verification: pnpm --filter ferry-dash build 绿 | Commit: ddfa3e5）
+-   [x] `F-1406` 展示当前总流量和连接数。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1406 | Status: Done | Evidence: NodesView.vue 总览条「实时负载」卡：Σconns+ΣMbps over GET /api/load 采样行（util_pct=-1 无样本行不计，注释钉明） | Verification: pnpm --filter ferry-dash build 绿 | Commit: ddfa3e5）
+-   [x] `F-1407` 展示区域资源分布。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1407 | Status: Done | Evidence: NodesView.vue 总览条「区域分布」卡：按 region 聚合 在线/总数 标签列（口径同区域 dim 卡），区域视角卡保留 | Verification: pnpm --filter ferry-dash build 绿 | Commit: ddfa3e5）
 -   [x] `F-1408` 展示告警摘要。
     - 备注（Task ID: F-1408 | Status: Done | Evidence: NodesView.vue:151-196 活跃告警徽标+对话框（:608-610/:875-901，api getAlerts:400） | Verification: API 侧 TestAlertGuards（alerts_test.go:276）；dash 无前端单测 | Commit: ce8b33e）
 -   [x] `F-1409` 展示本月云资源成本摘要。
