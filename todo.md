@@ -1721,7 +1721,8 @@ External Client
     - 备注（Task ID: F-1130 | Status: Done | Evidence: 中心化 KindEnum 校验(protocol.go Validate：声明枚举的字段值出枚举即明确错误，携协议名+字段名+枚举表+实际值，vless/vmess/trojan net、vless flow、tuic congestion_control 全覆盖)——修复 clash 渲染只查必填不查枚举、裸 network 静默透传的缺口；fieldValue 抽取共用；明确错误面(unknown protocol/missing required/out-of-enum)与安全降级面(ErrNotSupported skip/未知 Extra 键丢弃/JSON targets 无注释)均钉死 | Verification: TestUnsupportedFieldClearError(五 target 均 kcp 明确错误)+TestUnknownExtraFieldDegrades(四 target 不泄漏 acme)+go vet+server 全套件 green exit=0（51 ok）2026-11-27 | Commit: 6eaf692）
 -   [x] `F-1131` 不向客户端输出其不支持的配置字段。
     - 备注（Task ID: F-1131 | Status: Done | Evidence: 各适配器仅输出自身 schema 键(clash omitempty clash.go:17-44/sing-box 仅写 set 键 singbox.go:33-86) | Verification: TestPackSingBox(无 sni/insecure/obfs)、TestSingBoxOutboundVless(无 tls/transport/flow)、TestPackClashHysteria2 | Commit: 842a7dd）
--   [ ] `F-1132` 不假设不同客户端具有相同策略组能力。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1132` 不假设不同客户端具有相同策略组能力。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1132 | Status: Done | Evidence: 每target 策略组词汇钉死不互借：TestProxyGroupShapesPerTarget(groupshape_test.go)——plain clash 地区组 url-test 无 lazy 键(非核心词汇)；mihomo 同形+lazy:true(meta 专属，随 F-1127 能力矩阵行)；v2ray 家族仅链接/注释行(分组走排序+备注)；singbox/xray 纯 outbounds 数组无组对象 | Verification: 上述测试+go vet+server 全套件 green exit=0（51 ok）2026-11-27 | Commit: abfd508）
 
 ## 9.3 订阅权限与安全
 
