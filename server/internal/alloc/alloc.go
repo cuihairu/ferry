@@ -27,7 +27,11 @@ const (
 	PolicyCostFirst = "cost_first"
 	PolicyPerfFirst = "perf_first"
 	PolicyBalanced  = "balanced"
-	PolicyManual    = "manual"
+	// PolicyPriority (F-1042) follows the operator-set SchedPriority tiers
+	// alone (F-1029): the best tier available always serves, and within a
+	// tier the order never drifts with load or cost.
+	PolicyPriority = "priority"
+	PolicyManual   = "manual"
 )
 
 // settingKey is the policy persistence key (panel KV); the value is JSON: one tier per direction.
@@ -48,7 +52,7 @@ const (
 // ValidPolicy reports whether the policy value is valid.
 func ValidPolicy(p string) bool {
 	switch p {
-	case PolicyLeastConn, PolicyCostFirst, PolicyPerfFirst, PolicyBalanced:
+	case PolicyLeastConn, PolicyCostFirst, PolicyPerfFirst, PolicyBalanced, PolicyPriority:
 		return true
 	}
 	return false
@@ -191,7 +195,7 @@ func ValidateSetting(setting PolicySetting) (PolicySetting, error) {
 		setting.In = DefaultPolicyIn
 	}
 	if !ValidPolicy(setting.Out) || !ValidPolicy(setting.In) {
-		return setting, fmt.Errorf("policy must be %s/%s/%s/%s", PolicyLeastConn, PolicyCostFirst, PolicyPerfFirst, PolicyBalanced)
+		return setting, fmt.Errorf("policy must be %s/%s/%s/%s/%s", PolicyLeastConn, PolicyCostFirst, PolicyPerfFirst, PolicyBalanced, PolicyPriority)
 	}
 	if !validWindow(setting.RebalanceStart, setting.RebalanceEnd) {
 		return setting, fmt.Errorf("rebalance window must be 0-23 with start < end")
@@ -347,6 +351,12 @@ func LessFor(policy, direction, missingRule string, w ScoreWeights, cands []Cand
 	byName := func(a, b int) bool { return cands[a].Node.Name < cands[b].Node.Name }
 	var less func(a, b int) bool
 	switch policy {
+	case PolicyPriority:
+		// Priority mode (F-1042) compares nothing but the operator tiers: the
+		// byTier wrapper below already orders by SchedPriority, and within a
+		// tier the name is the only deterministic tiebreak -- load and cost
+		// must not churn an order the operator set by hand.
+		less = byName
 	case PolicyCostFirst:
 		less = func(a, b int) bool {
 			if cost(a) != cost(b) {
@@ -429,6 +439,11 @@ func LessFor(policy, direction, missingRule string, w ScoreWeights, cands []Cand
 			return inner(a, b)
 		}
 	}
+	if policy == PolicyPriority {
+		// Priority mode skips the missing-price partition: price plays no
+		// part in an operator-set order.
+		return byTier(less)
+	}
 	if missingRule == MissingCostTreatZero {
 		return byTier(less)
 	}
@@ -500,6 +515,10 @@ func shouldSwitch(policy, direction, missingRule string, w ScoreWeights, cands [
 			return s
 		}
 		return score(win) < score(cur)-0.15 // combined score clearly better
+	case PolicyPriority:
+		// Same tier reached here (the F-1029 head rule already moves between
+		// tiers): an operator's tier order never churns on load at peak.
+		return false
 	default: // least_conn
 		curLoad := loadRatio(cands[cur])
 		return loadRatio(cands[win]) < curLoad*peakSwitchMargin

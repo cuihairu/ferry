@@ -409,3 +409,96 @@ func TestAllocSimulate(t *testing.T) {
 		t.Fatalf("simulate persisted policy: %+v", live.Policy)
 	}
 }
+
+// TestAllocPolicyPriority covers the priority policy mode end to end
+// (F-1042): the tier is accepted by the policy API, the explain view serves
+// the operator's top tier over the cheap one, and the simulator can flip the
+// same fleet back to cost_first without persisting either side.
+func TestAllocPolicyPriority(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	// out=priority persists and reads back
+	rec := doJSON(t, r, "PUT", "/api/alloc/policy",
+		map[string]any{"out": "priority", "in": "perf_first", "rebalance_start": 1, "rebalance_end": 7})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("put priority status = %d body=%s", rec.Code, rec.Body)
+	}
+	rec = doJSON(t, r, "GET", "/api/alloc", nil)
+	var pol struct {
+		Policy struct {
+			Out string `json:"out"`
+		} `json:"policy"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &pol); err != nil {
+		t.Fatal(err)
+	}
+	if pol.Policy.Out != "priority" {
+		t.Fatalf("policy out = %s", pol.Policy.Out)
+	}
+
+	// fleet: tier-0 pricey landing beats the cheap tier-3 one
+	entry := storage.Node{Name: "pp-entry", Token: "tok-pp-entry", Role: "entry",
+		Direction: "out", Enabled: true,
+		Capabilities: storage.MustJSON([]string{"proxy_ingress", "relay_entry", "probe"})}
+	cheap := storage.Node{Name: "pp-cheap", Token: "tok-pp-cheap", Role: "landing",
+		Direction: "out", Enabled: true, BillingType: "按流量", TrafficPriceCents: 5,
+		SchedPriority: 3, Capabilities: storage.MustJSON([]string{"relay_landing"})}
+	top := storage.Node{Name: "pp-top", Token: "tok-pp-top", Role: "landing",
+		Direction: "out", Enabled: true, BillingType: "按流量", TrafficPriceCents: 90,
+		SchedPriority: 0, Capabilities: storage.MustJSON([]string{"relay_landing"})}
+	for _, n := range []*storage.Node{&entry, &cheap, &top} {
+		if err := db.Create(n).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var expl struct {
+		Decisions []struct {
+			Action string `json:"action"`
+			To     string `json:"to"`
+		} `json:"decisions"`
+	}
+	rec = doJSON(t, r, "GET", "/api/alloc/explain", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("explain status = %d body=%s", rec.Code, rec.Body)
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &expl); err != nil {
+		t.Fatal(err)
+	}
+	if len(expl.Decisions) != 1 || expl.Decisions[0].Action != "switch" || expl.Decisions[0].To != top.Name {
+		t.Fatalf("priority explain = %+v", expl.Decisions)
+	}
+
+	// simulating cost_first on this fleet still serves the tier-0 landing:
+	// the F-1029 tier partition governs every policy, and the priority policy
+	// only changes the within-tier order (name, not load/cost) and the peak rule
+	var sim struct {
+		Policy struct {
+			Out string `json:"out"`
+		} `json:"policy"`
+		Decisions []struct {
+			Action string `json:"action"`
+			To     string `json:"to"`
+		} `json:"decisions"`
+	}
+	rec = doJSON(t, r, "POST", "/api/alloc/simulate", map[string]any{"out": "cost_first"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("simulate status = %d body=%s", rec.Code, rec.Body)
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &sim); err != nil {
+		t.Fatal(err)
+	}
+	if sim.Policy.Out != "cost_first" || len(sim.Decisions) != 1 ||
+		sim.Decisions[0].Action != "switch" || sim.Decisions[0].To != top.Name {
+		t.Fatalf("simulated cost_first = %+v", sim)
+	}
+
+	// and the live policy still says priority
+	rec = doJSON(t, r, "GET", "/api/alloc", nil)
+	if err := json.Unmarshal(rec.Body.Bytes(), &pol); err != nil {
+		t.Fatal(err)
+	}
+	if pol.Policy.Out != "priority" {
+		t.Fatalf("simulate persisted policy: %+v", pol.Policy)
+	}
+}

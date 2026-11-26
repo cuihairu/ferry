@@ -136,3 +136,79 @@ func TestSweepRespectsPriorityTier(t *testing.T) {
 		t.Fatalf("effective row = %+v", rows)
 	}
 }
+
+// TestPickPriorityMode covers the policy itself (F-1042): priority compares
+// nothing but the operator tiers -- price and load never reorder across or
+// within tiers, the name is the only tiebreak, and the peak rule never
+// churns a hand-set order (upgrades between tiers always move, downgrades
+// wait for the off-peak rebalance).
+func TestPickPriorityMode(t *testing.T) {
+	w := DefaultPolicySetting().Weights()
+	mk := func(name string, tier int, price int64, conns int) Candidate {
+		return Candidate{Node: storage.Node{Name: name, SchedPriority: tier,
+			BillingType: "按流量", TrafficPriceCents: price, BwDownMbps: 100,
+			UpdatedAt: testNow}, Healthy: true, Conns: conns, CostKnown: true, CostFresh: true}
+	}
+
+	// the best tier wins regardless of price and load
+	cands := []Candidate{mk("cheap-low", 2, 5, 0), mk("pricey-top", 0, 90, 99)}
+	if idx, ok := Pick(PolicyPriority, "out", MissingCostDeprioritize, w, cands); !ok || cands[idx].Node.Name != "pricey-top" {
+		t.Fatalf("tier must outrank price/load: idx=%d ok=%v", idx, ok)
+	}
+
+	// within a tier the name decides: a pricier busier alpha beats a cheap idle zeta
+	cands = []Candidate{mk("zeta", 1, 1, 0), mk("alpha", 1, 99, 99)}
+	if idx, ok := Pick(PolicyPriority, "out", MissingCostDeprioritize, w, cands); !ok || cands[idx].Node.Name != "alpha" {
+		t.Fatalf("within-tier order must be the name: idx=%d", idx)
+	}
+
+	// peak rule: same tier never churns; a tier upgrade always moves; a downgrade waits
+	cands = []Candidate{mk("cur", 1, 99, 99), mk("other", 1, 5, 0)}
+	if shouldSwitch(PolicyPriority, "out", MissingCostDeprioritize, w, cands, 0, 1) {
+		t.Fatalf("same-tier peak churn")
+	}
+	cands = []Candidate{mk("cur", 2, 5, 0), mk("top", 1, 99, 99)}
+	if !shouldSwitch(PolicyPriority, "out", MissingCostDeprioritize, w, cands, 0, 1) {
+		t.Fatalf("tier upgrade must move at peak")
+	}
+	cands = []Candidate{mk("cur", 0, 99, 99), mk("lower", 1, 5, 0)}
+	if shouldSwitch(PolicyPriority, "out", MissingCostDeprioritize, w, cands, 0, 1) {
+		t.Fatalf("downgrade must wait for off-peak")
+	}
+}
+
+// TestSweepPriorityMode covers the policy at sweep level (F-1042): with
+// out=priority the sweep serves the best tier even when it is the priciest,
+// and a settled round does not churn.
+func TestSweepPriorityMode(t *testing.T) {
+	db := newTestDB(t)
+	seedNode(t, db, "pm-entry", "entry", "out", nil)
+	seedNode(t, db, "pm-cheap", "landing", "out", func(n *storage.Node) {
+		n.BillingType, n.TrafficPriceCents = "按流量", 5
+		n.SchedPriority = 3
+	})
+	top := seedNode(t, db, "pm-top", "landing", "out", func(n *storage.Node) {
+		n.BillingType, n.TrafficPriceCents = "按流量", 90
+		n.SchedPriority = 0
+	})
+
+	setting := DefaultPolicySetting()
+	setting.Out = PolicyPriority
+	if err := SavePolicy(db, setting); err != nil {
+		t.Fatal(err)
+	}
+	events, err := Sweep(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].ToName != top.Name {
+		t.Fatalf("priority mode must serve the top tier: %+v", events)
+	}
+	// the settled round is quiet
+	if events, err = Sweep(db); err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("priority mode churned: %+v", events)
+	}
+}
