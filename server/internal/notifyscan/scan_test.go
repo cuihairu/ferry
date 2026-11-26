@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/herald"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -238,5 +239,75 @@ func TestLoopSweepsAndStops(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("loop did not stop after cancel")
+	}
+}
+
+// TestSweepTrafficAnomaly covers the traffic anomaly sweep (F-1252): a today-vs-
+// trailing-baseline spike fires exactly one admin event, deduped per day; a
+// below-ratio user and a no-baseline (floor-guarded) user stay silent.
+func TestSweepTrafficAnomaly(t *testing.T) {
+	db := newTestDB(t)
+	mib := int64(1) << 20
+	users := []storage.User{
+		{Username: "an-spike", SubToken: "a1", QuotaBytes: 1 << 30, ResetCycle: "none", Enabled: true, TrafficWarnPercent: 80},
+		{Username: "an-quiet", SubToken: "a2", QuotaBytes: 1 << 30, ResetCycle: "none", Enabled: true, TrafficWarnPercent: 80},
+		{Username: "an-fresh", SubToken: "a3", QuotaBytes: 1 << 30, ResetCycle: "none", Enabled: true, TrafficWarnPercent: 80},
+	}
+	for i := range users {
+		users[i] = seedUser(t, db, users[i])
+	}
+	now := time.Now()
+	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	seed := func(name string, day int, rx int64) {
+		t.Helper()
+		var u storage.User
+		if err := db.Where("username = ?", name).First(&u).Error; err != nil {
+			t.Fatal(err)
+		}
+		uid := u.ID
+		if err := db.Create(&storage.TrafficLog{UserID: &uid, RxBytes: rx, TxBytes: 0,
+			RecordedAt: dayStart.AddDate(0, 0, day).Add(time.Hour)}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Baseline 16 MiB/day for spike and quiet; today 96 MiB (= 6x, fires) vs 20 MiB (stays).
+	for d := -7; d <= -1; d++ {
+		seed("an-spike", d, 16*mib)
+		seed("an-quiet", d, 16*mib)
+	}
+	seed("an-spike", 0, 96*mib)
+	seed("an-quiet", 0, 20*mib)
+	// Fresh user: a big today with no history must not fire (baseline floor).
+	seed("an-fresh", 0, 96*mib)
+
+	if err := Sweep(db, now); err != nil {
+		t.Fatal(err)
+	}
+	var evs []storage.Event
+	if err := db.Where("kind = ?", herald.KindTrafficAnomaly).Find(&evs).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 {
+		t.Fatalf("anomaly events = %d, want 1 (only an-spike fires): %+v", len(evs), evs)
+	}
+	var spike storage.User
+	if err := db.Where("username = ?", "an-spike").First(&spike).Error; err != nil {
+		t.Fatal(err)
+	}
+	if evs[0].Target != herald.TargetAdmin || evs[0].Severity != herald.SeverityWarning {
+		t.Fatalf("event head: %+v", evs[0])
+	}
+	if evs[0].DedupKey != fmt.Sprintf("traffic_anomaly:%d:%s", spike.ID, now.Format("2006-01-02")) {
+		t.Fatalf("dedup key: %s", evs[0].DedupKey)
+	}
+
+	// Same-day dedup: a second sweep adds nothing.
+	if err := Sweep(db, now); err != nil {
+		t.Fatal(err)
+	}
+	var n int64
+	db.Model(&storage.Event{}).Where("kind = ?", herald.KindTrafficAnomaly).Count(&n)
+	if n != 1 {
+		t.Fatalf("same-day sweep should dedup, got %d events", n)
 	}
 }

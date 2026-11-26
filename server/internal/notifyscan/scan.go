@@ -22,6 +22,18 @@ import (
 // expiryDaysWindow is the expiry reminder window: remind within 7 days (including already expired).
 const expiryDaysWindow = 7
 
+// Traffic anomaly detection (F-1252): a user's usage so far today is compared
+// against the average daily usage of the trailing seven full calendar days
+// (empty days count as zero); today >= spike ratio * baseline with a baseline
+// above the floor fires one admin alert, deduped per user per day. The floor
+// keeps near-zero baselines (new or barely-used accounts) from amplifying
+// rounding noise into alerts.
+const (
+	anomalyBaselineDays  = 7
+	anomalySpikeRatio    = 5
+	anomalyBaselineFloor = int64(1) << 20 // 1 MiB
+)
+
 // Loop is the timed sweep (matching the Loop convention of recovery/cert): interval comes
 // from config; 1h order of magnitude is suggested - dedup is per day, so a tighter sweep can never over-send.
 func Loop(ctx context.Context, db *gorm.DB, interval time.Duration, logger *log.Logger) {
@@ -44,7 +56,7 @@ func Loop(ctx context.Context, db *gorm.DB, interval time.Duration, logger *log.
 
 // Sweep runs one sweep round; expiry, traffic and scheduled announcements are each independent, never blocking each other, with errors joined and returned.
 func Sweep(db *gorm.DB, now time.Time) error {
-	return errors.Join(sweepExpiry(db, now), sweepTraffic(db, now), sweepAnnouncements(db, now))
+	return errors.Join(sweepExpiry(db, now), sweepTraffic(db, now), sweepAnnouncements(db, now), sweepTrafficAnomaly(db, now))
 }
 
 // sweepAnnouncements fans out due scheduled announcements (P2-5, announce.RunDue).
@@ -152,6 +164,74 @@ func sweepTraffic(db *gorm.DB, now time.Time) error {
 			Target:   herald.TargetUser(int64(u.ID)),
 			DedupKey: fmt.Sprintf("quota:%d:%s", u.ID, now.Format("20060102")),
 			Meta:     map[string]any{"user_id": u.ID, "used_percent": pct, "warn_percent": warn},
+		})
+	}
+	return nil
+}
+
+// sweepTrafficAnomaly is the traffic anomaly sweep (F-1252): every enabled user's
+// usage so far today is compared against the trailing-baseline average (see the
+// package constants); a spike fires one admin-facing Herald alert, deduped per
+// user per day. It is admin-facing on purpose -- it says nothing about quota, so
+// the user's notify preference does not gate it. Detection failure for one user
+// does not abort the sweep over the rest.
+func sweepTrafficAnomaly(db *gorm.DB, now time.Time) error {
+	var users []storage.User
+	if err := db.Where("enabled = ?", true).Find(&users).Error; err != nil {
+		return err
+	}
+	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	windowStart := dayStart.AddDate(0, 0, -anomalyBaselineDays)
+	type daySum struct {
+		Date string
+		Sum  int64
+	}
+	for i := range users {
+		u := users[i]
+		var rows []storage.TrafficLog
+		if err := db.Select("rx_bytes", "tx_bytes", "recorded_at").
+			Where("user_id = ? AND recorded_at >= ?", u.ID, windowStart).
+			Order("recorded_at").Find(&rows).Error; err != nil {
+			return err
+		}
+		sums := map[string]int64{}
+		for _, r := range rows {
+			sums[r.RecordedAt.Format("2006-01-02")] += r.RxBytes + r.TxBytes
+		}
+		var baseline int64
+		for d := 1; d <= anomalyBaselineDays; d++ {
+			baseline += sums[dayStart.AddDate(0, 0, -d).Format("2006-01-02")]
+		}
+		baseline /= anomalyBaselineDays
+		if baseline < anomalyBaselineFloor {
+			continue
+		}
+		today := sums[dayStart.Format("2006-01-02")]
+		if today < anomalySpikeRatio*baseline {
+			continue
+		}
+		dedup := fmt.Sprintf("traffic_anomaly:%d:%s", u.ID, now.Format("2006-01-02"))
+		var n int64
+		if err := db.Model(&storage.Event{}).
+			Where("kind = ? AND dedup_key = ?", herald.KindTrafficAnomaly, dedup).
+			Count(&n).Error; err != nil {
+			return err
+		}
+		if n > 0 {
+			continue
+		}
+		_, _ = herald.Emit(db, herald.EmitInput{
+			Kind:     herald.KindTrafficAnomaly,
+			Severity: herald.SeverityWarning,
+			Title:    "流量异常",
+			Body: fmt.Sprintf("用户 %s（id=%d）今日用量 %d MiB 已达近 %d 日均值（%d MiB）的 %d 倍，疑似异常或共享。",
+				u.Username, u.ID, today>>20, anomalyBaselineDays, baseline>>20, anomalySpikeRatio),
+			Target:   herald.TargetAdmin,
+			DedupKey: dedup,
+			Meta: map[string]any{
+				"user_id": u.ID, "baseline_bytes": baseline, "today_bytes": today,
+				"ratio": anomalySpikeRatio, "baseline_days": anomalyBaselineDays,
+			},
 		})
 	}
 	return nil
