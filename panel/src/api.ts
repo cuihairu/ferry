@@ -53,6 +53,9 @@ export interface Me {
   quota_bytes: number
   used_bytes: number
   expires_at: string | null
+  /** bound plan identity (F-1502): 0 / '' = plan-less. */
+  plan_id: number
+  plan_name: string
   active: boolean
   over_quota: boolean
   created_at: string
@@ -60,6 +63,60 @@ export interface Me {
   ip_limit: number
   devices: number
   ips: number
+}
+
+/** SubDeviceRow is one observed device (hwid) or 24h-window IP (ip) (P2-4, panel list F-1505). */
+export interface SubDeviceRow {
+  id: number
+  kind: 'hwid' | 'ip'
+  key: string
+  user_agent?: string
+  first_seen: string
+  last_seen: string
+}
+
+/** PlanHistoryRow is one plan application visible to the owner (F-1514, derived from the admin audit trail). */
+export interface PlanHistoryRow {
+  plan_id: string
+  plan_name: string
+  applied_at: string
+  by: string
+}
+
+/** AccessLogRow is one subscription access record — the panel's "login record" (F-1516). */
+export interface AccessLogRow {
+  id: number
+  path: string
+  target: string
+  ua: string
+  ip: string
+  code: number
+  created_at: string
+}
+
+/** getPanelDevices lists the caller's device/IP rows (GET /api/panel/devices). */
+export function getPanelDevices(): Promise<SubDeviceRow[]> {
+  return get<SubDeviceRow[]>('/api/panel/devices')
+}
+
+/** unbindPanelDevice removes one own hwid device binding (DELETE /api/panel/devices/:id). */
+export function unbindPanelDevice(id: number): Promise<{ ok: boolean }> {
+  return del(`/api/panel/devices/${id}`)
+}
+
+/** resetPanelToken re-issues the subscription token; the old one dies immediately (F-1508). */
+export function resetPanelToken(): Promise<{ sub_token: string }> {
+  return post<{ sub_token: string }>('/api/panel/reset-token')
+}
+
+/** getPanelPlanHistory lists the caller's plan applications (GET /api/panel/plan-history). */
+export function getPanelPlanHistory(): Promise<PlanHistoryRow[]> {
+  return get<PlanHistoryRow[]>('/api/panel/plan-history')
+}
+
+/** getPanelAccessLogs lists the caller's subscription access records (GET /api/panel/access-logs). */
+export function getPanelAccessLogs(limit = 20): Promise<AccessLogRow[]> {
+  return get<AccessLogRow[]>(`/api/panel/access-logs?limit=${limit}`)
 }
 
 /** RedeemResult is the entitlement receipt after a successful redemption. */

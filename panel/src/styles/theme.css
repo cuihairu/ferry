@@ -526,3 +526,40 @@ body {
   gap: 12px;
   margin-top: 12px;
 }
+
+/* ---- Home device / access / history rows (F-1505/F-1506/F-1514/F-1516) ---- */
+.list-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--ferry-border);
+  font-size: 13px;
+}
+.list-row:last-child {
+  border-bottom: none;
+}
+.list-main {
+  flex: 1;
+  min-width: 0;
+}
+.list-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+.list-sub {
+  color: var(--ferry-text-dim);
+  font-size: 12px;
+  margin-top: 2px;
+  word-break: break-all;
+}
+.token-reveal {
+  background: var(--ferry-bg-hover);
+  border: 1px solid var(--ferry-border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: var(--ferry-mono);
+  font-size: 12px;
+  word-break: break-all;
+  margin-top: 8px;
+}

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { ApiError, get, getContact, getNotifyPrefs, getSavings, updateContact, updateNotifyPrefs } from '../api'
-import type { ContactInfo, Me, SavingsSummary } from '../api'
-import { auth, setUser } from '../auth'
+import { ApiError, get, getContact, getNotifyPrefs, getSavings, getPanelDevices, getPanelAccessLogs, getPanelPlanHistory, resetPanelToken, unbindPanelDevice, updateContact, updateNotifyPrefs } from '../api'
+import type { AccessLogRow, ContactInfo, Me, PlanHistoryRow, SavingsSummary, SubDeviceRow } from '../api'
+import { auth, setUser, setToken } from '../auth'
 import { formatDate, formatBytes, quotaText } from '../utils/format'
 
 // Overview: usage progress, quota and expiry, subscription link copy, notification preferences (NT-2);
@@ -29,6 +29,9 @@ onMounted(async () => {
   loadPrefs()
   loadSavings()
   loadContact()
+  loadDevices()
+  loadPlanHistory()
+  loadAccessLogs()
 })
 
 // ---- Contact binding (TOUCH-1): at least one of TG/email; the guidance cannot be dismissed while unbound ----
@@ -164,6 +167,83 @@ async function savePrefs() {
     prefSaving.value = false
   }
 }
+
+// ---- Devices (F-1505/F-1506): hwid rows are the registered devices, unbind revokes one;
+// ip rows are just the 24h-window observations and expire on their own. A failed read
+// hides the card without disturbing the main flow, same stance as savings. ----
+const devices = ref<SubDeviceRow[]>([])
+const unbinding = ref(0)
+const hwDevices = computed(() => devices.value.filter((d) => d.kind === 'hwid'))
+const ipCount = computed(() => devices.value.filter((d) => d.kind === 'ip').length)
+
+async function loadDevices() {
+  try {
+    devices.value = await getPanelDevices()
+  } catch {
+    devices.value = []
+  }
+}
+
+async function unbind(d: SubDeviceRow) {
+  if (unbinding.value !== 0) return
+  if (!window.confirm(`解绑设备 ${d.key.slice(0, 12)}？解绑后该设备下次拉订阅需重新计入设备数。`)) return
+  unbinding.value = d.id
+  try {
+    await unbindPanelDevice(d.id)
+    await loadDevices()
+  } catch (e) {
+    window.alert(e instanceof ApiError ? e.message : '解绑失败，请稍后再试')
+  } finally {
+    unbinding.value = 0
+  }
+}
+
+// ---- Subscription token reset (F-1508): the token IS the credential, so this is the
+// panel's "change password" — two-step confirm, then the session swaps to the new token. ----
+const resetArmed = ref(false)
+const resetBusy = ref(false)
+const resetError = ref('')
+const freshToken = ref('')
+
+async function doResetToken() {
+  if (resetBusy.value) return
+  if (!resetArmed.value) {
+    resetArmed.value = true
+    return
+  }
+  resetBusy.value = true
+  resetError.value = ''
+  try {
+    const out = await resetPanelToken()
+    setToken(out.sub_token)
+    freshToken.value = out.sub_token
+    setUser(await get<Me>('/api/panel/me'))
+    resetArmed.value = false
+  } catch (e) {
+    resetError.value = e instanceof ApiError ? e.message : '网络异常，请稍后再试'
+  } finally {
+    resetBusy.value = false
+  }
+}
+
+// ---- Plan history (F-1514) and subscription access records (F-1516): both fail soft. ----
+const planHistory = ref<PlanHistoryRow[]>([])
+async function loadPlanHistory() {
+  try {
+    planHistory.value = await getPanelPlanHistory()
+  } catch {
+    planHistory.value = []
+  }
+}
+
+const accessLogs = ref<AccessLogRow[]>([])
+async function loadAccessLogs() {
+  try {
+    accessLogs.value = await getPanelAccessLogs()
+  } catch {
+    accessLogs.value = []
+  }
+}
 </script>
 
 <template>
@@ -206,6 +286,7 @@ async function savePrefs() {
           <i :class="{ warn: pct >= 70, danger: pct >= 95 }" :style="{ width: pct + '%' }"></i>
         </div>
         <dl class="kv">
+          <div class="kv-row"><dt>套餐</dt><dd>{{ me.plan_name || '—' }}</dd></div>
           <div class="kv-row"><dt>剩余</dt><dd>{{ remaining }}</dd></div>
           <div class="kv-row"><dt>到期</dt><dd>{{ formatDate(me.expires_at) }}</dd></div>
           <div class="kv-row"><dt>状态</dt><dd>{{ me.active ? '正常' : '不可用' }}</dd></div>
@@ -244,6 +325,9 @@ async function savePrefs() {
               {{ copied === 'clash' ? '已复制' : '复制' }}
             </button>
           </div>
+          <p class="muted" style="margin: 6px 0 0; font-size: 12px">
+            导入：Clash Verge / Mihomo Party → 「订阅」→ 新建配置，粘贴本链接并更新；手机端 ClashMeta for Android / Stash（iOS）选「从 URL 添加」。
+          </p>
         </div>
         <div class="link-block">
           <div class="link-label">sing-box / Stash（JSON）</div>
@@ -252,6 +336,69 @@ async function savePrefs() {
             <button class="btn btn-ghost" @click="copy(subLink('singbox'), 'singbox')">
               {{ copied === 'singbox' ? '已复制' : '复制' }}
             </button>
+          </div>
+          <p class="muted" style="margin: 6px 0 0; font-size: 12px">
+            导入：sing-box → 「配置」→「新建」→「从 URL 导入」，粘贴本链接；SFM / Stash（iOS）在首页「+」选「订阅」粘贴链接后拉取。
+          </p>
+        </div>
+      </section>
+
+      <section v-if="planHistory.length" class="card">
+        <h2 class="card-title">套餐变更历史</h2>
+        <p class="muted">套餐应用记录（管理员操作留痕）；套餐变更即复制限额生效，历史仅留档。</p>
+        <div v-for="(h, i) in planHistory" :key="i" class="list-row">
+          <div class="list-main">
+            <div class="list-title">{{ h.plan_name || '（套餐已删除）' }}</div>
+            <div class="list-sub">{{ formatDate(h.applied_at) }} · 操作者 {{ h.by || '—' }}</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">设备</h2>
+        <p class="muted">订阅客户端按设备上报（hwid）；24 小时内独立 IP {{ ipCount }} 个。</p>
+        <template v-if="hwDevices.length">
+          <div v-for="d in hwDevices" :key="d.id" class="list-row">
+            <div class="list-main">
+              <div class="list-title">{{ d.key.slice(0, 8) }}…</div>
+              <div class="list-sub">
+                {{ d.user_agent || '未知客户端' }} · 首次 {{ formatDate(d.first_seen) }} · 最近 {{ formatDate(d.last_seen) }}
+              </div>
+            </div>
+            <button class="btn btn-ghost" :disabled="unbinding !== 0" @click="unbind(d)">
+              {{ unbinding === d.id ? '解绑中…' : '解绑' }}
+            </button>
+          </div>
+        </template>
+        <p v-else class="muted">暂无设备记录（客户端未上报设备标识）。</p>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">安全设置</h2>
+        <p class="muted">
+          订阅令牌即身份凭证，等同于密码；重置后旧令牌立即失效，已复制的订阅链接需换用下方新令牌重新复制。
+        </p>
+        <div class="pref-bar">
+          <button
+            class="btn"
+            :class="resetArmed ? 'btn-primary' : 'btn-ghost'"
+            :disabled="resetBusy"
+            @click="doResetToken"
+          >
+            {{ resetBusy ? '重置中…' : resetArmed ? '再次点击确认重置' : '重置订阅令牌' }}
+          </button>
+          <span v-if="resetError" class="error-text">{{ resetError }}</span>
+        </div>
+        <div v-if="freshToken" class="token-reveal">新令牌：{{ freshToken }}（请立即复制保存，不再完整显示）</div>
+      </section>
+
+      <section v-if="accessLogs.length" class="card">
+        <h2 class="card-title">订阅访问记录（近 {{ accessLogs.length }} 条）</h2>
+        <p class="muted">每次拉取订阅都会留时间/IP/响应码记录。</p>
+        <div v-for="l in accessLogs" :key="l.id" class="list-row">
+          <div class="list-main">
+            <div class="list-title">{{ formatDate(l.created_at) }}</div>
+            <div class="list-sub">{{ l.ip || '—' }} · {{ l.ua || '未知客户端' }} · 响应 {{ l.code }}</div>
           </div>
         </div>
       </section>
