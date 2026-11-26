@@ -457,3 +457,43 @@ func TestSubXRateLimit(t *testing.T) {
 		t.Fatalf("枚举锁定后应 429: %d", rec.Code)
 	}
 }
+
+// TestSubXPlanBinding pins the plan line-permission rule (F-1206, delivered by
+// the PlanID binding F-1047/F-1142) on the custom subscription surface: a
+// plan-bound node delivers only to that plan's subscribers, a plan-less node
+// serves everyone -- the same candidate WHERE as the main subscription, so the
+// two surfaces cannot drift.
+func TestSubXPlanBinding(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	freeTok := panelUserOf(t, r, "xplan-free", nil)
+	goldTok := panelUserOf(t, r, "xplan-gold", map[string]any{"plan_id": 7})
+	seedEntryNodes(t, db)
+	if err := db.Create(&storage.Node{Name: "xplan-gold-hk", Address: "g.example.com", Port: 443,
+		Protocol: "vless", Config: `{"uuid":"u-7"}`, Enabled: true,
+		Token: "sx-tok-gold", Role: "entry", Region: "香港", Status: "online", PlanID: 7}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	names := func(tok string) string {
+		t.Helper()
+		rec := getSub(t, r, "/sub/x/"+tok, "v2rayNG/1.8")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("fetch %s: %d %s", tok, rec.Code, rec.Body)
+		}
+		raw, err := base64.StdEncoding.DecodeString(rec.Body.String())
+		if err != nil {
+			t.Fatalf("body not base64: %v", err)
+		}
+		return string(raw)
+	}
+
+	// Plan subscriber: plan-bound node + every plan-less node.
+	if body := names(createSubX(t, r, goldTok, "xplan-gold-sub", "", "")); !strings.Contains(body, "g.example.com") {
+		t.Fatalf("plan subscriber missing plan node: %q", body)
+	}
+	// Plan-less subscriber: plan-less nodes only, the plan node stays out.
+	if body := names(createSubX(t, r, freeTok, "xplan-free-sub", "", "")); strings.Contains(body, "g.example.com") {
+		t.Fatalf("plan-less user leaked plan node: %q", body)
+	}
+}
