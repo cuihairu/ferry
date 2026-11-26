@@ -1795,7 +1795,8 @@ External Client
     - 备注（Task ID: F-1222 | Status: Done | Evidence: subdevice.go:18-82 subDeviceCheck 统一 hwid/ip 双 kind 绑定+复合唯一索引 models.go:68-76+24h IP 窗懒清理 | Verification: TestSubscriptionDeviceLimit+TestSubscriptionIPLimit+TestSubDeviceLimitValidation+TestSubDevicePruneUnlimited（subdevice_test.go:43/80/182/133） | Commit: ad8f965）
 -   [x] `F-1223` 支持设备列表。
     - 备注（Task ID: F-1223 | Status: Done | Evidence: GET devices；TestUserDevicesErrors+TestPanelMeDeviceUsage | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1224` 支持设备解绑。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1224` 支持设备解绑。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1224 | Status: Done | Evidence: DELETE /api/users/:id/devices/:did（subdevice.go unbindUserDevice+router.go）：按 id+user_id 双条件删除单条绑定（跨户 id 永不命中→404），解绑后该客户端下次拉订阅按新设备重新登记（受同一上限检查） | Verification: TestUserDeviceUnbind（解绑后列表只剩 dev-a2、重复解绑/未知 id 404、跨户 404、他人绑定不受影响）| Commit: a85d170）
     - 待补（F-1224 | 未满足：仅 GET /api/users/:id/devices（router.go:239→subdevice.go:85-100）；无解绑/删除端点（用户删除清设备行属整户删除）。）
 -   [x] `F-1225` 支持设备上限检查。
     - 备注（Task ID: F-1225 | Status: Done | Evidence: subdevice 上限检查；TestSubDeviceLimitValidation | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
