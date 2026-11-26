@@ -1840,8 +1840,10 @@ External Client
     - 证据（F-1252 | 已落地：notifyscan 新增 sweepTrafficAnomaly 尖峰/偏离检测（scan.go）：用户当日用量 vs 近 7 个整日均值（空日计零），≥5 倍且基线 ≥1 MiB 防地板噪声，触发 herald.KindTrafficAnomaly 管理员告警（TargetAdmin/warning），按用户×日 dedup；阈值型配额预警与节点带宽利用率照旧并存。新常量 KindTrafficAnomaly（herald.go）。
     - 验证：TestSweepTrafficAnomaly 钉尖峰触发、同日 dedup、低于倍数不触发、无基线（地板）不触发；全量 51 ok / FAIL=0 / exit=0。
     - Commit: 5880e4f
--   [ ] `F-1253` 支持流量账目审计。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1253 | 部分：traffic_logs 只增不改+管理员审计轮转；无流量账目对账/复核（对账仅支付侧 payrecon.go）。）
+-   [x] `F-1253` 支持流量账目审计。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 证据（F-1253 | 已落地：GET /api/traffic-recon?days=N（默认 7，上限 90）流量账目对账视图（trafficrecon.go，对齐支付侧 payrecon.go 形态）：窗口内用户台账（traffic_logs）×节点台账（node_traffic_logs）逐节点求和对比，delta=node−user；单端计量唯一硬不变量 user_billed>node_metered 打 double_billing 标，反向差为隧道/landing 侧与非用户进程的设计常态不判罚，仅呈现数字供复核；节点名缺失（节点已删）留空。
+    - 验证：TestTrafficRecon 钉双台账求和、double_billing 触标、窗口过滤（10 天旧行出默认窗、days=2 再甩 3 天行）、days 校验 400、按 node_id 稳定排序；全量 51 ok / FAIL=0 / exit=0。
+    - Commit: e788369
 -   [x] `F-1254` 建立流量记账幂等测试。
     - 备注（Task ID: F-1254 | Status: Done | Evidence: 流量幂等；TestAgentWSDuplicateTrafficFrame+TestAgentWSDedupSurvivesReconnect | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1255` 建立断线补报集成测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
