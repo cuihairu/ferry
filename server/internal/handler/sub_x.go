@@ -220,9 +220,11 @@ func (h *Handler) subXDeliver(c *gin.Context, u storage.User, usage trafficUsage
 		return
 	}
 	// Usage headers + unified version/update-time metadata (F-1108, one helper
-	// with the main subscription).
-	subscriptionMeta(c, u, usage, []byte(body))
-	c.Data(http.StatusOK, ctype, []byte(body))
+	// with the main subscription) and the conditional-request short-circuit
+	// (F-1148).
+	if subscriptionMeta(c, u, usage, []byte(body)) {
+		c.Data(http.StatusOK, ctype, []byte(body))
+	}
 }
 
 // subFilterOf parses the stored filter text; a parse failure (legacy dirty data) is

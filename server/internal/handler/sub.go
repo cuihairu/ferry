@@ -250,9 +250,11 @@ func (h *Handler) subscription(c *gin.Context) {
 		fail(c, http.StatusBadRequest, errors.New("target must be v2ray, clash, mihomo, singbox or xray"))
 		return
 	}
-	// P0-7 usage headers + unified version/update-time metadata (F-1108).
-	subscriptionMeta(c, u, usage, []byte(body))
-	c.Data(http.StatusOK, ctype, []byte(body))
+	// P0-7 usage headers + unified version/update-time metadata (F-1108) and
+	// the conditional-request short-circuit (F-1148).
+	if subscriptionMeta(c, u, usage, []byte(body)) {
+		c.Data(http.StatusOK, ctype, []byte(body))
+	}
 }
 
 // rttWindow is the window of tunnel probe verdicts that participate in entry speed aggregation.
@@ -291,13 +293,23 @@ func userinfoHeader(u storage.User, usage trafficUsage) string {
 // subscriptionMeta writes the unified subscription response metadata (F-1108):
 // the usage headers plus the update time (Last-Modified, UTC) and the content
 // version stamp (X-Subscription-Version, an sha1 prefix -- same body, same
-// version). The main subscription and the custom subscription both deliver
-// through this one helper, so the metadata cannot drift between the surfaces.
-func subscriptionMeta(c *gin.Context, u storage.User, usage trafficUsage, body []byte) {
+// version). It also implements the conditional-request protocol (F-1148): the
+// ETag is the body's full sha1, and an If-None-Match hit serves 304 with no
+// body -- the metadata headers still go out so the client can bookkeep the
+// refresh. Returns false when a 304 was written and the caller must not
+// write the body.
+func subscriptionMeta(c *gin.Context, u storage.User, usage trafficUsage, body []byte) bool {
 	c.Header("Subscription-Userinfo", userinfoHeader(u, usage))
 	c.Header("Profile-Update-Interval", "24")
 	c.Header("Profile-Title", u.Username)
 	c.Header("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
 	sum := sha1.Sum(body)
-	c.Header("X-Subscription-Version", hex.EncodeToString(sum[:])[:12])
+	full := hex.EncodeToString(sum[:])
+	c.Header("ETag", `"`+full+`"`)
+	c.Header("X-Subscription-Version", full[:12])
+	if c.GetHeader("If-None-Match") == `"`+full+`"` {
+		c.Status(http.StatusNotModified)
+		return false
+	}
+	return true
 }

@@ -585,3 +585,54 @@ func TestSubscriptionPlanFilter(t *testing.T) {
 		t.Fatalf("cleared plan still delivers bound node: %q", raw)
 	}
 }
+
+// TestSubscriptionConditionalGet covers the conditional-request protocol
+// (F-1148): the ETag is the body's sha1, an If-None-Match hit serves 304
+// with an empty body but the usage metadata kept, and a fleet change moves
+// the ETag so stale caches cannot survive revalidation.
+func TestSubscriptionConditionalGet(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	token := panelUserOf(t, r, "etag-user", nil)
+	if err := db.Create(&storage.Node{Name: "etag-hk", Address: "e1.example.com", Port: 443,
+		Protocol: "vless", Config: `{"uuid":"u-1"}`, Enabled: true, Token: "etag-tok-1",
+		Role: "entry", Status: "online"}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	rec := getSub(t, r, "/sub/"+token, "v2rayNG/1.8")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("first fetch: %d", rec.Code)
+	}
+	etag := rec.Header().Get("ETag")
+	if etag == "" || etag[0] != '"' {
+		t.Fatalf("etag = %q", etag)
+	}
+	if lm := rec.Header().Get("Last-Modified"); lm == "" {
+		t.Fatal("last-modified missing")
+	}
+
+	// conditional refetch: 304, empty body, usage metadata kept
+	req := httptest.NewRequest(http.MethodGet, "/sub/"+token, nil)
+	req.Header.Set("User-Agent", "v2rayNG/1.8")
+	req.Header.Set("If-None-Match", etag)
+	rec2 := httptest.NewRecorder()
+	r.ServeHTTP(rec2, req)
+	if rec2.Code != http.StatusNotModified || rec2.Body.Len() != 0 {
+		t.Fatalf("conditional refetch = %d body=%q", rec2.Code, rec2.Body)
+	}
+	if rec2.Header().Get("Subscription-Userinfo") == "" {
+		t.Fatal("304 lost the usage headers")
+	}
+
+	// a fleet change moves the ETag: revalidation must come back 200
+	if err := db.Create(&storage.Node{Name: "etag-us", Address: "e2.example.com", Port: 443,
+		Protocol: "vless", Config: `{"uuid":"u-2"}`, Enabled: true, Token: "etag-tok-2",
+		Role: "entry", Status: "online"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	rec3 := getSub(t, r, "/sub/"+token, "v2rayNG/1.8")
+	if rec3.Code != http.StatusOK || rec3.Header().Get("ETag") == etag {
+		t.Fatalf("changed fleet = %d etag=%q", rec3.Code, rec3.Header().Get("ETag"))
+	}
+}
