@@ -78,6 +78,8 @@ export interface Node {
   protocol: string
   config: string
   enabled: boolean
+  /** maintenance mode (F-0746): node stays listed but is skipped by allocation and subscriptions. */
+  maintenance: boolean
   token: string
   old_token?: string
   token_rotated_at?: string | null

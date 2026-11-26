@@ -254,6 +254,7 @@ const form = reactive({
   protocol: 'vless',
   config: '{}',
   enabled: true,
+  maintenance: false,
   role: 'landing',
   direction: 'out',
   region: '',
@@ -488,7 +489,7 @@ async function sendUpgrade() {
 function openCreate() {
   editing.value = null
   Object.assign(form, {
-    name: '', address: '', port: 443, protocol: 'vless', config: '{}', enabled: true,
+    name: '', address: '', port: 443, protocol: 'vless', config: '{}', enabled: true, maintenance: false,
     role: 'landing', direction: 'out', region: '', city: '', datacenter: '', isp: '', line_type: '', transport: 'tls',
   })
   dialogVisible.value = true
@@ -503,6 +504,7 @@ function openEdit(n: Node) {
     protocol: n.protocol,
     config: n.config || '{}',
     enabled: n.enabled,
+    maintenance: n.maintenance,
     role: n.role,
     direction: n.direction || 'out',
     region: n.region || '',
@@ -552,6 +554,7 @@ async function save() {
       protocol: form.protocol,
       config: form.config,
       enabled: form.enabled,
+      maintenance: form.maintenance,
       role: form.role,
       direction: form.direction,
       region: form.region.trim(),
@@ -580,6 +583,17 @@ async function toggleEnabled(n: Node, enabled: boolean) {
   try {
     await put(`/api/nodes/${n.id}`, { enabled })
     n.enabled = enabled
+  } catch (e) {
+    ElMessage.error(String(e))
+  }
+}
+
+// Maintenance toggle (F-0746): the node stays listed but allocation and
+// subscriptions skip it while the switch is on.
+async function toggleMaintenance(n: Node, maintenance: boolean) {
+  try {
+    await put(`/api/nodes/${n.id}`, { maintenance })
+    n.maintenance = maintenance
   } catch (e) {
     ElMessage.error(String(e))
   }
@@ -705,6 +719,13 @@ async function remove(n: Node) {
           <el-switch :model-value="row.enabled" @change="(v: boolean) => toggleEnabled(row, v)" />
         </template>
       </el-table-column>
+      <el-table-column label="维护" width="80">
+        <template #default="{ row }">
+          <el-tooltip content="维护中的节点不参与分配与订阅" placement="top">
+            <el-switch :model-value="row.maintenance" @change="(v: boolean) => toggleMaintenance(row, v)" />
+          </el-tooltip>
+        </template>
+      </el-table-column>
       <el-table-column label="操作" width="360" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
@@ -805,6 +826,10 @@ async function remove(n: Node) {
         </el-form-item>
         <el-form-item label="启用">
           <el-switch v-model="form.enabled" />
+        </el-form-item>
+        <el-form-item label="维护">
+          <el-switch v-model="form.maintenance" />
+          <span class="form-hint">维护中的节点不参与分配与订阅</span>
         </el-form-item>
       </el-form>
       <template #footer>
