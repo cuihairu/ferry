@@ -1600,7 +1600,8 @@ External Client
     - 备注（Task ID: F-1026 | Status: Done | Evidence: CapacityMbps alloc.go:188-198 | Verification: TestPickLeastConnCapacityWeight | Commit: fbcb525）
 -   [x] `F-1027` 实现成本约束。
     - 备注（Task ID: F-1027 | Status: Done | Evidence: CostPerGB alloc.go:202-207 | Verification: TestPickCostFirst | Commit: fbcb525）
--   [ ] `F-1028` 实现 Path 质量评分。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1028` 实现 Path 质量评分。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1028 | Status: Done | Evidence: alloc.Quality+LatestQuality（窗口内每 prober 最新判词按 target 均值）+QualityScore（loss 权重 0.7/RTT 0.3 折算 [0,1]，无样本=中性 0.5 不罚冷启动）；接入 Candidate/Request/CandidateEval/Decision 与面板 preview 的 quality 字段，策略比较器不动（F-1046 规则不变，quality 策略留给 F-1044）；TestLatestQuality/TestQualityScore/TestDecideCarriesQuality | Verification: go vet + server 全套件 green exit=0（51 ok）2026-11-26 | Commit: 8e74cce）
 -   [ ] `F-1029` 实现优先级规则。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-1030` 实现候选排序。
     - 备注（Task ID: F-1030 | Status: Done | Evidence: lessFor alloc.go:255-318+Pick 217-238+平局确定性 260 | Verification: TestPickTieBreaks | Commit: fbcb525）
