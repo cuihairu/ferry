@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -145,38 +146,47 @@ func (h *Handler) setProbeTasks(c *gin.Context) {
 		c.JSON(http.StatusOK, out) // withdrawal: nothing to deliver
 		return
 	}
-	if !h.hub.IsOnline(int64(id)) {
-		c.JSON(http.StatusOK, out) // desired state stored; applied at the next hello
+	switch delivered, errMsg := h.deliverProbeTasks(uint(id), task); delivered {
+	case "ok":
+		out["delivered"] = true
+	case "rejected":
+		out["error"] = errMsg
+		c.JSON(http.StatusBadGateway, out)
 		return
+	default: // offline (desired state stored) or transport trouble: not a failed set
+		out["error"] = errMsg
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+// deliverProbeTasks pushes a validated task set to an online agent and returns
+// one of: "ok" (acked), "offline" (not connected; the set stays desired state
+// and is applied at the next hello), "transport" (delivery trouble; the set
+// stays desired state either way), "rejected" (the agent refused the set).
+func (h *Handler) deliverProbeTasks(nodeID uint, task agentproto.ProbeTask) (string, string) {
+	if !h.hub.IsOnline(int64(nodeID)) {
+		return "offline", ""
 	}
 	env, err := agentproto.NewEnvelope(
-		fmt.Sprintf("probetask-%d-%d", id, time.Now().UnixNano()),
+		fmt.Sprintf("probetask-%d-%d", nodeID, time.Now().UnixNano()),
 		agentproto.MsgProbeTask, task,
 	)
 	if err != nil {
-		fail(c, http.StatusInternalServerError, err)
-		return
+		return "transport", err.Error()
 	}
-	reply, err := h.hub.Request(int64(id), env, probeTaskAckTimeout)
+	reply, err := h.hub.Request(int64(nodeID), env, probeTaskAckTimeout)
 	if err != nil {
-		// The set is persisted either way; a flaky delivery is not a failed set.
-		log.Printf("probe task delivery node=%d: %v", id, err)
-		out["error"] = err.Error()
-		c.JSON(http.StatusOK, out)
-		return
+		log.Printf("probe task delivery node=%d: %v", nodeID, err)
+		return "transport", err.Error()
 	}
 	var ack agentproto.ProbeTaskAck
 	if err := reply.Decode(&ack); err != nil || !ack.OK {
-		msg := "agent rejected the probe task set"
 		if err == nil && ack.Error != "" {
-			msg = ack.Error
+			return "rejected", ack.Error
 		}
-		out["error"] = msg
-		c.JSON(http.StatusBadGateway, out)
-		return
+		return "rejected", "agent rejected the probe task set"
 	}
-	out["delivered"] = true
-	c.JSON(http.StatusOK, out)
+	return "ok", ""
 }
 
 // dispatchProbeTasks sends the node's desired probe task set after hello
@@ -200,4 +210,121 @@ func (h *Handler) dispatchProbeTasks(nodeID int64, hc *agenthub.Conn) {
 	if _, err := h.hub.Request(nodeID, env, probeTaskAckTimeout); err != nil {
 		log.Printf("probe task dispatch node=%d: %v", nodeID, err)
 	}
+}
+
+// Probe-task names generated from paths carry this prefix; a sync rebuilds
+// exactly this namespace and leaves every operator-authored task alone.
+const pathTaskPrefix = "path-"
+
+// importanceProbeInterval maps a path's probe importance (F-0924) to the
+// dispatched tunnel-probe interval: business-critical paths are watched every
+// minute, normal every five, low-value ones every quarter hour.
+func importanceProbeInterval(imp string) int {
+	switch imp {
+	case "critical":
+		return 60
+	case "low":
+		return 900
+	default:
+		return 300
+	}
+}
+
+// syncProbeTasksFromPaths rebuilds the dispatched tunnel probes from the path
+// table (POST /api/probe-tasks/sync-from-paths, F-0924): every enabled path
+// becomes one `path-<id>` tunnel task on its entry node at the
+// importance-derived interval, replacing the path namespace of previous syncs;
+// operator-authored tasks (any other name) are left untouched, and paths that
+// disappeared or were disabled simply stop being regenerated.
+func (h *Handler) syncProbeTasksFromPaths(c *gin.Context) {
+	var paths []storage.Path
+	if err := h.db.Where("enabled = ?", true).Find(&paths).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	var landings []storage.Node
+	if err := h.db.Find(&landings).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	addrByID := map[uint]string{}
+	for _, n := range landings {
+		addrByID[n.ID] = net.JoinHostPort(n.Address, strconv.Itoa(n.Port))
+	}
+
+	// the desired path-<id> set per entry node
+	pathSpecs := map[uint][]agentproto.ProbeTaskSpec{}
+	for _, p := range paths {
+		addr := addrByID[p.LandingNodeID]
+		if addr == ":" || strings.HasPrefix(addr, ":") {
+			continue // landing without an address cannot be probed
+		}
+		pathSpecs[p.EntryNodeID] = append(pathSpecs[p.EntryNodeID], agentproto.ProbeTaskSpec{
+			Name:        fmt.Sprintf("%s%d", pathTaskPrefix, p.ID),
+			TargetKind:  agentproto.ProbeTargetTunnel,
+			Target:      addr,
+			Direction:   p.Direction,
+			IntervalSec: importanceProbeInterval(p.ProbeImportance),
+		})
+	}
+
+	// every entry node of a path, plus nodes still carrying stale path-* tasks
+	entries := map[uint]bool{}
+	for nodeID := range pathSpecs {
+		entries[nodeID] = true
+	}
+	var nodes []storage.Node
+	if err := h.db.Where("probe_tasks LIKE ?", `%"path-%`).Find(&nodes).Error; err == nil {
+		for _, n := range nodes {
+			entries[n.ID] = true
+		}
+	}
+
+	out := gin.H{"nodes": []gin.H{}}
+	for nodeID := range entries {
+		var n storage.Node
+		if err := h.db.First(&n, nodeID).Error; err != nil {
+			continue
+		}
+		// keep the operator's tasks, drop the previous path-* generation
+		var cur agentproto.ProbeTask
+		kept := []agentproto.ProbeTaskSpec{}
+		if n.ProbeTasks != "" {
+			if json.Unmarshal([]byte(n.ProbeTasks), &cur) == nil {
+				for _, s := range cur.Specs {
+					if !strings.HasPrefix(s.Name, pathTaskPrefix) {
+						kept = append(kept, s)
+					}
+				}
+			}
+		}
+		kept = append(kept, pathSpecs[nodeID]...)
+		task, err := validateProbeTasks(probeTaskInput{Specs: kept})
+		if err != nil {
+			continue // cannot happen for generated+persisted specs; skip defensively
+		}
+		raw := ""
+		if len(task.Specs) > 0 {
+			if b, err := json.Marshal(task); err == nil {
+				raw = string(b)
+			}
+		}
+		if err := h.db.Model(&storage.Node{}).Where("id=?", nodeID).Update("probe_tasks", raw).Error; err != nil {
+			out["nodes"] = append(out["nodes"].([]gin.H), gin.H{"id": nodeID, "error": err.Error()})
+			continue
+		}
+		row := gin.H{"id": nodeID, "tasks": len(task.Specs), "delivered": false, "error": ""}
+		if len(task.Specs) > 0 {
+			switch state, msg := h.deliverProbeTasks(nodeID, task); state {
+			case "ok":
+				row["delivered"] = true
+			case "rejected":
+				row["error"] = msg
+			case "transport":
+				row["error"] = msg
+			}
+		}
+		out["nodes"] = append(out["nodes"].([]gin.H), row)
+	}
+	c.JSON(http.StatusOK, out)
 }

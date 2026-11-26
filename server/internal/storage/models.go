@@ -103,19 +103,23 @@ type Plan struct {
 // transport stays a label, not its own entity (agent-side it is the tunnel
 // plugin interface).
 type Path struct {
-	ID            uint      `gorm:"primaryKey" json:"id"`
-	Name          string    `gorm:"size:64;uniqueIndex" json:"name"`
-	EntryNodeID   uint      `gorm:"index;not null" json:"entry_node_id"`
-	LandingNodeID uint      `gorm:"index;not null" json:"landing_node_id"`
-	RelayNodeID   *uint     `gorm:"index" json:"relay_node_id"` // empty = direct tunnel (F-0247)
-	Transport     string    `gorm:"size:16;default:tls" json:"transport"`
-	Region        string    `gorm:"size:64" json:"region"`
-	Direction     string    `gorm:"size:8;not null;default:out" json:"direction"` // out/in
-	Enabled       bool      `gorm:"default:true" json:"enabled"`
-	Version       int       `json:"version"` // config version, bumped on every update (F-0252)
-	Note          string    `gorm:"size:255" json:"note"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID            uint   `gorm:"primaryKey" json:"id"`
+	Name          string `gorm:"size:64;uniqueIndex" json:"name"`
+	EntryNodeID   uint   `gorm:"index;not null" json:"entry_node_id"`
+	LandingNodeID uint   `gorm:"index;not null" json:"landing_node_id"`
+	RelayNodeID   *uint  `gorm:"index" json:"relay_node_id"` // empty = direct tunnel (F-0247)
+	Transport     string `gorm:"size:16;default:tls" json:"transport"`
+	Region        string `gorm:"size:64" json:"region"`
+	Direction     string `gorm:"size:8;not null;default:out" json:"direction"` // out/in
+	Enabled       bool   `gorm:"default:true" json:"enabled"`
+	// ProbeImportance grades how aggressively this path's tunnel probe runs
+	// (F-0924): critical 60s / normal 300s / low 900s, applied when the panel
+	// syncs dispatched probe tasks from paths.
+	ProbeImportance string    `gorm:"size:16;default:normal" json:"probe_importance"`
+	Version         int       `json:"version"` // config version, bumped on every update (F-0252)
+	Note            string    `gorm:"size:255" json:"note"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 // PathGroup (F-0261) is a named, ordered candidate set of paths organized by

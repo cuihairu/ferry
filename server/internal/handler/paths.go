@@ -15,15 +15,16 @@ import (
 // (no unique constraint on entry/landing, an Enabled flag).
 
 type pathInput struct {
-	Name          string  `json:"name"`
-	EntryNodeID   *uint   `json:"entry_node_id"`
-	LandingNodeID *uint   `json:"landing_node_id"`
-	RelayNodeID   *uint   `json:"relay_node_id"`
-	Transport     string  `json:"transport"`
-	Region        string  `json:"region"`
-	Direction     string  `json:"direction"`
-	Enabled       *bool   `json:"enabled"`
-	Note          *string `json:"note"`
+	Name            string  `json:"name"`
+	EntryNodeID     *uint   `json:"entry_node_id"`
+	LandingNodeID   *uint   `json:"landing_node_id"`
+	RelayNodeID     *uint   `json:"relay_node_id"`
+	Transport       string  `json:"transport"`
+	Region          string  `json:"region"`
+	Direction       string  `json:"direction"`
+	Enabled         *bool   `json:"enabled"`
+	Note            *string `json:"note"`
+	ProbeImportance string  `json:"probe_importance,omitempty"` // F-0924: critical/normal/low
 }
 
 // validatePathInput checks the referenced nodes exist and normalizes the
@@ -74,16 +75,26 @@ func (h *Handler) validatePathInput(in pathInput) (storage.Path, error) {
 	if in.Enabled != nil {
 		enabled = *in.Enabled
 	}
+	// Probe importance grades the path's dispatched tunnel-probe frequency
+	// (F-0924): critical probes every minute, low every quarter hour.
+	importance := "normal"
+	if in.ProbeImportance != "" {
+		importance = in.ProbeImportance
+	}
+	if importance != "critical" && importance != "normal" && importance != "low" {
+		return storage.Path{}, errors.New("probe_importance must be critical/normal/low")
+	}
 	return storage.Path{
-		Name:          name,
-		EntryNodeID:   *in.EntryNodeID,
-		LandingNodeID: *in.LandingNodeID,
-		RelayNodeID:   relay,
-		Transport:     transport,
-		Region:        in.Region,
-		Direction:     direction,
-		Enabled:       enabled,
-		Version:       1,
+		Name:            name,
+		EntryNodeID:     *in.EntryNodeID,
+		LandingNodeID:   *in.LandingNodeID,
+		RelayNodeID:     relay,
+		Transport:       transport,
+		Region:          in.Region,
+		Direction:       direction,
+		Enabled:         enabled,
+		ProbeImportance: importance,
+		Version:         1,
 	}, nil
 }
 
@@ -194,6 +205,9 @@ func (h *Handler) updatePath(c *gin.Context) {
 		v := cur.Enabled
 		merged.Enabled = &v
 	}
+	if merged.ProbeImportance == "" {
+		merged.ProbeImportance = cur.ProbeImportance
+	}
 	next, err := h.validatePathInput(merged)
 	if err != nil {
 		fail(c, http.StatusBadRequest, err)
@@ -208,7 +222,8 @@ func (h *Handler) updatePath(c *gin.Context) {
 	next.CreatedAt = cur.CreatedAt
 	next.Version = cur.Version + 1
 	if err := h.db.Model(&storage.Path{}).Where("id = ?", cur.ID).Select("name", "entry_node_id",
-		"landing_node_id", "relay_node_id", "transport", "region", "direction", "enabled", "version", "note", "updated_at").
+		"landing_node_id", "relay_node_id", "transport", "region", "direction", "enabled",
+		"probe_importance", "version", "note", "updated_at").
 		Updates(&next).Error; err != nil {
 		if isDup(err) {
 			fail(c, http.StatusConflict, errors.New("path name already exists"))

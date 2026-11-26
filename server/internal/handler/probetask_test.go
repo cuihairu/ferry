@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -139,6 +140,185 @@ func TestSetProbeTasksMissingNode(t *testing.T) {
 	rec := doJSON(t, r, "PUT", "/api/nodes/999/probe_tasks", map[string]any{"specs": []map[string]any{}})
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("missing node: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// createLandingPath registers a landing node and one path over it; both use
+// distinct names per call so tests can create several.
+func createLandingPath(t *testing.T, r *gin.Engine, suffix string) (entryID, landingID, pathID float64) {
+	t.Helper()
+	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
+		"name": "entry-" + suffix, "address": "sh.example.com", "port": 443, "protocol": "vless",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create entry: %d %s", rec.Code, rec.Body)
+	}
+	var entry map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &entry)
+
+	rec = doJSON(t, r, "POST", "/api/nodes", map[string]any{
+		"name": "landing-" + suffix, "address": "sg.example.com", "port": 8443, "protocol": "vless",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create landing: %d %s", rec.Code, rec.Body)
+	}
+	var landing map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &landing)
+
+	rec = doJSON(t, r, "POST", "/api/paths", map[string]any{
+		"name":            "path-" + suffix,
+		"entry_node_id":   entry["id"],
+		"landing_node_id": landing["id"],
+		"direction":       "in",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create path: %d %s", rec.Code, rec.Body)
+	}
+	var p map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &p)
+	if p["probe_importance"] != "normal" {
+		t.Fatalf("default probe_importance = %v; want normal", p["probe_importance"])
+	}
+	return entry["id"].(float64), landing["id"].(float64), p["id"].(float64)
+}
+
+// TestPathProbeImportanceValidation covers the F-0924 field: it persists, an
+// unknown grade is rejected, and updates merge it.
+func TestPathProbeImportanceValidation(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	_, _, pathID := createLandingPath(t, r, "imp")
+
+	rec := doJSON(t, r, "PUT", fmt.Sprintf("/api/paths/%d", int(pathID)), map[string]any{
+		"probe_importance": "critical",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update importance: %d %s", rec.Code, rec.Body)
+	}
+	var p storage.Path
+	if err := db.First(&p, int(pathID)).Error; err != nil {
+		t.Fatalf("load path: %v", err)
+	}
+	if p.ProbeImportance != "critical" {
+		t.Fatalf("stored importance = %q; want critical", p.ProbeImportance)
+	}
+
+	rec = doJSON(t, r, "PUT", fmt.Sprintf("/api/paths/%d", int(pathID)), map[string]any{
+		"probe_importance": "urgent",
+	})
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "probe_importance") {
+		t.Fatalf("unknown grade: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// TestSyncProbeTasksFromPaths covers the F-0924 sync: each enabled path lands
+// as a path-<id> tunnel task on its entry node at the importance-derived
+// interval; disabled paths drop out on the next sync; operator-authored tasks
+// survive.
+func TestSyncProbeTasksFromPaths(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	entryID, _, criticalID := createLandingPath(t, r, "a")
+
+	// grade the first path critical: its dispatched probe must run every minute
+	rec := doJSON(t, r, "PUT", fmt.Sprintf("/api/paths/%d", int(criticalID)), map[string]any{
+		"probe_importance": "critical",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("grade critical: %d %s", rec.Code, rec.Body)
+	}
+
+	// second path on the same entry with low importance
+	rec = doJSON(t, r, "POST", "/api/nodes", map[string]any{
+		"name": "landing-b", "address": "jp.example.com", "port": 443, "protocol": "vless",
+	})
+	var landing map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &landing)
+	rec = doJSON(t, r, "POST", "/api/paths", map[string]any{
+		"name": "path-b", "entry_node_id": entryID, "landing_node_id": landing["id"],
+		"probe_importance": "low",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create path-b: %d %s", rec.Code, rec.Body)
+	}
+	var lowPath map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &lowPath)
+	lowID := int(lowPath["id"].(float64))
+
+	// an operator-authored task on the entry node must survive the sync
+	rec = doJSON(t, r, "PUT", fmt.Sprintf("/api/nodes/%d/probe_tasks", int(entryID)), map[string]any{
+		"specs": []map[string]any{{
+			"name": "egress-watch", "target_kind": "exit", "target": "www.gstatic.com:443",
+			"proto": "https", "http_path": "/generate_204", "expect_status": 204, "interval_sec": 60,
+		}},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("operator task: %d %s", rec.Code, rec.Body)
+	}
+
+	rec = doJSON(t, r, "POST", "/api/probe-tasks/sync-from-paths", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("sync: %d %s", rec.Code, rec.Body)
+	}
+
+	var n storage.Node
+	if err := db.First(&n, int(entryID)).Error; err != nil {
+		t.Fatalf("load entry: %v", err)
+	}
+	var saved agentproto.ProbeTask
+	if err := json.Unmarshal([]byte(n.ProbeTasks), &saved); err != nil {
+		t.Fatalf("stored probe_tasks: %v", err)
+	}
+	byName := map[string]agentproto.ProbeTaskSpec{}
+	for _, s := range saved.Specs {
+		byName[s.Name] = s
+	}
+	if len(byName) != 3 {
+		t.Fatalf("stored %d tasks (%+v); want 3", len(saved.Specs), saved.Specs)
+	}
+	crit := byName[fmt.Sprintf("path-%d", int(criticalID))]
+	if crit.TargetKind != "tunnel" || crit.Target != "sg.example.com:8443" || crit.Direction != "in" || crit.IntervalSec != 60 {
+		t.Fatalf("critical path task = %+v", crit)
+	}
+	low := byName[fmt.Sprintf("path-%d", lowID)]
+	if low.IntervalSec != 900 || low.Target != "jp.example.com:443" {
+		t.Fatalf("low path task = %+v", low)
+	}
+	if byName["egress-watch"].Target != "www.gstatic.com:443" {
+		t.Fatalf("operator task lost: %+v", byName["egress-watch"])
+	}
+
+	// disable the low path: the next sync drops its task, the rest stay
+	rec = doJSON(t, r, "PUT", fmt.Sprintf("/api/paths/%d", lowID), map[string]any{"enabled": false})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("disable low path: %d %s", rec.Code, rec.Body)
+	}
+	rec = doJSON(t, r, "POST", "/api/probe-tasks/sync-from-paths", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("second sync: %d %s", rec.Code, rec.Body)
+	}
+	if err := db.First(&n, int(entryID)).Error; err != nil {
+		t.Fatalf("reload entry: %v", err)
+	}
+	saved = agentproto.ProbeTask{}
+	if err := json.Unmarshal([]byte(n.ProbeTasks), &saved); err != nil {
+		t.Fatalf("restored probe_tasks: %v", err)
+	}
+	if len(saved.Specs) != 2 {
+		t.Fatalf("after withdraw %d tasks (%+v); want 2", len(saved.Specs), saved.Specs)
+	}
+	for _, s := range saved.Specs {
+		if s.Name == fmt.Sprintf("path-%d", lowID) {
+			t.Fatalf("disabled path task must be dropped: %+v", saved.Specs)
+		}
+	}
+}
+
+// TestImportanceProbeInterval pins the F-0924 grade-to-interval mapping.
+func TestImportanceProbeInterval(t *testing.T) {
+	cases := map[string]int{"critical": 60, "normal": 300, "low": 900, "": 300, "bogus": 300}
+	for imp, want := range cases {
+		if got := importanceProbeInterval(imp); got != want {
+			t.Fatalf("importanceProbeInterval(%q) = %d; want %d", imp, got, want)
+		}
 	}
 }
 
