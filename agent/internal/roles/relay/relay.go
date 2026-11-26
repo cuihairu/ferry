@@ -205,35 +205,25 @@ func run(ctx context.Context, base config.RelaySpec, overridePath string, hup <-
 }
 
 // serveConn dials the landing for one frontend connection and copies both ways; either direction ending tears down the whole connection.
-// A dial failure retries up to retries times (F-0813) after a short backoff;
-// between attempts the cached tunnel is evicted so a broken session is rebuilt.
+// The dial runs through the shared tunnel.DialRetry policy (F-0824): retries times of retry after a short backoff, classified
+// config/auth failures give up immediately, and between attempts the cached tunnel is evicted so a broken session is rebuilt.
 func serveConn(ctx context.Context, tn tunnel.Tunnel, landing string, rateKbps, retries int, idle time.Duration, front net.Conn, logger *log.Logger, mx *relayMetrics, onDialFail func()) {
-	var (
-		back net.Conn
-		err  error
-	)
-	for attempt := 0; ; attempt++ {
-		dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
-		back, err = tn.Dial(dialCtx, landing)
-		cancel()
-		if err == nil {
-			mx.dials.Add(1)
-			break
-		}
-		mx.dialFailures.Add(1)
-		if onDialFail != nil {
-			onDialFail()
-		}
-		if attempt >= retries {
-			logger.Printf("relay dial %s after %d attempts: %v", landing, attempt+1, err)
-			return
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(retryBackoff):
-		}
+	back, err := tunnel.DialRetry(ctx, tn, landing, tunnel.RetryOptions{
+		Attempts: retries + 1,
+		Backoff:  retryBackoff,
+		Timeout:  dialTimeout,
+		OnFail: func(error) {
+			mx.dialFailures.Add(1)
+			if onDialFail != nil {
+				onDialFail()
+			}
+		},
+	})
+	if err != nil {
+		logger.Printf("relay dial: %v", err)
+		return
 	}
+	mx.dials.Add(1)
 	defer back.Close()
 	// Idle cleanup (F-0814): with a positive idle timeout both ends carry a
 	// sliding read deadline refreshed on every successful read; a silent
