@@ -1767,7 +1767,8 @@ External Client
     - 待补（F-1203 | 部分：到期规则明确（User.ExpiresAt models.go:12+UserActive 到期分支+模板默认 usertemplate.go:128-130）；无套餐实体/生效窗口——套餐=单套 user_template KV+每用户 ExpiresAt，无结构化生效窗口。）
 -   [x] `F-1204` 明确套餐流量周期。
     - 备注（Task ID: F-1204 | Status: Done | Evidence: models.go:11 ResetCycle+review 尊重周期；TestDisableInactiveRespectsResetCycle | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1205` 明确套餐限速规则。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1205` 明确套餐限速规则。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1205 | Status: Done | Evidence: 规则落 Plan 模型 bw 字段注释（models.go）：apply 时模板拷贝、改套餐不回溯已套用户（重套=传播机制）、0=不限（用户面约定）、执行点在节点侧服务端只校验(≥0)+存储+暴露 | Verification: TestPlanBandwidthRules（改套餐不泄漏→重套生效→无 bw 字段套餐套 0=不限→负数 update 400）+TestPlanApplyUsers/TestPlanCRUD（负数 create 400）| Commit: d35842c）
     - 待补（F-1205 | 部分：限速字段与校验齐（BwUp/BwDown models.go:26-27+校验 usertemplate.go:58-63+PATCH user.go:226-238）；执行点在节点侧/仓外，服务端仅存储下发。）
 -   [ ] `F-1206` 明确套餐线路权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1206 | 部分：无套餐线路权限字段；仅配额联动降档（超阈值只出低成本档入口 sub.go:88-102+quota/link.go:119-129），非套餐线路权限。）
