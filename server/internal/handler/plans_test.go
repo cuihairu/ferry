@@ -436,3 +436,78 @@ func TestPlanSwitchUpDown(t *testing.T) {
 		t.Fatalf("upgrade must keep the lite-issued expiry: %v", up.ExpiresAt)
 	}
 }
+
+// TestPlanChangeAuditTrail pins the plan change history (F-1211): the AU-1
+// audit middleware records every plan write -- create, update, apply, and the
+// failed attempts -- with actor, target id and the request-body snapshot, and
+// the trail is queryable through /api/audit-logs.
+func TestPlanChangeAuditTrail(t *testing.T) {
+	r, _ := newTestRouterWithDB(t)
+
+	rec := doJSON(t, r, "POST", "/api/plans", map[string]any{"name": "trail-pkg", "quota_bytes": 1 << 30})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create plan: %d %s", rec.Code, rec.Body)
+	}
+	planID := utoa(uint(mustJSON(t, rec)["id"].(float64)))
+
+	if rec = doJSON(t, r, "PUT", "/api/plans/"+planID, map[string]any{"quota_bytes": 2 << 30}); rec.Code != http.StatusOK {
+		t.Fatalf("update plan: %d %s", rec.Code, rec.Body)
+	}
+	if rec = doJSON(t, r, "POST", "/api/users", map[string]any{"username": "trail-u"}); rec.Code != http.StatusCreated {
+		t.Fatalf("create user: %d %s", rec.Code, rec.Body)
+	}
+	uid := utoa(uint(mustJSON(t, rec)["id"].(float64)))
+	if rec = doJSON(t, r, "POST", "/api/plans/"+planID+"/apply", map[string]any{
+		"user_ids": []any{mustJSON(t, rec)["id"].(float64)},
+	}); rec.Code != http.StatusOK {
+		t.Fatalf("apply: %d %s", rec.Code, rec.Body)
+	}
+	// A failed write lands too, marked unsuccessful.
+	if rec = doJSON(t, r, "POST", "/api/plans", map[string]any{"name": "trail-pkg"}); rec.Code != http.StatusConflict {
+		t.Fatalf("dup create: %d %s", rec.Code, rec.Body)
+	}
+
+	if rec = doJSON(t, r, "GET", "/api/audit-logs?method=POST&limit=200", nil); rec.Code != http.StatusOK {
+		t.Fatalf("list audit logs: %d %s", rec.Code, rec.Body)
+	}
+	var out struct {
+		Logs []storage.AuditLog `json:"audit_logs"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	var created, applied, appliedOK, failed *storage.AuditLog
+	for i := range out.Logs {
+		l := &out.Logs[i]
+		switch l.Action {
+		case "POST /api/plans":
+			if l.Success {
+				created = l
+			} else {
+				failed = l
+			}
+		case "POST /api/plans/" + planID + "/apply":
+			applied = l
+			appliedOK = l
+		}
+	}
+	if created == nil || !strings.Contains(created.Body, "trail-pkg") {
+		t.Fatalf("create row missing or body snapshot empty: %+v", created)
+	}
+	if applied == nil || applied.Target != planID || !appliedOK.Success || !strings.Contains(applied.Body, uid) {
+		t.Fatalf("apply row missing target/body: %+v", applied)
+	}
+	if failed == nil || failed.Success {
+		t.Fatalf("failed create not recorded: %+v", failed)
+	}
+	// The update lands under its own method filter with the target id.
+	if rec = doJSON(t, r, "GET", "/api/audit-logs?method=PUT&target="+planID, nil); rec.Code != http.StatusOK {
+		t.Fatalf("list update rows: %d", rec.Code)
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Logs) == 0 || out.Logs[0].Action != "PUT /api/plans/"+planID || !out.Logs[0].Success {
+		t.Fatalf("update row missing: %+v", out.Logs)
+	}
+}
