@@ -55,26 +55,36 @@ const ProbeFresh = 30 * time.Minute
 
 // Evaluate derives each node's egress health from its own exit baseline
 // reports (the prober's view of its own public egress): a disabled or
-// offline node's egress is out of service; a fresh sick exit verdict means
-// the node cannot reliably reach the outside; a fresh healthy verdict is
-// healthy; a live node without any fresh exit verdict is unknown -- pool
-// suspension deliberately does not enter this derivation, because suspension
-// only pulls the node from the entry pool while its agent and probes keep
-// running (the egress keeps serving landing traffic).
+// offline node's egress is out of service; a majority-sick fresh window
+// means the node cannot reliably reach the outside; a majority-healthy
+// window is healthy; a live node without any fresh exit verdict is unknown
+// -- pool suspension deliberately does not enter this derivation, because
+// suspension only pulls the node from the entry pool while its agent and
+// probes keep running (the egress keeps serving landing traffic).
 func Evaluate(db *gorm.DB, nodes []storage.Node, now time.Time) map[uint]string {
 	ids := make([]uint, 0, len(nodes))
 	for _, n := range nodes {
 		ids = append(ids, n.ID)
 	}
-	// Latest fresh exit verdict per prober (last write wins).
-	verdicts := map[uint]string{}
+	// Window-majority verdict per node (F-0931): same hysteresis as
+	// nodehealth -- the majority of the fresh window decides, a single
+	// stray report cannot flap the egress state either.
+	type egressTally struct{ healthy, sick int }
+	tallies := map[uint]egressTally{}
 	if len(ids) > 0 {
 		var reports []storage.ProbeReport
 		if err := db.Where("probed_at > ? AND target_kind = ? AND node_id IN ?",
 			now.Add(-ProbeFresh), agentproto.ProbeTargetExit, ids).
 			Order("probed_at ASC, id ASC").Find(&reports).Error; err == nil {
 			for _, r := range reports {
-				verdicts[r.NodeID] = r.Verdict
+				t := tallies[r.NodeID]
+				switch r.Verdict {
+				case agentproto.ProbeVerdictHealthy:
+					t.healthy++
+				case agentproto.ProbeVerdictSick:
+					t.sick++
+				}
+				tallies[r.NodeID] = t
 			}
 		}
 	}
@@ -85,10 +95,11 @@ func Evaluate(db *gorm.DB, nodes []storage.Node, now time.Time) map[uint]string 
 			out[n.ID] = Off
 			continue
 		}
-		switch verdicts[n.ID] {
-		case agentproto.ProbeVerdictSick:
+		t := tallies[n.ID]
+		switch {
+		case t.sick > t.healthy:
 			out[n.ID] = Degraded
-		case agentproto.ProbeVerdictHealthy:
+		case t.healthy > 0:
 			out[n.ID] = Healthy
 		default:
 			out[n.ID] = Unknown

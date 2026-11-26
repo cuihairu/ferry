@@ -96,7 +96,9 @@ func TestEvaluateRules(t *testing.T) {
 		t.Fatalf("suspended with healthy exit = %q", got[susp.ID])
 	}
 
-	// A fresh healthy verdict lifts the degraded node's egress.
+	// A fresh healthy verdict lifts the degraded node's egress: one healthy
+	// against one sick is a tie, and under the F-0931 hysteresis ties count
+	// healthy (the burden of proof for degrading is a sick majority).
 	seedExit(t, db, live.ID, agentproto.ProbeVerdictHealthy, time.Minute)
 	got = Evaluate(db, []storage.Node{live}, now)
 	if got[live.ID] != Healthy {
@@ -114,5 +116,35 @@ func TestEvaluateRules(t *testing.T) {
 	got = Evaluate(db, []storage.Node{stale}, now)
 	if got[stale.ID] != Unknown {
 		t.Fatalf("stale verdict only = %q", got[stale.ID])
+	}
+}
+
+// TestEvaluateHysteresis pins the F-0931 window majority for the exit
+// baseline: a single lost probe must not flap the node's own egress, and a
+// single stray success must not whitewash a mostly-broken egress.
+func TestEvaluateHysteresis(t *testing.T) {
+	db := newTestDB(t)
+	node := mkNode(t, db, "eg-hyst", "online", "active", true)
+	prober := mkNode(t, db, "eg-hyst-b", "online", "active", true)
+
+	now := time.Now()
+	// 3 healthy + 1 stray sick: still healthy.
+	for i := 0; i < 3; i++ {
+		seedExit(t, db, node.ID, agentproto.ProbeVerdictHealthy, time.Duration(i+1)*time.Minute)
+	}
+	seedExit(t, db, node.ID, agentproto.ProbeVerdictSick, time.Minute)
+	got := Evaluate(db, []storage.Node{node}, now)
+	if got[node.ID] != Healthy {
+		t.Fatalf("one stray sick in a healthy exit window = %q", got[node.ID])
+	}
+
+	// 3 sick + 1 stray healthy: still degraded.
+	for i := 0; i < 3; i++ {
+		seedExit(t, db, prober.ID, agentproto.ProbeVerdictSick, time.Duration(i+1)*time.Minute)
+	}
+	seedExit(t, db, prober.ID, agentproto.ProbeVerdictHealthy, time.Minute)
+	got = Evaluate(db, []storage.Node{prober}, now)
+	if got[prober.ID] != Degraded {
+		t.Fatalf("one stray healthy in a sick exit window = %q", got[prober.ID])
 	}
 }

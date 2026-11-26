@@ -91,11 +91,17 @@ func TestEvaluateRules(t *testing.T) {
 		t.Fatalf("suspended with healthy verdict = %q", got[susp.ID])
 	}
 
-	// A fresh sick verdict degrades the live node.
+	// F-0931: a healthy and a sick verdict tie, and ties stay healthy; a
+	// majority of sick verdicts is needed to degrade the live node.
+	seedVerdict(t, db, off.ID, live.ID, agentproto.ProbeVerdictSick, time.Minute)
+	got = Evaluate(db, []storage.Node{live}, now)
+	if got[live.ID] != Healthy {
+		t.Fatalf("tied verdicts must stay healthy = %q", got[live.ID])
+	}
 	seedVerdict(t, db, off.ID, live.ID, agentproto.ProbeVerdictSick, time.Minute)
 	got = Evaluate(db, []storage.Node{live}, now)
 	if got[live.ID] != Degraded {
-		t.Fatalf("live with sick verdict = %q", got[live.ID])
+		t.Fatalf("sick majority = %q", got[live.ID])
 	}
 
 	// Stale verdicts fall back to unknown for a live node.
@@ -107,5 +113,36 @@ func TestEvaluateRules(t *testing.T) {
 	got = Evaluate(db, []storage.Node{stale}, now)
 	if got[stale.ID] != Unknown {
 		t.Fatalf("stale verdict only = %q", got[stale.ID])
+	}
+}
+
+// TestEvaluateHysteresis pins the F-0931 window majority: one stray sick
+// report must not flap a mostly-healthy node, and one stray success must not
+// whitewash a mostly-sick one.
+func TestEvaluateHysteresis(t *testing.T) {
+	db := newTestDB(t)
+	node := mkNode(t, db, "nh-hyst", "online", "active", true)
+	prober := mkNode(t, db, "nh-hyst-prober", "online", "active", true)
+
+	now := time.Now()
+	// 3 healthy + 1 stray sick: still healthy.
+	for i := 0; i < 3; i++ {
+		seedVerdict(t, db, prober.ID, node.ID, agentproto.ProbeVerdictHealthy, time.Duration(i+1)*time.Minute)
+	}
+	seedVerdict(t, db, prober.ID, node.ID, agentproto.ProbeVerdictSick, time.Minute)
+	got := Evaluate(db, []storage.Node{node}, now)
+	if got[node.ID] != Healthy {
+		t.Fatalf("one stray sick in a healthy window = %q", got[node.ID])
+	}
+
+	// 3 sick + 1 stray healthy: still degraded.
+	other := mkNode(t, db, "nh-hyst-sick", "online", "active", true)
+	for i := 0; i < 3; i++ {
+		seedVerdict(t, db, prober.ID, other.ID, agentproto.ProbeVerdictSick, time.Duration(i+1)*time.Minute)
+	}
+	seedVerdict(t, db, prober.ID, other.ID, agentproto.ProbeVerdictHealthy, time.Minute)
+	got = Evaluate(db, []storage.Node{other}, now)
+	if got[other.ID] != Degraded {
+		t.Fatalf("one stray healthy in a sick window = %q", got[other.ID])
 	}
 }
