@@ -1557,10 +1557,14 @@ External Client
     - 备注（Task ID: F-1005 | Status: Done | Evidence: alloc.go:454 landing role 过滤；TestPick* | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1006` 根据 Direction 过滤节点。
     - 备注（Task ID: F-1006 | Status: Done | Evidence: alloc.go:486-489 direction 匹配；TestDirectionalDefaults | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1007` 根据 Capability 过滤节点。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-1008` 根据 Region 过滤节点。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-1009` 根据 ISP/ASN 过滤节点。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-1010` 根据 LineType 过滤节点。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1007` 根据 Capability 过滤节点。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1007 | Status: Done | Evidence: GET /api/nodes?capability= 走 storage.HasCapability 内存过滤（静态列表/角色回退/动态 off 态统一），未知能力名 400；TestNodeFilters | Verification: go build/vet + server 全套件 handler 1724s ok，cmd/ferry 计时例隔离 0.38s PASS（全套件高负载 50.65s 超时为环境噪声）2026-11-26 | Commit: c7de0ec）
+-   [x] `F-1008` 根据 Region 过滤节点。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1008 | Status: Done | Evidence: GET /api/nodes?region= 精确匹配下推 SQL；TestNodeFilters 覆盖命中/空集/组合过滤 | Verification: 同 F-1007 | Commit: c7de0ec）
+-   [x] `F-1009` 根据 ISP/ASN 过滤节点。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1009 | Status: Done | Evidence: GET /api/nodes?isp= 与 ?asn= 两个独立精确过滤字段，可与其他条件 AND；TestNodeFilters | Verification: 同 F-1007 | Commit: c7de0ec）
+-   [x] `F-1010` 根据 LineType 过滤节点。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1010 | Status: Done | Evidence: GET /api/nodes?line_type= 精确匹配下推 SQL；TestNodeFilters 覆盖命中/组合 | Verification: 同 F-1007 | Commit: c7de0ec）
 -   [x] `F-1011` 根据维护和禁用状态过滤节点。
     - 备注（Task ID: F-1011 | Status: Done | Evidence: alloc.go:448 enabled/pool_state/status 过滤；TestPickHealthGate | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1012` 根据容量过滤节点。
