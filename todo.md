@@ -1965,12 +1965,12 @@ External Client
     - 备注（Task ID: F-1425 | Status: Done | Evidence: NodesView 详情对话框新增「配置下发历史」表（getNodeConfigs→GET /api/nodes/:id/configs，api.ts 补 getter；进程/类型/配置版本（content-hash sha256 前 12 位、悬停全文）/状态 tag（applied|failed|pending）+已回滚+已验证标记/时间/错误 tooltip） | Verification: pnpm --filter ferry-dash build 绿（vue-tsc -b + vite build 26.1s） | Commit: 3a261c8）
 -   [x] `F-1426` 提供节点维护和启停管理。
     - 备注（Task ID: F-1426 | Status: Done | Evidence: NodesView.vue:109-148 proc start/stop/reload+pool suspend/resume/standby（:358-372 batch proc/:714-723） | Verification: 后端 TestNodeProcOp/TestBatchNodeProc（procop_test.go）；dash 无前端单测 | Commit: ce8b33e）
--   [ ] `F-1427` 提供 Path 列表。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1427 | 部分：仅 landing assignment 列表（LandingsView.vue:189-230）；无 Path 实体。）
--   [ ] `F-1428` 提供 Path 详情。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1428 | 未满足：无 Path 详情。）
--   [ ] `F-1429` 提供 Path Group 管理。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1429 | 部分：区域级指派+传输状态（LandingsView.vue:266-283）；无 PathGroup 模型。）
+-   [x] `F-1427` 提供 Path 列表。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1427 | Status: Done | Evidence: 新建 PathsView.vue（路由 /paths+菜单「线路」）：路径表 ID/名称/入口/中转（空=直连）/落地/传输/方向/区域/探测等级/启用/版本/更新时间 + 方向/区域/启用三过滤（区域选项取自数据），数据源 GET /api/paths+GET /api/nodes；原「无 Path 实体」结论已过时（Path 模型 F-0105） | Verification: pnpm --filter ferry-dash build 绿（vue-tsc -b + vite build 12.8s） | Commit: f7ed60e）
+-   [x] `F-1428` 提供 Path 详情。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1428 | Status: Done | Evidence: PathsView.vue 详情对话框（openDetail）：全字段（入口/落地/中转/传输/方向/区域/探测等级/启用/版本/备注/更新时间）+ 派生健康（GET /api/paths/:id/health，F-0251 fresh probe verdict）+ 打开时重拉 GET /api/paths/:id 保最新版本 | Verification: pnpm --filter ferry-dash build 绿 | Commit: f7ed60e）
+-   [x] `F-1429` 提供 Path Group 管理。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1429 | Status: Done | Evidence: PathsView.vue 路径分组区：分组表（名称/方向/区域/用途/默认路径/启用/备注）+ 新建/编辑对话框（POST/PUT /api/path-groups）+ 删除（DELETE，确认框）；成员对话框（GET /api/path-groups/:id）：有序成员表（position 输入改序 PATCH members/:pathId、排除/恢复 PATCH excluded、移出 DELETE）、按路径 ID 加入（POST members，同方向校验由服务端）、聚合健康+24h 可用率展示（GET /path-groups/:id/health）；原「无 PathGroup 模型」结论已过时（PathGroup F-0261） | Verification: pnpm --filter ferry-dash build 绿 | Commit: f7ed60e）
 -   [x] `F-1430` 提供 Policy 管理。
     - 备注（Task ID: F-1430 | Status: Done | Evidence: LandingsView.vue:232-264 alloc policy out/in/rebalance/权重（api putAllocPolicy:160） | Verification: API 侧 TestAllocPolicy（allocapi_test.go）；dash 无前端单测 | Commit: ce8b33e）
 -   [ ] `F-1431` 展示调度候选和排除原因。（依赖：无；完成条件：需求落地+测试绿+证据行）
