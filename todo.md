@@ -1955,8 +1955,8 @@ External Client
 
 -   [x] `F-1421` 提供节点列表和筛选。
     - 备注（Task ID: F-1421 | Status: Done | Evidence: NodesView.vue:598-727 列表+role 筛选+节点/区域/ISP 三视图 | Verification: docs/audit-platform-impl-2026-11-03.md §3.11（17 dash 视图确认）；dash 无前端单测 | Commit: ce8b33e）
--   [ ] `F-1422` 提供节点详情。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1422 | 部分：仅编辑对话框，无专门详情页（NodesView.vue:747-810）。）
+-   [x] `F-1422` 提供节点详情。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1422 | Status: Done | Evidence: NodesView.vue 详情对话框（详情按钮+openDetail/detailPaths）：身份（地址/协议/传输/角色/方向/区域/城市/机房/运营商/线路）+运行（状态/agent_version（api.ts Node 补该字段）/最近在线/启用/维护/入口池含 reason/实时负载采样）+关联线路表（本节点身份 入口|落地|中转、传输、启用、版本；getPaths 打开时刷新）；另有状态对话框（F-0750 三态） | Verification: pnpm --filter ferry-dash build 绿（vue-tsc -b + vite build 11.1s） | Commit: abc66ec）
 -   [ ] `F-1423` 展示 Node 关联的 Cloud Resource。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1423 | 未满足：无 CloudResource 模型/关联。）
 -   [ ] `F-1424` 展示 Agent、Relay 和 Probe 状态。（依赖：无；完成条件：需求落地+测试绿+证据行）
