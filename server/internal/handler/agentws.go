@@ -378,12 +378,19 @@ func (h *Handler) saveNodeTraffic(nodeID int64, items []agentproto.ProcTraffic) 
 //
 // Metering scope (F-1242): user traffic is metered single-ended -- on the node
 // serving the user's inbound (role entry or both, i.e. the nodes the
-// subscription hands out). A node whose row cannot be resolved never bills:
-// attribution needs a role verdict (F-1243 then extends this to landing).
+// subscription hands out). The double-billing guard (F-1243): a pure landing
+// node's report is the tunnel side of the same bytes, so counting it too would
+// bill the user twice -- landing reports never enter the user ledger. A node
+// whose row cannot be resolved never bills either: attribution needs a role
+// verdict.
 func (h *Handler) saveUserTraffic(nodeID int64, items []agentproto.ProcTraffic) error {
 	var nrow storage.Node
 	if err := h.db.Select("id, role").First(&nrow, nodeID).Error; err != nil {
 		log.Printf("user traffic node=%d: node row unresolved, report dropped: %v", nodeID, err)
+		return nil
+	}
+	if nrow.Role == "landing" {
+		log.Printf("user traffic node=%d: landing role, report dropped (single-end metering)", nodeID)
 		return nil
 	}
 	emails := map[string]bool{}

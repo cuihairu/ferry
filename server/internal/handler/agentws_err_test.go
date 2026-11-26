@@ -360,6 +360,12 @@ func TestSaveReportUnits(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	h := &Handler{db: db}
 	_, id := wsNode(t, r, "unit-1")
+	// The metering-scope guard (F-1242/F-1243) drops landing reports before the
+	// user query runs; this test exercises the query error itself, so the node
+	// must be a metering node.
+	if err := db.Model(&storage.Node{}).Where("id = ?", id).Update("role", "both").Error; err != nil {
+		t.Fatalf("set node role: %v", err)
+	}
 
 	// Empty inputs short-circuit.
 	if err := h.saveProbeReports(int64(id), nil); err != nil {

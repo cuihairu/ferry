@@ -701,6 +701,7 @@ func TestAgentWSUserOnlineState(t *testing.T) {
 	}
 	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
 		"name": "hk-entry", "address": "hk.example.com", "port": 443, "protocol": "vless",
+		"role": "entry",
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create node: %d %s", rec.Code, rec.Body)

@@ -61,3 +61,65 @@ func TestUserTrafficMeteringScope(t *testing.T) {
 		t.Fatalf("unresolved node billed: %d rows", len(rows))
 	}
 }
+
+// TestUserTrafficNoDoubleBilling pins the entry/landing double-billing guard
+// (F-1243): the same user's bytes reported by the entry (the metering end)
+// land once; a landing-role node reporting afterwards changes nothing -- the
+// user ledger keeps exactly one attribution and last_node still points at the
+// entry.
+func TestUserTrafficNoDoubleBilling(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	if rec := doJSON(t, r, "POST", "/api/users", map[string]any{"username": "dbl-u", "quota_bytes": 1 << 30}); rec.Code != http.StatusCreated {
+		t.Fatalf("create user: %d %s", rec.Code, rec.Body)
+	}
+	var u storage.User
+	if err := db.Where("username = ?", "dbl-u").First(&u).Error; err != nil {
+		t.Fatal(err)
+	}
+	mkNode := func(name, role string) uint {
+		t.Helper()
+		if rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
+			"name": name, "address": name + ".example.com", "port": 443, "protocol": "vless",
+			"role": role,
+		}); rec.Code != http.StatusCreated {
+			t.Fatalf("create %s: %d %s", name, rec.Code, rec.Body)
+		}
+		var n storage.Node
+		if err := db.Where("name = ?", name).First(&n).Error; err != nil {
+			t.Fatal(err)
+		}
+		return n.ID
+	}
+	entryID := mkNode("dbl-ent", "entry")
+	landingID := mkNode("dbl-lnd", "landing")
+
+	h := &Handler{db: db}
+	items := []agentproto.ProcTraffic{{
+		Proc: "xray", At: time.Now(),
+		Users: []agentproto.UserTraffic{{Email: "dbl-u", Rx: 200, Tx: 100}},
+	}}
+	// The entry counts the user's bytes.
+	if err := h.saveUserTraffic(int64(entryID), items); err != nil {
+		t.Fatalf("entry report: %v", err)
+	}
+	// The landing's copy of the same flow is the tunnel side: dropped.
+	if err := h.saveUserTraffic(int64(landingID), items); err != nil {
+		t.Fatalf("landing report: %v", err)
+	}
+
+	var rows []storage.TrafficLog
+	if err := db.Where("user_id = ?", u.ID).Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("user billed %d times, want 1: %+v", len(rows), rows)
+	}
+	var fresh storage.User
+	if err := db.First(&fresh, u.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if fresh.LastNodeID == nil || *fresh.LastNodeID != entryID {
+		t.Fatalf("last_node = %v, want the entry node %d", fresh.LastNodeID, entryID)
+	}
+}
