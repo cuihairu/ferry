@@ -1642,10 +1642,14 @@ External Client
     - 备注（Task ID: F-1049 | Status: Done | Evidence: createLanding Strategy:"manual"(landing.go:81)+hasManualAssignment 跳过自动(alloc.go:568-577) | Verification: TestSweepManualWins | Commit: fbcb525）
 -   [x] `F-1050` 支持人工覆盖到期自动恢复。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1050 | Status: Done | Evidence: LandingAssignment.ExpiresAt（可选 TTL 列，nil=永久保持旧行为）+landingInput.expires_in_seconds（正整数，createLanding 换算绝对 expires_at，非正 400）；hasManualAssignment 时间感知（released_at IS NULL AND expires_at IS NULL OR > now）覆盖 BuildRequest/explain 全部调用点；releaseExpiredManual 在 SweepAt 前置（早于 F-0294 failover freeze——TTL 到期是运维已发声明的回收，不属于 failover 切换），过期行释放 released_at+ManualExpiredReason="manual_expired" 留痕，同轮 entry 重新自动分配；TestHasManualAssignmentExpiry（nil/未来/过去三态）+TestSweepManualTTL（活 TTL 不动，过期同轮释放+auto 事件）+TestLandingManualTTL（API 往读+0 秒 400+无 TTL 保持 nil） | Verification: go vet + server 全套件 green exit=0（51 ok）2026-11-27 | Commit: 18f9a03）
--   [ ] `F-1051` 国内访问国内默认优先直连。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-1052` 只有测量证明中继更优时才允许国内线路走中继。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-1053` 直连不可用时按 Policy 回退。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-1054` 记录直连与中继的质量比较依据。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1051` 国内访问国内默认优先直连。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1051 | Status: Done | Evidence: PolicySetting.DirectFirst *bool（nil=默认开，directFirstOn）；结构定义 isDirectTo：entry 与 landing 共享非空 Region=直连（同区），其余=跨区中继（region 是面板维护的唯一地理维度）；pickDirectFirst 坐在 policy 序之上：直连组/中继组各按 policy 比较器取最优，默认直连组胜（cost_first 下贵直连压过便宜中继）；Decide 在 directFirstOn 时走 pickDirectFirst 否则原 Pick，explain/simulate 共用 Decide 自动同口径 | Verification: 同 F-1054 门禁（f1051-full.log 51 ok exit=0） | Commit: f7f9aa8）
+-   [x] `F-1052` 只有测量证明中继更优时才允许国内线路走中继。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1052 | Status: Done | Evidence: directRelayMargin=0.15（同峰时切换保守度：噪声样本不得跨区搬流量）；pickDirectFirst 比较 F-1028 QualityScore：中继最优者分数 > 直连最优者+0.15 才让位中继，无样本中性 0.5 不会触发让位；开关关闭时纯 policy 序（便宜中继胜贵直连）；TestSweepRelayProvenBetter（干净中继 10ms/0% vs 拥塞直连 500ms/50% → 中继胜，切换 reason 带「中继更优」分数）+TestDirectFirstToggle（关=cost_first 胜+零 trail） | Verification: 同 F-1054 门禁（f1051-full.log 51 ok exit=0） | Commit: f7f9aa8）
+-   [x] `F-1053` 直连不可用时按 Policy 回退。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1053 | Status: Done | Evidence: pickDirectFirst 无健康直连候选时整个规则让位：Pick(policy,...) 对全部健康候选按 policy 挑（ sickness 由既有健康过滤承担），且不落任何直连优先 exclusion（规则未发声不制造审计噪声）；TestSweepDirectFallback（直连探针 sick → 中继按 policy 胜出 + AllocExclusion 零行） | Verification: 同 F-1054 门禁（f1051-full.log 51 ok exit=0） | Commit: f7f9aa8）
+-   [x] `F-1054` 记录直连与中继的质量比较依据。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1054 | Status: Done | Evidence: 落败组逐候选落 exclusion（reason 携带分数）：直连胜=中继候选 trail「直连优先：直连 X.XX，中继 X.XX 未超阈值 0.15」，中继让位胜=直连候选 trail「测量证明中继更优：中继 X.XX > 直连 X.XX+0.15」，经 F-1033 通道进 AllocExclusion（1h 去重）并随 F-1032 决策快照 replay；切换 reason 追加「中继更优 X.XX > 直连 X.XX」；TestSweepDirectFirst（断言 exclusion reason 含「直连优先」）+TestSweepRelayProvenBetter（断言含「测量证明中继更优」）+TestAllocPolicyDirectFirst（API 显式 false 往读/默认 nil=开；注意复用结构体 unmarshal 前 nil 化防脏指针） | Verification: go vet + server 全套件 green exit=0（51 ok）2026-11-27 | Commit: f7f9aa8）
 
 ## 8.4 容量管理
 
