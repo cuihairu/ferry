@@ -357,3 +357,87 @@ func TestApplyRecordsSnapshot(t *testing.T) {
 		t.Fatalf("keep round wrote snapshots = %d", len(snaps))
 	}
 }
+
+// TestDecideExplainsStructuralExclusions covers F-1033: landings removed
+// before ranking -- the entry itself, a wrong direction, a stored capability
+// list without relay_landing -- carry operator-readable reasons in the
+// decision's exclusions, ride the snapshot replay, and are trailed with the
+// same dedupe window as the ceiling guard.
+func TestDecideExplainsStructuralExclusions(t *testing.T) {
+	entry := storage.Node{ID: 51, Name: "both-node", Role: "both", Direction: "out",
+		Capabilities: storage.MustJSON([]string{"proxy_ingress", "relay_entry", "relay_landing", "probe"})}
+	selfNode := entry // a role-"both" node appears in both pools: candidate == entry
+	wrongDir := storage.Node{ID: 52, Name: "in-only", Role: "landing", Direction: "in",
+		Capabilities: storage.MustJSON([]string{"relay_landing"})}
+	noCap := storage.Node{ID: 53, Name: "bare", Role: "landing", Direction: "out",
+		Capabilities: storage.MustJSON([]string{"probe"})} // stored list without relay_landing
+	good := storage.Node{ID: 54, Name: "good", Role: "landing", Direction: "out",
+		BillingType: "按流量", TrafficPriceCents: 5, UpdatedAt: testNow,
+		Capabilities: storage.MustJSON([]string{"relay_landing"})}
+
+	req := &Request{
+		Now: testNow,
+		Policy: func() PolicySetting {
+			p := DefaultPolicySetting()
+			p.Out = PolicyCostFirst
+			return p
+		}(),
+		Entries:  []storage.Node{entry},
+		Landings: []storage.Node{selfNode, wrongDir, noCap, good},
+		Conns:    map[uint]int{},
+		Sick:     map[uint]bool{},
+		Manual:   map[uint]bool{},
+		Current:  map[uint]*storage.LandingAssignment{},
+	}
+	decs := Decide(req)
+	if len(decs) != 1 || decs[0].Action != ActionSwitch || decs[0].WinnerID != good.ID {
+		t.Fatalf("decisions = %+v", decs)
+	}
+	if len(decs[0].Candidates) != 1 || !decs[0].Candidates[0].Eligible {
+		t.Fatalf("candidates = %+v", decs[0].Candidates)
+	}
+	if len(decs[0].Exclusions) != 3 {
+		t.Fatalf("exclusions = %+v", decs[0].Exclusions)
+	}
+	byLanding := map[uint]string{}
+	for _, e := range decs[0].Exclusions {
+		byLanding[e.LandingID] = e.Reason
+	}
+	if byLanding[entry.ID] != "candidate is the entry itself" ||
+		byLanding[wrongDir.ID] == "" ||
+		byLanding[noCap.ID] != "landing lacks relay_landing capability" {
+		t.Fatalf("reasons = %v", byLanding)
+	}
+
+	// the executor trails structural exclusions like the ceiling ones, and the
+	// dedupe window absorbs an identical repeat round
+	db := newTestDB(t)
+	if _, err := Apply(db, req, decs); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(db, req, decs); err != nil {
+		t.Fatal(err)
+	}
+	var trails []storage.AllocExclusion
+	if err := db.Where("entry_node_id = ?", entry.ID).Find(&trails).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(trails) != 3 {
+		t.Fatalf("trails = %d (%+v)", len(trails), trails)
+	}
+	// the snapshot replay carries the exclusions too
+	var snaps []storage.AllocDecision
+	if err := db.Find(&snaps).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(snaps) != 2 {
+		t.Fatalf("snapshots = %d", len(snaps))
+	}
+	var replay []decisionSnapshotRow
+	if err := json.Unmarshal([]byte(snaps[0].Decisions), &replay); err != nil {
+		t.Fatal(err)
+	}
+	if len(replay) != 1 || len(replay[0].Exclusions) != 3 {
+		t.Fatalf("replay = %+v", replay)
+	}
+}

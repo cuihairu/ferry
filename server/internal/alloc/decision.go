@@ -252,16 +252,23 @@ func Decide(req *Request) []Decision {
 func collectCandidates(req *Request, entry storage.Node, direction string, d *Decision) []Candidate {
 	cands := make([]Candidate, 0, len(req.Landings))
 	for _, l := range req.Landings {
+		// Structural exclusions (F-1033) carry a reason like the ceiling ones:
+		// the decision must explain every landing it did not consider, not
+		// only the ones the cost guard removed.
 		if l.ID == entry.ID {
+			d.Exclusions = append(d.Exclusions, Exclusion{LandingID: l.ID, Reason: "candidate is the entry itself"})
 			continue
 		}
 		if l.Direction != direction && l.Direction != agentproto.DirectionBoth {
+			d.Exclusions = append(d.Exclusions, Exclusion{LandingID: l.ID,
+				Reason: fmt.Sprintf("direction %s does not serve %s", l.Direction, direction)})
 			continue
 		}
 		// Capability gate (F-0230): the landing must declare relay_landing
 		// and must not report it off; nodes without any stored list fall back
 		// to the role-derived set, so legacy registrations stay eligible.
 		if !storage.HasCapability(l, storage.CapRelayLanding) {
+			d.Exclusions = append(d.Exclusions, Exclusion{LandingID: l.ID, Reason: "landing lacks relay_landing capability"})
 			continue
 		}
 		// Price freshness (F-0604): node updated_at is the price as-of
@@ -381,6 +388,15 @@ type decisionSnapshotRow struct {
 	From      string `json:"from"`
 	To        string `json:"to"`
 	Reason    string `json:"reason"`
+	// Exclusions (F-1033) travel with the row, so the replay explains not
+	// just what moved but what was ruled out along the way.
+	Exclusions []decisionSnapshotExclusion `json:"exclusions,omitempty"`
+}
+
+// decisionSnapshotExclusion is one ruled-out landing inside a replay row.
+type decisionSnapshotExclusion struct {
+	LandingID uint   `json:"landing_id"`
+	Reason    string `json:"reason"`
 }
 
 // recordDecisionSnapshot writes one round's snapshot (F-1032): the policy
@@ -393,6 +409,9 @@ func recordDecisionSnapshot(db *gorm.DB, kind string, req *Request, decisions []
 		row := decisionSnapshotRow{
 			EntryID: d.EntryID, EntryName: d.EntryName, Direction: d.Direction,
 			Policy: d.Policy, Action: d.Action, Reason: d.Reason,
+		}
+		for _, ex := range d.Exclusions {
+			row.Exclusions = append(row.Exclusions, decisionSnapshotExclusion{LandingID: ex.LandingID, Reason: ex.Reason})
 		}
 		if d.FromID != 0 {
 			row.From = nodeName(req.Landings, d.FromID)
