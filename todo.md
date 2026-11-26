@@ -2216,8 +2216,8 @@ External Client
     - 备注（Task ID: F-1701 | Status: Done | Evidence: 管理员登录与会话审计 §3.13（admin.go:41+ratelimit+loginlog） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1702` 审计管理员角色和权限模型。
     - 备注（Task ID: F-1702 | Status: Done | Evidence: 管理员角色权限审计 §3.13（requireSuper+TestAdminRoleCRUD） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1703` 为云账号管理定义独立权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1703 | 区级未满足原因：无细粒度资源权限——数据面仅 apiAuth+audit（router.go:119），唯一角色门槛 requireSuper 只挂 /api/admins（router.go:227）；API-Token 路径只置 apiUser 不置 role（apitoken.go:140），前端 role 仅 admin/distributor/空（dash/src/auth.ts:19）；本区 F-1703~F-1708、F-1710 未满足。）
+-   [x] `F-1703` 为云账号管理定义独立权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1703 | Status: Done | Evidence: 细粒度权限层落地：新模型 storage.AdminPerm（user_id+perm 唯一，GrantedAt/By 授予上下文，AutoMigrate 已加）；permission.go 定义闭合词表（PermCloudAccount="cloud.account.manage"，未知名拒绝整笔授予防错拼空授）+requirePerm 中间件（super 直通，其余查授权行，无 admin 身份（纯 API Token）fail closed；**deny 分支 fail()+c.Abort()——初版漏 Abort 会 403 后继续跑 handler 造成越权创建，TestCloudAccountPerm 计数断言抓住并修复**）；云账号面 7 条路由挂 PermCloudAccount 门（providers POST/PUT/DELETE/test/rotate/revoke-previous/sync，GET 读保持开放）；授予面 GET/PUT /api/admins/:id/perms 仅 requireSuper（目标须存在且 is_admin，整体替换式授权）；测试 TestCloudAccountPerm（operator 未授权 403+读开放、perms 面 operator 403、未知名 400、授予后创建 201 且恰好 1 条 provider（越权泄漏回归）、撤销后 403、非 admin 目标 404） | Verification: gofmt 清洁，go build/vet 通过，server 全套 52 ok exit=0 FAIL=0 | Commit: 913c554）
 -   [ ] `F-1704` 为云资源开关机定义独立权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [ ] `F-1705` 为强制停止和重装定义高危权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [ ] `F-1706` 为成本查看和账单导出定义权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
