@@ -1836,8 +1836,10 @@ External Client
     - 备注（Task ID: F-1250 | Status: Done | Evidence: agentws_dedupe 去重；dedupe_test 7 例 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1251` 支持断线后的补报。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1251 | 设计已拍板维持现状，待用户改设计才动：断线流量静默丢弃（traffic.go:219-226 send==nil 即 return），spool 只承载 probe 角色；设计文档钉死 at-most-once 无队列（docs/design/agent协议参考.md:63 核心进程内报告 sendIfConnected 失败即静默丢弃）；且 xraystats 每周期查询即重置计数器（xraystats.go:52 QueryUserStats queries and resets），离线周期照常采集推进基线，丢弃即真实丢字节。改补报=协议级行为反转（at-most-once→at-least-once），需用户拍板，agent 不自行反转。）
--   [ ] `F-1252` 支持流量异常检测。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1252 | 部分：仅阈值型配额预警（notifyscan/scan.go:111-158 默认 80%）+节点带宽利用率（loadapi.go:12）；无尖峰/异常偏离检测。）
+-   [x] `F-1252` 支持流量异常检测。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 证据（F-1252 | 已落地：notifyscan 新增 sweepTrafficAnomaly 尖峰/偏离检测（scan.go）：用户当日用量 vs 近 7 个整日均值（空日计零），≥5 倍且基线 ≥1 MiB 防地板噪声，触发 herald.KindTrafficAnomaly 管理员告警（TargetAdmin/warning），按用户×日 dedup；阈值型配额预警与节点带宽利用率照旧并存。新常量 KindTrafficAnomaly（herald.go）。
+    - 验证：TestSweepTrafficAnomaly 钉尖峰触发、同日 dedup、低于倍数不触发、无基线（地板）不触发；全量 51 ok / FAIL=0 / exit=0。
+    - Commit: 5880e4f
 -   [ ] `F-1253` 支持流量账目审计。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1253 | 部分：traffic_logs 只增不改+管理员审计轮转；无流量账目对账/复核（对账仅支付侧 payrecon.go）。）
 -   [x] `F-1254` 建立流量记账幂等测试。
