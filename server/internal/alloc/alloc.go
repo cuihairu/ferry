@@ -568,6 +568,19 @@ func sweepOnce(db *gorm.DB, logger *log.Logger, hooks []func([]SwitchEvent)) err
 			ev.EntryID, ev.EntryName, ev.Direction, ev.FromName, ev.ToName, ev.Reason)
 		announce(db, logger, ev)
 	}
+	// Path failover rebinds (F-1031): same round as the allocation sweep, so
+	// a failing landing is re-pointed within one interval. The rebinds join
+	// the hook list -- landing re-pointing (E-16b) must follow a failover too.
+	rebinds, err := RebindSickPaths(db, time.Now())
+	if err != nil {
+		return err
+	}
+	for _, rb := range rebinds {
+		logger.Printf("alloc rebind: path %d %s %s -> %s（%s）",
+			rb.PathID, rb.PathName, rb.FromName, rb.ToName, rb.Reason)
+		announce(db, logger, rb.SwitchEvent())
+		events = append(events, rb.SwitchEvent())
+	}
 	for _, hook := range hooks {
 		hook(events)
 	}
