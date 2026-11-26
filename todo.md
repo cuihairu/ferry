@@ -1234,16 +1234,22 @@ External Client
     - 备注（Task ID: F-0601 | Status: Done | Evidence: MonthlyCostCents models.go:92+cost/cost.go:96 Build；TestBuild | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0602` 为 Node 提供单位流量成本数据。
     - 备注（Task ID: F-0602 | Status: Done | Evidence: TrafficPriceCents models.go:91+costPerGB；TestBuild | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0603` 为 Path 计算可解释的成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0603 | 区级未满足原因：区级结构缺口：无 Path 成本估算、alloc 直读 Node 价格列无新鲜度检查、缺价按 0 计无 Policy 降级规则——§4.6 F-0603~F-0610 未满足。）
--   [ ] `F-0604` 调度器读取成本数据时检查数据新鲜度。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0605` 成本缺失时按 Policy 定义的降级规则处理。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0606` 支持成本上限过滤候选 Path。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0603` 为 Path 计算可解释的成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0603 | Status: Done | Evidence: billing/pathcost.go PathCostEstimate/PathCostEstimates 逐腿 LegCost explain（metered 按期间流量、fixed 按月分摊 periodFractionOfMonth）；API GET /api/cost/path-estimates；TestPathCostExplain/TestPathCostPreciseFresh/TestBillingAPIPathCosts | Verification: 测试全绿 2026-11-26（server go test ./... -timeout=30m 47 包 ok/agent/packages/payments） | Commit: 90fbb69）
+-   [x] `F-0604` 调度器读取成本数据时检查数据新鲜度。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0604 | Status: Done | Evidence: billing.PriceFreshWindow=7×24h（Node.UpdatedAt 为价格时点标记）pathcost legCostOf Fresh 判定；alloc SweepAt 填 Candidate.CostKnown/CostFresh；TestPathCostExplain（9 天过期腿）/TestSweepMissingCostDeprioritized | Verification: 测试全绿 2026-11-26（server 47 包 ok） | Commit: 90fbb69+9e5dfad）
+-   [x] `F-0605` 成本缺失时按 Policy 定义的降级规则处理。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0605 | Status: Done | Evidence: PolicySetting.MissingCost=deprioritize（默认，缺价/过期价分桶排在所有有价候选之后，永不按 0 计）/treat_zero（兼容旧行为），lessFor/shouldSwitch 全策略生效；TestMissingCostDeprioritized/TestSweepMissingCostDeprioritized/TestPolicyCostGuardValidation | Verification: 测试全绿 2026-11-26（server 47 包 ok） | Commit: 9e5dfad）
+-   [x] `F-0606` 支持成本上限过滤候选 Path。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0606 | Status: Done | Evidence: PolicySetting.MaxCostPerGB（0=off，PUT policy 可配）SweepAt 排除超限 metered 候选（entry×landing 即候选 Path）并记 AllocExclusion；套餐域另有 PolicyConstraints.MaxTrafficPriceCents/MaxMonthlyCostCents；TestCostCeilingExcludes | Verification: 测试全绿 2026-11-26（server 47 包 ok） | Commit: 9e5dfad）
 -   [x] `F-0607` 支持质量与成本权重配置。
     - 备注（Task ID: F-0607 | Status: Done | Evidence: ScoreWeights alloc.go:107-117 逐系数 dash 可配；TestPolicyPersistence+TestPickBalanced | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0608` 支持按套餐设定成本策略。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0609` 记录成本约束导致的候选排除原因。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0610` 不允许使用过期或未知价格生成虚假的精确成本结果。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0608` 支持按套餐设定成本策略。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0608 | Status: Done | Evidence: PolicyConstraints.MaxTrafficPriceCents/MaxMonthlyCostCents plan 域可配，Resolve 合并优先级+ApplyConstraints 强制执行；policy 链测试（TestResolveMergePrecedence 等） | Verification: 测试全绿 2026-11-26（server 47 包 ok） | Commit: c74c69c）
+-   [x] `F-0609` 记录成本约束导致的候选排除原因。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0609 | Status: Done | Evidence: 策略链 ApplyConstraints 返回 []Drop 含原因（dry-run API 可见）；alloc 侧 AllocExclusion 表持久记录超上限排除（entry/landing/direction/policy/reason，1 小时去重）；TestCostCeilingExcludes | Verification: 测试全绿 2026-11-26（server 47 包 ok） | Commit: c74c69c+9e5dfad）
+-   [x] `F-0610` 不允许使用过期或未知价格生成虚假的精确成本结果。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0610 | Status: Done | Evidence: PathCost.Precise 标志（任一腿 Unknown/过期即 Precise=false，不虚构金额）TestPathCostExplain；alloc 缺价/过期价按 MissingCost 降级、绝不按 0 计也绝不猜为超限排除；TestMissingCostDeprioritized/TestCostCeilingExcludes | Verification: 测试全绿 2026-11-26（server 47 包 ok） | Commit: 90fbb69+9e5dfad）
 
 ## 4.7 Dash 成本管理页面
 
@@ -2618,8 +2624,8 @@ External Client
     - 待补（F-9993 | 部分：Entry/Landing 管理齐（landing 指派+sweep 关 F-0244）；Relay 仅受管进程启停（F-0804/1404 缺口）——「管理 Entry、Landing 和 Relay」Relay 部分。）
 -   [ ] `F-9994` 能够探测并识别节点、隧道和线路故障。（依赖：F-0902、F-0904、F-0905、F-0910、F-0911；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9994 | 部分：probe TCP+verdict+dimension-status 齐（F-0903/0929/0930 关）；无 Path/Egress 健康区分、无 UDP/应用层探测（F-0902/0904/0905/0910/0911）——识别节点/隧道/线路故障部分。）
--   [ ] `F-9995` 能够基于健康、容量和成本选择线路。（依赖：F-0604、F-0605；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9995 | 部分：alloc 按健康/容量/成本评分（F-1024-1027/1030/1049 关）；无 Path、无 cost 新鲜度/降级（F-0604/0605）——选择线路基于健康/容量/成本部分。）
+-   [x] `F-9995` 能够基于健康、容量和成本选择线路。（依赖：F-0604、F-0605；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-9995 | Status: Done | Evidence: alloc 健康门（latestSick）+容量权重（CapacityMbps）+成本排序（CostPerGB），成本新鲜度/降级（F-0604/F-0605）与 Path 成本估算（F-0603）已齐；alloc 包测试全绿 | Verification: 测试全绿 2026-11-26（server 47 包 ok） | Commit: 9e5dfad）
 -   [ ] `F-9996` 能够解释调度结果。（依赖：F-1033、F-1034、F-1035；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9996 | 未满足：无调度结果解释/候选排除原因/模拟 API（F-1033/1034/1035）——不能解释调度结果。）
 
