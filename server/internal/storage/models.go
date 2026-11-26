@@ -511,15 +511,19 @@ type NodeTokenRevocation struct {
 // and the node machine then exchanges it for a node token on the public surface /api/enroll. Single-use (used_at is set),
 // revocable any time; the token plaintext appears only once in the signing response and is not returned in the list.
 type EnrollmentToken struct {
-	ID        uint       `gorm:"primaryKey" json:"id"`
-	Token     string     `gorm:"size:64;uniqueIndex" json:"-"`
-	Note      string     `gorm:"size:200" json:"note"`
-	CreatedBy string     `gorm:"size:100" json:"created_by"`
-	ExpiresAt time.Time  `json:"expires_at"`
-	UsedAt    *time.Time `json:"used_at"`
-	UsedBy    string     `gorm:"size:100" json:"used_by"`
-	RevokedAt *time.Time `json:"revoked_at"`
-	CreatedAt time.Time  `json:"created_at"`
+	ID        uint   `gorm:"primaryKey" json:"id"`
+	Token     string `gorm:"size:64;uniqueIndex" json:"-"`
+	Note      string `gorm:"size:200" json:"note"`
+	CreatedBy string `gorm:"size:100" json:"created_by"`
+	// RequireApproval turns enrollment into an approval flow (F-0741): the
+	// enrolled node lands disabled with status "pending" and cannot connect
+	// until an admin approves it; the default keeps credential-is-authorization.
+	RequireApproval bool       `gorm:"default:false" json:"require_approval"`
+	ExpiresAt       time.Time  `json:"expires_at"`
+	UsedAt          *time.Time `json:"used_at"`
+	UsedBy          string     `gorm:"size:100" json:"used_by"`
+	RevokedAt       *time.Time `json:"revoked_at"`
+	CreatedAt       time.Time  `json:"created_at"`
 }
 
 // PaymentTransaction is a payment ledger entry (the second of three ledgers: the payments that actually happened externally).

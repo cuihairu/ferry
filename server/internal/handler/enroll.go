@@ -60,6 +60,9 @@ func (h *Handler) createEnrollmentToken(c *gin.Context) {
 		CreatedBy: actorOf(c),
 		ExpiresAt: time.Now().Add(time.Duration(ttl) * time.Minute),
 	}
+	if in.RequireApproval != nil {
+		e.RequireApproval = *in.RequireApproval
+	}
 	if err := h.db.Create(&e).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
@@ -67,6 +70,7 @@ func (h *Handler) createEnrollmentToken(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{
 		"id": e.ID, "token": e.Token, "note": e.Note,
 		"expires_at": e.ExpiresAt, "ttl_minutes": ttl,
+		"require_approval": e.RequireApproval,
 	})
 }
 
@@ -196,6 +200,19 @@ func (h *Handler) enrollTx(tokenStr string, in *model.NodeInput, now time.Time) 
 		if err != nil {
 			return err
 		}
+		// Approval flow (F-0741): the node starts disabled with status "pending";
+		// authNode refuses disabled tokens, so the agent cannot connect until an
+		// admin approves (POST /api/nodes/:id/approve).
+		if e.RequireApproval {
+			if err := tx.Model(&storage.Node{}).Where("id = ?", created.ID).Updates(map[string]any{
+				"enabled": false, "status": "pending", "provision_note": "pending approval",
+			}).Error; err != nil {
+				return err
+			}
+			created.Enabled = false
+			created.Status = "pending"
+			created.ProvisionNote = "pending approval"
+		}
 		n = created
 		return nil
 	})
@@ -206,4 +223,60 @@ func (h *Handler) enrollTx(tokenStr string, in *model.NodeInput, now time.Time) 
 		return nil, err
 	}
 	return n, nil
+}
+
+// approveNode serves POST /api/nodes/:id/approve (F-0741): a pending-approval
+// enrollment becomes an active node (enabled, status back to unknown). Only a
+// node in status "pending" can be approved.
+func (h *Handler) approveNode(c *gin.Context) {
+	n, err := h.findNode(c.Param("id"))
+	if err != nil {
+		replyFind(c, err)
+		return
+	}
+	res := h.db.Model(&storage.Node{}).
+		Where("id = ? AND status = ?", n.ID, "pending").
+		Updates(map[string]any{"enabled": true, "status": "unknown", "provision_note": ""})
+	if res.Error != nil {
+		fail(c, http.StatusInternalServerError, res.Error)
+		return
+	}
+	if res.RowsAffected == 0 {
+		fail(c, http.StatusBadRequest, errors.New("node is not pending approval"))
+		return
+	}
+	fresh, err := h.findNode(c.Param("id"))
+	if err != nil {
+		replyFind(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, fresh)
+}
+
+// rejectNode serves POST /api/nodes/:id/reject (F-0741): a pending-approval
+// enrollment is refused; the node stays disabled and is marked "rejected", so
+// its token never authenticates.
+func (h *Handler) rejectNode(c *gin.Context) {
+	n, err := h.findNode(c.Param("id"))
+	if err != nil {
+		replyFind(c, err)
+		return
+	}
+	res := h.db.Model(&storage.Node{}).
+		Where("id = ? AND status = ?", n.ID, "pending").
+		Updates(map[string]any{"status": "rejected", "provision_note": "rejected by " + actorOf(c)})
+	if res.Error != nil {
+		fail(c, http.StatusInternalServerError, res.Error)
+		return
+	}
+	if res.RowsAffected == 0 {
+		fail(c, http.StatusBadRequest, errors.New("node is not pending approval"))
+		return
+	}
+	fresh, err := h.findNode(c.Param("id"))
+	if err != nil {
+		replyFind(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, fresh)
 }

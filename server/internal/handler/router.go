@@ -168,6 +168,10 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.GET("/nodes/:id", h.getNode)
 		api.PUT("/nodes/:id", h.updateNode)
 		api.DELETE("/nodes/:id", h.deleteNode)
+		// Registration approval flow (F-0741): a require-approval enrollment lands
+		// disabled with status "pending"; approve activates it, reject marks it refused.
+		api.POST("/nodes/:id/approve", h.approveNode)
+		api.POST("/nodes/:id/reject", h.rejectNode)
 		api.POST("/nodes/:id/token", h.rotateNodeToken)
 		api.POST("/nodes/:id/token/revoke", h.revokeNodeToken)
 		api.GET("/dimension-status", h.listDimensionStatus)

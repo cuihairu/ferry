@@ -67,6 +67,9 @@ type NodeInput struct {
 type EnrollmentTokenInput struct {
 	Note       string `json:"note,omitempty"`
 	TTLMinutes *int   `json:"ttl_minutes,omitempty"` // 1..1440, default 60; the pointer distinguishes an explicit 0 from absent
+	// RequireApproval (F-0741): nodes enrolled with this credential start
+	// disabled with status "pending" and wait for POST /api/nodes/:id/approve.
+	RequireApproval *bool `json:"require_approval,omitempty"`
 }
 
 // User is a subscription user.
