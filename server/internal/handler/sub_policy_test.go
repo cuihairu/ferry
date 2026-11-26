@@ -344,3 +344,56 @@ func TestSubXPolicyConstraintParity(t *testing.T) {
 		t.Fatalf("unconstrained custom subscription missing entries: %s", raw)
 	}
 }
+
+// TestSubscriptionPlanRegionPolicy pins the plan-scope wiring (F-1207): the
+// subscription resolves the policy chain with the user's own PlanID, so a
+// plan-scoped region whitelist binds exactly that plan's subscribers -- on
+// both surfaces -- while plan-less users stay untouched.
+func TestSubscriptionPlanRegionPolicy(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	freeTok := panelUserOf(t, r, "reg-free", nil)
+
+	rec := doJSON(t, r, "POST", "/api/plans", map[string]any{"name": "reg-pkg"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create plan: %d %s", rec.Code, rec.Body)
+	}
+	planID := uint(mustJSON(t, rec)["id"].(float64))
+	goldTok := panelUserOf(t, r, "reg-gold", map[string]any{"plan_id": planID})
+
+	mk := func(name, addr, region string) {
+		t.Helper()
+		if err := db.Create(&storage.Node{Name: name, Address: addr, Port: 443,
+			Protocol: "vless", Config: `{"uuid":"u"}`, Enabled: true,
+			Token: "tok-" + name, Role: "entry", Region: region, Status: "online"}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("rg-hk", "rg-hk.example.com", "香港")
+	mk("rg-us", "rg-us.example.com", "美国")
+
+	// Plan-scoped region whitelist: plan subscribers only see 美国.
+	if rec = doJSON(t, r, "POST", "/api/policies", map[string]any{
+		"scope": "plan", "subject_id": planID,
+		"constraints": map[string]any{"regions": []string{"美国"}},
+	}); rec.Code != http.StatusCreated {
+		t.Fatalf("create plan policy: %d %s", rec.Code, rec.Body)
+	}
+
+	// Plan subscriber, main surface: the plan's region whitelist filters.
+	raw := decoded(t, getSub(t, r, "/sub/"+goldTok, "v2rayNG/1.8"))
+	if strings.Contains(raw, "rg-hk.example.com") || !strings.Contains(raw, "rg-us.example.com") {
+		t.Fatalf("plan region policy not honored on the main surface: %s", raw)
+	}
+	// Plan-less user: untouched (system scope only, no policy here).
+	raw = decoded(t, getSub(t, r, "/sub/"+freeTok, "v2rayNG/1.8"))
+	if !strings.Contains(raw, "rg-hk.example.com") || !strings.Contains(raw, "rg-us.example.com") {
+		t.Fatalf("plan-less user affected by plan policy: %s", raw)
+	}
+	// Custom surface: same plan scoping (F-1144 parity rides the same Resolve).
+	sTok := createSubX(t, r, goldTok, "reg-gold-sub", "", "")
+	raw = decoded(t, getSub(t, r, "/sub/x/"+sTok, "v2rayNG/1.8"))
+	if strings.Contains(raw, "rg-hk.example.com") || !strings.Contains(raw, "rg-us.example.com") {
+		t.Fatalf("plan region policy not honored on the custom surface: %s", raw)
+	}
+}

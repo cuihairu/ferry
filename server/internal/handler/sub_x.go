@@ -106,8 +106,9 @@ func (h *Handler) subscriptionFiltered(c *gin.Context) {
 		}
 		rtt := h.entryRttMs()
 		// Scoped policy constraints (F-0282~F-0293), the same chain as the
-		// main subscription so the two surfaces cannot drift (F-1144).
-		eff, _, err := policy.Resolve(h.db, u.ID, 0)
+		// main subscription so the two surfaces cannot drift (F-1144); the
+		// plan scope rides the user's PlanID as there (F-1207).
+		eff, _, err := policy.Resolve(h.db, u.ID, u.PlanID)
 		if err != nil {
 			fail(c, http.StatusInternalServerError, err)
 			return

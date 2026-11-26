@@ -121,8 +121,10 @@ func (h *Handler) subscription(c *gin.Context) {
 		rtt := h.entryRttMs()
 		// Scoped policy constraints (F-0282~F-0293): system/plan/user policies
 		// filter the entry candidates before any output shaping (no policies
-		// on the chain = zero change).
-		eff, _, err := policy.Resolve(h.db, u.ID, 0)
+		// on the chain = zero change). The plan scope rides the user's own
+		// PlanID (F-1207): plan-scoped region/cost constraints bind exactly
+		// that plan's subscribers, plan-less users only see the system scope.
+		eff, _, err := policy.Resolve(h.db, u.ID, u.PlanID)
 		if err != nil {
 			fail(c, http.StatusInternalServerError, err)
 			return
