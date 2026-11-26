@@ -1,8 +1,11 @@
 package handler
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -183,5 +186,92 @@ func TestPlanApplyUsers(t *testing.T) {
 		"user_ids": []any{u1},
 	}); rec.Code != http.StatusConflict {
 		t.Fatalf("apply on disabled plan = %d %s", rec.Code, rec.Body)
+	}
+}
+
+// TestPlanExpiryRules pins the plan activation/expiry rules (F-1203): an apply
+// with expires_days=0 copies the limits but leaves the user's expiry untouched;
+// the user-level expiry then governs delivery on its own -- an expired user's
+// subscription goes empty, and extending ExpiresAt restores delivery with the
+// applied limits still in place (no re-apply needed).
+func TestPlanExpiryRules(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	tok := panelUserOf(t, r, "expiry-u", map[string]any{"expires_at": "2030-01-01T00:00:00Z"})
+	if err := db.Create(&storage.Node{Name: "hk", Address: "a.example.com", Port: 443,
+		Protocol: "vless", Config: `{"uuid":"u"}`, Enabled: true,
+		Token: "tok-expiry", Role: "entry", Status: "online"}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	rec := doJSON(t, r, "POST", "/api/plans", map[string]any{
+		"name": "expiry-pkg", "quota_bytes": 1 << 30, "expires_days": 0,
+		"bw_up_mbps": 3, "bw_down_mbps": 5,
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create plan: %d %s", rec.Code, rec.Body)
+	}
+	var plan storage.Plan
+	if err := json.Unmarshal(rec.Body.Bytes(), &plan); err != nil {
+		t.Fatal(err)
+	}
+	var u storage.User
+	if err := db.Where("username = ?", "expiry-u").First(&u).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// expires_days=0: limits copy over, expiry stays 2030.
+	if rec = doJSON(t, r, "POST", "/api/plans/"+utoa(plan.ID)+"/apply", map[string]any{
+		"user_ids": []any{u.ID},
+	}); rec.Code != http.StatusOK {
+		t.Fatalf("apply: %d %s", rec.Code, rec.Body)
+	}
+	var after storage.User
+	if err := db.First(&after, u.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if after.BwUpMbps != 3 || after.BwDownMbps != 5 || after.QuotaBytes != 1<<30 {
+		t.Fatalf("limits not applied: %+v", after)
+	}
+	if after.ExpiresAt == nil || after.ExpiresAt.Year() != 2030 {
+		t.Fatalf("expires_days=0 must keep expiry, got %v", after.ExpiresAt)
+	}
+
+	raw := func(rec *httptest.ResponseRecorder) string {
+		t.Helper()
+		b, err := base64.StdEncoding.DecodeString(rec.Body.String())
+		if err != nil {
+			t.Fatalf("body not base64: %v", err)
+		}
+		return string(b)
+	}
+
+	// The plan-set expiry governs delivery: past expiry -> empty subscription.
+	patch := func(expires string) {
+		t.Helper()
+		if rec = doJSON(t, r, "PUT", "/api/users/"+utoa(u.ID), map[string]any{
+			"expires_at": expires,
+		}); rec.Code != http.StatusOK {
+			t.Fatalf("patch expiry %s: %d %s", expires, rec.Code, rec.Body)
+		}
+	}
+	// The plan-set expiry governs delivery: past expiry -> nodeless subscription
+	// (the TOUCH-7 notice comments remain, per the expired-user convention).
+	patch("2020-01-01T00:00:00Z")
+	if body := raw(getSub(t, r, "/sub/"+tok, "v2rayNG/1.8")); strings.Contains(body, "a.example.com") {
+		t.Fatalf("expired user must not get nodes, got %q", body)
+	}
+
+	// Renewal restores delivery with the applied limits untouched.
+	patch("2031-01-01T00:00:00Z")
+	if body := raw(getSub(t, r, "/sub/"+tok, "v2rayNG/1.8")); !strings.Contains(body, "a.example.com") {
+		t.Fatalf("renewed user missing node: %q", body)
+	}
+	var renewed storage.User
+	if err := db.First(&renewed, u.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if renewed.BwUpMbps != 3 || renewed.BwDownMbps != 5 {
+		t.Fatalf("applied limits lost after renewal: %+v", renewed)
 	}
 }

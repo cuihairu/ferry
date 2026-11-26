@@ -83,8 +83,18 @@ type SubDevice struct {
 // Plan is a sellable package template (F-0101): a named bundle of the same
 // user-limit fields the user surface exposes (quota / reset cycle / bandwidth
 // / device-ip caps), maintained once and applied to users in bulk instead of
-// retyping per-user values. ExpiresDays>0 sets ExpiresAt = apply time + days;
-// 0 leaves user expiry untouched.
+// retyping per-user values.
+//
+// Activation and expiry rules (F-1203): applying a plan copies its limits
+// straight onto the user rows, so a package takes effect on the user's very
+// next action -- there is no plan-side state to wait for. The plan's validity
+// window lands as the user's own ExpiresAt (apply time + ExpiresDays), and
+// expiry is then judged solely by the user-level UserActive gate: an expired
+// user's subscription serves the empty list, and extending ExpiresAt restores
+// delivery with the applied limits still in place -- no re-apply needed.
+// ExpiresDays=0 leaves user expiry untouched. This axis is orthogonal to the
+// PlanID node-delivery binding (User.PlanID × Node.PlanID): apply shapes the
+// user's limits, PlanID shapes which nodes the subscription delivers.
 type Plan struct {
 	ID          uint      `gorm:"primaryKey" json:"id"`
 	Name        string    `gorm:"size:64;uniqueIndex" json:"name"`
