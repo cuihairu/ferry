@@ -1957,8 +1957,8 @@ External Client
     - 备注（Task ID: F-1421 | Status: Done | Evidence: NodesView.vue:598-727 列表+role 筛选+节点/区域/ISP 三视图 | Verification: docs/audit-platform-impl-2026-11-03.md §3.11（17 dash 视图确认）；dash 无前端单测 | Commit: ce8b33e）
 -   [x] `F-1422` 提供节点详情。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1422 | Status: Done | Evidence: NodesView.vue 详情对话框（详情按钮+openDetail/detailPaths）：身份（地址/协议/传输/角色/方向/区域/城市/机房/运营商/线路）+运行（状态/agent_version（api.ts Node 补该字段）/最近在线/启用/维护/入口池含 reason/实时负载采样）+关联线路表（本节点身份 入口|落地|中转、传输、启用、版本；getPaths 打开时刷新）；另有状态对话框（F-0750 三态） | Verification: pnpm --filter ferry-dash build 绿（vue-tsc -b + vite build 11.1s） | Commit: abc66ec）
--   [ ] `F-1423` 展示 Node 关联的 Cloud Resource。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1423 | 未满足：无 CloudResource 模型/关联。）
+-   [x] `F-1423` 展示 Node 关联的 Cloud Resource。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1423 | Status: Done | Evidence: 原「无 CloudResource 模型」结论已过时——CloudResource 模型（models.go:755，provider+external 去重）与 CloudView 资源列表/详情（绑定节点 显示+绑定/解绑操作+无绑定可创建节点）均已落；Node→资源跳转见 F-0431（7f78101）；资源→Node 绑定展示在资源详情 绑定节点 行（CloudView.vue:583） | Verification: dash vue-tsc+vite build 绿；cloudsync/cloudlink 服务端测试随全量 51 ok 绿 | Commit: 7f78101）
 -   [ ] `F-1424` 展示 Agent、Relay 和 Probe 状态。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1424 | 部分：agent 版本+进程快照（NodesView.vue:668-672/:312-331）；relay/probe 状态未呈现（/api/probe-reports 后端有、dash 未用）。）
 -   [ ] `F-1425` 展示节点配置版本。（依赖：无；完成条件：需求落地+测试绿+证据行）
