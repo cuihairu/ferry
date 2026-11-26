@@ -1634,7 +1634,8 @@ External Client
     - 备注（Task ID: F-1045 | Status: Done | Evidence: PolicyCostFirst；TestPickCostFirst | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1046` 为每种模式定义确定性的评分和约束规则。
     - 备注（Task ID: F-1046 | Status: Done | Evidence: alloc.go:214-216 规则+lessFor 纯函数；TestPick* 断言具体胜者 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1047` 支持按套餐配置调度模式。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1047` 支持按套餐配置调度模式。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1047 | Status: Done | Evidence: Node.PlanID（套餐亲和，0=服务所有套餐，panel-set 注册不覆盖：newPersistedNode+updateNode 指针 nil 保留/0 清除）+PolicySetting.SchedPlanModes（key=套餐 id 十进制，value=ValidPolicy 模式，ValidateSetting 校验 key 正整数+value 合法）；policyForEntry 在 Decide 每 entry 解析生效模式（plan 绑定且配了 override 则覆盖方向 tier，其余走系统 tier；窗口/权重/费用守卫保持系统级只覆盖模式）；注意 F-1029 层级分区对所有策略生效，测试用同层双 landing（cost_first 按价 vs priority 按名）才能观测模式差；TestPolicyForEntry+TestValidateSettingPlanModes+TestSweepPlanMode+TestNodePlanID+TestAllocPolicyPlanModes（另 PolicySetting 含 map 后两处 == 比较 reflect.DeepEqual 化） | Verification: go vet + server 全套件 green exit=0（51 ok）2026-11-26 | Commit: 557ced6）
 -   [ ] `F-1048` 支持按业务类型配置调度模式。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-1049` 支持人工覆盖调度结果。
     - 备注（Task ID: F-1049 | Status: Done | Evidence: createLanding Strategy:"manual"(landing.go:81)+hasManualAssignment 跳过自动(alloc.go:568-577) | Verification: TestSweepManualWins | Commit: fbcb525）
