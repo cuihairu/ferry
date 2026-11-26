@@ -237,6 +237,7 @@ func NewRouterWithTasks(db *gorm.DB, cfg config.Config, mgr *tasks.Manager) (*gi
 		api.GET("/nodes/:id/cloud-path-health", h.cloudNodePathHealth)
 		api.POST("/provision-templates/:id/apply", h.applyTemplate)
 		api.POST("/provision-templates/:id/plan", h.planTemplate)
+		api.GET("/provision-templates/:id/cost-estimate", h.templateCostEstimate)
 		api.GET("/provision-jobs", h.listProvisionJobs)
 		api.GET("/recoveries", h.listRecoveries)
 		api.GET("/recoveries/:id/actions", h.listRecoveryActions)

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -416,5 +417,112 @@ func TestRecoveryAck(t *testing.T) {
 	}
 	if err := db.First(&got, rec.ID).Error; err != nil || got.State != recovery.StateFailed {
 		t.Fatalf("post-conflict state = %s err=%v", got.State, err)
+	}
+}
+
+// TestTemplateCostEstimate covers F-1653: the pre-apply reference-price estimate
+// mapped from the template (default keys + segment overrides), hit/miss, and the
+// hand-entered cost comparison paths (no table / no manual cost / no currency /
+// deviation / currency mismatch).
+func TestTemplateCostEstimate(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	prov := storage.Provider{Name: "vultr", Type: "vultr", Enabled: true}
+	if err := db.Create(&prov).Error; err != nil {
+		t.Fatal(err)
+	}
+	tpl := storage.ProvisionTemplate{Name: "hk-3t", ProviderID: prov.ID, Plan: "vc2-1c-1gb",
+		Region: "tokyo", BwMbps: 100, BillingType: "包月", Direction: "out", Role: "entry",
+		MonthlyCostCents: 700, Config: `{"inbounds":[]}`}
+	if err := db.Create(&tpl).Error; err != nil {
+		t.Fatal(err)
+	}
+	// A second template with the hand-entered cost unset.
+	tpl2 := storage.ProvisionTemplate{Name: "hk-0", ProviderID: prov.ID, Plan: "vc2-1c-1gb",
+		Region: "tokyo", BwMbps: 100, BillingType: "包月", Direction: "out", Role: "entry",
+		Config: `{"inbounds":[]}`}
+	if err := db.Create(&tpl2).Error; err != nil {
+		t.Fatal(err)
+	}
+	base := "/api/provision-templates/" + itoa64(int(tpl.ID)) + "/cost-estimate"
+
+	// No table imported: 400 pointing at the import endpoint.
+	if rec := doJSON(t, r, "GET", base, nil); rec.Code != http.StatusBadRequest ||
+		!strings.Contains(rec.Body.String(), "ref-table") {
+		t.Fatalf("no table: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doJSON(t, r, "PUT", "/api/cost/ref-table", map[string]any{"table": refTestTable}); rec.Code != http.StatusOK {
+		t.Fatalf("import: %d %s", rec.Code, rec.Body)
+	}
+
+	// Unknown template → 404.
+	if rec := doJSON(t, r, "GET", "/api/provision-templates/999/cost-estimate", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown template: %d", rec.Code)
+	}
+
+	// Default keys map to provider name + template region + bandwidth tier
+	// ("100M"), which misses the table (rows carry the traffic-qualified
+	// "100m-500g"): 200 + hit=false, hand-entered cost echoed.
+	rec := doJSON(t, r, "GET", base, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("miss: %d %s", rec.Code, rec.Body)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if hit, _ := out["hit"].(bool); hit {
+		t.Fatalf("default spec must miss: %s", rec.Body)
+	}
+	if mc, _ := out["manual_monthly_cents"].(float64); mc != 700 {
+		t.Fatalf("manual cents = %v", out["manual_monthly_cents"])
+	}
+
+	// Spec override hits: quote surfaced; comparison waits for a currency.
+	rec = doJSON(t, r, "GET", base+"?spec=100m-500g", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("hit: %d %s", rec.Code, rec.Body)
+	}
+	out = nil
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if hit, _ := out["hit"].(bool); !hit {
+		t.Fatalf("override spec must hit: %s", rec.Body)
+	}
+	if reason, _ := out["reason"].(string); !strings.Contains(reason, "currency not set") {
+		t.Fatalf("hit without currency reason = %v", out["reason"])
+	}
+
+	// Currency given: 700 manual vs 600 reference = +16%, inside the default 30% band.
+	rec = doJSON(t, r, "GET", base+"?spec=100m-500g&currency=CNY", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("compare: %d %s", rec.Code, rec.Body)
+	}
+	out = nil
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	dev, ok := out["deviation"].(map[string]any)
+	if !ok {
+		t.Fatalf("deviation missing: %s", rec.Body)
+	}
+	if pct, _ := dev["pct"].(float64); pct != 16 {
+		t.Fatalf("deviation pct = %v", dev["pct"])
+	}
+	if off, _ := dev["off"].(bool); off {
+		t.Fatalf("deviation must be in band: %v", dev)
+	}
+
+	// Currency mismatch is a reason, not an error.
+	rec = doJSON(t, r, "GET", base+"?spec=100m-500g&currency=USD", nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "currency mismatch") {
+		t.Fatalf("mismatch: %d %s", rec.Code, rec.Body)
+	}
+
+	// Manual cost unset: the reason names it, quote still returned.
+	rec = doJSON(t, r, "GET", "/api/provision-templates/"+itoa64(int(tpl2.ID))+"/cost-estimate?spec=100m-500g&currency=CNY", nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "monthly cost not set") {
+		t.Fatalf("no manual: %d %s", rec.Code, rec.Body)
 	}
 }

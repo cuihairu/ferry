@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/cuihairu/ferry/packages/costref"
+	"github.com/cuihairu/ferry/server/internal/cost"
 	"github.com/cuihairu/ferry/server/internal/provision"
 	"github.com/cuihairu/ferry/server/internal/recovery"
 	"github.com/cuihairu/ferry/server/internal/storage"
@@ -126,6 +128,90 @@ func (h *Handler) runProvision(c *gin.Context, action string) {
 
 func (h *Handler) applyTemplate(c *gin.Context) { h.runProvision(c, "apply") }
 func (h *Handler) planTemplate(c *gin.Context)  { h.runProvision(c, "plan") }
+
+// templateCostEstimate serves GET /api/provision-templates/:id/cost-estimate
+// (F-1653): the reference-price lookup mapped from the template, so the operator
+// sees the expected monthly cost before paying for an apply. Keys default to
+// provider name + template region + spec (bandwidth tier, falling back to the
+// plan slug); query params override each segment, because the price table's spec
+// vocabulary is source-managed and the template's plan slug may not match it.
+// A miss is 200+hit=false, mirroring the node probe; the hand-entered
+// MonthlyCostCents is compared only when ?currency= names its currency (the
+// template carries no currency column).
+func (h *Handler) templateCostEstimate(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		fail(c, http.StatusNotFound, errors.New("template not found"))
+		return
+	}
+	var tpl storage.ProvisionTemplate
+	if err := h.db.First(&tpl, id).Error; err != nil {
+		fail(c, http.StatusNotFound, errors.New("template not found"))
+		return
+	}
+	src, err := h.refSource()
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	if src == nil {
+		fail(c, http.StatusBadRequest, errors.New("reference price table not imported yet (PUT /api/cost/ref-table)"))
+		return
+	}
+	var prov storage.Provider
+	if err := h.db.First(&prov, tpl.ProviderID).Error; err != nil {
+		fail(c, http.StatusBadRequest, errors.New("template provider not found"))
+		return
+	}
+
+	q := costref.Query{Provider: prov.Name, Region: tpl.Region, Spec: cost.SpecOf(tpl.BwMbps, 0)}
+	if q.Spec == "" {
+		q.Spec = tpl.Plan
+	}
+	if v := c.Query("provider"); v != "" {
+		q.Provider = v
+	}
+	if v := c.Query("region"); v != "" {
+		q.Region = v
+	}
+	if v := c.Query("spec"); v != "" {
+		q.Spec = v
+	}
+
+	out := gin.H{"source": src.Name(), "query": q,
+		"manual_monthly_cents": tpl.MonthlyCostCents}
+	quote, err := src.Lookup(c.Request.Context(), q)
+	if errors.Is(err, costref.ErrNotFound) {
+		out["hit"] = false
+		c.JSON(http.StatusOK, out)
+		return
+	}
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	out["hit"] = true
+	out["quote"] = quote
+	switch {
+	case tpl.MonthlyCostCents <= 0:
+		out["reason"] = "template monthly cost not set"
+	case c.Query("currency") == "":
+		out["reason"] = "template currency not set (pass ?currency= to compare)"
+	default:
+		dev, cerr := costref.Compare(costref.Manual{
+			MonthlyCents: tpl.MonthlyCostCents, Currency: c.Query("currency")}, quote, refTolerance(c))
+		switch {
+		case cerr == nil:
+			out["deviation"] = dev
+		case errors.Is(cerr, costref.ErrCurrencyMismatch):
+			out["reason"] = "currency mismatch (manual " + c.Query("currency") + " vs quote " + quote.Currency + ")"
+		default:
+			fail(c, http.StatusInternalServerError, cerr)
+			return
+		}
+	}
+	c.JSON(http.StatusOK, out)
+}
 
 // listProvisionJobs returns the provisioning execution trail (newest first, 50
 // rows by default).
