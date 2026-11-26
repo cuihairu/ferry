@@ -362,6 +362,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		// Paths (F-0105/F-0243): named entry -> (optional relay) -> landing routes.
 		api.GET("/paths", h.listPaths)
 		api.POST("/paths", h.createPath)
+		api.GET("/paths/preview", h.previewPathCandidates)
 		api.GET("/paths/:id", h.getPath)
 		api.GET("/paths/:id/health", h.getPathHealth)
 		api.PUT("/paths/:id", h.updatePath)

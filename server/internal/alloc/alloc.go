@@ -293,7 +293,7 @@ func Pick(policy, direction, missing string, w ScoreWeights, cands []Candidate) 
 	if len(healthy) == 1 {
 		return healthy[0], true
 	}
-	less := lessFor(policy, direction, missing, w, cands)
+	less := LessFor(policy, direction, missing, w, cands)
 	best := healthy[0]
 	for _, i := range healthy[1:] {
 		if less(i, best) {
@@ -318,8 +318,9 @@ func premiumOf(c Candidate, direction string) bool {
 	return direction == agentproto.DirectionIn && isPremiumLine(c.Node.LineType)
 }
 
-// lessFor builds the policy comparison function: less(a,b) = whether a beats b.
-func lessFor(policy, direction, missingRule string, w ScoreWeights, cands []Candidate) func(a, b int) bool {
+// LessFor builds the policy comparison function: less(a,b) = whether a beats b.
+// Exported for the candidate preview, which renders the same order the sweep picks from.
+func LessFor(policy, direction, missingRule string, w ScoreWeights, cands []Candidate) func(a, b int) bool {
 	load := func(i int) float64 { return loadRatio(cands[i]) }
 	missing := func(i int) bool { return cands[i].costMissing(missingRule) }
 	// Missing prices map to 0 inside the per-policy comparator: the wrapper
@@ -591,8 +592,8 @@ func SweepAt(db *gorm.DB, now time.Time) ([]SwitchEvent, error) {
 		true, false, "landing", "both", "provisioning").Find(&landings).Error; err != nil {
 		return nil, err
 	}
-	conns := latestConns(db)
-	sick := latestSick(db)
+	conns := LatestConns(db)
+	sick := LatestSick(db)
 
 	var events []SwitchEvent
 	offPeak := InOffPeak(now, policy)
@@ -788,8 +789,8 @@ func recordExclusion(db *gorm.DB, entryID, landingID uint, direction, policyName
 	return db.Create(&row).Error
 }
 
-// latestConns aggregates each node's latest sampled connection count: take the latest entry per process within the window, then sum per node.
-func latestConns(db *gorm.DB) map[uint]int {
+// LatestConns aggregates each node's latest sampled connection count: take the latest entry per process within the window, then sum per node.
+func LatestConns(db *gorm.DB) map[uint]int {
 	out := map[uint]int{}
 	since := time.Now().Add(-LoadFresh)
 	var logs []storage.NodeTrafficLog
@@ -814,9 +815,9 @@ func latestConns(db *gorm.DB) map[uint]int {
 	return out
 }
 
-// latestSick returns the set of target nodes with a latest sick verdict within the window; not in the set = healthy or no verdict
+// LatestSick returns the set of target nodes with a latest sick verdict within the window; not in the set = healthy or no verdict
 // (no verdict counts as healthy so cold starts can complete the first allocation).
-func latestSick(db *gorm.DB) map[uint]bool {
+func LatestSick(db *gorm.DB) map[uint]bool {
 	out := map[uint]bool{}
 	since := time.Now().Add(-ProbeFresh)
 	var reports []storage.ProbeReport
