@@ -19,7 +19,7 @@ import (
 
 // startWSServer starts a wss echo service (the httptest self-signed certificate is written to disk as CAFile),
 // and returns the dial address and the CA file path.
-func startWSServer(t *testing.T) (addr, caFile string) {
+func startWSServer(t testing.TB) (addr, caFile string) {
 	t.Helper()
 	up := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -33,7 +33,7 @@ type memSSHServer struct {
 	wg sync.WaitGroup
 }
 
-func newEcho(t *testing.T) string {
+func newEcho(t testing.TB) string {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -52,7 +52,7 @@ func newEcho(t *testing.T) string {
 	return ln.Addr().String()
 }
 
-func startMemSSH(t *testing.T, echoAddr string) *memSSHServer {
+func startMemSSH(t testing.TB, echoAddr string) *memSSHServer {
 	t.Helper()
 	_, hostPriv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -146,7 +146,7 @@ func (s *memSSHServer) serve(chans <-chan ssh.NewChannel, reqs <-chan *ssh.Reque
 func (s *memSSHServer) sshdAddr() string { return s.ln.Addr().String() }
 
 // writeClientKey generates an RSA private key PEM (PKCS1, parseable by ssh.ParsePrivateKey).
-func writeClientKey(t *testing.T, dir string) string {
+func writeClientKey(t testing.TB, dir string) string {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -161,7 +161,7 @@ func writeClientKey(t *testing.T, dir string) string {
 }
 
 // newSSHTunnel builds the ssh plugin with fully configured Options; an empty knownHostsLine means no known_hosts.
-func newSSHTunnel(t *testing.T, sshdAddr, echoAddr, knownHostsLine string) Tunnel {
+func newSSHTunnel(t testing.TB, sshdAddr, echoAddr, knownHostsLine string) Tunnel {
 	t.Helper()
 	dir := t.TempDir()
 	opts := Options{

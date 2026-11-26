@@ -25,7 +25,7 @@ import (
 )
 
 // testCert signs a self-signed certificate on the spot (test only, never written to a file).
-func testCert(t *testing.T) tls.Certificate {
+func testCert(t testing.TB) tls.Certificate {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
