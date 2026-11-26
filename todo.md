@@ -1813,7 +1813,8 @@ External Client
 -   [x] `F-1242` 明确入口、出口或单端计量口径。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1242 | Status: Done | Evidence: 单端口径落码+落注释（agentws.go saveUserTraffic）：用户流量只在持有用户 inbound 的节点计量（role entry/both=订阅下发的面）；节点行解析不了的节点永不计费（无 role 判定不出账）；节点级台账（saveNodeTraffic）照常落库供容量核算，与用户台账分离 | Verification: TestUserTrafficMeteringScope（entry 上报入账 1 行 Rx/Tx 原值；99999 未知节点同报文静默丢弃不记账）+既有 TestAgentWSUserTraffic/TestAgentWSTrafficReport/TestUserRenameKeepsTraffic 随 fixture role=entry 全绿 | Commit: 8f605fd）
     - 待补（F-1242 | 部分：计量在持有用户 inbound 的节点 xray（xraystats.go:67-89）→saveUserTraffic（agentws.go:346-433）；无节点角色/单端口径判定（role 记录而流量路径忽略）。）
--   [ ] `F-1243` 防止入口和落地重复计费。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1243` 防止入口和落地重复计费。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1243 | Status: Done | Evidence: 双端防重守卫落码（agentws.go saveUserTraffic）：landing 角色节点的用户流量上报=同一批字节的隧道侧，直接丢弃不入用户台账（单端口径的落地侧执行）；帧级 at-most-once 去重（agentws_dedupe）继续存在，两层互不替代；节点级台账不受影响 | Verification: TestUserTrafficNoDoubleBilling（entry 入账 1 行后 landing 同报文→仍 1 行，last_node 仍指 entry）；既有 TestAgentWSUserOnlineState/TestSaveReportUnits 随 fixture role 修正全绿（f1243b 51 ok） | Commit: 3514b7d）
     - 待补（F-1243 | 部分：at-most-once 去重（agentws_dedupe）+离线即丢（traffic.go:219-226）防帧重传重复计；无入口/落地双端防重守卫或测试。）
 -   [x] `F-1244` 统一流量单位。
     - 备注（Task ID: F-1244 | Status: Done | Evidence: 全链路统一字节 int64：rx_bytes/tx_bytes（models.go:138-139/266-267）+proto Rx/Tx uint64（messages.go:202-203）+agentws.go:335-340 直拷；GB 仅计价/展示 | Verification: traffic_test.go:55-58 原值透传+TestAgentWSTrafficReport（agentws_test.go:477） | Commit: ad8f965）
