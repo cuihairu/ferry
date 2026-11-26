@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/outlier"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
 )
@@ -26,9 +27,12 @@ const (
 type EveningHour struct {
 	Hour            int     `json:"hour"`
 	Samples         int     `json:"samples"`
-	AvgRttMs        float64 `json:"avg_rtt_ms"`       // avg latency over reachable samples
+	AvgRttMs        float64 `json:"avg_rtt_ms"`       // avg latency over reachable, outlier-trimmed samples
 	AvgLossPct      float64 `json:"avg_loss_pct"`     // avg packet loss over all samples
 	AvailabilityPct float64 `json:"availability_pct"` // -1=no samples
+	// Outliers is how many reachable RTT samples the F-0916 median/MAD filter
+	// removed from this hour's average.
+	Outliers int `json:"outliers"`
 }
 
 // EveningWindow is the summary comparison block for evening peak / off-peak.
@@ -37,6 +41,8 @@ type EveningWindow struct {
 	AvgRttMs        float64 `json:"avg_rtt_ms"`
 	AvgLossPct      float64 `json:"avg_loss_pct"`
 	AvailabilityPct float64 `json:"availability_pct"` // -1=no samples
+	// Outliers follows EveningHour.Outliers over the whole window.
+	Outliers int `json:"outliers"`
 }
 
 // EveningReport is the evening peak return-traffic report: 24 hour rows plus
@@ -69,11 +75,11 @@ func (h *Handler) getEvening(c *gin.Context) {
 	c.JSON(http.StatusOK, buildEvening(days, rows))
 }
 
-// eveningAcc aggregation accumulator: sample count, reachable-sample latency sum, loss sum.
+// eveningAcc aggregation accumulator: sample count, reachable-sample latency
+// samples (kept individually for the F-0916 outlier trim), loss sum.
 type eveningAcc struct {
 	n       int
-	rttN    int
-	rttSum  int64
+	rtts    []int
 	lossSum int64
 }
 
@@ -81,9 +87,22 @@ func (a *eveningAcc) add(r storage.ProbeReport) {
 	a.n++
 	a.lossSum += int64(r.LossPct)
 	if r.Reachable {
-		a.rttN++
-		a.rttSum += int64(r.RttMs)
+		a.rtts = append(a.rtts, r.RttMs)
 	}
+}
+
+// eveningRTT is the outlier-trimmed average of the reachable samples (F-0916)
+// plus the count of samples the trim removed.
+func eveningRTT(a eveningAcc) (float64, int) {
+	trimmed := outlier.Trim(a.rtts, outlier.DefaultFactor)
+	if len(trimmed) == 0 {
+		return 0, 0
+	}
+	sum := 0
+	for _, s := range trimmed {
+		sum += s
+	}
+	return float64(sum) / float64(len(trimmed)), len(a.rtts) - len(trimmed)
 }
 
 // buildEvening buckets probe verdicts by local-time-zone hour and summarizes the evening peak and off-peak separately.
@@ -105,8 +124,8 @@ func buildEvening(days int, rows []storage.ProbeReport) EveningReport {
 		row := EveningHour{Hour: h, Samples: a.n, AvailabilityPct: -1}
 		if a.n > 0 {
 			row.AvgLossPct = float64(a.lossSum) / float64(a.n)
-			row.AvailabilityPct = float64(a.rttN) / float64(a.n) * 100
-			row.AvgRttMs = eveningAvgRtt(a)
+			row.AvailabilityPct = float64(len(a.rtts)) / float64(a.n) * 100
+			row.AvgRttMs, row.Outliers = eveningRTT(a)
 		}
 		rep.Hours[h] = row
 	}
@@ -115,19 +134,12 @@ func buildEvening(days int, rows []storage.ProbeReport) EveningReport {
 	return rep
 }
 
-func eveningAvgRtt(a eveningAcc) float64 {
-	if a.rttN == 0 {
-		return 0
-	}
-	return float64(a.rttSum) / float64(a.rttN)
-}
-
 func eveningWindow(a eveningAcc) EveningWindow {
 	w := EveningWindow{Samples: a.n, AvailabilityPct: -1}
 	if a.n > 0 {
 		w.AvgLossPct = float64(a.lossSum) / float64(a.n)
-		w.AvailabilityPct = float64(a.rttN) / float64(a.n) * 100
-		w.AvgRttMs = eveningAvgRtt(a)
+		w.AvailabilityPct = float64(len(a.rtts)) / float64(a.n) * 100
+		w.AvgRttMs, w.Outliers = eveningRTT(a)
 	}
 	return w
 }

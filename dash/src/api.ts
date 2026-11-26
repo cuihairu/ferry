@@ -318,6 +318,8 @@ export interface EveningHour {
   avg_rtt_ms: number
   avg_loss_pct: number
   availability_pct: number
+  /** reachable RTT samples the F-0916 median/MAD filter removed from the average */
+  outliers: number
 }
 
 /** EveningWindow is a summary comparison block for evening peak / off-peak. */
@@ -326,6 +328,8 @@ export interface EveningWindow {
   avg_rtt_ms: number
   avg_loss_pct: number
   availability_pct: number
+  /** trimmed outlier samples over the whole window (F-0916) */
+  outliers: number
 }
 
 /** EveningReport is the evening-peak return-trip report: 24-hour detail plus evening-peak (19-23) / off-peak summaries. */

@@ -93,3 +93,53 @@ func TestEveningAPI(t *testing.T) {
 		t.Fatalf("days=0 status = %d", rec.Code)
 	}
 }
+
+// TestEveningOutlierTrim covers F-0916 on the report path: one multi-second
+// spike among stable samples must not drag the hour's average; the report
+// counts it under outliers instead.
+func TestEveningOutlierTrim(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	now := time.Now()
+	atHour := func(hour, min int) time.Time {
+		return time.Date(now.Year(), now.Month(), now.Day(), hour, min, 0, 0, time.Local)
+	}
+	for i, min := range []int{1, 6, 11, 16, 21} {
+		if err := db.Create(&storage.ProbeReport{
+			NodeID: 1, TargetKind: "peer", Direction: "in",
+			RttMs: 20, LossPct: 0, Reachable: true, Verdict: "healthy",
+			ProbedAt: atHour(7, min),
+		}).Error; err != nil {
+			t.Fatal(err)
+		}
+		_ = i
+	}
+	if err := db.Create(&storage.ProbeReport{
+		NodeID: 1, TargetKind: "peer", Direction: "in",
+		RttMs: 1000, LossPct: 0, Reachable: true, Verdict: "healthy",
+		ProbedAt: atHour(7, 26),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	rec := doJSON(t, r, "GET", "/api/evening", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get evening status = %d body=%s", rec.Code, rec.Body)
+	}
+	var rep struct {
+		Hours []struct {
+			Hour     int     `json:"hour"`
+			Samples  int     `json:"samples"`
+			AvgRttMs float64 `json:"avg_rtt_ms"`
+			Outliers int     `json:"outliers"`
+		} `json:"hours"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &rep); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	h7 := rep.Hours[7]
+	if h7.Samples != 6 {
+		t.Fatalf("hour7 samples = %d, want 6", h7.Samples)
+	}
+	if h7.AvgRttMs != 20 || h7.Outliers != 1 {
+		t.Fatalf("hour7 = %+v (spike must not drag the average)", h7)
+	}
+}

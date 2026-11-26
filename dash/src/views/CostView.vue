@@ -885,6 +885,7 @@ function legText(leg: PathCostRow['explain'][number], currency: string): string 
             <div class="cmp-row"><span>平均丢包</span><b>{{ pct(evening.peak.avg_loss_pct) }}</b></div>
             <div class="cmp-row"><span>可用率</span><b>{{ pct(evening.peak.availability_pct) }}</b></div>
             <div class="cmp-row"><span>样本</span><b>{{ evening.peak.samples }}</b></div>
+            <div class="cmp-row"><span>剔除异常样本</span><b>{{ evening.peak.outliers }}</b></div>
           </div>
           <div class="cmp">
             <div class="cmp-title">平峰（其余时段）</div>
@@ -892,6 +893,7 @@ function legText(leg: PathCostRow['explain'][number], currency: string): string 
             <div class="cmp-row"><span>平均丢包</span><b>{{ pct(evening.offpeak.avg_loss_pct) }}</b></div>
             <div class="cmp-row"><span>可用率</span><b>{{ pct(evening.offpeak.availability_pct) }}</b></div>
             <div class="cmp-row"><span>样本</span><b>{{ evening.offpeak.samples }}</b></div>
+            <div class="cmp-row"><span>剔除异常样本</span><b>{{ evening.offpeak.outliers }}</b></div>
           </div>
         </div>
         <el-table
