@@ -1509,7 +1509,8 @@ External Client
     - 备注（Task ID: F-0929 | Status: Done | Evidence: DefaultSickStrikes=3(pool.go:25)+pool.go:152 | Verification: TestSweepSuspendAndResume | Commit: fbcb525）
 -   [x] `F-0930` 定义恢复阈值。
     - 备注（Task ID: F-0930 | Status: Done | Evidence: DefaultWellStreak=2(pool.go:27)+pool.go:161 | Verification: TestSweepSuspendAndResume | Commit: fbcb525）
--   [ ] `F-0931` 实现健康状态滞回，避免频繁抖动。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0931` 实现健康状态滞回，避免频繁抖动。
+    - 备注（Task ID: F-0931 | Status: Done | Evidence: nodehealth/egresshealth Evaluate 改窗口多数票（healthy 票>0 且 sick 未过票数→healthy，sick 严格多数→degraded，全无→unknown），同一份 ProbeFresh 窗口内按 verdict 计票；tie 算 healthy（恶化需 sick 严格多数）；egresshealth 同款（出口基线）| Verification: TestEvaluateHysteresis（各 3:1 单离票→健康、3:1 杂票→劣化）+既有规则测试改 tie→healthy；两包 go test 绿 | Commit: c6bbdd0）
 -   [ ] `F-0932` 支持健康状态人工覆盖。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [ ] `F-0933` 人工覆盖必须记录原因、操作者和过期时间。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [ ] `F-0934` 提供健康状态变化解释。（依赖：无；完成条件：需求落地+测试绿+证据行）
