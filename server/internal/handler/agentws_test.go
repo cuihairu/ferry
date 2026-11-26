@@ -230,6 +230,7 @@ func TestAgentWSProbeReport(t *testing.T) {
 			{
 				TargetKind: agentproto.ProbeTargetTunnel, TargetNode: 2,
 				Direction: agentproto.DirectionOut, RttMs: 48, JitterMs: 6,
+				ConnectMs: 11, TTFBMs: 33, ThroughputKbps: 9500,
 				Reachable: true, Verdict: agentproto.ProbeVerdictHealthy,
 				Region: "华东", ISP: "电信", ProbedAt: time.Now(),
 			},
@@ -265,6 +266,11 @@ func TestAgentWSProbeReport(t *testing.T) {
 	}
 	if okRow.RttMs != 48 || okRow.JitterMs != 6 {
 		t.Fatalf("stored rtt/jitter = %d/%d, want 48/6", okRow.RttMs, okRow.JitterMs)
+	}
+	// F-0942/F-0943: the web-session phases ride along into storage too.
+	if okRow.ConnectMs != 11 || okRow.TTFBMs != 33 || okRow.ThroughputKbps != 9500 || okRow.TLSMs != 0 {
+		t.Fatalf("stored phases = connect %d tls %d ttfb %d throughput %d",
+			okRow.ConnectMs, okRow.TLSMs, okRow.TTFBMs, okRow.ThroughputKbps)
 	}
 	if err := db.Where("node_id=? AND verdict=?", node["id"].(float64), "sick").
 		Order("id DESC").First(&badRow).Error; err != nil {

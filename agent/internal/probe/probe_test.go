@@ -274,7 +274,7 @@ func TestMeasureErrClass(t *testing.T) {
 	hsi := config.ProbeSpec{Name: "cls-http", TargetKind: agentproto.ProbeTargetExit,
 		Target: strings.TrimPrefix(srv.URL, "http://"), Proto: "http",
 		ExpectStatus: 200, IntervalSec: 5, TimeoutSec: 1}
-	_, _, _, reachable, cls = measureHTTP(hsi)
+	_, _, _, reachable, cls, _ = measureHTTP(hsi)
 	if reachable || cls != "http_status" {
 		t.Fatalf("http 500/200: reachable=%v class=%q", reachable, cls)
 	}
@@ -282,7 +282,7 @@ func TestMeasureErrClass(t *testing.T) {
 	// HTTP to a closed port: refused.
 	hdead := config.ProbeSpec{Name: "cls-http-dead", TargetKind: agentproto.ProbeTargetExit,
 		Target: closed, Proto: "http", IntervalSec: 5, TimeoutSec: 1}
-	_, _, _, reachable, cls = measureHTTP(hdead)
+	_, _, _, reachable, cls, _ = measureHTTP(hdead)
 	if reachable || cls != "refused" {
 		t.Fatalf("http closed port: reachable=%v class=%q", reachable, cls)
 	}
@@ -388,7 +388,7 @@ func TestMeasureHTTPHealthy(t *testing.T) {
 		Name: "http-ok", TargetKind: agentproto.ProbeTargetExit,
 		Target: strings.TrimPrefix(srv.URL, "http://"), Proto: "http", IntervalSec: 5,
 	}
-	rtt, _, loss, reachable, _ := measureHTTP(spec)
+	rtt, _, loss, reachable, _, _ := measureHTTP(spec)
 	if !reachable || loss != 0 || rtt < 0 {
 		t.Fatalf("want reachable loss=0, got rtt=%d loss=%d reachable=%v", rtt, loss, reachable)
 	}
@@ -410,14 +410,14 @@ func TestMeasureHTTPExpectStatus(t *testing.T) {
 
 	bad := config.ProbeSpec{Name: "http-500", TargetKind: agentproto.ProbeTargetExit,
 		Target: host, Proto: "http", ExpectStatus: 200, IntervalSec: 5}
-	if _, _, loss, reachable, _ := measureHTTP(bad); reachable || loss != 100 {
+	if _, _, loss, reachable, _, _ := measureHTTP(bad); reachable || loss != 100 {
 		t.Fatalf("500 with expect 200 must fail, got loss=%d reachable=%v", loss, reachable)
 	}
 
 	// Without expect_status any real response (302 included) counts.
 	redir := config.ProbeSpec{Name: "http-redir", TargetKind: agentproto.ProbeTargetExit,
 		Target: host, Proto: "http", HTTPPath: "/redir", IntervalSec: 5}
-	if _, _, loss, reachable, _ := measureHTTP(redir); !reachable || loss != 0 {
+	if _, _, loss, reachable, _, _ := measureHTTP(redir); !reachable || loss != 0 {
 		t.Fatalf("302 without expect must count, got loss=%d reachable=%v", loss, reachable)
 	}
 
@@ -426,7 +426,7 @@ func TestMeasureHTTPExpectStatus(t *testing.T) {
 	// 404/fail instead of succeeding.
 	ok := config.ProbeSpec{Name: "http-302ok", TargetKind: agentproto.ProbeTargetExit,
 		Target: host, Proto: "http", HTTPPath: "/redir", ExpectStatus: 302, IntervalSec: 5}
-	if _, _, loss, reachable, _ := measureHTTP(ok); !reachable || loss != 0 {
+	if _, _, loss, reachable, _, _ := measureHTTP(ok); !reachable || loss != 0 {
 		t.Fatalf("exact 302 expect must pass, got loss=%d reachable=%v", loss, reachable)
 	}
 }
@@ -442,7 +442,7 @@ func TestMeasureHTTPDeadService(t *testing.T) {
 	_ = ln.Close()
 	spec := config.ProbeSpec{Name: "http-dead", TargetKind: agentproto.ProbeTargetExit,
 		Target: addr, Proto: "http", IntervalSec: 5}
-	_, _, loss, reachable, _ := measureHTTP(spec)
+	_, _, loss, reachable, _, _ := measureHTTP(spec)
 	if reachable || loss != 100 {
 		t.Fatalf("want unreachable loss=100, got loss=%d reachable=%v", loss, reachable)
 	}

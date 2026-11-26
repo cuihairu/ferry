@@ -449,6 +449,7 @@ func dispatchedSpecs(wire []agentproto.ProbeTaskSpec) []config.ProbeSpec {
 			Direction: w.Direction, IntervalSec: w.IntervalSec,
 			Proto: w.Proto, PayloadHex: w.PayloadHex, ExpectHex: w.ExpectHex,
 			HTTPPath: w.HTTPPath, ExpectStatus: w.ExpectStatus, TimeoutSec: w.TimeoutSec,
+			DownloadKB: w.DownloadKB,
 		})
 	}
 	return specs

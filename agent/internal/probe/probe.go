@@ -17,6 +17,7 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"strings"
 	"sync"
 	"syscall"
@@ -257,7 +258,7 @@ func nextIntervalBoosted(spec config.ProbeSpec, now time.Time, boostUntil time.T
 // silently when offline. Returns whether the verdict is sick (F-0925).
 func (r *Runner) probeOnce(spec config.ProbeSpec) bool {
 	release := r.acquire() // F-0922: simultaneous measures are capped
-	rtt, jitter, loss, reachable, errClass := r.measure(spec)
+	rtt, jitter, loss, reachable, errClass, phases := r.measure(spec)
 	release()
 	verdict := verdictOf(loss, reachable)
 	// region/ISP snapshots are filled in by the panel when it stores the target node.
@@ -272,6 +273,11 @@ func (r *Runner) probeOnce(spec config.ProbeSpec) bool {
 		ErrClass:   errClass,
 		Verdict:    verdict,
 		ProbedAt:   time.Now(),
+		// Web-session phases (F-0942/F-0943): zero outside http/https.
+		ConnectMs:      phases.connectMs,
+		TLSMs:          phases.tlsMs,
+		TTFBMs:         phases.ttfbMs,
+		ThroughputKbps: phases.throughputKbps,
 	}
 	env, err := agentproto.NewEnvelope(
 		fmt.Sprintf("probe-%d", time.Now().UnixNano()),
@@ -296,16 +302,19 @@ func (r *Runner) probeOnce(spec config.ProbeSpec) bool {
 // measure dispatches per spec: TCP connect probing (default), UDP request/
 // reply probing (F-0910), or HTTP(S) application-layer probing (F-0911). It
 // returns the average successful RTT (ms), the RTT jitter across this probe's
-// successful rounds (F-0907), the packet loss rate 0-100, reachability and
-// the failure class of the failed rounds (F-0913; empty when any round won).
-func (r *Runner) measure(spec config.ProbeSpec) (rttMs, jitterMs, lossPct int, reachable bool, errClass string) {
+// successful rounds (F-0907), the packet loss rate 0-100, reachability, the
+// failure class of the failed rounds (F-0913; empty when any round won) and
+// the web-session phases (F-0942, zero outside http/https).
+func (r *Runner) measure(spec config.ProbeSpec) (rttMs, jitterMs, lossPct int, reachable bool, errClass string, phases httpPhases) {
 	switch spec.Proto {
 	case "udp":
-		return measureUDP(spec)
+		rtt, jitter, loss, ok, class := measureUDP(spec)
+		return rtt, jitter, loss, ok, class, httpPhases{}
 	case "http", "https":
 		return measureHTTP(spec)
 	}
-	return measureTCP(spec)
+	rtt, jitter, loss, ok, class := measureTCP(spec)
+	return rtt, jitter, loss, ok, class, httpPhases{}
 }
 
 // effTimeout is the spec's per-round timeout (F-0913), falling back to the
@@ -455,17 +464,36 @@ func classifyNetErr(err error) string {
 	return "other"
 }
 
-// measureHTTP issues a HEAD request per round (F-0911): a round succeeds when
+// httpPhases carries the mean web-session phase timings of one probe's
+// successful rounds (F-0942): where a page load actually stalls. tlsMs is 0
+// for plaintext probes, throughputKbps only when the spec opts into a body
+// download (F-0943).
+type httpPhases struct {
+	connectMs      int
+	tlsMs          int
+	ttfbMs         int
+	throughputKbps int
+}
+
+// measureHTTP issues a HEAD request per round (F-0911) -- or GET with a
+// capped body read when download_kb opts in (F-0943): a round succeeds when
 // the service answers with an HTTP response -- redirects count as answered,
 // they are not followed -- and with expect_status set, only that exact status
-// counts. RTT runs request start to response headers.
-func measureHTTP(spec config.ProbeSpec) (rttMs, jitterMs, lossPct int, reachable bool, errClass string) {
+// counts. RTT runs request start to response headers; the traced phases
+// (connect / TLS / TTFB, F-0942) and the download rate (F-0943) average over
+// the successful rounds too.
+func measureHTTP(spec config.ProbeSpec) (rttMs, jitterMs, lossPct int, reachable bool, errClass string, phases httpPhases) {
 	path := spec.HTTPPath
 	if path == "" {
 		path = "/"
 	}
 	// HEAD, not GET: the question is "does the application answer", not "how
-	// fast can it serve bodies"; redirects are surfaced, never followed.
+	// fast can it serve bodies"; redirects are surfaced, never followed. The
+	// download_kb opt-in (F-0943) deliberately pays for a body to measure.
+	method := http.MethodHead
+	if spec.DownloadKB > 0 {
+		method = http.MethodGet
+	}
 	client := &http.Client{
 		Timeout: effTimeout(spec),
 		CheckRedirect: func(*http.Request, []*http.Request) error {
@@ -474,11 +502,12 @@ func measureHTTP(spec config.ProbeSpec) (rttMs, jitterMs, lossPct int, reachable
 	}
 	var samples []int
 	var classes []string
+	var connectSamples, tlsSamples, ttfbSamples, rateSamples []int
 	for i := 0; i < probeRounds; i++ {
 		if i > 0 {
 			time.Sleep(roundSpacing)
 		}
-		req, err := http.NewRequest(http.MethodHead, "http://"+spec.Target+path, nil)
+		req, err := http.NewRequest(method, "http://"+spec.Target+path, nil)
 		if err != nil {
 			classes = append(classes, "other")
 			continue
@@ -486,21 +515,89 @@ func measureHTTP(spec config.ProbeSpec) (rttMs, jitterMs, lossPct int, reachable
 		if spec.Proto == "https" {
 			req.URL.Scheme = "https"
 		}
-		start := time.Now()
+		var (
+			connectAt, tlsAt time.Time
+			connect, tlsDur  time.Duration
+			ttfb             time.Duration
+		)
+		reqStart := time.Now()
+		trace := &httptrace.ClientTrace{
+			ConnectStart: func(_, _ string) { connectAt = time.Now() },
+			ConnectDone: func(_, _ string, err error) {
+				if err == nil && !connectAt.IsZero() {
+					connect = time.Since(connectAt)
+				}
+			},
+			TLSHandshakeStart: func() { tlsAt = time.Now() },
+			TLSHandshakeDone: func(_ tls.ConnectionState, err error) {
+				if err == nil && !tlsAt.IsZero() {
+					tlsDur = time.Since(tlsAt)
+				}
+			},
+			GotFirstResponseByte: func() { ttfb = time.Since(reqStart) },
+		}
+		req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
 		resp, err := client.Do(req)
 		if err != nil {
 			classes = append(classes, classifyNetErr(err))
 			continue
 		}
-		_, _ = io.Copy(io.Discard, resp.Body)
+		if spec.DownloadKB > 0 {
+			start := time.Now()
+			n, _ := io.Copy(io.Discard, io.LimitReader(resp.Body, int64(spec.DownloadKB)*1024))
+			if n > 0 && resp.StatusCode/100 == 2 {
+				if rate := kbps(n, time.Since(start)); rate > 0 {
+					rateSamples = append(rateSamples, rate)
+				}
+			}
+		} else {
+			_, _ = io.Copy(io.Discard, resp.Body)
+		}
 		_ = resp.Body.Close()
 		if spec.ExpectStatus > 0 && resp.StatusCode != spec.ExpectStatus {
 			classes = append(classes, "http_status")
 			continue
 		}
-		samples = append(samples, int(time.Since(start).Milliseconds()))
+		samples = append(samples, int(time.Since(reqStart).Milliseconds()))
+		if connect > 0 {
+			connectSamples = append(connectSamples, int(connect.Milliseconds()))
+		}
+		if tlsDur > 0 {
+			tlsSamples = append(tlsSamples, int(tlsDur.Milliseconds()))
+		}
+		if ttfb > 0 {
+			ttfbSamples = append(ttfbSamples, int(ttfb.Milliseconds()))
+		}
 	}
-	return summarize(samples, classes)
+	phases = httpPhases{
+		connectMs:      meanOf(connectSamples),
+		tlsMs:          meanOf(tlsSamples),
+		ttfbMs:         meanOf(ttfbSamples),
+		throughputKbps: meanOf(rateSamples),
+	}
+	rtt, jitter, loss, ok, class := summarize(samples, classes)
+	return rtt, jitter, loss, ok, class, phases
+}
+
+// meanOf averages rounded to whole units; an empty list means no datum (0),
+// matching the report fields' omit-when-unknown convention.
+func meanOf(samples []int) int {
+	if len(samples) == 0 {
+		return 0
+	}
+	sum := 0
+	for _, s := range samples {
+		sum += s
+	}
+	return sum / len(samples)
+}
+
+// kbps converts one body read into kilobits per second.
+func kbps(n int64, d time.Duration) int {
+	if n <= 0 || d <= 0 {
+		return 0
+	}
+	return int(float64(n) * 8 / d.Seconds() / 1000)
 }
 
 // jitterOf is the mean absolute difference between consecutive successful round

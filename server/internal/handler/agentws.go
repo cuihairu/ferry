@@ -309,20 +309,24 @@ func (h *Handler) saveProbeReports(nodeID int64, items []agentproto.ProbeReport)
 	rows := make([]storage.ProbeReport, 0, len(items))
 	for _, it := range items {
 		row := storage.ProbeReport{
-			NodeID:     uint(nodeID),
-			TargetKind: it.TargetKind,
-			TargetHost: it.TargetHost,
-			Direction:  it.Direction,
-			RttMs:      it.RttMs,
-			JitterMs:   it.JitterMs,
-			LossPct:    it.LossPct,
-			ErrClass:   it.ErrClass,
-			Reachable:  it.Reachable,
-			Blocked:    it.Blocked,
-			Verdict:    it.Verdict,
-			Region:     it.Region,
-			ISP:        it.ISP,
-			ProbedAt:   it.ProbedAt,
+			NodeID:         uint(nodeID),
+			TargetKind:     it.TargetKind,
+			TargetHost:     it.TargetHost,
+			Direction:      it.Direction,
+			RttMs:          it.RttMs,
+			JitterMs:       it.JitterMs,
+			LossPct:        it.LossPct,
+			ConnectMs:      it.ConnectMs,
+			TLSMs:          it.TLSMs,
+			TTFBMs:         it.TTFBMs,
+			ThroughputKbps: it.ThroughputKbps,
+			ErrClass:       it.ErrClass,
+			Reachable:      it.Reachable,
+			Blocked:        it.Blocked,
+			Verdict:        it.Verdict,
+			Region:         it.Region,
+			ISP:            it.ISP,
+			ProbedAt:       it.ProbedAt,
 		}
 		switch {
 		case it.TargetNode > 0:

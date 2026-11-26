@@ -66,6 +66,10 @@ type ProbeSpec struct {
 	// to the 3s default. It bounds dial/TLS/handshake (TCP/HTTP) and the
 	// request-to-reply wait (UDP/HTTP).
 	TimeoutSec int `json:"timeout_sec,omitempty"`
+	// DownloadKB opts an http/https probe into a body download (F-0943):
+	// instead of HEAD the round issues GET and reads up to this many KB to
+	// measure sustained throughput. 0 (default) keeps the cheap HEAD probe.
+	DownloadKB int `json:"download_kb,omitempty"`
 }
 
 // RelaySpec holds the runtime parameters of the relay data plane (E-5): listen locally, then dial the landing through the transport plugin.
@@ -277,6 +281,9 @@ func ValidateProbeSpecs(probes []ProbeSpec) error {
 			}
 			if p.TimeoutSec != 0 && (p.TimeoutSec < 1 || p.TimeoutSec > 60) {
 				return errors.New("probes[].timeout_sec must be 1-60")
+			}
+			if p.DownloadKB != 0 && (p.DownloadKB < 1 || p.DownloadKB > 10240) {
+				return errors.New("probes[].download_kb must be 1-10240")
 			}
 		case "udp":
 			if p.PayloadHex == "" {

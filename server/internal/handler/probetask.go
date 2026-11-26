@@ -80,6 +80,9 @@ func validateProbeTasks(in probeTaskInput) (agentproto.ProbeTask, error) {
 			if s.TimeoutSec != 0 && (s.TimeoutSec < 1 || s.TimeoutSec > 60) {
 				return agentproto.ProbeTask{}, fmt.Errorf("specs[%d].timeout_sec must be 1-60", i)
 			}
+			if s.DownloadKB != 0 && (s.DownloadKB < 1 || s.DownloadKB > 10240) {
+				return agentproto.ProbeTask{}, fmt.Errorf("specs[%d].download_kb must be 1-10240", i)
+			}
 		case "udp":
 			if s.PayloadHex == "" {
 				return agentproto.ProbeTask{}, fmt.Errorf("specs[%d].payload_hex is required for udp probes", i)

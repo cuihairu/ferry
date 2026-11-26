@@ -307,6 +307,8 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.POST("/nodes/:id/config", h.pushConfig)
 		api.PUT("/nodes/:id/probe_tasks", h.setProbeTasks)
 		api.POST("/probe-tasks/sync-from-paths", h.syncProbeTasksFromPaths)
+		// Per-business quality rollups (F-0949): region+ISP and hour-of-day.
+		api.GET("/quality-report", h.qualityReport)
 		api.POST("/nodes/:id/proc", h.nodeProcOp)
 		api.POST("/nodes/:id/upgrade", h.nodeUpgrade)
 		api.GET("/nodes/:id/upgrades", h.listNodeUpgrades)

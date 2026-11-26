@@ -320,23 +320,29 @@ type AllocExclusion struct {
 // ProbeReport stores one edge probe conclusion: probing runs locally on the node,
 // and the panel only receives the conclusion for aggregate judgment and historical backtracking.
 type ProbeReport struct {
-	ID           uint      `gorm:"primaryKey" json:"id"`
-	NodeID       uint      `gorm:"index;not null" json:"node_id"`                                         // the prober (entry agent)
-	TargetKind   string    `gorm:"size:16;not null;index:idx_probe_window,priority:1" json:"target_kind"` // tunnel/exit/peer
-	TargetNodeID *uint     `gorm:"index:idx_probe_window,priority:2" json:"target_node_id"`
-	TargetHost   string    `gorm:"size:255" json:"target_host"`
-	Direction    string    `gorm:"size:8;not null;default:out" json:"direction"`
-	RttMs        int       `gorm:"default:0" json:"rtt_ms"`
-	JitterMs     int       `gorm:"default:0" json:"jitter_ms"` // RTT jitter across one probe's rounds (F-0907)
-	LossPct      int       `gorm:"default:0" json:"loss_pct"`  // 0-100
-	ErrClass     string    `gorm:"size:16" json:"err_class"`   // why the failed rounds failed (F-0913)
-	Reachable    bool      `gorm:"default:false" json:"reachable"`
-	Blocked      bool      `gorm:"default:false" json:"blocked"`
-	Verdict      string    `gorm:"size:16;not null" json:"verdict"`           // healthy/sick
-	Region       string    `gorm:"size:64;not null;default:未知" json:"region"` // target region snapshot
-	ISP          string    `gorm:"size:32;not null;default:未知" json:"isp"`    // target ISP snapshot
-	ProbedAt     time.Time `gorm:"not null;index:idx_probe_window,priority:3" json:"probed_at"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID           uint   `gorm:"primaryKey" json:"id"`
+	NodeID       uint   `gorm:"index;not null" json:"node_id"`                                         // the prober (entry agent)
+	TargetKind   string `gorm:"size:16;not null;index:idx_probe_window,priority:1" json:"target_kind"` // tunnel/exit/peer
+	TargetNodeID *uint  `gorm:"index:idx_probe_window,priority:2" json:"target_node_id"`
+	TargetHost   string `gorm:"size:255" json:"target_host"`
+	Direction    string `gorm:"size:8;not null;default:out" json:"direction"`
+	RttMs        int    `gorm:"default:0" json:"rtt_ms"`
+	JitterMs     int    `gorm:"default:0" json:"jitter_ms"` // RTT jitter across one probe's rounds (F-0907)
+	LossPct      int    `gorm:"default:0" json:"loss_pct"`  // 0-100
+	// Web-session phases (F-0942/F-0943), mean of the probe's successful
+	// rounds; zero when the probe was not HTTP(S) or made no download.
+	ConnectMs      int       `gorm:"default:0" json:"connect_ms"`
+	TLSMs          int       `gorm:"default:0" json:"tls_ms"`
+	TTFBMs         int       `gorm:"default:0" json:"ttfb_ms"`
+	ThroughputKbps int       `gorm:"default:0" json:"throughput_kbps"`
+	ErrClass       string    `gorm:"size:16" json:"err_class"` // why the failed rounds failed (F-0913)
+	Reachable      bool      `gorm:"default:false" json:"reachable"`
+	Blocked        bool      `gorm:"default:false" json:"blocked"`
+	Verdict        string    `gorm:"size:16;not null" json:"verdict"`           // healthy/sick
+	Region         string    `gorm:"size:64;not null;default:未知" json:"region"` // target region snapshot
+	ISP            string    `gorm:"size:32;not null;default:未知" json:"isp"`    // target ISP snapshot
+	ProbedAt       time.Time `gorm:"not null;index:idx_probe_window,priority:3" json:"probed_at"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // HealthOverride is a manual health-state override (F-0932/F-0933): while the

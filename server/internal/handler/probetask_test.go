@@ -125,6 +125,9 @@ func TestSetProbeTasksValidation(t *testing.T) {
 		{"expect_status out of range", []map[string]any{
 			{"name": "status", "target_kind": "exit", "target": "a:80", "proto": "http", "expect_status": 42, "interval_sec": 30},
 		}, "expect_status"},
+		{"download_kb out of range", []map[string]any{
+			{"name": "dl", "target_kind": "exit", "target": "a:80", "proto": "http", "download_kb": 99999, "interval_sec": 30},
+		}, "download_kb"},
 	}
 	for _, tc := range cases {
 		rec := doJSON(t, r, "PUT", "/api/nodes/1/probe_tasks", map[string]any{"specs": tc.specs})

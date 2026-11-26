@@ -299,7 +299,13 @@ type ProbeReport struct {
 	RttMs      int    `json:"rtt_ms,omitempty"`      // round-trip latency (ms)
 	JitterMs   int    `json:"jitter_ms,omitempty"`   // RTT jitter (ms, mean |Δ| across this probe's successful rounds; F-0907)
 	LossPct    int    `json:"loss_pct,omitempty"`    // loss percentage 0-100
-	Reachable  bool   `json:"reachable"`             // whether reachable
+	// Web-session phases (F-0942), mean of this probe's successful rounds;
+	// zero when the probe was not HTTP(S).
+	ConnectMs      int  `json:"connect_ms,omitempty"`      // TCP dial time (ms)
+	TLSMs          int  `json:"tls_ms,omitempty"`          // TLS handshake after connect (ms); 0 = plaintext
+	TTFBMs         int  `json:"ttfb_ms,omitempty"`         // request start to first response byte (ms)
+	ThroughputKbps int  `json:"throughput_kbps,omitempty"` // opt-in body download rate (F-0943)
+	Reachable      bool `json:"reachable"`                 // whether reachable
 	// ErrClass names why the failed rounds failed (F-0913): dns/timeout/
 	// refused/reset/tls/http_status/no_reply/mismatch/other; empty when any
 	// round succeeded (the probe has no failure story to tell).
@@ -325,17 +331,18 @@ type ProbeAck struct {
 // names match the agent's config.ProbeSpec so the agent decodes the dispatch
 // payload directly; the panel validates the same rules before sending.
 type ProbeTaskSpec struct {
-	Name         string `json:"name"`        // task name
-	TargetKind   string `json:"target_kind"` // tunnel/exit/peer
-	Target       string `json:"target"`      // target host:port
-	Direction    string `json:"direction,omitempty"` // out (default) / in
-	IntervalSec  int    `json:"interval_sec"`        // 5-3600
-	Proto        string `json:"proto,omitempty"`     // tcp (default) / udp / http / https
-	PayloadHex   string `json:"payload_hex,omitempty"` // udp-only request bytes (hex)
-	ExpectHex    string `json:"expect_hex,omitempty"`  // udp-only expected reply prefix (hex)
-	HTTPPath     string `json:"http_path,omitempty"`   // http/https request path; empty = "/"
+	Name         string `json:"name"`                    // task name
+	TargetKind   string `json:"target_kind"`             // tunnel/exit/peer
+	Target       string `json:"target"`                  // target host:port
+	Direction    string `json:"direction,omitempty"`     // out (default) / in
+	IntervalSec  int    `json:"interval_sec"`            // 5-3600
+	Proto        string `json:"proto,omitempty"`         // tcp (default) / udp / http / https
+	PayloadHex   string `json:"payload_hex,omitempty"`   // udp-only request bytes (hex)
+	ExpectHex    string `json:"expect_hex,omitempty"`    // udp-only expected reply prefix (hex)
+	HTTPPath     string `json:"http_path,omitempty"`     // http/https request path; empty = "/"
 	ExpectStatus int    `json:"expect_status,omitempty"` // http/https required status; 0 = any
 	TimeoutSec   int    `json:"timeout_sec,omitempty"`   // per-round timeout; 0 = agent default
+	DownloadKB   int    `json:"download_kb,omitempty"`   // opt-in body download for throughput (F-0943)
 }
 
 // ProbeTask is the panel's dispatched probe task set (F-0921). Specs is the
