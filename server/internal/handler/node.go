@@ -15,11 +15,41 @@ import (
 	"gorm.io/gorm"
 )
 
+// listNodes returns the node list, narrowed by optional filters (F-1007~F-1010):
+// capability, region, isp, asn and line_type. The four string filters are exact
+// matches pushed into SQL; capability is evaluated in memory because the static
+// list falls back to the role-derived set when no list is stored and the
+// dynamic state may mark it off.
 func (h *Handler) listNodes(c *gin.Context) {
+	q := h.db.Model(&storage.Node{})
+	for _, f := range []struct{ query, column string }{
+		{"region", "region"},
+		{"isp", "isp"},
+		{"asn", "asn"},
+		{"line_type", "line_type"},
+	} {
+		if v := strings.TrimSpace(c.Query(f.query)); v != "" {
+			q = q.Where(f.column+" = ?", v)
+		}
+	}
+	capability := strings.TrimSpace(c.Query("capability"))
+	if capability != "" && !storage.KnownCapabilities[capability] {
+		fail(c, http.StatusBadRequest, errors.New("unknown capability"))
+		return
+	}
 	out := []storage.Node{}
-	if err := h.db.Order("id").Find(&out).Error; err != nil {
+	if err := q.Order("id").Find(&out).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
+	}
+	if capability != "" {
+		kept := out[:0]
+		for _, n := range out {
+			if storage.HasCapability(n, capability) {
+				kept = append(kept, n)
+			}
+		}
+		out = kept
 	}
 	c.JSON(http.StatusOK, out)
 }
