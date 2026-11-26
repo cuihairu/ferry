@@ -1,15 +1,16 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
-  get, put, getEvening, getQuotaLink, putQuotaLink, getSaveStats,
+  get, put, getEvening, getQuotaLink, putQuotaLink, getSaveStats, getBillRecords,
   checkCostRef, probeCostRef, saveCostRefTable, ApiError,
   listPriceWatches, createPriceWatch, updatePriceWatch, deletePriceWatch,
   type EveningReport, type GroupCost, type NodeCost,
   type QuotaLinkData, type QuotaLinkSetting, type QuotaActionRow,
   type SaveStatsReport, type RefCheckReport, type RefProbe, type PriceWatch,
+  type CostRecordRow,
 } from '../api'
-import { formatBytes } from '../utils/format'
+import { formatBytes, formatDate } from '../utils/format'
 
 // E-23: cost dashboard — node traffic cost (only metered billing has marginal cost), region/ISP summaries,
 // monthly projection (converted from the calendar month to date) and the high-cost alert threshold; nodes past
@@ -66,6 +67,7 @@ async function load() {
 onMounted(load)
 onMounted(() => loadRefCheck())
 onMounted(loadWatches)
+onMounted(() => loadBills())
 
 async function saveThreshold() {
   saving.value = true
@@ -269,6 +271,41 @@ async function removeWatch(row: PriceWatch) {
     ElMessage.error(String(e))
   }
 }
+// §4.7 F-0622: actual vendor bills for the picked month. The records here are
+// the imported vendor truth (marked 实际), kept visually apart from the
+// estimates above; sums never merge currencies (F-0594).
+const billMonth = ref(new Date())
+const bills = ref<CostRecordRow[]>([])
+const billsLoading = ref(false)
+
+async function loadBills() {
+  billsLoading.value = true
+  try {
+    const d = billMonth.value
+    const from = new Date(d.getFullYear(), d.getMonth(), 1).toISOString()
+    const to = new Date(d.getFullYear(), d.getMonth() + 1, 1).toISOString()
+    const data = await getBillRecords({ from, to })
+    bills.value = data.records
+  } catch (e) {
+    ElMessage.error(String(e))
+  } finally {
+    billsLoading.value = false
+  }
+}
+
+const billTotals = computed(() => {
+  const byCur = new Map<string, number>()
+  for (const r of bills.value) byCur.set(r.currency, (byCur.get(r.currency) ?? 0) + r.amount_cents)
+  return [...byCur.entries()].sort(([a], [b]) => a.localeCompare(b))
+})
+
+function centsText(cents: number, currency: string): string {
+  return `${(cents / 100).toFixed(2)} ${currency}`
+}
+
+function billLabel(row: CostRecordRow): string {
+  return row.revision ? `${row.bill_id}（修订 ${row.revision}）` : row.bill_id
+}
 </script>
 
 <template>
@@ -363,6 +400,37 @@ async function removeWatch(row: PriceWatch) {
         </el-table>
       </div>
     </div>
+
+    <h3 class="section">本月实际账单（实际）</h3>
+    <p class="page-desc">
+      云厂商导入的真实账单记录（标记「实际」，与上方估算值口径不同）；金额按账单原币种展示，不跨币种合并。
+    </p>
+    <div class="toolbar">
+      <el-date-picker v-model="billMonth" type="month" :clearable="false" placeholder="账单月份" style="width: 130px" @change="loadBills" />
+      <el-button @click="loadBills" :loading="billsLoading">刷新账单</el-button>
+      <span v-if="billTotals.length" class="threshold">
+        本月实际合计：
+        <strong v-for="(t, i) in billTotals" :key="t[0]">{{ i > 0 ? '　·　' : '' }}{{ centsText(t[1], t[0]) }}</strong>
+      </span>
+      <span class="threshold">{{ bills.length }} 笔</span>
+    </div>
+    <el-table :data="bills" v-loading="billsLoading" :header-cell-style="{ background: 'var(--ferry-bg-panel)' }">
+      <el-table-column label="账单号" min-width="150">
+        <template #default="{ row }">{{ billLabel(row) }}</template>
+      </el-table-column>
+      <el-table-column prop="source" label="来源" width="90" />
+      <el-table-column prop="account" label="账号" min-width="120" />
+      <el-table-column prop="region" label="区域" width="90" />
+      <el-table-column label="金额（实际）" width="130">
+        <template #default="{ row }">{{ centsText(row.amount_cents, row.currency) }}</template>
+      </el-table-column>
+      <el-table-column label="税额" width="120">
+        <template #default="{ row }">{{ row.tax_cents > 0 ? centsText(row.tax_cents, row.currency) : '—' }}</template>
+      </el-table-column>
+      <el-table-column label="发生时间" width="140">
+        <template #default="{ row }">{{ formatDate(row.incurred_at) }}</template>
+      </el-table-column>
+    </el-table>
 
     <h3 class="section">流量节省（近 30 天）</h3>
     <p class="page-desc">

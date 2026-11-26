@@ -1497,3 +1497,130 @@ export function getDistOrders(limit = 50): Promise<{ orders: DistOrderRow[] }> {
 export function getDistLedger(limit = 100): Promise<{ ledger: DistributorLedger[]; balance_cents: number }> {
   return get(`/distributor/api/ledger?limit=${limit}`)
 }
+
+// ---- Cost dashboard aggregation (§4.7): actual bills, spend rankings, trends, path estimates ----
+
+export interface SpendRow {
+  key: string
+  target_id?: number
+  name?: string
+  currency: string
+  actual_cents: number
+  allocated_cents: number
+  estimate_cents: number
+  report_cents: number
+  count: number
+}
+
+export interface SpendTrendBucket {
+  bucket: string
+  currency: string
+  actual_cents: number
+  allocated_cents: number
+  estimate_cents: number
+  report_cents: number
+  count: number
+}
+
+export interface CostRecordRow {
+  id: number
+  cost_provider_id: number
+  source: string
+  bill_id: string
+  revision: string
+  account: string
+  region: string
+  currency: string
+  amount_cents: number
+  pre_tax_cents: number
+  tax_cents: number
+  incurred_at: string
+  period_start: string
+  period_end: string
+  imported_at: string
+}
+
+export interface BillItemRow {
+  id: number
+  cost_record_id: number
+  resource_id: string
+  product: string
+  quantity: string
+  currency: string
+  cost_cents: number
+  usage_start: string | null
+  usage_end: string | null
+}
+
+export interface CostEstimateRow {
+  id: number
+  path_id: number
+  period_start: string
+  period_end: string
+  estimated_cents: number
+  currency: string
+  created_at: string
+}
+
+export interface PathCostLeg {
+  role: string
+  node_id: number
+  name: string
+  billing_type: string
+  unit: string
+  cents_per_gb: number
+  monthly_cents: number
+  known: boolean
+  fresh: boolean
+  as_at: string
+  source: string
+  unknown: boolean
+}
+
+export interface PathCostRow {
+  path_id: number
+  name: string
+  direction: string
+  currency: string
+  total_cents: number
+  precise: boolean
+  marginal_per_gb_cents: number
+  explain: PathCostLeg[]
+}
+
+/** spendByScope returns per-currency actual/allocated/estimate sums for a scope. */
+export function spendByScope(scope: string, from?: string, to?: string): Promise<{ scope: string; rows: SpendRow[] }> {
+  const params = new URLSearchParams({ scope })
+  if (from) params.set('from', from)
+  if (to) params.set('to', to)
+  return get(`/api/cost/spend?${params}`)
+}
+
+/** spendTrend returns actual spend buckets by day/month/billing cycle. */
+export function spendTrend(bucket: string, from?: string, to?: string): Promise<{ bucket: string; rows: SpendTrendBucket[] }> {
+  const params = new URLSearchParams({ bucket })
+  if (from) params.set('from', from)
+  if (to) params.set('to', to)
+  return get(`/api/cost/spend/trend?${params}`)
+}
+
+/** getBillRecords lists imported vendor bills, filterable by date/source/account/region. */
+export function getBillRecords(filters: Record<string, string> = {}): Promise<{ records: CostRecordRow[] }> {
+  const qs = new URLSearchParams(filters).toString()
+  return get(`/api/cost/records${qs ? `?${qs}` : ''}`)
+}
+
+/** getBillItems lists the line items of one vendor bill. */
+export function getBillItems(id: number): Promise<{ items: BillItemRow[] }> {
+  return get(`/api/cost/records/${id}/items`)
+}
+
+/** getCostEstimates lists stored estimates. */
+export function getCostEstimates(): Promise<{ estimates: CostEstimateRow[] }> {
+  return get('/api/cost/estimates')
+}
+
+/** getPathCosts lists explainable per-path cost estimates; unknown/stale prices drop precise. */
+export function getPathCosts(from: string): Promise<{ rows: PathCostRow[] }> {
+  return get(`/api/cost/path-estimates?from=${encodeURIComponent(from)}`)
+}
