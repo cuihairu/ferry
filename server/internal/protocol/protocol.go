@@ -225,31 +225,35 @@ func ParseExtra(raw string) (map[string]any, error) {
 	return m, nil
 }
 
+// fieldValue reads one declared field's value from the render input: the core
+// config fields by name, everything else from Extra (ok=false when absent).
+func fieldValue(rc *RenderCtx, name string) (any, bool) {
+	switch name {
+	case "uuid":
+		return rc.Config.UUID, true
+	case "password":
+		return rc.Config.Password, true
+	case "method":
+		return rc.Config.Method, true
+	case "tls":
+		return rc.Config.TLS, true
+	case "sni":
+		return rc.Config.SNI, true
+	}
+	if rc.Extra == nil {
+		return nil, false
+	}
+	v, ok := rc.Extra[name]
+	return v, ok
+}
+
 // fieldMissing decides the "missing" state of a required field: an empty string,
 // a false bool and a zero int all count as missing (a required bool/int is only
 // declared when the protocol genuinely needs a non-zero default, e.g. shadowtls version).
 func fieldMissing(rc *RenderCtx, f Field) bool {
-	var val any
-	switch f.Name {
-	case "uuid":
-		val = rc.Config.UUID
-	case "password":
-		val = rc.Config.Password
-	case "method":
-		val = rc.Config.Method
-	case "tls":
-		val = rc.Config.TLS
-	case "sni":
-		val = rc.Config.SNI
-	default:
-		if rc.Extra == nil {
-			return true
-		}
-		v, ok := rc.Extra[f.Name]
-		if !ok {
-			return true
-		}
-		val = v
+	val, ok := fieldValue(rc, f.Name)
+	if !ok {
+		return true
 	}
 	switch v := val.(type) {
 	case string:
@@ -294,10 +298,15 @@ func fieldGroup(p *Protocol, rc *RenderCtx, fields []Field) error {
 	return fmt.Errorf("%s requires %s", p.Name, strings.Join(names, " and "))
 }
 
-// Validate runs the required-field validation uniformly from the field
-// declarations (intercepted before any render hook is called, shared by the
-// four formats): fields not declared Required are not validated; Required
-// fields with the same Group are merged into one joint validation.
+// Validate runs the field validation uniformly from the field declarations
+// (intercepted before any render hook is called, shared by the four formats):
+// fields not declared Required are not required-validated; Required fields
+// with the same Group are merged into one joint validation; and a declared
+// enum field carries its value check (F-1130) -- a value outside the enum is
+// a clear error naming field and value, on every adapter family alike, so no
+// renderer silently passes an unexpressible field through (clash previously
+// emitted a bare network for any net). An empty value stays the default/absent
+// semantics and is not enum-checked.
 func Validate(p *Protocol, rc *RenderCtx) error {
 	groups := map[string][]Field{}
 	var order []string
@@ -314,6 +323,30 @@ func Validate(p *Protocol, rc *RenderCtx) error {
 	for _, g := range order {
 		if err := fieldGroup(p, rc, groups[g]); err != nil {
 			return err
+		}
+	}
+	for _, f := range p.Fields {
+		if f.Kind != KindEnum || len(f.Enum) == 0 {
+			continue
+		}
+		v, ok := fieldValue(rc, f.Name)
+		if !ok {
+			continue
+		}
+		s, ok := v.(string)
+		if !ok || s == "" {
+			continue
+		}
+		allowed := false
+		for _, e := range f.Enum {
+			if s == e {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return fmt.Errorf("%s requires config.%s to be one of %s, got %q",
+				p.Name, f.Name, strings.Join(f.Enum, "/"), s)
 		}
 	}
 	return nil
