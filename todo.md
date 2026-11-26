@@ -1818,8 +1818,10 @@ External Client
     - 待补（F-1243 | 部分：at-most-once 去重（agentws_dedupe）+离线即丢（traffic.go:219-226）防帧重传重复计；无入口/落地双端防重守卫或测试。）
 -   [x] `F-1244` 统一流量单位。
     - 备注（Task ID: F-1244 | Status: Done | Evidence: 全链路统一字节 int64：rx_bytes/tx_bytes（models.go:138-139/266-267）+proto Rx/Tx uint64（messages.go:202-203）+agentws.go:335-340 直拷；GB 仅计价/展示 | Verification: traffic_test.go:55-58 原值透传+TestAgentWSTrafficReport（agentws_test.go:477） | Commit: ad8f965）
--   [ ] `F-1245` 统一上行和下行定义。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1245 | 部分：agent 口径 downlink=Rx=用户收/uplink=Tx=用户发（xraystats.go:33-34）；客户端 Subscription-Userinfo 映射 upload=Rx/download=Tx（sub.go:114,180）——与 agent 口径上下行相反。）
+-   [x] `F-1245` 统一上行和下行定义。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 证据（F-1245 | 已落地：Subscription-Userinfo 改为统一口径 upload=Tx/download=Rx（sub.go userinfoHeader），与 agentproto.UserTraffic 约定（Rx=xray downlink=用户收，Tx=xray uplink=用户发）一致，注释钉死口径出处。
+    - 验证：TestSubscription 断言 upload=2/download=1（种子行 RxBytes=1/TxBytes=2）；全量 51 ok / FAIL=0 / exit=0。
+    - Commit: e7aa3a6
 -   [x] `F-1246` 支持用户维度统计。
     - 备注（Task ID: F-1246 | Status: Done | Evidence: agentws.go:291 saveUserTraffic→traffic_logs；TestAgentWSUserTraffic | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1247` 支持 Node 维度统计。
