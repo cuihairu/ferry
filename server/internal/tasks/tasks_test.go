@@ -281,3 +281,22 @@ func TestQuotaAndAlerts(t *testing.T) {
 	}
 	_ = b
 }
+
+// TestSubSecondTimeoutRoundsUp guards the enqueue-time timeout mapping: a
+// sub-second definition timeout must round up to 1s, never truncate to 0
+// (which silently inherits the 300s default and neuters the attempt deadline).
+func TestSubSecondTimeoutRoundsUp(t *testing.T) {
+	db := testDB(t)
+	m := NewManager(db, nil)
+	m.Register("quick", Definition{
+		Timeout: 400 * time.Millisecond,
+		Run:     func(ctx context.Context, t *storage.Task) error { return nil },
+	})
+	row, err := m.Enqueue("quick", 1, "", "")
+	if err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+	if row.TimeoutSeconds != 1 {
+		t.Fatalf("timeout_seconds = %d, want 1", row.TimeoutSeconds)
+	}
+}

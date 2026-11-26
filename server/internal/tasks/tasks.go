@@ -172,7 +172,13 @@ func (m *Manager) Enqueue(kind string, refID uint, idempotencyKey, actor string)
 	if max <= 0 {
 		max = DefaultMaxAttempts
 	}
-	timeout := int(def.Timeout / time.Second)
+	// The column carries whole seconds; a sub-second definition timeout rounds
+	// up to 1s instead of truncating to 0 (which would silently fall back to
+	// the 300s default and neuter the attempt deadline).
+	timeout := int((def.Timeout + time.Second - 1) / time.Second)
+	if def.Timeout > 0 && timeout < 1 {
+		timeout = 1
+	}
 	if timeout <= 0 {
 		timeout = int(DefaultTimeout / time.Second)
 	}
@@ -313,6 +319,18 @@ func (m *Manager) runOne(parent context.Context, t storage.Task) {
 	m.cancelMu.Lock()
 	m.cancels[t.ID] = cancel
 	m.cancelMu.Unlock()
+	// A cancel that arrived between the claim and this registration (the row
+	// was already running from Cancel's view, but no ctx existed yet) must not
+	// fall through to Run: honour it here, before any work happens.
+	if m.cancelAsked(t.ID) {
+		m.db.Model(&storage.Task{}).Where("id = ?", t.ID).Updates(map[string]any{
+			"status": StatusCancelled,
+			"stage":  "cancelled",
+			"error":  "cancelled",
+		})
+		m.appendLog(&t, fmt.Sprintf("attempt=%d cancelled before start", t.Attempts))
+		return
+	}
 	defer func() {
 		cancel()
 		m.cancelMu.Lock()
