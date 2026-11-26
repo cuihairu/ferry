@@ -582,8 +582,8 @@
     - 备注（Task ID: F-0101 | Status: Done | Evidence: 套餐实体补齐——storage.Plan 模型（名称唯一+启停+quota/reset_cycle/expires_days/上下行带宽/设备·IP 上限，字段口径与 User 限值面一致）入 AutoMigrate；handler/plans.go 管理 CRUD（复用 validateUserBw/validateSubLimit/resetCycleOrDefault 校验，更新走 merged 回填语义：未传字段保旧值）+ POST /api/plans/:id/apply 批量套用到用户（逐行部分失败结果 {user_id,ok,error}，expires_days>0 时 ExpiresAt=now+N 天，停用套餐拒绝套用）；路由挂 admin api 组（入审计中间件）；用户/订阅/设备管理既有 | Verification: TestPlanCRUD/TestPlanApplyUsers；go test ./... 全绿+gofmt/vet clean | Commit: 4ba025d）
 -   [x] `F-0102` 管理节点注册、认证、元数据和状态。
     - 备注（Task ID: F-0102 | Status: Done | Evidence: enroll.go+agentws 认证+models.go:64；TestEnrollExchange/TestAgentWSHelloMeta | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0103` 管理云资源与物理节点的关联关系。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0103 | 未满足原因：云资源与节点关联缺失：无 CloudResource 模型、无 Node.CloudResourceID 字段；provision 建实例但从不回写资源 ID 到节点行——留待补。）
+-   [x] `F-0103` 管理云资源与物理节点的关联关系。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0103 | Status: Done | Evidence: 管理关系已落地：CloudResource.NodeID *uint 唯一索引绑定（多资源可解绑、双资源不可抢同一 Node，F-0353~F-0355）+ POST /api/cloud-resources/:id/bind|unbind + 列表过滤，Dash 云资源页（f920a33/7f78101）展示与节点联动；TestCloudResourceAPI/TestCloudResourceAPIValidation | Verification: go test 全绿 2026-11-26（server 全套无 FAIL） | Commit: 7ffa727）
 -   [x] `F-0104` 管理 Entry、Landing 和 Relay 节点。
     - 备注（Task ID: F-0104 | Status: Done | Evidence: roles 三角色+LandingAssignment models.go:165+relay；TestRegistry/TestLandingAssignment | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0105` 管理 Tunnel、Path 和 Path Group。（依赖：无；完成条件：需求落地+测试绿+证据行）
@@ -689,8 +689,8 @@ External Client
     - 完成（F-0206 | 四态分立并文档化于 models.go Node 注释：disabled=Enabled(false)；maintenance=Maintenance(bool) 计划窗口，退出调度但保留探测，pool 告警静默；offline=Status(agent 连接性)；unhealthy=PoolState(suspended) 探测摘除。维护态排除出 alloc Sweep/sub 订阅/standby 候选，健康判定与恢复照常。 | Verification: TestNodeStateSeparation/TestMaintenanceTracksHealthQuietly/TestSweepSkipsMaintenance | Commit: 0859ea7）
 -   [x] `F-0207` 为 Node 关联 Region、ISP、ASN 和 Provider 信息。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 完成（F-0207 | Region/ISP 既有；新增 Node.ASN(size:32) 与 Node.ProviderID(*uint,index) 指向 Provider 行；NodeInput.asn/provider_id 合并语义（nil 保持/0 清空/>0 校验存在），create/update/注册元数据接管三路径打通。 | Verification: TestNodeProviderASN | Commit: 16c6e3f）
--   [ ] `F-0208` 为 Node 关联可选的云资源 ID。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0208 | 未满足原因：CloudResource/CloudResourceID 全仓 0 命中，Node 无可选云资源 ID 字段。）
+-   [x] `F-0208` 为 Node 关联可选的云资源 ID。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0208 | Status: Done | Evidence: Node 侧可选云资源 ID 经反向绑定表达——CloudResource.NodeID *uint（nil=未绑，解绑保留行与历史 F-0351），Node 行本身不改列避免历史破坏；bind/unbind API 即关联管理入口；TestCloudResourceAPI 绑定腿 | Verification: go test 全绿 2026-11-26（server 全套无 FAIL） | Commit: 7ffa727）
 -   [x] `F-0209` 记录 Agent 版本和协议版本。
     - 备注（Task ID: F-0209 | Status: Done | Evidence: models.go:100 AgentVersion+Envelope.V；TestAgentWSHelloVersion | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0210` 记录期望配置版本和实际应用版本。
