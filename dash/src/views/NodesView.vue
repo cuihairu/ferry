@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { get, post, put, del, resolveAlert, upgradeNode, getNodeProcs, getNodeStatus, getNodeConfigs, getProbeReports, rotateNodeToken, revokeNodeToken, getPaths, getPathGroups, getPathGroupHealth, type Node, type DimensionStatus, type NodeShare, type BatchProcResult, type BatchConfigResult, type Alert, type NodeLoad, type NodeProcRow, type NodeStatusAggregate, type NodeConfigRow, type ProbeReportRow, type Path, type PathGroup, type PathGroupHealth } from '../api'
+import { get, post, put, del, resolveAlert, upgradeNode, getNodeProcs, getNodeStatus, getNodeConfigs, getNodeUpgrades, getProbeReports, rotateNodeToken, revokeNodeToken, getPaths, getPathGroups, getPathGroupHealth, type Node, type DimensionStatus, type NodeShare, type BatchProcResult, type BatchConfigResult, type Alert, type NodeLoad, type NodeProcRow, type NodeStatusAggregate, type NodeConfigRow, type NodeUpgradeRow, type ProbeReportRow, type Path, type PathGroup, type PathGroupHealth } from '../api'
 import QRCode from 'qrcode'
 import RuleLibDialog from '../components/RuleLibDialog.vue'
 
@@ -725,6 +725,18 @@ const upgradeBusy = ref(false)
 const upgradeFor = ref<Node | null>(null)
 const upgradeForm = reactive({ version: '', url: '', sha256: '' })
 const upgradeMsg = ref('')
+// Upgrade task history (F-1486): GET /nodes/:id/upgrades rows, polled lightly while the dialog is open
+// so downloading→applying→applied/failed transitions show up without a manual refresh.
+const upgradeHistory = ref<NodeUpgradeRow[]>([])
+let upgradeTimer: number | null = null
+const UPGRADE_STATE_TYPE: Record<string, string> = { applied: 'success', failed: 'danger', downloading: 'warning', applying: 'warning' }
+
+function loadUpgradeHistory() {
+  if (!upgradeFor.value) return
+  getNodeUpgrades(upgradeFor.value.id)
+    .then((rows) => (upgradeHistory.value = rows))
+    .catch(() => undefined)
+}
 
 function openUpgrade(n: Node) {
   upgradeFor.value = n
@@ -733,6 +745,15 @@ function openUpgrade(n: Node) {
   upgradeForm.sha256 = ''
   upgradeMsg.value = ''
   upgradeVisible.value = true
+  loadUpgradeHistory()
+  if (upgradeTimer === null) upgradeTimer = window.setInterval(loadUpgradeHistory, 3000)
+}
+
+function onUpgradeClosed() {
+  if (upgradeTimer !== null) {
+    window.clearInterval(upgradeTimer)
+    upgradeTimer = null
+  }
 }
 
 async function sendUpgrade() {
@@ -751,6 +772,7 @@ async function sendUpgrade() {
     })
     upgradeMsg.value = `已受理：agent 将升级到 ${res.version}（当前 ${res.current_version || '未知'}），完成后版本列自动刷新`
     ElMessage.success('升级指令已受理')
+    loadUpgradeHistory()
   } catch (e) {
     ElMessage.error(String(e))
   } finally {
@@ -1194,7 +1216,7 @@ async function remove(n: Node) {
     </el-dialog>
 
     <!-- Self-upgrade (A-23): send the upgrade instruction -->
-    <el-dialog v-model="upgradeVisible" :title="`升级 ${upgradeFor?.name ?? ''}`" width="480px">
+    <el-dialog v-model="upgradeVisible" :title="`升级 ${upgradeFor?.name ?? ''}`" width="600px" @closed="onUpgradeClosed">
       <el-form label-width="90px">
         <el-form-item label="目标版本">
           <el-input v-model="upgradeForm.version" maxlength="32" placeholder="如 v0.2.0" />
@@ -1208,6 +1230,31 @@ async function remove(n: Node) {
       </el-form>
       <p v-if="upgradeMsg" class="upgrade-msg">{{ upgradeMsg }}</p>
       <span class="form-hint">agent 下载校验后替换自身并重启；启动验证超时自动回滚。</span>
+      <div class="detail-paths-head">升级任务记录（{{ upgradeHistory.length }}）</div>
+      <el-table :data="upgradeHistory" size="small" empty-text="暂无升级记录" max-height="240">
+        <el-table-column label="任务" min-width="110">
+          <template #default="{ row }">
+            <span class="version-text" :title="row.upgrade_id">{{ (row.upgrade_id || '—').slice(0, 12) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="version" label="目标版本" width="100" />
+        <el-table-column label="状态" width="110">
+          <template #default="{ row }">
+            <el-tag size="small" :type="(UPGRADE_STATE_TYPE[row.state] ?? 'info') as 'success' | 'danger' | 'warning' | 'info'" disable-transitions>{{ row.state }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="时间" min-width="140">
+          <template #default="{ row }">{{ new Date(row.created_at).toLocaleString() }}</template>
+        </el-table-column>
+        <el-table-column label="错误" min-width="70">
+          <template #default="{ row }">
+            <el-tooltip v-if="row.error" :content="row.error" placement="top" :show-after="200">
+              <span class="provision-note">ⓘ</span>
+            </el-tooltip>
+            <span v-else>—</span>
+          </template>
+        </el-table-column>
+      </el-table>
       <template #footer>
         <el-button @click="upgradeVisible = false">取消</el-button>
         <el-button type="primary" :loading="upgradeBusy" @click="sendUpgrade">下发</el-button>

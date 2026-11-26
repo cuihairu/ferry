@@ -1907,6 +1907,22 @@ export function getNodeConfigs(id: number): Promise<NodeConfigRow[]> {
   return get(`/api/nodes/${id}/configs`)
 }
 
+/** NodeUpgradeRow is one agent self-upgrade progress record (F-0712): state walks downloading→applying→applied/failed. */
+export interface NodeUpgradeRow {
+  id: number
+  node_id: number
+  upgrade_id: string
+  version: string
+  state: string
+  error?: string
+  created_at: string
+}
+
+/** getNodeUpgrades reads one node's self-upgrade task history (GET /api/nodes/:id/upgrades, newest first). */
+export function getNodeUpgrades(id: number): Promise<NodeUpgradeRow[]> {
+  return get<{ upgrades: NodeUpgradeRow[] }>(`/api/nodes/${id}/upgrades`).then((r) => r.upgrades)
+}
+
 /** PathGroupMemberRow is one ordered candidate entry of a path group (position drives fallback order, excluded keeps the row but rules it out). */
 export interface PathGroupMemberRow {
   id: number
