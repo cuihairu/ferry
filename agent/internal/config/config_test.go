@@ -142,6 +142,21 @@ func TestProbeSpecValidation(t *testing.T) {
 		{"probe interval high", func(c *Config) {
 			c.Probes = []ProbeSpec{{Name: "p", Target: "a:1", IntervalSec: 3601}}
 		}},
+		{"probe bad proto", func(c *Config) {
+			c.Probes = []ProbeSpec{{Name: "p", Target: "a:1", Proto: "icmp"}}
+		}},
+		{"probe udp without payload", func(c *Config) {
+			c.Probes = []ProbeSpec{{Name: "p", Target: "a:1", Proto: "udp"}}
+		}},
+		{"probe udp bad payload hex", func(c *Config) {
+			c.Probes = []ProbeSpec{{Name: "p", Target: "a:1", Proto: "udp", PayloadHex: "zz"}}
+		}},
+		{"probe udp bad expect hex", func(c *Config) {
+			c.Probes = []ProbeSpec{{Name: "p", Target: "a:1", Proto: "udp", PayloadHex: "aa", ExpectHex: "q"}}
+		}},
+		{"probe tcp with payload", func(c *Config) {
+			c.Probes = []ProbeSpec{{Name: "p", Target: "a:1", PayloadHex: "aa"}}
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

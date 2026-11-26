@@ -2,6 +2,7 @@
 package config
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,6 +43,17 @@ type ProbeSpec struct {
 	Target      string `json:"target"`      // target host:port
 	Direction   string `json:"direction"`   // out/in, default out
 	IntervalSec int    `json:"interval_sec"`
+	// Proto selects the probe transport (F-0910): tcp (default) or udp. A UDP
+	// probe sends payload_hex and counts a round as success only when a reply
+	// arrives; UDP is connectionless, so without a reply there is no evidence
+	// of reachability at all.
+	Proto string `json:"proto,omitempty"` // tcp (default) / udp
+	// PayloadHex is the hex-encoded request bytes sent on each UDP round
+	// (required for udp, rejected for tcp).
+	PayloadHex string `json:"payload_hex,omitempty"`
+	// ExpectHex is the hex-encoded expected response prefix; empty = any
+	// reply counts as success. Only valid with udp.
+	ExpectHex string `json:"expect_hex,omitempty"`
 }
 
 // RelaySpec holds the runtime parameters of the relay data plane (E-5): listen locally, then dial the landing through the transport plugin.
@@ -231,6 +243,26 @@ func (c Config) Validate() error {
 		}
 		if p.IntervalSec < 5 || p.IntervalSec > 3600 {
 			return errors.New("probes[].interval_sec must be 5-3600")
+		}
+		switch p.Proto {
+		case "", "tcp":
+			if p.PayloadHex != "" || p.ExpectHex != "" {
+				return errors.New("probes[].payload_hex/expect_hex are udp-only")
+			}
+		case "udp":
+			if p.PayloadHex == "" {
+				return errors.New("probes[].payload_hex is required for udp probes")
+			}
+			if _, err := hex.DecodeString(p.PayloadHex); err != nil {
+				return fmt.Errorf("probes[].payload_hex: %w", err)
+			}
+			if p.ExpectHex != "" {
+				if _, err := hex.DecodeString(p.ExpectHex); err != nil {
+					return fmt.Errorf("probes[].expect_hex: %w", err)
+				}
+			}
+		default:
+			return errors.New("probes[].proto must be tcp/udp")
 		}
 	}
 	switch c.Meta.Role {

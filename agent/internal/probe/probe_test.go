@@ -155,7 +155,7 @@ func TestMeasureUnreachable(t *testing.T) {
 	addr := ln.Addr().String()
 	_ = ln.Close()
 
-	rtt, jitter, loss, reachable := measure(addr)
+	rtt, jitter, loss, reachable := measureTCP(addr)
 	if reachable || loss != 100 || rtt != 0 || jitter != 0 {
 		t.Fatalf("want unreachable loss=100, got rtt=%d jitter=%d loss=%d reachable=%v", rtt, jitter, loss, reachable)
 	}
@@ -180,6 +180,99 @@ func TestJitterOf(t *testing.T) {
 		if got := jitterOf(tc.samples); got != tc.want {
 			t.Fatalf("%s: jitterOf(%v) = %d, want %d", tc.name, tc.samples, got, tc.want)
 		}
+	}
+}
+
+// udpResponder starts a UDP echo server answering every datagram with prefix +
+// the payload. A nil prefix echoes the payload unchanged.
+func udpResponder(t *testing.T, prefix []byte, drop bool) net.Addr {
+	t.Helper()
+	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("udp listen: %v", err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	go func() {
+		buf := make([]byte, 2048)
+		for {
+			n, addr, err := conn.ReadFrom(buf)
+			if err != nil {
+				return
+			}
+			if drop {
+				continue
+			}
+			resp := append(append([]byte{}, prefix...), buf[:n]...)
+			if _, err := conn.WriteTo(resp, addr); err != nil {
+				return
+			}
+		}
+	}()
+	return conn.LocalAddr()
+}
+
+// TestMeasureUDPReply covers F-0910's reply rule: a responder that echoes the
+// expected prefix is reachable with loss 0.
+func TestMeasureUDPReply(t *testing.T) {
+	addr := udpResponder(t, []byte{0xde, 0xad}, false)
+	spec := config.ProbeSpec{
+		Name: "udp-echo", TargetKind: agentproto.ProbeTargetExit, Target: addr.String(),
+		Proto: "udp", PayloadHex: "0100", ExpectHex: "dead", IntervalSec: 5,
+	}
+	rtt, jitter, loss, reachable := measureUDP(spec)
+	if !reachable || loss != 0 || rtt < 0 {
+		t.Fatalf("want reachable loss=0, got rtt=%d jitter=%d loss=%d reachable=%v", rtt, jitter, loss, reachable)
+	}
+}
+
+// TestMeasureUDPMismatch covers F-0910's expect_hex rule: a reply that does
+// not carry the expected prefix is not evidence of reachability.
+func TestMeasureUDPMismatch(t *testing.T) {
+	addr := udpResponder(t, []byte{0x00}, false) // echoes a wrong prefix
+	spec := config.ProbeSpec{
+		Name: "udp-mismatch", TargetKind: agentproto.ProbeTargetExit, Target: addr.String(),
+		Proto: "udp", PayloadHex: "aa", ExpectHex: "ff", IntervalSec: 5,
+	}
+	_, _, loss, reachable := measureUDP(spec)
+	if reachable || loss != 100 {
+		t.Fatalf("want unreachable loss=100, got loss=%d reachable=%v", loss, reachable)
+	}
+}
+
+// TestMeasureUDPSilent covers the no-responder case: datagrams that vanish
+// without a reply mean unreachable (UDP cannot infer delivery any other way).
+func TestMeasureUDPSilent(t *testing.T) {
+	addr := udpResponder(t, nil, true)
+	spec := config.ProbeSpec{
+		Name: "udp-silent", TargetKind: agentproto.ProbeTargetExit, Target: addr.String(),
+		Proto: "udp", PayloadHex: "aa", IntervalSec: 5,
+	}
+	rtt, jitter, loss, reachable := measureUDP(spec)
+	if reachable || loss != 100 || rtt != 0 || jitter != 0 {
+		t.Fatalf("want unreachable loss=100, got rtt=%d jitter=%d loss=%d reachable=%v", rtt, jitter, loss, reachable)
+	}
+}
+
+// TestProbeUDPReport covers the runner end: a udp spec produces reports whose
+// verdict is healthy against a real responder.
+func TestProbeUDPReport(t *testing.T) {
+	addr := udpResponder(t, []byte{0xde}, false)
+	specs := []config.ProbeSpec{{
+		Name: "udp-run", TargetKind: agentproto.ProbeTargetExit, Target: addr.String(),
+		Proto: "udp", PayloadHex: "aa", ExpectHex: "de", IntervalSec: 5,
+	}}
+	r := New(specs, log.New(io.Discard, "", 0))
+	c := &collect{}
+	r.SetSend(c.send)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go r.Run(ctx)
+	defer cancel()
+
+	rs := waitReport(t, c)
+	got := rs[0]
+	if got.Verdict != agentproto.ProbeVerdictHealthy || !got.Reachable {
+		t.Fatalf("healthy expected: %+v", got)
 	}
 }
 

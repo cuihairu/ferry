@@ -5,7 +5,9 @@
 package probe
 
 import (
+	"bytes"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"net"
@@ -88,7 +90,7 @@ func (r *Runner) loop(ctx context.Context, spec config.ProbeSpec) {
 
 // probeOnce runs one multi-round probe and reports the conclusion; dropped silently when offline.
 func (r *Runner) probeOnce(spec config.ProbeSpec) {
-	rtt, jitter, loss, reachable := measure(spec.Target)
+	rtt, jitter, loss, reachable := r.measure(spec)
 	// region/ISP snapshots are filled in by the panel when it stores the target node.
 	report := agentproto.ProbeReport{
 		TargetKind: spec.TargetKind,
@@ -120,10 +122,20 @@ func (r *Runner) probeOnce(spec config.ProbeSpec) {
 	}
 }
 
-// measure dials the target probeRounds times over TCP: it returns the average successful RTT (ms),
-// the RTT jitter across this probe's successful rounds (F-0907), the packet loss rate 0-100 and
-// reachability (any successful round means reachable).
-func measure(target string) (rttMs, jitterMs, lossPct int, reachable bool) {
+// measure dispatches per spec: TCP connect probing (default) or UDP request/
+// reply probing (F-0910). It returns the average successful RTT (ms), the RTT
+// jitter across this probe's successful rounds (F-0907), the packet loss rate
+// 0-100 and reachability.
+func (r *Runner) measure(spec config.ProbeSpec) (rttMs, jitterMs, lossPct int, reachable bool) {
+	if spec.Proto == "udp" {
+		return measureUDP(spec)
+	}
+	return measureTCP(spec.Target)
+}
+
+// measureTCP dials the target probeRounds times over TCP: any successful
+// connect means reachable.
+func measureTCP(target string) (rttMs, jitterMs, lossPct int, reachable bool) {
 	var samples []int
 	for i := 0; i < probeRounds; i++ {
 		if i > 0 {
@@ -137,6 +149,54 @@ func measure(target string) (rttMs, jitterMs, lossPct int, reachable bool) {
 		_ = conn.Close()
 		samples = append(samples, int(time.Since(start).Milliseconds()))
 	}
+	return summarize(samples)
+}
+
+// measureUDP sends the spec's payload probeRounds times and waits for a reply
+// (F-0910): UDP is connectionless, so a round only counts when something
+// answers; with expect_hex set the reply must carry that byte prefix, which
+// is how e.g. a DNS baseline distinguishes a real responder from random
+// backscatter. RTT runs write -> first matching read.
+func measureUDP(spec config.ProbeSpec) (rttMs, jitterMs, lossPct int, reachable bool) {
+	payload, err := hex.DecodeString(spec.PayloadHex)
+	if err != nil {
+		return 0, 0, 100, false // validated at config load; unreachable beats lying
+	}
+	expect, _ := hex.DecodeString(spec.ExpectHex)
+
+	var samples []int
+	for i := 0; i < probeRounds; i++ {
+		if i > 0 {
+			time.Sleep(roundSpacing)
+		}
+		conn, err := net.DialTimeout("udp", spec.Target, dialTimeout)
+		if err != nil {
+			continue
+		}
+		_ = conn.SetDeadline(time.Now().Add(dialTimeout))
+		start := time.Now()
+		if _, err := conn.Write(payload); err != nil {
+			_ = conn.Close()
+			continue
+		}
+		buf := make([]byte, 2048)
+		n, err := conn.Read(buf)
+		_ = conn.Close()
+		if err != nil || n == 0 {
+			continue
+		}
+		if len(expect) > 0 && !bytes.HasPrefix(buf[:n], expect) {
+			continue
+		}
+		samples = append(samples, int(time.Since(start).Milliseconds()))
+	}
+	return summarize(samples)
+}
+
+// summarize turns the successful round samples into the report tuple: average
+// RTT, jitter across consecutive samples (F-0907), loss percentage and
+// reachability (any successful round means reachable).
+func summarize(samples []int) (rttMs, jitterMs, lossPct int, reachable bool) {
 	if len(samples) == 0 {
 		return 0, 0, 100, false
 	}
