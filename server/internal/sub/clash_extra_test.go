@@ -33,3 +33,26 @@ func TestClashEntryOfValidationErrors(t *testing.T) {
 		})
 	}
 }
+
+// TestPackClashUdpDeclaration covers the unified UDP support declaration
+// (F-1106): a node with UdpOpen emits udp: true in the clash YAML, an
+// undeclared node stays without the key (byte-identical to before).
+func TestPackClashUdpDeclaration(t *testing.T) {
+	entries := []Entry{
+		{Node: storage.Node{Name: "udp-on", Address: "u1.example.com", Port: 443,
+			Protocol: "trojan", Config: `{"password":"pw"}`, UdpOpen: true}},
+		{Node: storage.Node{Name: "udp-off", Address: "u2.example.com", Port: 443,
+			Protocol: "trojan", Config: `{"password":"pw"}`}},
+	}
+	out, err := PackClash(entries, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "udp: true") {
+		t.Fatalf("declared node must emit udp: true:\n%s", out)
+	}
+	off := out[:strings.Index(out, "name: udp-on")]
+	if strings.Contains(off, "udp:") {
+		t.Fatalf("undeclared node must stay silent:\n%s", off)
+	}
+}

@@ -214,8 +214,13 @@ type Node struct {
 	// SchedPriority is the scheduling priority tier (F-1029): lower value =
 	// higher priority, 0 = standard. The sweep prefers the best tier that has
 	// an allocatable candidate; the policy comparator decides within a tier.
-	SchedPriority            int        `gorm:"default:0" json:"sched_priority"`
-	Transport                string     `gorm:"size:16;default:tls" json:"transport"`   // tls/quic/ws-tls/ssh
+	SchedPriority int    `gorm:"default:0" json:"sched_priority"`
+	Transport     string `gorm:"size:16;default:tls" json:"transport"` // tls/quic/ws-tls/ssh
+	// UdpOpen is the node's unified UDP support declaration (F-1106): one
+	// panel-set field every renderer that can express it reads (clash emits
+	// udp: true); formats without a UDP concept (v2ray link, sing-box
+	// outbound) simply stay silent.
+	UdpOpen                  bool       `gorm:"default:false" json:"udp_open"`
 	BillingType              string     `gorm:"size:16;default:包月" json:"billing_type"` // traffic/monthly/fixed bandwidth
 	TrafficPriceCents        int64      `gorm:"default:0" json:"traffic_price_cents"`   // per-traffic unit price (cents/GB)
 	MonthlyCostCents         int64      `gorm:"default:0" json:"monthly_cost_cents"`    // fixed monthly cost (cents/month)

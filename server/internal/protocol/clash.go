@@ -44,6 +44,11 @@ type ClashProxy struct {
 	// set only by the mihomo subscription target (G1), so the plain clash YAML
 	// stays byte-identical (golden-gated).
 	PacketEncoding string `yaml:"packet-encoding,omitempty"`
+
+	// Udp carries the node's unified UDP support declaration (F-1106) read
+	// from Node.UdpOpen; omitempty keeps undeclared nodes byte-identical to
+	// the pre-declaration output (golden-gated).
+	Udp bool `yaml:"udp,omitempty"`
 }
 
 // ClashWSOpts is the expanded struct for the ws transport layer.
@@ -72,7 +77,7 @@ func applyClashTransport(p *ClashProxy, cfg NodeConfig) {
 // write + the transport layer); the protocol hooks add type and their
 // protocol-specific fields.
 func baseClashProxy(rc *RenderCtx) ClashProxy {
-	p := ClashProxy{Name: rc.Node.Name, Server: rc.Node.Address, Port: rc.Node.Port}
+	p := ClashProxy{Name: rc.Node.Name, Server: rc.Node.Address, Port: rc.Node.Port, Udp: rc.Node.UdpOpen}
 	if rc.Config.SNI != "" {
 		p.ServerName = rc.Config.SNI
 		p.SNI = rc.Config.SNI

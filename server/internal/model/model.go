@@ -78,6 +78,9 @@ type NodeInput struct {
 	// CapacityOverrideMbps is the admin capacity override (F-1070): it leads
 	// the capacity chain ahead of measurements; 0 = no override.
 	CapacityOverrideMbps *int `json:"capacity_override_mbps,omitempty"`
+	// UdpOpen is the unified UDP support declaration (F-1106): nil keeps the
+	// current value; renderers that can express it emit it (clash udp:).
+	UdpOpen *bool `json:"udp_open,omitempty"`
 	// PlanID binds the node to one subscription plan (F-1047): 0 = serves
 	// every plan. nil keeps the current value.
 	PlanID *uint `json:"plan_id,omitempty"`

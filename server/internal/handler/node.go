@@ -140,6 +140,10 @@ func newPersistedNode(db *gorm.DB, in *model.NodeInput) (*storage.Node, error) {
 	if in.CapacityOverrideMbps != nil {
 		n.CapacityOverrideMbps = *in.CapacityOverrideMbps
 	}
+	// udp declaration (F-1106): panel-set, agent registration reports ignore it.
+	if in.UdpOpen != nil {
+		n.UdpOpen = *in.UdpOpen
+	}
 	if in.TrafficPriceCents != nil {
 		n.TrafficPriceCents = *in.TrafficPriceCents
 	}
@@ -270,6 +274,11 @@ func (h *Handler) updateNode(c *gin.Context) {
 	// Capacity override (F-1070): panel-set; 0 clears it back to measured.
 	if in.CapacityOverrideMbps != nil {
 		updates["capacity_override_mbps"] = *in.CapacityOverrideMbps
+		metaProvided = true
+	}
+	// UDP declaration (F-1106): panel-set; an explicit false clears it.
+	if in.UdpOpen != nil {
+		updates["udp_open"] = *in.UdpOpen
 		metaProvided = true
 	}
 	if metaProvided {

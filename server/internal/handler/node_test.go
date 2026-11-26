@@ -544,3 +544,52 @@ func TestNodeCapacityOverride(t *testing.T) {
 		t.Fatalf("explicit 0 clear failed: %+v", row)
 	}
 }
+
+// TestNodeUdpOpen covers the unified UDP support declaration's panel surface
+// (F-1106): create sets it, an absent field keeps it, an explicit false
+// clears it back to undeclared.
+func TestNodeUdpOpen(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
+		"name": "udp-1", "address": "udp1.example.com", "port": 443,
+		"protocol": "vless", "udp_open": true,
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s", rec.Code, rec.Body)
+	}
+	var created storage.Node
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if !created.UdpOpen {
+		t.Fatal("created udp_open must be true")
+	}
+
+	// an absent field keeps the declaration
+	if rec = doJSON(t, r, "PUT", "/api/nodes/"+utoa(created.ID), map[string]any{
+		"line_type": "cn2_gia",
+	}); rec.Code != http.StatusOK {
+		t.Fatalf("keep status = %d %s", rec.Code, rec.Body)
+	}
+	var row storage.Node
+	if err := db.First(&row, created.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !row.UdpOpen {
+		t.Fatal("absent udp_open must keep true")
+	}
+
+	// an explicit false clears the declaration
+	if rec = doJSON(t, r, "PUT", "/api/nodes/"+utoa(created.ID), map[string]any{
+		"udp_open": false,
+	}); rec.Code != http.StatusOK {
+		t.Fatalf("clear status = %d %s", rec.Code, rec.Body)
+	}
+	if err := db.First(&row, created.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if row.UdpOpen {
+		t.Fatal("explicit false must clear udp_open")
+	}
+}
