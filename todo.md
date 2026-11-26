@@ -2050,14 +2050,14 @@ External Client
 
 ## 12.5 配置、任务与审计
 
--   [ ] `F-1481` 提供配置版本列表。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1481 | 未满足：/api/nodes/:id/configs（router.go:206）有路由无 UI。）
--   [ ] `F-1482` 提供配置差异查看。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1482 | 未满足：无配置差异查看。）
--   [ ] `F-1483` 提供配置下发状态。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1483 | 部分：批量配置逐节点 applied/failed（NodesView.vue:406-443）；无任务列表。）
--   [ ] `F-1484` 提供配置失败和回滚记录。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1484 | 未满足：仅提示文案「失败自动回滚」（NodesView.vue:844）；无失败/回滚记录。）
+-   [x] `F-1481` 提供配置版本列表。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1481 | Status: Done | Evidence: 原「有路由无 UI」结论已过时——GET /api/nodes/:id/configs（router.go:320，listNodeConfigs 新到旧 limit 1-200 默认 50）之上补 UI：节点详情弹窗「配置下发历史」表（proc/kind/version（sha256 内容哈希，slice(0,12) 悬浮全值）/状态/时间/错误） | Verification: statusquery_test/procop_test/config_err_test 随全量绿；dash build 绿 | Commit: 3a261c8）
+-   [x] `F-1482` 提供配置差异查看。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1482 | Status: Done | Evidence: 配置下发历史表每行「对比上一版」（同 proc 的上一版本，缺失则禁用）：客户端 LCS 逐行 diff（4M 格哨兵，超限降级整块替换，零新端点——list 响应本就含 payload），弹窗给 旧版本→新版本（哈希短值+状态 tag）+ ±行数统计 + 红删/绿加/灰上下文三色行 | Verification: dash build 绿（vue-tsc 含类型检查） | Commit: a87edb0）
+-   [x] `F-1483` 提供配置下发状态。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1483 | Status: Done | Evidence: 原「部分/无任务列表」结论已过时——NodeConfig.Status pending/applied/failed（A-18 状态机，ack 经 agenthub → pusher.Finish 落账，E-16b 同链路）在「配置下发历史」表以状态 tag 逐条展示（3a261c8）；批量配置逐节点结果沿用 NodesView 批量面板 | Verification: agentws_test/procop_test 断言 configs 记录与状态绿；dash build 绿 | Commit: 3a261c8）
+-   [x] `F-1484` 提供配置失败和回滚记录。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1484 | Status: Done | Evidence: 原「仅提示文案、无记录」结论已过时——下发历史行级记录：failed 状态红 tag + Error 字段 ⓘ 悬浮原文 + Reverted「已回滚」黄 tag + Validated「已验证」绿 tag（3a261c8）；失败/回滚由 pusher.Finish 落账，config_err_test.go 覆盖错误路径 | Verification: config_err_test 绿；dash build 绿 | Commit: 3a261c8）
 -   [ ] `F-1485` 提供批量运维任务列表。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1485 | 部分：批量 proc/config 即时逐节点结果（NodesView.vue:614-622/:358-443）；无任务队列视图。）
 -   [ ] `F-1486` 提供 Agent 升级任务列表。（依赖：无；完成条件：需求落地+测试绿+证据行）
