@@ -5,6 +5,9 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -273,6 +276,80 @@ func TestProbeUDPReport(t *testing.T) {
 	got := rs[0]
 	if got.Verdict != agentproto.ProbeVerdictHealthy || !got.Reachable {
 		t.Fatalf("healthy expected: %+v", got)
+	}
+}
+
+// TestMeasureHTTPHealthy covers F-0911: an HTTP service that answers HEAD is
+// reachable at the application layer (beyond a bare TCP connect).
+func TestMeasureHTTPHealthy(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodHead {
+			t.Errorf("probe must use HEAD, got %s", r.Method)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	spec := config.ProbeSpec{
+		Name: "http-ok", TargetKind: agentproto.ProbeTargetExit,
+		Target: strings.TrimPrefix(srv.URL, "http://"), Proto: "http", IntervalSec: 5,
+	}
+	rtt, _, loss, reachable := measureHTTP(spec)
+	if !reachable || loss != 0 || rtt < 0 {
+		t.Fatalf("want reachable loss=0, got rtt=%d loss=%d reachable=%v", rtt, loss, reachable)
+	}
+}
+
+// TestMeasureHTTPExpectStatus covers expect_status: a 500 response with
+// expect_status 200 is not success, and a redirect without expect_status
+// counts as answered (surfaced, never followed).
+func TestMeasureHTTPExpectStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/redir" {
+			http.Redirect(w, r, "/elsewhere", http.StatusFound)
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	host := strings.TrimPrefix(srv.URL, "http://")
+
+	bad := config.ProbeSpec{Name: "http-500", TargetKind: agentproto.ProbeTargetExit,
+		Target: host, Proto: "http", ExpectStatus: 200, IntervalSec: 5}
+	if _, _, loss, reachable := measureHTTP(bad); reachable || loss != 100 {
+		t.Fatalf("500 with expect 200 must fail, got loss=%d reachable=%v", loss, reachable)
+	}
+
+	// Without expect_status any real response (302 included) counts.
+	redir := config.ProbeSpec{Name: "http-redir", TargetKind: agentproto.ProbeTargetExit,
+		Target: host, Proto: "http", HTTPPath: "/redir", IntervalSec: 5}
+	if _, _, loss, reachable := measureHTTP(redir); !reachable || loss != 0 {
+		t.Fatalf("302 without expect must count, got loss=%d reachable=%v", loss, reachable)
+	}
+
+	// The redirect must not have been followed into an infinite loop: the
+	// follow-up path /elsewhere never existed, so a followed probe would
+	// 404/fail instead of succeeding.
+	ok := config.ProbeSpec{Name: "http-302ok", TargetKind: agentproto.ProbeTargetExit,
+		Target: host, Proto: "http", HTTPPath: "/redir", ExpectStatus: 302, IntervalSec: 5}
+	if _, _, loss, reachable := measureHTTP(ok); !reachable || loss != 0 {
+		t.Fatalf("exact 302 expect must pass, got loss=%d reachable=%v", loss, reachable)
+	}
+}
+
+// TestMeasureHTTPDeadService covers an unreachable application layer: TCP may
+// even connect but no HTTP answer means loss 100 (here: closed port).
+func TestMeasureHTTPDeadService(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := ln.Addr().String()
+	_ = ln.Close()
+	spec := config.ProbeSpec{Name: "http-dead", TargetKind: agentproto.ProbeTargetExit,
+		Target: addr, Proto: "http", IntervalSec: 5}
+	_, _, loss, reachable := measureHTTP(spec)
+	if reachable || loss != 100 {
+		t.Fatalf("want unreachable loss=100, got loss=%d reachable=%v", loss, reachable)
 	}
 }
 

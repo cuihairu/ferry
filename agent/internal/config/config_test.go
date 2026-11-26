@@ -157,6 +157,15 @@ func TestProbeSpecValidation(t *testing.T) {
 		{"probe tcp with payload", func(c *Config) {
 			c.Probes = []ProbeSpec{{Name: "p", Target: "a:1", PayloadHex: "aa"}}
 		}},
+		{"probe http bad path", func(c *Config) {
+			c.Probes = []ProbeSpec{{Name: "p", Target: "a:1", Proto: "http", HTTPPath: "no-slash"}}
+		}},
+		{"probe http bad status", func(c *Config) {
+			c.Probes = []ProbeSpec{{Name: "p", Target: "a:1", Proto: "https", ExpectStatus: 42}}
+		}},
+		{"probe http with payload", func(c *Config) {
+			c.Probes = []ProbeSpec{{Name: "p", Target: "a:1", Proto: "http", PayloadHex: "aa"}}
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

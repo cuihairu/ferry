@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cuihairu/ferry/packages/agentproto"
@@ -43,17 +44,24 @@ type ProbeSpec struct {
 	Target      string `json:"target"`      // target host:port
 	Direction   string `json:"direction"`   // out/in, default out
 	IntervalSec int    `json:"interval_sec"`
-	// Proto selects the probe transport (F-0910): tcp (default) or udp. A UDP
-	// probe sends payload_hex and counts a round as success only when a reply
-	// arrives; UDP is connectionless, so without a reply there is no evidence
-	// of reachability at all.
-	Proto string `json:"proto,omitempty"` // tcp (default) / udp
+	// Proto selects the probe transport (F-0910/F-0911): tcp (default), udp,
+	// http or https. A UDP probe sends payload_hex and counts a round as
+	// success only when a reply arrives; UDP is connectionless, so without a
+	// reply there is no evidence of reachability at all. http/https probes
+	// prove the service itself answers (application layer), not just that the
+	// port is open.
+	Proto string `json:"proto,omitempty"` // tcp (default) / udp / http / https
 	// PayloadHex is the hex-encoded request bytes sent on each UDP round
-	// (required for udp, rejected for tcp).
+	// (required for udp, rejected otherwise).
 	PayloadHex string `json:"payload_hex,omitempty"`
 	// ExpectHex is the hex-encoded expected response prefix; empty = any
 	// reply counts as success. Only valid with udp.
 	ExpectHex string `json:"expect_hex,omitempty"`
+	// HTTPPath is the request path for http/https probes (F-0911); empty = "/".
+	HTTPPath string `json:"http_path,omitempty"`
+	// ExpectStatus requires an http/https response to carry exactly this
+	// status code to count as success (F-0911); 0 = any response counts.
+	ExpectStatus int `json:"expect_status,omitempty"`
 }
 
 // RelaySpec holds the runtime parameters of the relay data plane (E-5): listen locally, then dial the landing through the transport plugin.
@@ -245,9 +253,15 @@ func (c Config) Validate() error {
 			return errors.New("probes[].interval_sec must be 5-3600")
 		}
 		switch p.Proto {
-		case "", "tcp":
+		case "", "tcp", "http", "https":
 			if p.PayloadHex != "" || p.ExpectHex != "" {
 				return errors.New("probes[].payload_hex/expect_hex are udp-only")
+			}
+			if p.HTTPPath != "" && !strings.HasPrefix(p.HTTPPath, "/") {
+				return errors.New("probes[].http_path must start with /")
+			}
+			if p.ExpectStatus != 0 && (p.ExpectStatus < 100 || p.ExpectStatus > 599) {
+				return errors.New("probes[].expect_status must be 100-599")
 			}
 		case "udp":
 			if p.PayloadHex == "" {
@@ -262,7 +276,7 @@ func (c Config) Validate() error {
 				}
 			}
 		default:
-			return errors.New("probes[].proto must be tcp/udp")
+			return errors.New("probes[].proto must be tcp/udp/http/https")
 		}
 	}
 	switch c.Meta.Role {

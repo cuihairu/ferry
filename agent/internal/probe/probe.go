@@ -9,8 +9,10 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log"
 	"net"
+	"net/http"
 	"sync"
 	"time"
 
@@ -122,13 +124,16 @@ func (r *Runner) probeOnce(spec config.ProbeSpec) {
 	}
 }
 
-// measure dispatches per spec: TCP connect probing (default) or UDP request/
-// reply probing (F-0910). It returns the average successful RTT (ms), the RTT
-// jitter across this probe's successful rounds (F-0907), the packet loss rate
-// 0-100 and reachability.
+// measure dispatches per spec: TCP connect probing (default), UDP request/
+// reply probing (F-0910), or HTTP(S) application-layer probing (F-0911). It
+// returns the average successful RTT (ms), the RTT jitter across this probe's
+// successful rounds (F-0907), the packet loss rate 0-100 and reachability.
 func (r *Runner) measure(spec config.ProbeSpec) (rttMs, jitterMs, lossPct int, reachable bool) {
-	if spec.Proto == "udp" {
+	switch spec.Proto {
+	case "udp":
 		return measureUDP(spec)
+	case "http", "https":
+		return measureHTTP(spec)
 	}
 	return measureTCP(spec.Target)
 }
@@ -205,6 +210,50 @@ func summarize(samples []int) (rttMs, jitterMs, lossPct int, reachable bool) {
 		sum += s
 	}
 	return sum / len(samples), jitterOf(samples), (probeRounds - len(samples)) * 100 / probeRounds, true
+}
+
+// measureHTTP issues a HEAD request per round (F-0911): a round succeeds when
+// the service answers with an HTTP response -- redirects count as answered,
+// they are not followed -- and with expect_status set, only that exact status
+// counts. RTT runs request start to response headers.
+func measureHTTP(spec config.ProbeSpec) (rttMs, jitterMs, lossPct int, reachable bool) {
+	path := spec.HTTPPath
+	if path == "" {
+		path = "/"
+	}
+	// HEAD, not GET: the question is "does the application answer", not "how
+	// fast can it serve bodies"; redirects are surfaced, never followed.
+	client := &http.Client{
+		Timeout: dialTimeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	var samples []int
+	for i := 0; i < probeRounds; i++ {
+		if i > 0 {
+			time.Sleep(roundSpacing)
+		}
+		req, err := http.NewRequest(http.MethodHead, "http://"+spec.Target+path, nil)
+		if err != nil {
+			continue
+		}
+		if spec.Proto == "https" {
+			req.URL.Scheme = "https"
+		}
+		start := time.Now()
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+		if spec.ExpectStatus > 0 && resp.StatusCode != spec.ExpectStatus {
+			continue
+		}
+		samples = append(samples, int(time.Since(start).Milliseconds()))
+	}
+	return summarize(samples)
 }
 
 // jitterOf is the mean absolute difference between consecutive successful round
