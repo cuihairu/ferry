@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/cuihairu/ferry/server/internal/cloudprov"
 	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/recovery"
 	"github.com/cuihairu/ferry/server/internal/secret"
@@ -524,5 +525,155 @@ func TestTemplateCostEstimate(t *testing.T) {
 	rec = doJSON(t, r, "GET", "/api/provision-templates/"+itoa64(int(tpl2.ID))+"/cost-estimate?spec=100m-500g&currency=CNY", nil)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "monthly cost not set") {
 		t.Fatalf("no manual: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// failCaps overrides Capabilities to always fail: the vendor-failure
+// degradation path needs an adapter whose Capabilities errors, and
+// cloudprov.Fake's never does.
+type failCaps struct{ cloudprov.Adapter }
+
+func (failCaps) Capabilities(context.Context) (cloudprov.Capabilities, error) {
+	return cloudprov.Capabilities{}, cloudprov.NewError(
+		cloudprov.ErrAuth, cloudprov.OpCapabilities, "", "fakecloud", "bad key")
+}
+
+// TestTemplateSpecValidation covers F-1654: the pre-apply spec checks — local
+// minimums (plan/region/renderable type), the validate endpoint's dry-run
+// report (provider/key/credential problems as errors), and the adapter region
+// check (out-of-account region refuses; vendor API failure degrades to a
+// warning; an in-region template passes).
+func TestTemplateSpecValidation(t *testing.T) {
+	r, db, tplID := provisionFixture(t)
+
+	// A valid fixture template passes the dry run.
+	rec := doJSON(t, r, "POST", "/api/provision-templates/"+itoa64(int(tplID))+"/validate", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("validate: %d %s", rec.Code, rec.Body)
+	}
+	var out struct {
+		Ok       bool     `json:"ok"`
+		Errors   []string `json:"errors"`
+		Warnings []string `json:"warnings"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !out.Ok || len(out.Errors) != 0 {
+		t.Fatalf("fixture template must validate clean: %+v", out)
+	}
+
+	// Missing plan/region: validate names both; apply refuses with 400.
+	bad := storage.ProvisionTemplate{Name: "bare", ProviderID: 1, Config: `{}`}
+	if err := db.Create(&bad).Error; err != nil {
+		t.Fatal(err)
+	}
+	rec = doJSON(t, r, "POST", "/api/provision-templates/"+itoa64(int(bad.ID))+"/validate", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("validate bare: %d %s", rec.Code, rec.Body)
+	}
+	out = struct {
+		Ok       bool     `json:"ok"`
+		Errors   []string `json:"errors"`
+		Warnings []string `json:"warnings"`
+	}{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Ok || len(out.Errors) < 2 {
+		t.Fatalf("bare template must report plan+region: %+v", out)
+	}
+	if rec = doJSON(t, r, "POST", "/api/provision-templates/"+itoa64(int(bad.ID))+"/apply", nil); rec.Code != http.StatusBadRequest ||
+		!strings.Contains(rec.Body.String(), "spec invalid") {
+		t.Fatalf("bare apply: %d %s", rec.Code, rec.Body)
+	}
+
+	// Unsupported provider type can never render: an error, not a warning.
+	doge := storage.Provider{Name: "doge", Type: "dogecoin", Enabled: true}
+	sealedDoge, err := secret.NewStore("test-master-key").Encrypt("sk-live")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doge.AccessKey = sealedDoge
+	if err := db.Create(&doge).Error; err != nil {
+		t.Fatal(err)
+	}
+	tp := storage.ProvisionTemplate{Name: "d1", ProviderID: doge.ID, Plan: "p", Region: "hkg", Config: `{}`}
+	if err := db.Create(&tp).Error; err != nil {
+		t.Fatal(err)
+	}
+	rec = doJSON(t, r, "POST", "/api/provision-templates/"+itoa64(int(tp.ID))+"/validate", nil)
+	if !strings.Contains(rec.Body.String(), "not supported") {
+		t.Fatalf("unsupported type: %d %s", rec.Code, rec.Body)
+	}
+
+	// Adapter-backed region check: the fake only knows fra1/nyc1. The factory
+	// registers under "vultr" (the renderable type) so the whole chain runs;
+	// the cleanup restores the registry for the other tests (they assert the
+	// no-adapter branch for vultr).
+	fk := cloudprov.NewFake()
+	// cur swaps between the plain fake and a Capabilities-failing wrapper for
+	// the vendor-failure sub-test (Fake.Capabilities itself never fails).
+	var cur cloudprov.Adapter = fk
+	cloudprov.Register("vultr", func(cloudprov.Account) (cloudprov.Adapter, error) {
+		return cur, nil
+	})
+	t.Cleanup(func() { cloudprov.Unregister("vultr") })
+	fprov := storage.Provider{Name: "fake", Type: "vultr", Enabled: true}
+	if err := db.Create(&fprov).Error; err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := secret.NewStore("test-master-key").Encrypt("sk-live")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fprov.AccessKey = sealed
+	if err := db.Save(&fprov).Error; err != nil {
+		t.Fatal(err)
+	}
+	ft := storage.ProvisionTemplate{Name: "f1", ProviderID: fprov.ID, Plan: "p",
+		Region: "hkg", Config: `{}`}
+	if err := db.Create(&ft).Error; err != nil {
+		t.Fatal(err)
+	}
+	// Out-of-account region: a hard error; apply refuses too.
+	rec = doJSON(t, r, "POST", "/api/provision-templates/"+itoa64(int(ft.ID))+"/validate", nil)
+	if !strings.Contains(rec.Body.String(), "not in provider") {
+		t.Fatalf("region check: %d %s", rec.Code, rec.Body)
+	}
+	if rec = doJSON(t, r, "POST", "/api/provision-templates/"+itoa64(int(ft.ID))+"/apply", nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("out-region apply: %d %s", rec.Code, rec.Body)
+	}
+	// In-region: clean.
+	ft.Region = "fra1"
+	if err := db.Save(&ft).Error; err != nil {
+		t.Fatal(err)
+	}
+	rec = doJSON(t, r, "POST", "/api/provision-templates/"+itoa64(int(ft.ID))+"/validate", nil)
+	out = struct {
+		Ok       bool     `json:"ok"`
+		Errors   []string `json:"errors"`
+		Warnings []string `json:"warnings"`
+	}{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !out.Ok || len(out.Errors) != 0 || len(out.Warnings) != 0 {
+		t.Fatalf("in-region must be clean: %+v", out)
+	}
+
+	// Vendor API failure degrades to a warning, not a block.
+	cur = failCaps{fk}
+	rec = doJSON(t, r, "POST", "/api/provision-templates/"+itoa64(int(ft.ID))+"/validate", nil)
+	out = struct {
+		Ok       bool     `json:"ok"`
+		Errors   []string `json:"errors"`
+		Warnings []string `json:"warnings"`
+	}{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !out.Ok || len(out.Warnings) == 0 {
+		t.Fatalf("vendor failure must warn without blocking: %+v", out)
 	}
 }

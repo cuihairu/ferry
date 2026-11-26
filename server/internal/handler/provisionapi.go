@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cuihairu/ferry/packages/costref"
+	"github.com/cuihairu/ferry/server/internal/cloudprov"
 	"github.com/cuihairu/ferry/server/internal/cost"
 	"github.com/cuihairu/ferry/server/internal/provision"
 	"github.com/cuihairu/ferry/server/internal/recovery"
@@ -63,6 +66,12 @@ func (h *Handler) runProvision(c *gin.Context, action string) {
 	apiKey, err := provision.DecryptKey(prov, h.secrets)
 	if err != nil {
 		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	// F-1654: spec validation before any execution — an apply/plan that cannot
+	// render or place is refused here, never sent to tofu.
+	if errs, _ := h.specCheck(c.Request.Context(), tpl, prov, apiKey); len(errs) > 0 {
+		fail(c, http.StatusBadRequest, errors.New("template spec invalid: "+strings.Join(errs, "; ")))
 		return
 	}
 	var in provisionRunInput
@@ -128,6 +137,82 @@ func (h *Handler) runProvision(c *gin.Context, action string) {
 
 func (h *Handler) applyTemplate(c *gin.Context) { h.runProvision(c, "apply") }
 func (h *Handler) planTemplate(c *gin.Context)  { h.runProvision(c, "plan") }
+
+// specCheck validates a template's placement spec before any execution
+// (F-1654): the local minimums a tofu run cannot survive without (plan, region,
+// a renderable provider type) plus, when a cloudprov adapter is registered for
+// the type, the region against the account-visible list. Vendor API failures
+// degrade to warnings — apply is not blocked on a flaky vendor control plane,
+// the tofu run surfaces vendor errors itself.
+func (h *Handler) specCheck(ctx context.Context, tpl storage.ProvisionTemplate, prov storage.Provider, apiKey string) (errs, warns []string) {
+	if strings.TrimSpace(tpl.Plan) == "" {
+		errs = append(errs, "plan is required")
+	}
+	if strings.TrimSpace(tpl.Region) == "" {
+		errs = append(errs, "region is required")
+	}
+	// RenderHCL is the renderability oracle: an unsupported provider type can
+	// never produce HCL, so the template is dead weight until the type lands.
+	if _, err := provision.RenderHCL(prov.Type, tpl, "spec-check", ""); err != nil {
+		errs = append(errs, err.Error())
+	}
+	factory := cloudprov.Lookup(prov.Type)
+	if factory == nil {
+		return errs, warns
+	}
+	a, err := factory(cloudprov.Account{
+		ProviderID: prov.ID, Name: prov.Name, Type: prov.Type,
+		AccessKey: apiKey, Region: prov.Region,
+	})
+	if err != nil {
+		warns = append(warns, "adapter build failed: "+err.Error())
+		return errs, warns
+	}
+	caps, err := cloudprov.NewClient(a, cloudprov.Defaults).Capabilities(ctx)
+	if err != nil {
+		warns = append(warns, "region check unavailable (vendor API): "+err.Error())
+		return errs, warns
+	}
+	if len(caps.Regions) > 0 && !slices.Contains(caps.Regions, tpl.Region) {
+		errs = append(errs, fmt.Sprintf("region %q not in provider %s account regions %v",
+			tpl.Region, prov.Name, caps.Regions))
+	}
+	return errs, warns
+}
+
+// validateSpec serves POST /api/provision-templates/:id/validate (F-1654): a
+// dry run of the apply chain's checks — template/provider/master key/credential
+// plus specCheck — without touching instances. Always 200 with ok/errors/
+// warnings so the panel can render the report; only an unknown template is 404.
+func (h *Handler) validateSpec(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		fail(c, http.StatusNotFound, errors.New("template not found"))
+		return
+	}
+	var tpl storage.ProvisionTemplate
+	if err := h.db.First(&tpl, id).Error; err != nil {
+		fail(c, http.StatusNotFound, errors.New("template not found"))
+		return
+	}
+	var errs, warns []string
+	var prov storage.Provider
+	if err := h.db.First(&prov, tpl.ProviderID).Error; err != nil {
+		errs = append(errs, "template provider not found")
+	} else {
+		if !prov.Enabled {
+			errs = append(errs, "provider disabled")
+		}
+		if !h.secrets.Enabled() {
+			errs = append(errs, "secret master key not configured (set FERRY_SECRET_KEY)")
+		} else if apiKey, derr := provision.DecryptKey(prov, h.secrets); derr != nil {
+			errs = append(errs, "credential unreadable: "+derr.Error())
+		} else {
+			errs, warns = h.specCheck(c.Request.Context(), tpl, prov, apiKey)
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": len(errs) == 0, "errors": errs, "warnings": warns})
+}
 
 // templateCostEstimate serves GET /api/provision-templates/:id/cost-estimate
 // (F-1653): the reference-price lookup mapped from the template, so the operator
