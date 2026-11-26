@@ -36,8 +36,15 @@ type Options struct {
 	KeyFile    string        // mTLS client private key
 	MinBackoff time.Duration // initial reconnect backoff, default 1s
 	MaxBackoff time.Duration // maximum reconnect backoff, default 30s
-	Log        *log.Logger
+	// MaxFrameBytes caps each inbound WebSocket frame (F-0728), mirroring the panel's
+	// cap: a misbehaving or hijacked panel cannot exhaust agent memory with one frame.
+	// 0 keeps the default.
+	MaxFrameBytes int64
+	Log           *log.Logger
 }
+
+// DefaultMaxFrameBytes is the default per-frame byte cap for agent→panel and panel→agent alike.
+const DefaultMaxFrameBytes = 8 << 20
 
 // Client is a reconnectable outbound connection.
 type Client struct {
@@ -51,6 +58,9 @@ func New(opt Options) *Client {
 	}
 	if opt.MaxBackoff <= 0 {
 		opt.MaxBackoff = 30 * time.Second
+	}
+	if opt.MaxFrameBytes <= 0 {
+		opt.MaxFrameBytes = DefaultMaxFrameBytes
 	}
 	if opt.Log == nil {
 		opt.Log = log.New(os.Stderr, "link ", log.LstdFlags)
@@ -98,6 +108,9 @@ func (c *Client) connectOnce(ctx context.Context, h Handlers) error {
 		return err
 	}
 	defer conn.Close()
+	// Per-frame cap (F-0728): an oversized frame errors the read and drops the
+	// connection; the reconnect loop treats it like any other transport fault.
+	conn.SetReadLimit(c.opt.MaxFrameBytes)
 
 	send := newSender(conn)
 	connCtx, cancel := context.WithCancel(ctx)

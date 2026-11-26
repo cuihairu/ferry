@@ -6,7 +6,11 @@
 
 ## 1. 传输与信封
 
-- **传输**：WebSocket，端点 `/agent/ws`（面板侧入站单帧上限 8 MiB，超限断开）。
+- **传输**：WebSocket，端点 `/agent/ws`。**帧大小限制（F-0728）**：面板入站与 agent
+  入站均为单帧 8 MiB 上限（面板 `maxAgentFrameBytes` / agent `link.DefaultMaxFrameBytes`，
+  gorilla 默认不限，超限帧使读出错、连接断开进入重连）——被攻陷或失控的一端无法用
+  单帧耗尽对端内存；`/api` HTTP 请求体同样 8 MiB 上限（`http.MaxBytesReader`，超限
+  绑定失败返 400）。
 - **编码**：JSON。每帧一个 `Envelope`：`V`（协议版本，必须等于 `ProtocolVersion=1`）、
   `ID`（请求方生成，应答方原样回显，用于配对与幂等判重）、`Type`（消息类型）、`Payload`
   （按类型解码的载荷）。

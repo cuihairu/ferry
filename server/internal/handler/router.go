@@ -157,7 +157,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 	// middleware at all, leaving the admin endpoints exposed on the public net.
 	// AU-1: write operations go through auditMiddleware into audit_logs
 	// uniformly (GET skipped).
-	api := r.Group("/api", h.apiAuth(), h.auditMiddleware())
+	api := r.Group("/api", h.apiAuth(), h.bodyLimit(), h.auditMiddleware())
 	{
 		api.GET("/nodes", h.listNodes)
 		api.POST("/nodes", h.createNode)
