@@ -2174,8 +2174,8 @@ External Client
     - 备注（Task ID: F-1642 | Status: Done | Evidence: recovery 动作集；TestActionNames+TestInstanceActionL3 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1643` 定义自动恢复最大执行次数。
     - 备注（Task ID: F-1643 | Status: Done | Evidence: Level 1-3 最大次数；TestTimeoutExhaustFails+TestLastLine | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1644` 定义自动恢复冷却时间。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1644 | 未满足：无恢复冷却时间（仅 SustainedAfter 预判窗 recovery.go:54）；全仓 cooldown 命中均无关；无测试。）
+-   [x] `F-1644` 定义自动恢复冷却时间。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1644 | Status: Done | Evidence: recovery.Options.Cooldown（默认 DefaultCooldown=1h，recovery.go）——Sweep 判封段把最近终端态（done/failed）管线落在冷却窗内的节点挡在新建流水线外（HAVING MAX(updated_at) > now-Cooldown 后 Pluck node_id）；顺带修了重开路径：Recovery 行 uniqueIndex 每节点一行，此前终态后重新摘除的 Create 会以 unique 冲突炸掉整轮 Sweep，现 isDupKey 命中时把旧行重置回 L1 running（recovery reopen） | Verification: TestCooldownGuardsVerdict（开→失败→冷却窗内不再开→冷却后同行重置回 L1 running）绿；recovery 包 GOMAXPROCS=1 -count=2 绿；全量 52 ok FAIL=0 exit=0 | Commit: 125fe55）
 -   [ ] `F-1645` 定义自动恢复失败后的人工介入状态。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1645 | 部分：失败升级「需人工介入」经 Herald KindRecoveryFailed+notify（recovery.go:344-368+TestFailedEscalationNotify）；模型仅 running/done/failed（recovery.go:27-29）——无人工介入态、无人工确认/重试清除。）
 -   [ ] `F-1646` 防止自动恢复循环重启。（依赖：无；完成条件：需求落地+测试绿+证据行）
