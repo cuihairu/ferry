@@ -1731,7 +1731,8 @@ External Client
 -   [x] `F-1142` 根据套餐权限过滤订阅。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1142 | Status: Done | Evidence: User.PlanID(models.go，0=无套餐)+UserInput.plan_id(user.go 建/改 PATCH 语义 0=清除)+订阅候选 WHERE 增 (plan_id=0 OR plan_id=?)——绑定节点(F-1047 Node.PlanID)只发给该套餐订阅者，无套餐节点人人可见，主订阅与自建订阅同一 WHERE | Verification: TestSubscriptionPlanFilter(无套餐只见 free/订阅者见两者/清除绑定后回落)+go vet+server 全套件 green exit=0（51 ok）2026-11-27 | Commit: 2441dfd）
     - 待补（F-1142 | 区级未满足原因：区级现状：全部未满足或部分——套餐权限过滤部分(无 Plan 模型，按 enabled/role/pool_state+SAVE-6 cost-tier 过滤非套餐权限)、Path Group 过滤未满足(无 PathGroup 模型)、Policy 过滤未满足(无 Policy)、ETag/Last-Modified 未满足(无条件请求，每次全量渲染)、缓存失效部分(无缓存、新鲜度靠每次重查)、访问审计部分(仅 device/IP 观察 upsert 非 per-request 审计行)。）
--   [ ] `F-1143` 根据 Path Group 过滤订阅。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1143` 根据 Path Group 过滤订阅。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1143 | Status: Done | Evidence: 主订阅面早经 F-0270 落地(sub.go policy.Resolve→eff.PathGroupID→pathhealth.ResolveGroupPath 只留 resolved path 的 entry，健康感知 default 先/候选按 Position)；本轮补齐自建订阅面同链(sub_x.go 同一 eff+group pin 块，与主面零漂移) | Verification: TestSubscriptionGroupDelivery(主面) + TestSubXPolicyAndGroupParity(自建面 pin 生效/移除恢复)+go vet+server 全套件 green exit=0（51 ok）2026-11-27 | Commit: 2f506f8）
 -   [ ] `F-1144` 根据 Policy 过滤订阅。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-1145` 过滤禁用节点和不符合策略的线路。
     - 备注（Task ID: F-1145 | Status: Done | Evidence: sub.go:74 enabled/pool_state/status；TestSubscription | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
