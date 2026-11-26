@@ -1588,9 +1588,10 @@ External Client
 
 -   [x] `F-1021` 审计现有调度和分配逻辑。
     - 备注（Task ID: F-1021 | Status: Done | Evidence: 调度分配逻辑审计 §3.5 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1022` 统一调度输入模型。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1022 | 区级未满足原因：本区 F-1024/1025/1026/1027/1030 已关；其余：输入/输出模型部分(Candidate/SwitchEvent 无统一请求响应)、质量评分部分(无 RTT/loss 评分)、优先级规则未满足(仅 4 策略)、故障回退部分(无 Path 重绑执行器)、决策记录部分(无独立快照表)、候选排除原因/结果解释/模拟 API 均未满足。）
--   [ ] `F-1023` 统一调度输出模型。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1022` 统一调度输入模型。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1022 | Status: Done | Evidence: alloc.Request 统一输入模型（Now/Policy/Entries/Landings/Conns/Sick/Manual/Current），BuildRequest 一次载入全部信号，SweepAt 重构为 Resolve冻结→BuildRequest→Decide→Apply 三段管线，行为与旧 sweep 等价（原 30 个 alloc 测试全数不动通过）；TestBuildRequestLoadsSignals | Verification: go build/vet + server 全套件 green exit=0（51 ok）2026-11-26 | Commit: 1a3b0cd）
+-   [x] `F-1023` 统一调度输出模型。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1023 | Status: Done | Evidence: Decision 统一输出模型（候选按策略排序含资格与原因、成本上限排除项、WinnerID、Action=switch/keep/none/skip、from/to/reason），Decide 纯函数无 DB 写，Apply 执行器落排除 trail+换线行并产出 SwitchEvent；TestDecidePureModel/TestDecideKeepNoneSkip/TestApplyWritesTrailsAndRows | Verification: go build/vet + server 全套件 green exit=0（51 ok）2026-11-26 | Commit: 1a3b0cd）
 -   [x] `F-1024` 实现候选 Path 过滤器。
     - 备注（Task ID: F-1024 | Status: Done | Evidence: 候选过滤器 alloc.go:448-489(enabled/role/pool_state/status/direction/healthy gate) | Verification: TestPick* | Commit: fbcb525）
 -   [x] `F-1025` 实现健康约束。
