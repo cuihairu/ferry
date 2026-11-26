@@ -321,6 +321,7 @@ type ProbeReport struct {
 	RttMs        int       `gorm:"default:0" json:"rtt_ms"`
 	JitterMs     int       `gorm:"default:0" json:"jitter_ms"` // RTT jitter across one probe's rounds (F-0907)
 	LossPct      int       `gorm:"default:0" json:"loss_pct"`  // 0-100
+	ErrClass     string    `gorm:"size:16" json:"err_class"`   // why the failed rounds failed (F-0913)
 	Reachable    bool      `gorm:"default:false" json:"reachable"`
 	Blocked      bool      `gorm:"default:false" json:"blocked"`
 	Verdict      string    `gorm:"size:16;not null" json:"verdict"`           // healthy/sick

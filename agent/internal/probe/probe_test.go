@@ -2,6 +2,7 @@ package probe
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log"
 	"net"
@@ -158,7 +159,7 @@ func TestMeasureUnreachable(t *testing.T) {
 	addr := ln.Addr().String()
 	_ = ln.Close()
 
-	rtt, jitter, loss, reachable := measureTCP(addr)
+	rtt, jitter, loss, reachable, _ := measureTCP(config.ProbeSpec{Target: addr})
 	if reachable || loss != 100 || rtt != 0 || jitter != 0 {
 		t.Fatalf("want unreachable loss=100, got rtt=%d jitter=%d loss=%d reachable=%v", rtt, jitter, loss, reachable)
 	}
@@ -214,6 +215,96 @@ func udpResponder(t *testing.T, prefix []byte, drop bool) net.Addr {
 	return conn.LocalAddr()
 }
 
+// TestClassifyNetErr covers the F-0913 error vocabulary over real error
+// values; dns needs no network (local resolver failure).
+func TestClassifyNetErr(t *testing.T) {
+	if got := classifyNetErr(nil); got != "" {
+		t.Fatalf("nil must classify empty, got %q", got)
+	}
+	_, err := net.ResolveTCPAddr("tcp", "no-such-host.ferry.invalid:443")
+	if err == nil {
+		t.Fatal("expected resolver failure")
+	}
+	if got := classifyNetErr(err); got != "dns" {
+		t.Fatalf("resolver failure = %q, want dns", got)
+	}
+	// refused: dial a closed local port.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	closed := ln.Addr().String()
+	_ = ln.Close()
+	_, dialErr := net.DialTimeout("tcp", closed, time.Second)
+	if dialErr == nil {
+		t.Fatal("expected dial failure")
+	}
+	if got := classifyNetErr(dialErr); got != "refused" {
+		t.Fatalf("closed port = %q, want refused", got)
+	}
+	if got := classifyNetErr(errors.New("weird failure")); got != "other" {
+		t.Fatalf("unknown error = %q, want other", got)
+	}
+}
+
+// TestMeasureErrClass covers F-0913 end to end per transport: a successful
+// probe reports no class; failures report the dominant one.
+func TestMeasureErrClass(t *testing.T) {
+	// TCP to a closed port: refused.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	closed := ln.Addr().String()
+	_ = ln.Close()
+	spec := config.ProbeSpec{Name: "cls-tcp", Target: closed, IntervalSec: 5, TimeoutSec: 1}
+	_, _, _, reachable, cls := measureTCP(spec)
+	if reachable || cls != "refused" {
+		t.Fatalf("tcp closed port: reachable=%v class=%q", reachable, cls)
+	}
+
+	// HTTP 500 with expect_status 200: http_status.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	hsi := config.ProbeSpec{Name: "cls-http", TargetKind: agentproto.ProbeTargetExit,
+		Target: strings.TrimPrefix(srv.URL, "http://"), Proto: "http",
+		ExpectStatus: 200, IntervalSec: 5, TimeoutSec: 1}
+	_, _, _, reachable, cls = measureHTTP(hsi)
+	if reachable || cls != "http_status" {
+		t.Fatalf("http 500/200: reachable=%v class=%q", reachable, cls)
+	}
+
+	// HTTP to a closed port: refused.
+	hdead := config.ProbeSpec{Name: "cls-http-dead", TargetKind: agentproto.ProbeTargetExit,
+		Target: closed, Proto: "http", IntervalSec: 5, TimeoutSec: 1}
+	_, _, _, reachable, cls = measureHTTP(hdead)
+	if reachable || cls != "refused" {
+		t.Fatalf("http closed port: reachable=%v class=%q", reachable, cls)
+	}
+
+	// UDP prefix mismatch: mismatch.
+	addr := udpResponder(t, []byte{0x00}, false)
+	umis := config.ProbeSpec{Name: "cls-udp", TargetKind: agentproto.ProbeTargetExit,
+		Target: addr.String(), Proto: "udp", PayloadHex: "aa", ExpectHex: "ff",
+		IntervalSec: 5, TimeoutSec: 1}
+	_, _, _, reachable, cls = measureUDP(umis)
+	if reachable || cls != "mismatch" {
+		t.Fatalf("udp mismatch: reachable=%v class=%q", reachable, cls)
+	}
+
+	// UDP silence: no_reply.
+	silent := udpResponder(t, nil, true)
+	usil := config.ProbeSpec{Name: "cls-udp-silent", TargetKind: agentproto.ProbeTargetExit,
+		Target: silent.String(), Proto: "udp", PayloadHex: "aa",
+		IntervalSec: 5, TimeoutSec: 1}
+	_, _, _, reachable, cls = measureUDP(usil)
+	if reachable || cls != "no_reply" {
+		t.Fatalf("udp silence: reachable=%v class=%q", reachable, cls)
+	}
+}
+
 // TestMeasureUDPReply covers F-0910's reply rule: a responder that echoes the
 // expected prefix is reachable with loss 0.
 func TestMeasureUDPReply(t *testing.T) {
@@ -222,7 +313,7 @@ func TestMeasureUDPReply(t *testing.T) {
 		Name: "udp-echo", TargetKind: agentproto.ProbeTargetExit, Target: addr.String(),
 		Proto: "udp", PayloadHex: "0100", ExpectHex: "dead", IntervalSec: 5,
 	}
-	rtt, jitter, loss, reachable := measureUDP(spec)
+	rtt, jitter, loss, reachable, _ := measureUDP(spec)
 	if !reachable || loss != 0 || rtt < 0 {
 		t.Fatalf("want reachable loss=0, got rtt=%d jitter=%d loss=%d reachable=%v", rtt, jitter, loss, reachable)
 	}
@@ -236,7 +327,7 @@ func TestMeasureUDPMismatch(t *testing.T) {
 		Name: "udp-mismatch", TargetKind: agentproto.ProbeTargetExit, Target: addr.String(),
 		Proto: "udp", PayloadHex: "aa", ExpectHex: "ff", IntervalSec: 5,
 	}
-	_, _, loss, reachable := measureUDP(spec)
+	_, _, loss, reachable, _ := measureUDP(spec)
 	if reachable || loss != 100 {
 		t.Fatalf("want unreachable loss=100, got loss=%d reachable=%v", loss, reachable)
 	}
@@ -250,7 +341,7 @@ func TestMeasureUDPSilent(t *testing.T) {
 		Name: "udp-silent", TargetKind: agentproto.ProbeTargetExit, Target: addr.String(),
 		Proto: "udp", PayloadHex: "aa", IntervalSec: 5,
 	}
-	rtt, jitter, loss, reachable := measureUDP(spec)
+	rtt, jitter, loss, reachable, _ := measureUDP(spec)
 	if reachable || loss != 100 || rtt != 0 || jitter != 0 {
 		t.Fatalf("want unreachable loss=100, got rtt=%d jitter=%d loss=%d reachable=%v", rtt, jitter, loss, reachable)
 	}
@@ -293,7 +384,7 @@ func TestMeasureHTTPHealthy(t *testing.T) {
 		Name: "http-ok", TargetKind: agentproto.ProbeTargetExit,
 		Target: strings.TrimPrefix(srv.URL, "http://"), Proto: "http", IntervalSec: 5,
 	}
-	rtt, _, loss, reachable := measureHTTP(spec)
+	rtt, _, loss, reachable, _ := measureHTTP(spec)
 	if !reachable || loss != 0 || rtt < 0 {
 		t.Fatalf("want reachable loss=0, got rtt=%d loss=%d reachable=%v", rtt, loss, reachable)
 	}
@@ -315,14 +406,14 @@ func TestMeasureHTTPExpectStatus(t *testing.T) {
 
 	bad := config.ProbeSpec{Name: "http-500", TargetKind: agentproto.ProbeTargetExit,
 		Target: host, Proto: "http", ExpectStatus: 200, IntervalSec: 5}
-	if _, _, loss, reachable := measureHTTP(bad); reachable || loss != 100 {
+	if _, _, loss, reachable, _ := measureHTTP(bad); reachable || loss != 100 {
 		t.Fatalf("500 with expect 200 must fail, got loss=%d reachable=%v", loss, reachable)
 	}
 
 	// Without expect_status any real response (302 included) counts.
 	redir := config.ProbeSpec{Name: "http-redir", TargetKind: agentproto.ProbeTargetExit,
 		Target: host, Proto: "http", HTTPPath: "/redir", IntervalSec: 5}
-	if _, _, loss, reachable := measureHTTP(redir); !reachable || loss != 0 {
+	if _, _, loss, reachable, _ := measureHTTP(redir); !reachable || loss != 0 {
 		t.Fatalf("302 without expect must count, got loss=%d reachable=%v", loss, reachable)
 	}
 
@@ -331,7 +422,7 @@ func TestMeasureHTTPExpectStatus(t *testing.T) {
 	// 404/fail instead of succeeding.
 	ok := config.ProbeSpec{Name: "http-302ok", TargetKind: agentproto.ProbeTargetExit,
 		Target: host, Proto: "http", HTTPPath: "/redir", ExpectStatus: 302, IntervalSec: 5}
-	if _, _, loss, reachable := measureHTTP(ok); !reachable || loss != 0 {
+	if _, _, loss, reachable, _ := measureHTTP(ok); !reachable || loss != 0 {
 		t.Fatalf("exact 302 expect must pass, got loss=%d reachable=%v", loss, reachable)
 	}
 }
@@ -347,7 +438,7 @@ func TestMeasureHTTPDeadService(t *testing.T) {
 	_ = ln.Close()
 	spec := config.ProbeSpec{Name: "http-dead", TargetKind: agentproto.ProbeTargetExit,
 		Target: addr, Proto: "http", IntervalSec: 5}
-	_, _, loss, reachable := measureHTTP(spec)
+	_, _, loss, reachable, _ := measureHTTP(spec)
 	if reachable || loss != 100 {
 		t.Fatalf("want unreachable loss=100, got loss=%d reachable=%v", loss, reachable)
 	}

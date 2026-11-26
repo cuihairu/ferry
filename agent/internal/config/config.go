@@ -62,6 +62,10 @@ type ProbeSpec struct {
 	// ExpectStatus requires an http/https response to carry exactly this
 	// status code to count as success (F-0911); 0 = any response counts.
 	ExpectStatus int `json:"expect_status,omitempty"`
+	// TimeoutSec is the per-round timeout in seconds (F-0913); 0 falls back
+	// to the 3s default. It bounds dial/TLS/handshake (TCP/HTTP) and the
+	// request-to-reply wait (UDP/HTTP).
+	TimeoutSec int `json:"timeout_sec,omitempty"`
 }
 
 // RelaySpec holds the runtime parameters of the relay data plane (E-5): listen locally, then dial the landing through the transport plugin.
@@ -290,6 +294,9 @@ func (c Config) Validate() error {
 			}
 			if p.ExpectStatus != 0 && (p.ExpectStatus < 100 || p.ExpectStatus > 599) {
 				return errors.New("probes[].expect_status must be 100-599")
+			}
+			if p.TimeoutSec != 0 && (p.TimeoutSec < 1 || p.TimeoutSec > 60) {
+				return errors.New("probes[].timeout_sec must be 1-60")
 			}
 		case "udp":
 			if p.PayloadHex == "" {

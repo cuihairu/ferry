@@ -1059,7 +1059,7 @@ async function remove(n: Node) {
               <el-tag :type="statusData.probe.verdict === 'healthy' ? 'success' : 'warning'" size="small" disable-transitions>
                 {{ statusData.probe.verdict }}
               </el-tag>
-              <span class="status-meta">{{ statusData.probe.direction }} · RTT {{ statusData.probe.rtt_ms }}ms · 抖动 {{ statusData.probe.jitter_ms }}ms · 丢包 {{ statusData.probe.loss_pct }}%</span>
+              <span class="status-meta">{{ statusData.probe.direction }} · RTT {{ statusData.probe.rtt_ms }}ms · 抖动 {{ statusData.probe.jitter_ms }}ms · 丢包 {{ statusData.probe.loss_pct }}%<template v-if="statusData.probe.err_class"> · 失败类型 {{ statusData.probe.err_class }}</template></span>
             </template>
             <span v-else>暂无探测记录</span>
           </el-descriptions-item>

@@ -61,14 +61,17 @@ type nodeRelayCaps struct {
 // nodeProbeStatus is the probe half: the newest verdict this node produced as
 // a prober. The verdict/rtt/loss come straight from the report row.
 type nodeProbeStatus struct {
-	TargetKind string    `json:"target_kind"`
-	Direction  string    `json:"direction"`
-	RttMs      int       `json:"rtt_ms"`
-	JitterMs   int       `json:"jitter_ms"`
-	LossPct    int       `json:"loss_pct"`
-	Reachable  bool      `json:"reachable"`
-	Verdict    string    `json:"verdict"`
-	ProbedAt   time.Time `json:"probed_at"`
+	TargetKind string `json:"target_kind"`
+	Direction  string `json:"direction"`
+	RttMs      int    `json:"rtt_ms"`
+	JitterMs   int    `json:"jitter_ms"`
+	LossPct    int    `json:"loss_pct"`
+	Reachable  bool   `json:"reachable"`
+	// ErrClass names why the failed rounds failed (F-0913); empty when the
+	// probe concluded successfully.
+	ErrClass string    `json:"err_class,omitempty"`
+	Verdict  string    `json:"verdict"`
+	ProbedAt time.Time `json:"probed_at"`
 }
 
 // nodeStatus is the aggregate payload of GET /api/nodes/:id/status.
@@ -137,6 +140,7 @@ func (h *Handler) nodeStatus(c *gin.Context) {
 			JitterMs:   rep.JitterMs,
 			LossPct:    rep.LossPct,
 			Reachable:  rep.Reachable,
+			ErrClass:   rep.ErrClass,
 			Verdict:    rep.Verdict,
 			ProbedAt:   rep.ProbedAt,
 		}

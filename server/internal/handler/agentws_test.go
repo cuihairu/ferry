@@ -233,6 +233,12 @@ func TestAgentWSProbeReport(t *testing.T) {
 				Reachable: true, Verdict: agentproto.ProbeVerdictHealthy,
 				Region: "华东", ISP: "电信", ProbedAt: time.Now(),
 			},
+			{
+				TargetKind: agentproto.ProbeTargetTunnel, TargetNode: 2,
+				Direction: agentproto.DirectionOut, LossPct: 100,
+				Reachable: false, ErrClass: "timeout", Verdict: agentproto.ProbeVerdictSick,
+				Region: "华东", ISP: "电信", ProbedAt: time.Now(),
+			},
 		},
 	})
 	if err := c.WriteJSON(batch); err != nil {
@@ -246,17 +252,26 @@ func TestAgentWSProbeReport(t *testing.T) {
 	if err := env.Decode(&ack); err != nil {
 		t.Fatalf("decode probe ack: %v", err)
 	}
-	if ack.Recorded != 1 {
-		t.Fatalf("recorded = %d, want 1", ack.Recorded)
+	if ack.Recorded != 2 {
+		t.Fatalf("recorded = %d, want 2", ack.Recorded)
 	}
 
-	// F-0907: the jitter statistic rides along into storage with the verdict.
-	var row storage.ProbeReport
-	if err := db.Where("node_id=?", node["id"].(float64)).Order("id DESC").First(&row).Error; err != nil {
-		t.Fatalf("stored report: %v", err)
+	// F-0907/F-0913: the jitter statistic and failure class ride along into
+	// storage with the verdict.
+	var okRow, badRow storage.ProbeReport
+	if err := db.Where("node_id=? AND verdict=?", node["id"].(float64), "healthy").
+		Order("id DESC").First(&okRow).Error; err != nil {
+		t.Fatalf("stored healthy report: %v", err)
 	}
-	if row.RttMs != 48 || row.JitterMs != 6 {
-		t.Fatalf("stored rtt/jitter = %d/%d, want 48/6", row.RttMs, row.JitterMs)
+	if okRow.RttMs != 48 || okRow.JitterMs != 6 {
+		t.Fatalf("stored rtt/jitter = %d/%d, want 48/6", okRow.RttMs, okRow.JitterMs)
+	}
+	if err := db.Where("node_id=? AND verdict=?", node["id"].(float64), "sick").
+		Order("id DESC").First(&badRow).Error; err != nil {
+		t.Fatalf("stored sick report: %v", err)
+	}
+	if badRow.ErrClass != "timeout" {
+		t.Fatalf("stored err_class = %q, want timeout", badRow.ErrClass)
 	}
 }
 

@@ -312,6 +312,7 @@ func (h *Handler) saveProbeReports(nodeID int64, items []agentproto.ProbeReport)
 			RttMs:      it.RttMs,
 			JitterMs:   it.JitterMs,
 			LossPct:    it.LossPct,
+			ErrClass:   it.ErrClass,
 			Reachable:  it.Reachable,
 			Blocked:    it.Blocked,
 			Verdict:    it.Verdict,

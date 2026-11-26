@@ -7,13 +7,18 @@ package probe
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/cuihairu/ferry/agent/internal/config"
@@ -92,7 +97,7 @@ func (r *Runner) loop(ctx context.Context, spec config.ProbeSpec) {
 
 // probeOnce runs one multi-round probe and reports the conclusion; dropped silently when offline.
 func (r *Runner) probeOnce(spec config.ProbeSpec) {
-	rtt, jitter, loss, reachable := r.measure(spec)
+	rtt, jitter, loss, reachable, errClass := r.measure(spec)
 	// region/ISP snapshots are filled in by the panel when it stores the target node.
 	report := agentproto.ProbeReport{
 		TargetKind: spec.TargetKind,
@@ -102,6 +107,7 @@ func (r *Runner) probeOnce(spec config.ProbeSpec) {
 		JitterMs:   jitter,
 		LossPct:    loss,
 		Reachable:  reachable,
+		ErrClass:   errClass,
 		Verdict:    verdictOf(loss, reachable),
 		ProbedAt:   time.Now(),
 	}
@@ -127,34 +133,47 @@ func (r *Runner) probeOnce(spec config.ProbeSpec) {
 // measure dispatches per spec: TCP connect probing (default), UDP request/
 // reply probing (F-0910), or HTTP(S) application-layer probing (F-0911). It
 // returns the average successful RTT (ms), the RTT jitter across this probe's
-// successful rounds (F-0907), the packet loss rate 0-100 and reachability.
-func (r *Runner) measure(spec config.ProbeSpec) (rttMs, jitterMs, lossPct int, reachable bool) {
+// successful rounds (F-0907), the packet loss rate 0-100, reachability and
+// the failure class of the failed rounds (F-0913; empty when any round won).
+func (r *Runner) measure(spec config.ProbeSpec) (rttMs, jitterMs, lossPct int, reachable bool, errClass string) {
 	switch spec.Proto {
 	case "udp":
 		return measureUDP(spec)
 	case "http", "https":
 		return measureHTTP(spec)
 	}
-	return measureTCP(spec.Target)
+	return measureTCP(spec)
+}
+
+// effTimeout is the spec's per-round timeout (F-0913), falling back to the
+// shared default when unset.
+func effTimeout(spec config.ProbeSpec) time.Duration {
+	if spec.TimeoutSec > 0 {
+		return time.Duration(spec.TimeoutSec) * time.Second
+	}
+	return dialTimeout
 }
 
 // measureTCP dials the target probeRounds times over TCP: any successful
 // connect means reachable.
-func measureTCP(target string) (rttMs, jitterMs, lossPct int, reachable bool) {
+func measureTCP(spec config.ProbeSpec) (rttMs, jitterMs, lossPct int, reachable bool, errClass string) {
+	timeout := effTimeout(spec)
 	var samples []int
+	var classes []string
 	for i := 0; i < probeRounds; i++ {
 		if i > 0 {
 			time.Sleep(roundSpacing)
 		}
 		start := time.Now()
-		conn, err := net.DialTimeout("tcp", target, dialTimeout)
+		conn, err := net.DialTimeout("tcp", spec.Target, timeout)
 		if err != nil {
+			classes = append(classes, classifyNetErr(err))
 			continue
 		}
 		_ = conn.Close()
 		samples = append(samples, int(time.Since(start).Milliseconds()))
 	}
-	return summarize(samples)
+	return summarize(samples, classes)
 }
 
 // measureUDP sends the spec's payload probeRounds times and waits for a reply
@@ -162,25 +181,29 @@ func measureTCP(target string) (rttMs, jitterMs, lossPct int, reachable bool) {
 // answers; with expect_hex set the reply must carry that byte prefix, which
 // is how e.g. a DNS baseline distinguishes a real responder from random
 // backscatter. RTT runs write -> first matching read.
-func measureUDP(spec config.ProbeSpec) (rttMs, jitterMs, lossPct int, reachable bool) {
+func measureUDP(spec config.ProbeSpec) (rttMs, jitterMs, lossPct int, reachable bool, errClass string) {
 	payload, err := hex.DecodeString(spec.PayloadHex)
 	if err != nil {
-		return 0, 0, 100, false // validated at config load; unreachable beats lying
+		return 0, 0, 100, false, "other" // validated at config load; unreachable beats lying
 	}
 	expect, _ := hex.DecodeString(spec.ExpectHex)
+	timeout := effTimeout(spec)
 
 	var samples []int
+	var classes []string
 	for i := 0; i < probeRounds; i++ {
 		if i > 0 {
 			time.Sleep(roundSpacing)
 		}
-		conn, err := net.DialTimeout("udp", spec.Target, dialTimeout)
+		conn, err := net.DialTimeout("udp", spec.Target, timeout)
 		if err != nil {
+			classes = append(classes, classifyNetErr(err))
 			continue
 		}
-		_ = conn.SetDeadline(time.Now().Add(dialTimeout))
+		_ = conn.SetDeadline(time.Now().Add(timeout))
 		start := time.Now()
 		if _, err := conn.Write(payload); err != nil {
+			classes = append(classes, classifyNetErr(err))
 			_ = conn.Close()
 			continue
 		}
@@ -188,35 +211,92 @@ func measureUDP(spec config.ProbeSpec) (rttMs, jitterMs, lossPct int, reachable 
 		n, err := conn.Read(buf)
 		_ = conn.Close()
 		if err != nil || n == 0 {
+			classes = append(classes, "no_reply")
 			continue
 		}
 		if len(expect) > 0 && !bytes.HasPrefix(buf[:n], expect) {
+			classes = append(classes, "mismatch")
 			continue
 		}
 		samples = append(samples, int(time.Since(start).Milliseconds()))
 	}
-	return summarize(samples)
+	return summarize(samples, classes)
 }
 
 // summarize turns the successful round samples into the report tuple: average
-// RTT, jitter across consecutive samples (F-0907), loss percentage and
-// reachability (any successful round means reachable).
-func summarize(samples []int) (rttMs, jitterMs, lossPct int, reachable bool) {
+// RTT, jitter across consecutive samples (F-0907), loss percentage,
+// reachability (any successful round means reachable) and -- only when every
+// round failed -- the majority failure class (F-0913).
+func summarize(samples []int, classes []string) (rttMs, jitterMs, lossPct int, reachable bool, errClass string) {
 	if len(samples) == 0 {
-		return 0, 0, 100, false
+		return 0, 0, 100, false, majorityClass(classes)
 	}
 	sum := 0
 	for _, s := range samples {
 		sum += s
 	}
-	return sum / len(samples), jitterOf(samples), (probeRounds - len(samples)) * 100 / probeRounds, true
+	return sum / len(samples), jitterOf(samples), (probeRounds - len(samples)) * 100 / probeRounds, true, ""
+}
+
+// majorityClass returns the most frequent failure class of the failed rounds
+// (F-0913); "other" as a fallback for a classless failure.
+func majorityClass(classes []string) string {
+	if len(classes) == 0 {
+		return "other"
+	}
+	count := map[string]int{}
+	best, bestN := "", 0
+	for _, c := range classes {
+		count[c]++
+		if count[c] > bestN {
+			best, bestN = c, count[c]
+		}
+	}
+	if best == "" {
+		return "other"
+	}
+	return best
+}
+
+// classifyNetErr maps a transport error to the F-0913 failure vocabulary:
+// dns / timeout / refused / reset / tls win over the generic "other", matched
+// from the most specific predicate outwards. In the UDP path a read-deadline
+// expiry is reported as no_reply instead (someone must answer; silence is
+// the observation), so the timeout class here is dominated by dials.
+func classifyNetErr(err error) string {
+	if err == nil {
+		return ""
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return "dns"
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "timeout"
+	}
+	if errors.Is(err, syscall.ECONNREFUSED) {
+		return "refused"
+	}
+	if errors.Is(err, syscall.ECONNRESET) {
+		return "reset"
+	}
+	if errors.Is(err, tls.RecordHeaderError{}) || errors.Is(err, x509.UnknownAuthorityError{}) ||
+		errors.Is(err, x509.CertificateInvalidError{}) || errors.Is(err, x509.HostnameError{}) {
+		return "tls"
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) && opErr.Op == "dial" && strings.Contains(strings.ToLower(err.Error()), "tls") {
+		return "tls"
+	}
+	return "other"
 }
 
 // measureHTTP issues a HEAD request per round (F-0911): a round succeeds when
 // the service answers with an HTTP response -- redirects count as answered,
 // they are not followed -- and with expect_status set, only that exact status
 // counts. RTT runs request start to response headers.
-func measureHTTP(spec config.ProbeSpec) (rttMs, jitterMs, lossPct int, reachable bool) {
+func measureHTTP(spec config.ProbeSpec) (rttMs, jitterMs, lossPct int, reachable bool, errClass string) {
 	path := spec.HTTPPath
 	if path == "" {
 		path = "/"
@@ -224,18 +304,20 @@ func measureHTTP(spec config.ProbeSpec) (rttMs, jitterMs, lossPct int, reachable
 	// HEAD, not GET: the question is "does the application answer", not "how
 	// fast can it serve bodies"; redirects are surfaced, never followed.
 	client := &http.Client{
-		Timeout: dialTimeout,
+		Timeout: effTimeout(spec),
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
 	}
 	var samples []int
+	var classes []string
 	for i := 0; i < probeRounds; i++ {
 		if i > 0 {
 			time.Sleep(roundSpacing)
 		}
 		req, err := http.NewRequest(http.MethodHead, "http://"+spec.Target+path, nil)
 		if err != nil {
+			classes = append(classes, "other")
 			continue
 		}
 		if spec.Proto == "https" {
@@ -244,16 +326,18 @@ func measureHTTP(spec config.ProbeSpec) (rttMs, jitterMs, lossPct int, reachable
 		start := time.Now()
 		resp, err := client.Do(req)
 		if err != nil {
+			classes = append(classes, classifyNetErr(err))
 			continue
 		}
 		_, _ = io.Copy(io.Discard, resp.Body)
 		_ = resp.Body.Close()
 		if spec.ExpectStatus > 0 && resp.StatusCode != spec.ExpectStatus {
+			classes = append(classes, "http_status")
 			continue
 		}
 		samples = append(samples, int(time.Since(start).Milliseconds()))
 	}
-	return summarize(samples)
+	return summarize(samples, classes)
 }
 
 // jitterOf is the mean absolute difference between consecutive successful round

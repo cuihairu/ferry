@@ -292,19 +292,23 @@ const (
 // ProbeReport is a single edge-probe verdict. Probing happens locally on the node;
 // the panel only collects verdicts for aggregation and judgment, it does not probe centrally.
 type ProbeReport struct {
-	TargetKind string    `json:"target_kind"`           // tunnel/exit/peer
-	TargetNode int64     `json:"target_node,omitempty"` // target node ID (tunnel/peer)
-	TargetHost string    `json:"target_host,omitempty"` // exit probe target
-	Direction  string    `json:"direction"`             // out/in, probe direction
-	RttMs      int       `json:"rtt_ms,omitempty"`      // round-trip latency (ms)
-	JitterMs   int       `json:"jitter_ms,omitempty"`   // RTT jitter (ms, mean |Δ| across this probe's successful rounds; F-0907)
-	LossPct    int       `json:"loss_pct,omitempty"`    // loss percentage 0-100
-	Reachable  bool      `json:"reachable"`             // whether reachable
-	Blocked    bool      `json:"blocked"`               // whether judged blocked
-	Verdict    string    `json:"verdict"`               // healthy/sick
-	Region     string    `json:"region"`                // target region snapshot (for aggregation)
-	ISP        string    `json:"isp"`                   // target ISP snapshot
-	ProbedAt   time.Time `json:"probed_at"`
+	TargetKind string `json:"target_kind"`           // tunnel/exit/peer
+	TargetNode int64  `json:"target_node,omitempty"` // target node ID (tunnel/peer)
+	TargetHost string `json:"target_host,omitempty"` // exit probe target
+	Direction  string `json:"direction"`             // out/in, probe direction
+	RttMs      int    `json:"rtt_ms,omitempty"`      // round-trip latency (ms)
+	JitterMs   int    `json:"jitter_ms,omitempty"`   // RTT jitter (ms, mean |Δ| across this probe's successful rounds; F-0907)
+	LossPct    int    `json:"loss_pct,omitempty"`    // loss percentage 0-100
+	Reachable  bool   `json:"reachable"`             // whether reachable
+	// ErrClass names why the failed rounds failed (F-0913): dns/timeout/
+	// refused/reset/tls/http_status/no_reply/mismatch/other; empty when any
+	// round succeeded (the probe has no failure story to tell).
+	ErrClass string    `json:"err_class,omitempty"`
+	Blocked  bool      `json:"blocked"` // whether judged blocked
+	Verdict  string    `json:"verdict"` // healthy/sick
+	Region   string    `json:"region"`  // target region snapshot (for aggregation)
+	ISP      string    `json:"isp"`     // target ISP snapshot
+	ProbedAt time.Time `json:"probed_at"`
 }
 
 // ProbeReportBatch reports multiple probe verdicts in one batch.

@@ -1057,6 +1057,8 @@ export interface NodeStatusAggregate {
     jitter_ms: number
     loss_pct: number
     reachable: boolean
+    /** failure class of the failed rounds (F-0913); absent when the probe succeeded */
+    err_class?: string
     verdict: string
     probed_at: string
   } | null
