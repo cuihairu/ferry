@@ -1334,7 +1334,7 @@ External Client
 -   [x] `F-0742` 支持节点元数据自动采集。
     - 备注（Task ID: F-0742 | Status: Done | Evidence: syncNodeMeta 注册元数据采集（meta_init 面板为准）；TestAgentWSHelloMeta | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-0743` 支持管理员编辑业务元数据。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0743 | 未满足原因：部分：PUT /api/nodes/:id 编辑 name/address/port/protocol/meta role/direction/region/isp 等(node.go:90-153 TestNodeMetaInput)；labels 列有但 NodeInput 无、group 字段全无、计费字段不可编辑。）
+    - 备注（Task ID: F-0743 | Status: Done | Evidence: NodeInput 增业务元数据编辑——labels（MarshalLabelsJSON 去重/去空/trim，nil 保留、显式 [] 清空）、group（Node 新列 size:64）、计费字段 billing_type/traffic_price_cents/monthly_cost_cents/currency/cost_note（指针区分缺席与显式 0，校验 vocabulary 与非负价）；create 与 update 双路径贯通，meta_init 面板接管语义保持；TestNodeBusinessMetaEdit | Verification: go test 全绿 2026-11-26（server 全套无 FAIL） | Commit: 5337d70）
 -   [x] `F-0744` 支持节点入池检查。
     - 备注（Task ID: F-0744 | Status: Done | Evidence: provision→probe→online 入池检查流水线；TestProvisionPipeline | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0745` 支持节点摘池。
