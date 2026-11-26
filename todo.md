@@ -1873,8 +1873,10 @@ External Client
     - 证据（F-1307 | 已落地：POST /api/payments/compensate（paycomp.go）：paid 且带发放规格但零 Grant 行的「缺发放」订单重发权益，事务内 grant 计数守卫保证至多补一次；refunded 单绝不选（退款已回收权益）；逐单结果报告（granted/skipped/failed），单失败不断其余。机制边界注释钉死：到账未结算（expired/pending 带流水）按 F-1303 规则保持人工复核标记，不自动结算；Provider 侧 pull 查询需接口扩展、现有渠道均未实现，不在本机制射程。
     - 验证：TestCompensateGrants（两类发放重发到位、quota/expiry 实际变更、已发放/已退款/无规格单不被选中、二次运行幂等零发放）；全量 51 ok / FAIL=0 / exit=0。
     - Commit: ade5478
--   [ ] `F-1308` 建立支付对账任务。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1308 | 未满足原因：未满足：对账仅为查询接口(router.go:260 GET /api/payments/reconcile→payrecon.go:43)；main.go 约 17 个后台循环无一为支付对账。）
+-   [x] `F-1308` 建立支付对账任务。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 证据（F-1308 | 已落地：payrecon.go 新增 ReconSweep+ReconLoop 定时对账任务（main.go 接线，FERRY_RECON_SEC 默认 3600s）：统计四类账目异常（缺支付流水/缺发放/有流水未结算/孤儿流水），任一非零即落一条 herald.KindPayRecon（"payrecon_flag"，新增常量）管理员告警，按日全站 dedup（每天一条汇总不刷屏），干净台账静默；告警正文携带补偿指引（POST /api/payments/compensate，F-1307）。查询接口 GET /api/payments/reconcile 照旧并存。
+    - 验证：TestReconSweep（干净台账静默、缺发放/未结算/孤儿流水触发单条告警、dedup key 按日、同日重扫不重复）；全量 51 ok / FAIL=0 / exit=0。
+    - Commit: d7121ae
 -   [x] `F-1309` 对未接通的支付渠道明确标记不可用。
     - 备注（Task ID: F-1309 | Status: Done | Evidence: packages/payment/disabled.go:11 NewDisabled(alipay/wechat)；payment 包 TestRegistered/TestDisabled | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1310` 记录订单和支付操作审计。
