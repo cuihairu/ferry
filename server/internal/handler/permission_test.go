@@ -258,3 +258,70 @@ func TestCostManagePerm(t *testing.T) {
 		t.Fatalf("super watch create 403: %d %s", rec.Code, rec.Body)
 	}
 }
+
+// TestNodePathPerms covers F-1708: node operations need node.manage and path
+// operations path.manage — two independent tiers. Reads stay open (the row
+// gates operations, not visibility), matching the provider-surface precedent.
+func TestNodePathPerms(t *testing.T) {
+	r, db := newTestRouterCfg(t, func(cfg *config.Config) { cfg.SecretKey = "test-master-key" })
+
+	if err := db.Create(&storage.User{ID: 999, Username: "op-np", SubToken: "st-op-np",
+		Password: "x", Enabled: true, IsAdmin: true, AdminRole: "operator"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	op := opJWT(t, "op-np")
+
+	// Ungranted: a node op and a path op each 403 with their own perm named;
+	// reads are open to every admin.
+	rec := doPanel(t, r, op, "POST", "/api/nodes", map[string]any{})
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "missing permission node.manage") {
+		t.Fatalf("ungranted node create: %d %s", rec.Code, rec.Body)
+	}
+	rec = doPanel(t, r, op, "POST", "/api/paths", map[string]any{})
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "missing permission path.manage") {
+		t.Fatalf("ungranted path create: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doPanel(t, r, op, "GET", "/api/nodes", nil); rec.Code != http.StatusOK {
+		t.Fatalf("ungranted node read must stay open: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doPanel(t, r, op, "GET", "/api/paths", nil); rec.Code != http.StatusOK {
+		t.Fatalf("ungranted path read must stay open: %d %s", rec.Code, rec.Body)
+	}
+
+	// The node grant opens node ops (pool, proc, upgrade, batch) but not paths.
+	if rec := doJSON(t, r, "PUT", "/api/admins/999/perms", map[string]any{"perms": []string{PermNodeManage}}); rec.Code != http.StatusOK {
+		t.Fatalf("grant node: %d %s", rec.Code, rec.Body)
+	}
+	for _, rr := range [][2]string{
+		{"POST", "/api/nodes"}, {"POST", "/api/pool/1/suspend"},
+		{"POST", "/api/nodes/1/proc"}, {"POST", "/api/nodes/batch/proc"},
+		{"POST", "/api/nodes/1/upgrade"}, {"PUT", "/api/nodes/1/probe_tasks"},
+		{"POST", "/api/enrollment-tokens"},
+	} {
+		if rec := doPanel(t, r, op, rr[0], rr[1], map[string]any{}); rec.Code == http.StatusForbidden {
+			t.Fatalf("node-granted %s %s still 403: %d %s", rr[0], rr[1], rec.Code, rec.Body)
+		}
+	}
+	if rec := doPanel(t, r, op, "POST", "/api/paths", map[string]any{}); rec.Code != http.StatusForbidden {
+		t.Fatalf("node grant must not open paths: %d %s", rec.Code, rec.Body)
+	}
+
+	// The path grant opens paths, drafts, groups and landings.
+	if rec := doJSON(t, r, "PUT", "/api/admins/999/perms", map[string]any{"perms": []string{PermNodeManage, PermPathManage}}); rec.Code != http.StatusOK {
+		t.Fatalf("grant path: %d %s", rec.Code, rec.Body)
+	}
+	for _, rr := range [][2]string{
+		{"POST", "/api/paths"}, {"POST", "/api/paths/drafts"},
+		{"POST", "/api/path-groups"}, {"POST", "/api/landings"},
+		{"DELETE", "/api/paths/1"},
+	} {
+		if rec := doPanel(t, r, op, rr[0], rr[1], map[string]any{}); rec.Code == http.StatusForbidden {
+			t.Fatalf("path-granted %s %s still 403: %d %s", rr[0], rr[1], rec.Code, rec.Body)
+		}
+	}
+
+	// The super role passes without any grant.
+	if rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{}); rec.Code == http.StatusForbidden {
+		t.Fatalf("super node create 403: %d %s", rec.Code, rec.Body)
+	}
+}

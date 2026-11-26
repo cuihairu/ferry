@@ -36,6 +36,14 @@ const (
 	// mutations and bill imports. Tiered apart from cost.view (an operator
 	// usually carries both; neither implies the other).
 	PermCostManage = "cost.manage"
+	// PermNodeManage gates node operations (F-1708): node CRUD/approval,
+	// enrollment tokens, health overrides, pool suspend/resume/standby,
+	// config/probe-task/rulelib pushes, proc/upgrade (incl. batch), cloud
+	// drain/boot-check and recovery acks. Node READS stay open.
+	PermNodeManage = "node.manage"
+	// PermPathManage gates path operations (F-1708): path CRUD, drafts and
+	// auto-provision, path groups and members, landing registrations.
+	PermPathManage = "path.manage"
 )
 
 // adminPerms is the grantable vocabulary keyed by perm name.
@@ -45,6 +53,8 @@ var adminPerms = map[string]string{
 	PermCloudHighRisk: "high-risk cloud operations (force stop, rebuild)",
 	PermCostView:      "cost view and bill export (read-only cost surface)",
 	PermCostManage:    "cost changes and allocation rules (thresholds, imports, rules; pair with cost.view)",
+	PermNodeManage:    "node operations (create/approve/pool/proc/config/upgrade)",
+	PermPathManage:    "path operations (paths, drafts, path groups, landings)",
 }
 
 // opPerm maps each cloud operation type to its gate (F-1704/F-1705); ops
