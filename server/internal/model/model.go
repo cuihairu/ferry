@@ -69,6 +69,9 @@ type NodeInput struct {
 	// higher priority, 0 = standard. nil keeps the current value (the pointer
 	// distinguishes an explicit 0 reset from absent).
 	SchedPriority *int `json:"sched_priority,omitempty"`
+	// MaxConns caps the node's online connections (F-1065): 0 = unlimited;
+	// the sweep skips candidates at or above the cap.
+	MaxConns *int `json:"max_conns,omitempty"`
 	// PlanID binds the node to one subscription plan (F-1047): 0 = serves
 	// every plan. nil keeps the current value.
 	PlanID *uint `json:"plan_id,omitempty"`

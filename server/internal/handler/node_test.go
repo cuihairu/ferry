@@ -396,3 +396,51 @@ func TestNodePlanID(t *testing.T) {
 		t.Fatalf("explicit 0 clear failed: %+v", row)
 	}
 }
+
+// TestNodeMaxConns covers the connection cap's panel surface (F-1065):
+// create sets it, an absent field keeps it, an explicit 0 clears it.
+func TestNodeMaxConns(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
+		"name": "cap-1", "address": "cap1.example.com", "port": 443,
+		"protocol": "vless", "max_conns": 500,
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s", rec.Code, rec.Body)
+	}
+	var created storage.Node
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.MaxConns != 500 {
+		t.Fatalf("created max_conns = %d", created.MaxConns)
+	}
+
+	// an absent field keeps the cap
+	if rec = doJSON(t, r, "PUT", "/api/nodes/"+utoa(created.ID), map[string]any{
+		"line_type": "cn2_gia",
+	}); rec.Code != http.StatusOK {
+		t.Fatalf("keep status = %d %s", rec.Code, rec.Body)
+	}
+	var row storage.Node
+	if err := db.First(&row, created.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if row.MaxConns != 500 {
+		t.Fatalf("absent max_conns must keep: %+v", row)
+	}
+
+	// an explicit 0 clears the cap
+	if rec = doJSON(t, r, "PUT", "/api/nodes/"+utoa(created.ID), map[string]any{
+		"max_conns": 0,
+	}); rec.Code != http.StatusOK {
+		t.Fatalf("clear status = %d %s", rec.Code, rec.Body)
+	}
+	if err := db.First(&row, created.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if row.MaxConns != 0 {
+		t.Fatalf("explicit 0 clear failed: %+v", row)
+	}
+}

@@ -128,6 +128,10 @@ func newPersistedNode(db *gorm.DB, in *model.NodeInput) (*storage.Node, error) {
 	if in.PlanID != nil {
 		n.PlanID = *in.PlanID
 	}
+	// connection cap (F-1065): panel-set, agent registration reports ignore it.
+	if in.MaxConns != nil {
+		n.MaxConns = *in.MaxConns
+	}
 	if in.TrafficPriceCents != nil {
 		n.TrafficPriceCents = *in.TrafficPriceCents
 	}
@@ -243,6 +247,11 @@ func (h *Handler) updateNode(c *gin.Context) {
 	// Plan binding (F-1047): panel-set; 0 clears it back to "every plan".
 	if in.PlanID != nil {
 		updates["plan_id"] = *in.PlanID
+		metaProvided = true
+	}
+	// Connection cap (F-1065): panel-set; 0 clears it back to unlimited.
+	if in.MaxConns != nil {
+		updates["max_conns"] = *in.MaxConns
 		metaProvided = true
 	}
 	if metaProvided {

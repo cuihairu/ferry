@@ -284,6 +284,14 @@ func collectCandidates(req *Request, entry storage.Node, direction string, d *De
 			d.Exclusions = append(d.Exclusions, Exclusion{LandingID: l.ID, Reason: "landing lacks relay_landing capability"})
 			continue
 		}
+		// Connection cap (F-1065): a candidate already at or above its own
+		// cap is full -- the sweep must not push new traffic past the
+		// operator's limit, so it is ruled out with the numbers in the trail.
+		if l.MaxConns > 0 && req.Conns[l.ID] >= l.MaxConns {
+			d.Exclusions = append(d.Exclusions, Exclusion{LandingID: l.ID,
+				Reason: fmt.Sprintf("连接数 %d 达上限 %d", req.Conns[l.ID], l.MaxConns)})
+			continue
+		}
 		// Price freshness (F-0604): node updated_at is the price as-of
 		// marker; beyond the window the price is stale and must not drive
 		// the cost decision (it degrades per MissingCost instead).
