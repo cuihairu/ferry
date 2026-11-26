@@ -583,6 +583,8 @@ export interface NodeConfigRow {
   kind: string
   version: string
   sha256: string
+  /** rendered config content as delivered; enables the client-side version diff (F-1482). */
+  payload: string
   status: 'pending' | 'applied' | 'failed'
   reverted: boolean
   validated: boolean

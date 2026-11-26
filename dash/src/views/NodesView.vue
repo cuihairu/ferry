@@ -516,6 +516,83 @@ function openDetail(n: Node) {
     .catch(() => undefined)
 }
 
+// Config version diff (F-1482): the payload list already returns full rendered
+// content, so two versions of one proc are compared client-side with an LCS
+// line diff — no extra endpoint, no chart/diff dependency.
+const diffVisible = ref(false)
+const diffFrom = ref<NodeConfigRow | null>(null)
+const diffTo = ref<NodeConfigRow | null>(null)
+
+interface DiffLine {
+  t: 'ctx' | 'add' | 'del'
+  s: string
+}
+
+function lineDiff(a: string, b: string): DiffLine[] {
+  const la = a.split('\n')
+  const lb = b.split('\n')
+  // Guard the O(n*m) LCS table; oversized payloads degrade to whole-block replace.
+  if (la.length * lb.length > 4_000_000) {
+    return [
+      ...la.map((s): DiffLine => ({ t: 'del', s })),
+      ...lb.map((s): DiffLine => ({ t: 'add', s })),
+    ]
+  }
+  const m = la.length
+  const n = lb.length
+  const dp: Uint32Array[] = []
+  for (let i = 0; i <= m; i++) dp.push(new Uint32Array(n + 1))
+  for (let i = m - 1; i >= 0; i--) {
+    for (let j = n - 1; j >= 0; j--) {
+      dp[i][j] = la[i] === lb[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1])
+    }
+  }
+  const out: DiffLine[] = []
+  let i = 0
+  let j = 0
+  while (i < m && j < n) {
+    if (la[i] === lb[j]) {
+      out.push({ t: 'ctx', s: la[i] })
+      i++
+      j++
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      out.push({ t: 'del', s: la[i] })
+      i++
+    } else {
+      out.push({ t: 'add', s: lb[j] })
+      j++
+    }
+  }
+  while (i < m) out.push({ t: 'del', s: la[i++] })
+  while (j < n) out.push({ t: 'add', s: lb[j++] })
+  return out
+}
+
+// The previous version of the same proc = the next newer... rather the next older
+// row in the newest-first history with the same proc name.
+function prevSameProc(row: NodeConfigRow): NodeConfigRow | null {
+  const idx = detailConfigs.value.indexOf(row)
+  for (let k = idx + 1; k < detailConfigs.value.length; k++) {
+    if (detailConfigs.value[k].proc === row.proc) return detailConfigs.value[k]
+  }
+  return null
+}
+
+const diffLines = computed<DiffLine[]>(() => {
+  if (!diffFrom.value || !diffTo.value) return []
+  return lineDiff(diffFrom.value.payload ?? '', diffTo.value.payload ?? '')
+})
+const diffAdded = computed(() => diffLines.value.filter((l) => l.t === 'add').length)
+const diffRemoved = computed(() => diffLines.value.filter((l) => l.t === 'del').length)
+
+function openDiff(row: NodeConfigRow) {
+  const prev = prevSameProc(row)
+  if (!prev) return
+  diffFrom.value = prev
+  diffTo.value = row
+  diffVisible.value = true
+}
+
 async function openProcs(n: Node) {
   procsFor.value = n
   procsVisible.value = true
@@ -1267,9 +1344,42 @@ async function remove(n: Node) {
             <span v-else>—</span>
           </template>
         </el-table-column>
+        <el-table-column label="操作" width="100" fixed="right">
+          <template #default="{ row }">
+            <el-button
+              link
+              type="primary"
+              :disabled="!prevSameProc(row)"
+              @click="openDiff(row)"
+            >对比上一版</el-button>
+          </template>
+        </el-table-column>
       </el-table>
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- Config version diff (F-1482): client-side LCS line diff between two pushed payloads -->
+    <el-dialog v-model="diffVisible" title="配置差异" width="760px">
+      <div v-if="diffFrom && diffTo" class="diff-head">
+        <span>{{ diffFrom.proc }}</span>
+        <span class="version-text" :title="diffFrom.version">{{ diffFrom.version.slice(0, 12) }}</span>
+        <el-tag size="small" :type="(CONFIG_STATE_TYPE[diffFrom.status] ?? 'info') as 'success' | 'danger' | 'warning' | 'info'" disable-transitions>{{ diffFrom.status }}</el-tag>
+        <span class="diff-arrow">→</span>
+        <span class="version-text" :title="diffTo.version">{{ diffTo.version.slice(0, 12) }}</span>
+        <el-tag size="small" :type="(CONFIG_STATE_TYPE[diffTo.status] ?? 'info') as 'success' | 'danger' | 'warning' | 'info'" disable-transitions>{{ diffTo.status }}</el-tag>
+        <span class="diff-count"><span class="diff-add-n">+{{ diffAdded }}</span> <span class="diff-del-n">−{{ diffRemoved }}</span></span>
+      </div>
+      <div class="diff-body">
+        <div v-for="(l, i) in diffLines" :key="i" class="diff-line" :class="'diff-' + l.t">
+          <span class="diff-sign">{{ l.t === 'add' ? '+' : l.t === 'del' ? '−' : ' ' }}</span>
+          <span class="diff-text">{{ l.s }}</span>
+        </div>
+        <div v-if="!diffLines.length" class="diff-empty">内容为空</div>
+      </div>
+      <template #footer>
+        <el-button @click="diffVisible = false">关闭</el-button>
       </template>
     </el-dialog>
 
@@ -1559,6 +1669,68 @@ async function remove(n: Node) {
 .version-text {
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 12px;
+  color: var(--ferry-text-dim);
+}
+
+/* ---- Config version diff (F-1482) ---- */
+.diff-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+.diff-arrow {
+  color: var(--ferry-text-dim);
+}
+.diff-count {
+  margin-left: auto;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+.diff-add-n {
+  color: var(--ferry-ok);
+}
+.diff-del-n {
+  color: var(--ferry-danger);
+}
+.diff-body {
+  max-height: 55vh;
+  overflow: auto;
+  border: 1px solid var(--ferry-border, #dcdfe6);
+  border-radius: 4px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 18px;
+}
+.diff-line {
+  display: flex;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.diff-sign {
+  width: 20px;
+  flex: none;
+  text-align: center;
+  user-select: none;
+}
+.diff-text {
+  flex: 1;
+}
+.diff-add {
+  background: rgba(103, 194, 58, 0.15);
+  color: var(--ferry-ok);
+}
+.diff-del {
+  background: rgba(245, 108, 108, 0.12);
+  color: var(--ferry-danger);
+}
+.diff-ctx {
+  color: var(--ferry-text-dim);
+}
+.diff-empty {
+  padding: 12px;
+  text-align: center;
   color: var(--ferry-text-dim);
 }
 
