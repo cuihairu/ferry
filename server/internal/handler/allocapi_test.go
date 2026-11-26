@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -160,5 +161,121 @@ func TestAllocDecisionsList(t *testing.T) {
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("limit %q status = %d", bad, rec.Code)
 		}
+	}
+}
+
+// TestAllocExplain covers the explain API (F-1034): a read-only round over
+// live signals with per-candidate eligibility, structural exclusions with
+// names, the entry_id filter, and manual entries listed apart.
+func TestAllocExplain(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	entry := storage.Node{Name: "ex-entry", Token: "tok-ex-entry", Role: "entry",
+		Direction: "out", Enabled: true,
+		Capabilities: storage.MustJSON([]string{"proxy_ingress", "relay_entry", "probe"})}
+	cheap := storage.Node{Name: "ex-cheap", Token: "tok-ex-cheap", Role: "landing",
+		Direction: "out", Enabled: true, BillingType: "按流量", TrafficPriceCents: 5,
+		Capabilities: storage.MustJSON([]string{"relay_landing"})}
+	pricey := storage.Node{Name: "ex-pricey", Token: "tok-ex-pricey", Role: "landing",
+		Direction: "out", Enabled: true, BillingType: "按流量", TrafficPriceCents: 50,
+		Capabilities: storage.MustJSON([]string{"relay_landing"})}
+	inOnly := storage.Node{Name: "ex-inonly", Token: "tok-ex-inonly", Role: "landing",
+		Direction: "in", Enabled: true,
+		Capabilities: storage.MustJSON([]string{"relay_landing"})}
+	for _, n := range []*storage.Node{&entry, &cheap, &pricey, &inOnly} {
+		if err := db.Create(n).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	type candView struct {
+		LandingID uint   `json:"landing_id"`
+		Name      string `json:"name"`
+		Eligible  bool   `json:"eligible"`
+		Reason    string `json:"reason"`
+	}
+	type exclView struct {
+		LandingID uint   `json:"landing_id"`
+		Name      string `json:"name"`
+		Reason    string `json:"reason"`
+	}
+	type decView struct {
+		EntryID    uint       `json:"entry_id"`
+		Action     string     `json:"action"`
+		Current    string     `json:"current"`
+		To         string     `json:"to"`
+		Reason     string     `json:"reason"`
+		Candidates []candView `json:"candidates"`
+		Exclusions []exclView `json:"exclusions"`
+	}
+	var out struct {
+		Decisions []decView `json:"decisions"`
+		Manual    []uint    `json:"manual"`
+	}
+
+	// full view: the cheap landing wins, the in-only landing is excluded by name
+	rec := doJSON(t, r, "GET", "/api/alloc/explain", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("explain status = %d body=%s", rec.Code, rec.Body)
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode explain: %v", err)
+	}
+	if len(out.Decisions) != 1 || len(out.Manual) != 0 {
+		t.Fatalf("explain = %+v", out)
+	}
+	d := out.Decisions[0]
+	if d.EntryID != entry.ID || d.Action != "switch" || d.To != cheap.Name || d.Reason == "" {
+		t.Fatalf("decision = %+v", d)
+	}
+	if len(d.Candidates) != 2 {
+		t.Fatalf("candidates = %+v", d.Candidates)
+	}
+	if d.Candidates[0].Name != cheap.Name || !d.Candidates[0].Eligible {
+		t.Fatalf("rank[0] = %+v", d.Candidates[0])
+	}
+	if d.Candidates[1].Name != pricey.Name || !d.Candidates[1].Eligible {
+		t.Fatalf("rank[1] = %+v", d.Candidates[1])
+	}
+	if len(d.Exclusions) != 1 || d.Exclusions[0].LandingID != inOnly.ID ||
+		d.Exclusions[0].Name != inOnly.Name || d.Exclusions[0].Reason == "" {
+		t.Fatalf("exclusions = %+v", d.Exclusions)
+	}
+
+	// a manual assignment moves the entry out of decisions into the manual list
+	eid := entry.ID
+	if err := db.Create(&storage.LandingAssignment{
+		EntryNodeID: &eid, LandingNodeID: pricey.ID, Direction: "out",
+		Strategy: "manual", AssignedAt: time.Now(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	rec = doJSON(t, r, "GET", "/api/alloc/explain", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("explain(manual) status = %d", rec.Code)
+	}
+	out.Decisions, out.Manual = nil, nil
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Decisions) != 0 || len(out.Manual) != 1 || out.Manual[0] != entry.ID {
+		t.Fatalf("manual view = %+v", out)
+	}
+
+	// the entry filter narrows the view; a bad id is rejected
+	rec = doJSON(t, r, "GET", "/api/alloc/explain?entry_id="+strconv.Itoa(int(entry.ID)), nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("filtered status = %d", rec.Code)
+	}
+	out.Decisions, out.Manual = nil, nil
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Decisions) != 0 || len(out.Manual) != 1 {
+		t.Fatalf("filtered manual view = %+v", out)
+	}
+	rec = doJSON(t, r, "GET", "/api/alloc/explain?entry_id=abc", nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad entry_id status = %d", rec.Code)
 	}
 }
