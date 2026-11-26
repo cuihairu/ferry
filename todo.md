@@ -1610,7 +1610,8 @@ External Client
     - 备注（Task ID: F-1031 | Status: Done | Evidence: RebindSickPaths Path 重绑执行器：enabled Path 的 landing 探针病态/掉出可调度池时，按方向策略从健康候选重选替代 landing，version 乐观守卫（面板并发改动胜出），failover=manual 冻结整趟（复用 F-0294 门）；接入 sweepOnce 每轮执行，rebind 事件进日志/通知/E-16b 钩子；TestRebindSickPaths（冻结/重绑/无路可退/二次空转）+TestRebindLandingLeftPool | Verification: go vet + server 全套件 green exit=0（51 ok）2026-11-26 | Commit: 6d0a5ab）
 -   [x] `F-1032` 实现调度决策记录。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1032 | Status: Done | Evidence: storage.AllocDecision（kind alloc/failover、RoundAt、双向策略、池规模、Switches、Decisions JSON 回放行）；只在真正动了状态的轮次落一张（alloc: Apply 有 switch 事件时；failover: RebindSickPaths 有 rebind 时），keep-only 轮不写（状态即 assignment 表）；decisionSnapshotRow 带 entry/方向/动作/from→to 名称/reason 免 join 可回放，PathRebindEvent 补 Direction 字段；读 API GET /api/alloc/decisions?limit=（默认 50，1-200 否则 400，最新在前）；TestApplyRecordsSnapshot+TestRebindRecordsSnapshot+TestAllocDecisionsList | Verification: go vet + server 全套件 green exit=0（51 ok）2026-11-26 | Commit: 43a3eae）
--   [ ] `F-1033` 实现候选排除原因。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1033` 实现候选排除原因。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1033 | Status: Done | Evidence: collectCandidates 结构性跳过不再静默：候选=entry 自身（both 角色双池）/方向不匹配/存量能力列表缺 relay_landing 都带 operator 可读 reason 进 Decision.Exclusions（与 F-0606 单价超上限同列）；Apply 自动随 recordExclusion 落 AllocExclusion 审计（1h 去重防刷）；决策快照回放行加 exclusions 字段（omitempty）使 GET /api/alloc/decisions 可解释每个被排除 landing；TestDecideExplainsStructuralExclusions（三因排除+trail 去重+快照回放） | Verification: go vet + server 全套件 green exit=0（51 ok）2026-11-26 | Commit: 3b82a58）
 -   [ ] `F-1034` 实现调度结果解释。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [ ] `F-1035` 实现调度模拟 API。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-1036` 实现调度单元测试。
