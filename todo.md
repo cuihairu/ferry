@@ -2189,8 +2189,8 @@ External Client
     - 备注（Task ID: F-1651 | Status: Done | Evidence: OpenTofu/Provider Provision 能力审计 §3.9 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1652` 将云资源创建纳入统一任务系统。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1652 | Status: Done | Evidence: apply 执行入云任务账本：registerTaskConsumers 注册 cloud.create（MaxAttempts=1 防付费 apply 盲目重试，Timeout=30m；Depends 校验 job 为 running apply；Run 从 job/template/provider/node 确定性重建 ExecParams 驱动 provision.Execute+FinishJob，状态≠ok 报错），ProvisionJob 新增 InstanceName 列（PrepareLaunch 落值，token 复用使 cloud-init 可重建），runProvision apply 分支改走 tasks.Enqueue（幂等键 provision-job-N），账本失败回退直连 goroutine 不滞留已铸造节点；测试 TestCloudCreateTask（apply→running job+InstanceName、任务行 pending/1/1800、LoopOnce 驱动 tofu 缺失→job failed+task dead、已完成 job 再入队→Depends 报错）+TestProvisionRunAPI 改驱动 mgr.LoopOnce 全绿 | Verification: gofmt 清洁，go build/vet 通过，server 全套 52 ok exit=0 FAIL=0 | Commit: 5a23bc1）
--   [ ] `F-1653` 支持创建前成本预估。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1653 | 部分：成本参考查询有（costref.go:49-117+packages/costref Quote.MonthlyCents:42）；非申请流内预估步骤，模板成本手填（providerapi.go:229）。）
+-   [x] `F-1653` 支持创建前成本预估。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1653 | Status: Done | Evidence: 新端点 GET /api/provision-templates/:id/cost-estimate（provisionapi.go templateCostEstimate）：apply 前按模板映射参考价查询（默认键 provider.Name+tpl.Region+SpecOf(BwMbps)，空档回退 Plan slug；provider/region/spec 参数可逐段覆盖），hit=false 为 200 非 404，手填 MonthlyCostCents 与报价对比仅在 ?currency= 给出币种时进行（模板无币种列），偏差走 costref.Compare+tolerance（币种不符/未填成本均为 reason 非报错）；未导表 400 指引 ref-table；测试 TestTemplateCostEstimate（未导表 400、404、默认键 miss、spec 覆盖 hit、+16% 偏差在带内、USD 币种不符、未填成本 reason） | Verification: gofmt 清洁，go build/vet 通过，server 全套 52 ok exit=0 FAIL=0 | Commit: d7b9aff）
 -   [ ] `F-1654` 支持创建前资源规格校验。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1654 | 部分：仅模板表单校验（providerapi.go:174-199）；无云端规格存在/配额检查。）
 -   [ ] `F-1655` 支持创建后资源同步。（依赖：无；完成条件：需求落地+测试绿+证据行）
