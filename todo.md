@@ -2145,20 +2145,20 @@ External Client
 
 ## 14.2 节点运维任务
 
--   [ ] `F-1621` 支持 Agent 重启任务。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1621 | 未满足：无 agent 重启任务（agentproto 仅 MsgUpgrade/MsgProcCtl messages.go:148；agent 自重启仅升级 Exec upgrade.go:92）。）
--   [ ] `F-1622` 支持 Relay 重启任务。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1622 | 部分：relay 是受管进程（roles/relay/relay.go:5），可经通用 proc_ctl 启停（procop.go:27-31）；无专门 relay 重启任务。）
+-   [x] `F-1621` 支持 Agent 重启任务。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1621 | Status: Done | Evidence: agentproto 新增 panel.agent_restart/agent.agent_restart_ack（envelope.go/messages.go）；agent OnMessage 先回 OK ack 再经可注入 restartFn（默认 upgrade.RestartNow exec 自身原位重启，app.go）——reply 先上 wire 再换进程映像；服务端 agent.restart 消费者（tasksapi.go，h.agentRequest 走 hub.Request，Depends=节点存在，OK=接受，重连后在线状态自刷新） | Verification: agent 测试 TestOnMessageAgentRestart（ack OK+restartFn 触发）+ 服务端 TestTaskAgentLinkConsumers 端到端（enqueue→sweep→succeeded；agent 拒绝时原因原样落 Error 列）；全量 52 ok FAIL=0 exit=0（含 GOMAXPROCS=1 复跑）+ handler/tasks 两包 -race 无数据竞争 | Commit: 632f8cb）
+-   [x] `F-1622` 支持 Relay 重启任务。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1622 | Status: Done | Evidence: relay.restart 消费者（tasksapi.go）经通用 proc_ctl stop→start（agent 侧 stop 等进程退出，成对即真重启周期，不受 proc reload 策略影响），MaxAttempts 3/Timeout 90s，可取消/重试/退避/审计全继承统一任务系统 | Verification: TestTaskAgentLinkConsumers 端到端绿（enqueue→sweep→succeeded）；全量 52 ok FAIL=0 exit=0 | Commit: 632f8cb）
 -   [x] `F-1623` 支持代理进程重启任务。
     - 备注（Task ID: F-1623 | Status: Done | Evidence: procop 重启；TestNodeProcOp+TestBatchNodeProc | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1624` 支持节点配置重应用任务。
     - 备注（Task ID: F-1624 | Status: Done | Evidence: pushConfig 重应用+configd 回滚；TestNodeConfigGuards+TestApplyReloadFailRollsBack | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1625` 支持节点升级任务。
     - 备注（Task ID: F-1625 | Status: Done | Evidence: router.go:183 nodeUpgrade；TestNodeUpgrade | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1626` 支持节点回滚任务。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1626 | 部分：仅 agent 侧自动回滚（120s 看门狗→Rollback upgrade.go:22,53,76）；面板无回滚任务/端点。）
--   [ ] `F-1627` 支持节点重新探测任务。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1627 | 未满足：探测是 agent 本地周期循环（probe/probe.go:62-164）；无面板重新探测端点。）
+-   [x] `F-1626` 支持节点回滚任务。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1626 | Status: Done | Evidence: agentproto 新增 panel.agent_rollback/agent.agent_rollback_ack；agent RollbackNow（无备份 fmt.Errorf 拒绝；有备份恢复+重_exec 同看门狗路径）经可注入 rollbackFn；服务端 agent.rollback 消费者（拒绝原因原样进 Error 列） | Verification: agent 测试 TestOnMessageAgentRollback（无备份拒绝 nack 带原因/注入成功 OK）+TestOnMessageAgentRollbackError + 服务端端到端绿；全量 52 ok FAIL=0 exit=0 | Commit: 632f8cb）
+-   [x] `F-1627` 支持节点重新探测任务。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1627 | Status: Done | Evidence: probe.Runner 新增 kick 通道+Kick() 非阻塞 fan-out（未运行返回 0），loop select 收到 kick 立即出下一周期；agentproto 新增 panel.probe_now/agent.probe_now_ack（Probed=踢中的 loop 数）；服务端 node.reprobe 消费者 | Verification: probe 测试 TestKickImmediateCycle（120s 间隔下 kick 后 3s 内出第二份报告）+TestKickNotRunning + TestOnMessageProbeNow + 服务端端到端绿；全量 52 ok FAIL=0 exit=0 | Commit: 632f8cb）
 -   [x] `F-1628` 支持节点摘除任务。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1628 | Status: Done | Evidence: 原「同步翻状态无任务行」回应——node.suspend 消费者注册（Depends=节点存在且 entry 角色，Run=pool.Suspend 同规则、已在摘除视为幂等成功+OnChange 对账），经 POST /api/tasks 排队：可取消/重试/退避/审计全继承统一任务系统 | Verification: tasks 包 7 测试+TestTaskEndpoints 绿（全量 52 ok FAIL=0 exit=0）（TestTaskEndpoints 端到端：enqueue→sweep→pool_state=suspended） | Commit: 1963bfa
 -   [x] `F-1629` 支持节点恢复任务。（依赖：无；完成条件：需求落地+测试绿+证据行）
