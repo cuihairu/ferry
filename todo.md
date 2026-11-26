@@ -1416,18 +1416,22 @@ External Client
 
 -   [x] `F-0821` 为现有每种 Relay 传输方式建立独立测试。
     - 备注（Task ID: F-0821 | Status: Done | Evidence: tunnel{ws-tls,ssh,quic}+quictunnel 分测；wstls_test/ssh_test/quicsidecar_test/quictunnel_test | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0822` 统一传输插件能力声明。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0822 | 区级未满足原因：区级现状：F-0828 已关；其余——传输插件能力声明未满足(Tunnel 接口仅 Name/Dial/ServeHeartbeat/Close tunnel.go:16-26)、错误分类部分(仅 ErrHeartbeatLost+ErrRejected 两哨兵)、超时/重连部分(Options.Timeout 统一 tunnel.go:93-102 但重连未统一)、QUIC 参数部分(默认值固定无校验/无资源限制 quictunnel.go:89-95)、性能对比测试未满足(无 Benchmark)。）
--   [ ] `F-0823` 统一传输插件错误分类。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0824` 统一连接超时和重连行为。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0822` 统一传输插件能力声明。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0822 | Status: Done | Evidence: tunnel.go Caps/ Capper/CapsOf/BaselineCaps(F-0822 统一接口)+四个插件各自声明(tls-camo/ws-tls Camouflage；ssh/quic 明文不声明)+caps_test(声明矩阵+裸插件基线)；ssh 通道多路复用是 sshd 自身行为故 Multiplex 仍 false | Commit: 1b39440）
+-   [x] `F-0823` 统一传输插件错误分类。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0823 | Status: Done | Evidence: tunnel/errors.go ErrorClass(config/auth/network/heartbeat)+Error+Classify(ErrHeartbeatLost 哨兵识别)+Wrap/Errorf+各插件错误点全部分类(ssh 校验/键/握手/通道、camo/wstls CA、quic sidecar ERR=auth)+errors_test(分类+插件真实错误路径)；x/crypto 握手合并网络与拒绝故保守归 network | Commit: a12d5e1）
+-   [x] `F-0824` 统一连接超时和重连行为。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0824 | Status: Done | Evidence: tunnel/retry.go DialRetry 统一重连(按分类跳过 config/auth、网络类按 Attempts 重试 Backoff、ctx 取消停止)+DialError 报告尝试数+Retryable；relay serveConn 改用 tunnel.DialRetry(F-0813 循环收编)+retry_test(分类重试/立即放弃/ctx 取消/默认值) | Commit: 83768bc）
 -   [x] `F-0825` 验证 TLS 证书校验。
     - 备注（Task ID: F-0825 | Status: Done | Evidence: link tlsConfig；TestTLSConfig+TestRunTLSSetupFailure | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0826` 验证 SSH Host Key 校验。
     - 备注（Task ID: F-0826 | Status: Done | Evidence: tunnel/ssh Host Key 校验；TestSSHTunnelHostKeyVerify | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0827` 验证 QUIC 参数和资源限制。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0827` 验证 QUIC 参数和资源限制。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0827 | Status: Done | Evidence: quictunnel DefaultQUICConfig 加 MaxIncomingStreams=256/MaxIncomingUniStreams=64 资源上限+ValidateQUICConfig 参数不变量(idle>0、keepalive<idle、流限>0)+NewClientWithConfig 校验构造+ferry-quic main 启动校验；quicparams_test | Commit: 17433a4）
 -   [x] `F-0828` 验证 WS-TLS 连接行为。
     - 备注（Task ID: F-0828 | Status: Done | Evidence: TestWSTLSPlugin(注册/TLS/WS 握手/小帧/100KB 流回显)+TestWSTLSCancel+TestWSTLSServerNameFallback+TestWSTLSCAFileErrors+TestWSConnReadSkipsNonBinary+TestWSConnWriteAfterClose | Verification: wstls_test+wstls_extra_test | Commit: 842a7dd）
--   [ ] `F-0829` 建立不同传输插件的性能对比测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0829` 建立不同传输插件的性能对比测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0829 | Status: Done | Evidence: bench_test.go 各插件同一回显 1MiB 往返吞吐对比(tls-camo 176MB/s / ssh 137MB/s / ws-tls 81MB/s，本机 -benchtime=2x 量级对比；quic 需 sidecar 无法在包内诚实搭台，由 ferry-quic 模块 e2e 覆盖)+测试 helpers 改 testing.TB 复用 | Commit: 3b80181）
 
 ## 6.3 故障隔离
 
@@ -1437,10 +1441,12 @@ External Client
     - 备注（Task ID: F-0832 | Status: Done | Evidence: server faultisolation_test.go TestRelayCrashDoesNotBlockNodeManagement：relay=crashed 行下 GET /api/nodes 正常、PUT 全字段 200、proc 操作 502(agent 离线语义)、status 保持 crashed | Verification: 测试绿（server 全套 47/47 ok, 2026-11-26） | Commit: 2478350）
 -   [x] `F-0833` 验证 Relay 重启后恢复最后有效配置。
     - 备注（Task ID: F-0833 | Status: Done | Evidence: loadOverride 启动重读(relay.go:63-68,213-226)+configd 原子回滚(configd.go:107-126,205-238) | Verification: TestRelayRunFile/TestRelayHotRepoint(损坏 override 保当前)/TestLoadOverrideMissingAndError/TestApplyReloadFailRollsBack | Commit: 842a7dd）
--   [ ] `F-0834` Relay 失联时更新关联 Path 状态。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0834` Relay 失联时更新关联 Path 状态。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0834 | Status: Done | Evidence: server pathhealth relayfault_test.go TestRelayLossDegradesPath：relay 跳心跳丢失(node offline)→path degraded；relay 池 suspended→degraded | Verification: 测试绿（server 全套 47/47 ok, 2026-11-26） | Commit: dcc83ad）
 -   [x] `F-0835` Relay 恢复后执行健康探测再恢复调度资格。
     - 备注（Task ID: F-0835 | Status: Done | Evidence: pool.Sweep 仅 WellStreak 连续健康后恢复 StateActive(pool.go:161-169；suspend :152-160) | Verification: TestSweepSuspendAndResume(1 次健康不复、2 次复) | Commit: 842a7dd）
--   [ ] `F-0836` 禁止仅凭 Relay 进程存活判定 Path 可用。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0836` 禁止仅凭 Relay 进程存活判定 Path 可用。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-0836 | Status: Done | Evidence: server pathhealth relayfault_test.go TestProcLivenessNeverMakesPathHealthy：三跳 relay proc 全 running 但无探测结论→path 仍 unknown；有 sick 结论→degraded（Evaluate 只读 node 存活/池态/探测结论，从不读 proc liveness） | Verification: 测试绿（server 全套 47/47 ok, 2026-11-26） | Commit: dcc83ad）
 
 ------------------------------------------------------------------------
 
