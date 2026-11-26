@@ -1573,7 +1573,8 @@ External Client
     - 备注（Task ID: F-1013 | Status: Done | Evidence: costPer 成本序；TestPickCostFirst | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1014` 根据健康状态过滤节点。
     - 备注（Task ID: F-1014 | Status: Done | Evidence: Healthy=!sick 门；TestPickHealthGate | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1015` 支持候选 Path 预览。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1015` 支持候选 Path 预览。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1015 | Status: Done | Evidence: GET /api/paths/preview?entry_node_id=&direction= 复用 alloc 策略比较器/连接与探针信号，列出 sweep 会考虑的 landing 候选、排名、健康与资格与 winner，只读不写；TestPathCandidatePreview | Verification: go build/vet + server 全套件 green exit=0（51 ok，handler 765s，cmd/ferry 1.489s）2026-11-26 | Commit: 5c84357）
 -   [ ] `F-1016` 支持人工确认后创建 Path。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [ ] `F-1017` 支持自动创建 Path。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [ ] `F-1018` 自动创建后执行连通性验证。（依赖：无；完成条件：需求落地+测试绿+证据行）
