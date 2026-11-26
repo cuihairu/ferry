@@ -154,6 +154,14 @@ func (t *sshTunnel) ServeHeartbeat(ctx context.Context, conn net.Conn, interval 
 	return PingPong(ctx, conn, interval)
 }
 
+// Caps declares the plugin's features (F-0822): an SSH session is visible as
+// SSH on the wire -- no camouflage -- but carries the shared ping/pong and
+// multiplexes channels internally via sshd. The channel multiplexing is sshd's
+// own, not the tunnel interface's P1 stream slot, so Multiplex stays false.
+func (t *sshTunnel) Caps() Caps {
+	return Caps{Heartbeat: true}
+}
+
 // Close releases the reused connection (tunnelCache holds the instance cache; everything closes when a hot reload swaps the landing).
 func (t *sshTunnel) Close() error {
 	t.mu.Lock()

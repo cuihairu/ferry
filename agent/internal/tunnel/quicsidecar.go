@@ -90,6 +90,13 @@ func (t *quicSidecar) ServeHeartbeat(ctx context.Context, conn net.Conn, interva
 	return PingPong(ctx, conn, interval)
 }
 
+// Caps declares the plugin's features (F-0822): the agent leg to the sidecar
+// is a plain TCP CONNECT bridge -- no camouflage on this hop -- plus the
+// shared ping/pong; the QUIC leg is the sidecar's own concern.
+func (t *quicSidecar) Caps() Caps {
+	return Caps{Heartbeat: true}
+}
+
 func (t *quicSidecar) Close() error {
 	// no global resources; the sidecar's lifecycle is independent of the agent (systemd / a managed process slot).
 	return nil

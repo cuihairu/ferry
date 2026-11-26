@@ -75,4 +75,10 @@ func (t *tlsCamo) ServeHeartbeat(ctx context.Context, conn net.Conn, interval ti
 	return PingPong(ctx, conn, interval)
 }
 
+// Caps declares the plugin's features (F-0822): browser-aligned TLS camouflage
+// plus the shared ping/pong; no multiplexing or UDP under the P0 contract.
+func (t *tlsCamo) Caps() Caps {
+	return Caps{Camouflage: true, Heartbeat: true}
+}
+
 func (t *tlsCamo) Close() error { return nil }

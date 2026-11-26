@@ -100,3 +100,42 @@ func (o Options) TimeoutOrDefault() time.Duration {
 	}
 	return DefaultDialTimeout
 }
+
+// Caps is a transport plugin's feature declaration (F-0822): the relay core and
+// the panel read the struct instead of special-casing plugin names. A zero
+// field means the feature is absent -- declarations are additive, so new
+// plugins only state what they actually do.
+type Caps struct {
+	// Camouflage means outbound traffic presents as ordinary TLS/HTTPS to the
+	// Options.ServerName camouflage domain (browser-aligned ClientHello, wss, ...).
+	Camouflage bool
+	// Heartbeat means ServeHeartbeat runs the shared application ping/pong
+	// (heartbeat.go) on every dialed connection.
+	Heartbeat bool
+	// Multiplex means one tunnel connection carries several independent streams
+	// (the P1 interface slot; no P0 plugin sets it).
+	Multiplex bool
+	// UDP means the plugin can carry UDP sessions (nothing sets it under the
+	// P0 single-TCP-stream contract).
+	UDP bool
+}
+
+// Capper is implemented by plugins that declare their capabilities (F-0822).
+// The interface stays optional so third-party Tunnel implementations and test
+// fakes keep compiling; CapsOf supplies the P0 baseline for them.
+type Capper interface {
+	Caps() Caps
+}
+
+// BaselineCaps is what an undeclaring plugin still guarantees under the P0
+// contract: a byte-stream Dial plus the shared ping/pong heartbeat.
+func BaselineCaps() Caps { return Caps{Heartbeat: true} }
+
+// CapsOf returns a plugin's declaration, falling back to BaselineCaps when it
+// does not implement Capper.
+func CapsOf(t Tunnel) Caps {
+	if c, ok := t.(Capper); ok {
+		return c.Caps()
+	}
+	return BaselineCaps()
+}

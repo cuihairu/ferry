@@ -80,6 +80,12 @@ func (t *wsTls) ServeHeartbeat(ctx context.Context, conn net.Conn, interval time
 	return PingPong(ctx, conn, interval)
 }
 
+// Caps declares the plugin's features (F-0822): wss presents as ordinary
+// browser websocket traffic plus the shared ping/pong; no multiplexing or UDP.
+func (t *wsTls) Caps() Caps {
+	return Caps{Camouflage: true, Heartbeat: true}
+}
+
 func (t *wsTls) Close() error { return nil }
 
 // wsConn adapts WebSocket message semantics into the stream semantics of a net.Conn (relay's io.Copy
