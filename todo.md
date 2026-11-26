@@ -1456,11 +1456,12 @@ External Client
 
 -   [x] `F-0901` 审计当前 Probe 任务模型和结果模型。
     - 备注（Task ID: F-0901 | Status: Done | Evidence: Probe 任务/结果模型审计 §3.4 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0902` 区分 Node Health。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-0902 | 区级未满足原因：区级现状：探针 TargetKind 仅 tunnel/exit/peer(messages.go:247-249)，无 node/path kind；Node 健康由 pool.Sweep 从 tunnel+peer 计算(pool.go:129-173)——F-0902/0904/0905 部分或未满足。jitter(F-0907)/UDP(F-0910)/应用层(F-0911)/公网出口(F-0912)/异常样本(F-0916) 均未满足（probe.go:131 仅 TCP、无 jitter/outlier 字段）。）
+-   [x] `F-0902` 区分 Node Health。
+    - 备注（Task ID: F-0902 | Status: Done | Evidence: server/internal/nodehealth.Evaluate——disabled/offline=off、PoolState=suspended=degraded、30min 内新鲜 verdict sick→degraded/healthy→healthy（降级封底）、无 verdict=unknown；GET /api/nodes/:id/status 增 `health` 字段；dash 节点状态弹窗展示「节点健康」标签并注明区别于线路健康 | Verification: TestEvaluateRules+TestNodeStatusHealth；server 全套 48 包 ok 2026-11-26 | Commit: 544a895）
 -   [x] `F-0903` 区分 Tunnel Health。
     - 备注（Task ID: F-0903 | Status: Done | Evidence: ProbeTargetTunnel="tunnel"(agentproto/messages.go:247)+tunnel 探针(TestProbeTunnelReturnPath)+aggregate tunnel/peer(aggregate.go:69-70) | Verification: TestProbeTunnelReturnPath | Commit: fbcb525）
--   [ ] `F-0904` 区分 Path Health。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0904` 区分 Path Health。
+    - 备注（Task ID: F-0904 | Status: Done | Evidence: pathhealth.Evaluate/GroupHealth/Availability 为独立于 Node 健康的 path 级派生（F-0251/0268/0269 已落）；新增区分回归测试：entry 下线→该 node off、过它路径 degraded、无关路径/节点不受影响；landing 新鲜 verdict 按各自规则独立翻转 | Verification: TestNodeAndPathHealthIndependent（nodehealth/distinction_test.go） | Commit: f8ae7f8）
 -   [ ] `F-0905` 区分 Egress Health。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-0906` 支持 RTT 探测。
     - 备注（Task ID: F-0906 | Status: Done | Evidence: probe measure RTT；TestProbeHealthy | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
