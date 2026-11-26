@@ -1982,23 +1982,38 @@ External Client
 
 -   [x] `F-1441` 提供 Provider 管理入口。
     - 备注（Task ID: F-1441 | Status: Done | Evidence: ProvisionView.vue:173-199/:263-282 provider CRUD（api :592-604） | Verification: API 侧 TestProviderAPI（providerapi_test.go:40）；dash 无前端单测 | Commit: ce8b33e）
--   [ ] `F-1442` 提供 Cloud Account 管理入口。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1442 | 区级未满足原因：云资源与云操作页面未实现——无 CloudResource 模型即无资源列表/详情/关联/电源/重装/批量/同步/错误页；本区 F-1443~F-1454、F-1456~F-1457 未满足；F-1442 部分（provider 含加密 access_key 兼作账号，无独立 account 实体）；F-1455 部分（仅 provision job 状态/日志，非资源操作进度）。）
--   [ ] `F-1443` 提供账号连接测试。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-1444` 提供资源同步入口。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-1445` 提供云资源列表。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-1446` 提供云资源详情。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-1447` 提供云资源与 Node 关联管理。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-1448` 提供开机操作。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-1449` 提供关机操作。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-1450` 提供重启操作。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-1451` 提供强制停止操作和高危确认。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-1452` 对支持的 Provider 提供重装/重建入口。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-1453` 提供批量操作预览。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-1454` 提供批量操作逐资源结果。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-1455` 展示云操作任务进度。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-1456` 展示 Provider API 最后同步时间。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-1457` 展示 Provider 错误和权限不足原因。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1442` 提供 Cloud Account 管理入口。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1442 | Status: Done | Evidence: 原「云资源与云操作页面未实现」整段结论已过时——CloudView 云账号区：录入/编辑/删除对话框（access_key 仅存 has_access_key 标记，加密落库）+ 连接测试/同步/错误展示，provider 即云账号（F-0411 面）；本区 F-1443~F-1457 逐行见各自证据 | Verification: TestProviderAPI+TestCloudOperationAPI 绿（随 2026-11-27 全量 51 ok）；dash build 绿 | Commit: 7f78101）
+-   [x] `F-1443` 提供账号连接测试。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1443 | Status: Done | Evidence: CloudView 账号行「测试」→ POST /providers/:id/test（testConnection，CloudProviderTest 回传 ok/mode/error_type/capabilities） | Verification: TestProviderAPI（providerapi_test.go）含连接测试断言；dash build 绿 | Commit: 7f78101）
+-   [x] `F-1444` 提供资源同步入口。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1444 | Status: Done | Evidence: CloudView 账号行「同步」→ POST /providers/:id/sync（syncResources），另有 cloudsync.Loop 周期同步（main.go F-0347）；结果入同步日志 tab | Verification: TestProviderAPI 同步断言；dash build 绿 | Commit: 7f78101）
+-   [x] `F-1445` 提供云资源列表。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1445 | Status: Done | Evidence: CloudView 资源表：provider/账号/区域/状态/关键字五过滤 + 最后同步列（过期变灰）+ 批量操作按钮组 | Verification: TestProviderAPI 资源列表断言；dash build 绿 | Commit: 7f78101）
+-   [x] `F-1446` 提供云资源详情。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1446 | Status: Done | Evidence: CloudView 资源行点击开详情对话框（openResource，el-descriptions 含 最后同步/绑定节点/区域/状态/external_id 等） | Verification: TestProviderAPI 资源详情断言；dash build 绿 | Commit: 7f78101）
+-   [x] `F-1447` 提供云资源与 Node 关联管理。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1447 | Status: Done | Evidence: CloudView 绑定/解绑对话框（openBind/saveBind/unbind→POST /cloud-resources/:id/bind|unbind）+ 从云资源创建节点并自动绑定（createNodeFromResource）+ Node→资源深链（F-0431） | Verification: TestProviderAPI 绑定断言；dash build 绿 | Commit: 7f78101）
+-   [x] `F-1448` 提供开机操作。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1448 | Status: Done | Evidence: CloudView 资源行「开机」→ openOperation(row,'power_on')→POST /cloud-operations（任务系统异步，高危确认框对 power_off/force_stop/rebuild） | Verification: TestCloudOperationAPI+TestOperStateMachine（oper_test.go:57）绿 | Commit: 5a59e1e）
+-   [x] `F-1449` 提供关机操作。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1449 | Status: Done | Evidence: CloudView 资源行「关机」（power_off 高危二次确认）+ 前置防护：shutdownCheck（近期有用户流量先摘流提示 F-0429）与 drain（摘流） | Verification: TestCloudOperationAPI 绿 | Commit: 5a59e1e）
+-   [x] `F-1450` 提供重启操作。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1450 | Status: Done | Evidence: CloudView 资源行「重启」+批量重启（reboot→POST /cloud-operations） | Verification: TestCloudOperationAPI+TestOperStateMachine 绿 | Commit: 5a59e1e）
+-   [x] `F-1451` 提供强制停止操作和高危确认。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1451 | Status: Done | Evidence: CloudView HIGH_RISK=['power_off','force_stop','rebuild']（CloudView.vue:259）：提交对话框勾选「我已确认风险」方可提交，高风险操作标注二次确认 | Verification: TestCloudOperationAPI（confirmed 门）绿 | Commit: 5a59e1e）
+-   [x] `F-1452` 对支持的 Provider 提供重装/重建入口。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1452 | Status: Done | Evidence: rebuild（重装）在 OP_TEXT 操作集（CloudView.vue:261）且属 HIGH_RISK 走二次确认；能力门由服务端 adapter capabilities 判（TestOperCapabilityGate oper_test.go:341，不支持的 provider 拒绝） | Verification: TestOperCapabilityGate 绿 | Commit: 5a59e1e）
+-   [x] `F-1453` 提供批量操作预览。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1453 | Status: Done | Evidence: CloudView 批量开机/重启/关机按钮（openBatchOperation 取当前过滤结果剔除 missing）→ 提交对话框列目标资源表（实例/外部 ID/当前状态）+确认勾选，先预览后提交 | Verification: TestOperIdempotencyAndBatch（oper_test.go:148）绿；dash build 绿 | Commit: 5a59e1e）
+-   [x] `F-1454` 提供批量操作逐资源结果。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1454 | Status: Done | Evidence: 批量提交按资源各建一条 CloudOperation 行（共享 batch_id）：操作任务表每行独立状态/结果/错误/provider_code，可按批次列核对逐资源结果 | Verification: TestOperIdempotencyAndBatch 绿 | Commit: 5a59e1e）
+-   [x] `F-1455` 展示云操作任务进度。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1455 | Status: Done | Evidence: CloudView「操作任务」tab：状态 tag（pending/running/succeeded/failed/unknown/cancelled）+ 任务详情对话框（openOperationDetail：状态流转日志 CloudOperationLog/批次/结果/错误/操作者）+ 可取消任务（allow_cancel）+ oper.Reconcile 收敛 vendor Unknown（F-0373） | Verification: TestOperUnknownAndCancel（oper_test.go:234）绿 | Commit: 5a59e1e）
+-   [x] `F-1456` 展示 Provider API 最后同步时间。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1456 | Status: Done | Evidence: CloudView 资源表「最后同步」列（last_sync_at，过期置灰 stale()）+ 同步日志 tab（触发/结果/新增更新丢失/完成时间） | Verification: TestProviderAPI；dash build 绿 | Commit: 7f78101）
+-   [x] `F-1457` 展示 Provider 错误和权限不足原因。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1457 | Status: Done | Evidence: 同步日志「错误」列（CloudView.vue:513）+ 操作任务结果列回传 error/provider_code + 连接测试 error_type（权限/凭据类错误分类） | Verification: TestProviderAPI+TestCloudOperationAPI 绿 | Commit: 7f78101）
 
 ## 12.4 成本与账单
 
