@@ -24,22 +24,23 @@ import (
 // previewCandidate is one ranked landing: the node facts an operator needs to
 // judge a candidate, plus why it is (or is not) eligible.
 type previewCandidate struct {
-	NodeID       uint    `json:"node_id"`
-	Name         string  `json:"name"`
-	Region       string  `json:"region"`
-	ISP          string  `json:"isp"`
-	ASN          string  `json:"asn"`
-	LineType     string  `json:"line_type"`
-	Direction    string  `json:"direction"`
-	CapacityMbps int     `json:"capacity_mbps"`
-	Conns        int     `json:"conns"`
-	CostPerGB    int64   `json:"cost_per_gb"`
-	Quality      float64 `json:"quality"` // fresh probe quality folded to [0,1] (F-1028); 0.5 = no fresh sample
-	Healthy      bool    `json:"healthy"`
-	Health       string  `json:"health"`
-	Score        float64 `json:"score"`
-	Eligible     bool    `json:"eligible"`
-	Reason       string  `json:"reason"`
+	NodeID        uint    `json:"node_id"`
+	Name          string  `json:"name"`
+	Region        string  `json:"region"`
+	ISP           string  `json:"isp"`
+	ASN           string  `json:"asn"`
+	LineType      string  `json:"line_type"`
+	Direction     string  `json:"direction"`
+	CapacityMbps  int     `json:"capacity_mbps"`
+	Conns         int     `json:"conns"`
+	CostPerGB     int64   `json:"cost_per_gb"`
+	SchedPriority int     `json:"sched_priority"` // scheduling priority tier (F-1029): lower = preferred
+	Quality       float64 `json:"quality"`        // fresh probe quality folded to [0,1] (F-1028); 0.5 = no fresh sample
+	Healthy       bool    `json:"healthy"`
+	Health        string  `json:"health"`
+	Score         float64 `json:"score"`
+	Eligible      bool    `json:"eligible"`
+	Reason        string  `json:"reason"`
 }
 
 // pathPreview is the whole answer: the ranked candidate list plus which one
@@ -147,21 +148,22 @@ func (h *Handler) previewPathCandidates(c *gin.Context) {
 			reason = "probe window reports sick"
 		}
 		out = append(out, previewCandidate{
-			NodeID:       cd.Node.ID,
-			Name:         cd.Node.Name,
-			Region:       cd.Node.Region,
-			ISP:          cd.Node.ISP,
-			ASN:          cd.Node.ASN,
-			LineType:     cd.Node.LineType,
-			Direction:    cd.Node.Direction,
-			CapacityMbps: cd.CapacityMbps(),
-			Conns:        cd.Conns,
-			CostPerGB:    cd.CostPerGB(),
-			Quality:      alloc.QualityScore(cd.Quality),
-			Healthy:      cd.Healthy,
-			Health:       h,
-			Eligible:     eligible,
-			Reason:       reason,
+			NodeID:        cd.Node.ID,
+			Name:          cd.Node.Name,
+			Region:        cd.Node.Region,
+			ISP:           cd.Node.ISP,
+			ASN:           cd.Node.ASN,
+			LineType:      cd.Node.LineType,
+			Direction:     cd.Node.Direction,
+			CapacityMbps:  cd.CapacityMbps(),
+			Conns:         cd.Conns,
+			CostPerGB:     cd.CostPerGB(),
+			SchedPriority: cd.Node.SchedPriority,
+			Quality:       alloc.QualityScore(cd.Quality),
+			Healthy:       cd.Healthy,
+			Health:        h,
+			Eligible:      eligible,
+			Reason:        reason,
 		})
 	}
 

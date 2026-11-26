@@ -230,6 +230,12 @@ func (h *Handler) updateNode(c *gin.Context) {
 		updates["group"] = strings.TrimSpace(in.Group)
 		metaProvided = true
 	}
+	// Scheduling priority tier (F-1029): the pointer distinguishes an explicit
+	// 0 reset from absent.
+	if in.SchedPriority != nil {
+		updates["sched_priority"] = *in.SchedPriority
+		metaProvided = true
+	}
 	if metaProvided {
 		// once the panel has edited metadata, registration reports no longer override it.
 		updates["meta_init"] = true
@@ -545,6 +551,11 @@ func applyMetaInput(n *storage.Node, in *model.NodeInput) {
 	if in.Group != "" {
 		n.Group = strings.TrimSpace(in.Group)
 	}
+	if in.SchedPriority != nil {
+		// validated non-negative in validateNodeInput
+		n.SchedPriority = *in.SchedPriority
+		provided = true
+	}
 	if in.Labels != nil {
 		// validated in validateNodeInput, so the marshal cannot fail here
 		n.Labels, _ = storage.MarshalLabelsJSON(in.Labels)
@@ -594,6 +605,11 @@ func validateNodeInput(in *model.NodeInput, creating bool) error {
 		if _, err := storage.ParseCapsJSON(in.Capabilities); err != nil {
 			return err
 		}
+	}
+	// Scheduling priority tier (F-1029): lower value = higher priority; 0 is
+	// the standard tier, negative values would invert the contract.
+	if in.SchedPriority != nil && *in.SchedPriority < 0 {
+		return errors.New("sched_priority must be non-negative")
 	}
 	// Business metadata (F-0743): billing type vocabulary, non-negative prices,
 	// label hygiene.

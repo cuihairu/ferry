@@ -407,16 +407,26 @@ func LessFor(policy, direction, missingRule string, w ScoreWeights, cands []Cand
 	// Partition by the degradation rule (F-0605/F-0610): a missing price never
 	// meets a priced one on cost — it loses that comparison outright, and the
 	// policy order decides as usual within each bucket. treat_zero keeps the
-	// legacy single-bucket behavior.
-	if missingRule == MissingCostTreatZero {
-		return less
+	// legacy single-bucket behavior. Both paths then pass through the priority
+	// tier partition (F-1029).
+	prior := func(i int) int { return cands[i].Node.SchedPriority }
+	byTier := func(inner func(a, b int) bool) func(a, b int) bool {
+		return func(a, b int) bool {
+			if pa, pb := prior(a), prior(b); pa != pb {
+				return pa < pb
+			}
+			return inner(a, b)
+		}
 	}
-	return func(a, b int) bool {
+	if missingRule == MissingCostTreatZero {
+		return byTier(less)
+	}
+	return byTier(func(a, b int) bool {
 		if ma, mb := missing(a), missing(b); ma != mb {
 			return !ma
 		}
 		return less(a, b)
-	}
+	})
 }
 
 // Peak switch threshold: the primary metric must be clearly better (saving 30% or more) to move, preventing trail churn (E-22).
@@ -425,6 +435,12 @@ const peakSwitchMargin = 0.7
 // shouldSwitch is the peak switch decision (the off-peak window switches directly by the policy total order, bypassing this check).
 // When the current landing is not among healthy candidates (sick/offline) the caller force-switches and does not reach this function.
 func shouldSwitch(policy, direction, missingRule string, w ScoreWeights, cands []Candidate, cur, win int) bool {
+	// Priority tier (F-1029): a move into a better tier is a proven
+	// improvement regardless of the margins; a downgrade waits for the
+	// off-peak rebalance (the total order already prefers the best tier there).
+	if curTier, winTier := cands[cur].Node.SchedPriority, cands[win].Node.SchedPriority; curTier != winTier {
+		return winTier < curTier
+	}
 	// Missing prices (F-0605/F-0610) for the cost-aware policies: never switch
 	// at peak from a known price to an unknown one (an unknown price is not a
 	// proven improvement), and leaving an unknown price for a known one is a

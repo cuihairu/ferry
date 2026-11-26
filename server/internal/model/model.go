@@ -65,6 +65,10 @@ type NodeInput struct {
 	// current value, non-nil replaces); Group is a free business grouping tag.
 	Labels []string `json:"labels,omitempty"`
 	Group  string   `json:"group,omitempty"`
+	// SchedPriority sets the scheduling priority tier (F-1029): lower value =
+	// higher priority, 0 = standard. nil keeps the current value (the pointer
+	// distinguishes an explicit 0 reset from absent).
+	SchedPriority *int `json:"sched_priority,omitempty"`
 	// Cost fields (F-0743): editable by the admin, feeding the estimate engine
 	// (billing.EstimateNode); pointers distinguish "absent" from "explicitly 0".
 	BillingType       string `json:"billing_type,omitempty"`

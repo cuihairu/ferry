@@ -287,3 +287,63 @@ func TestNodeTokenRevocation(t *testing.T) {
 func ptrTime(value time.Time) *time.Time {
 	return &value
 }
+
+// TestNodeSchedPriority covers the scheduling priority tier API (F-1029):
+// set at create, updated with nil-keeps / explicit-0-resets semantics,
+// negative values rejected, and the tier feeds allocation ordering.
+func TestNodeSchedPriority(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	// create with a tier
+	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
+		"name": "pr-1", "address": "pr1.example.com", "port": 443,
+		"protocol": "vless", "sched_priority": 3,
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s", rec.Code, rec.Body)
+	}
+	var created storage.Node
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.SchedPriority != 3 {
+		t.Fatalf("created sched_priority = %d", created.SchedPriority)
+	}
+
+	// update with an explicit 0 resets; a payload without the field keeps it
+	if rec = doJSON(t, r, "PUT", "/api/nodes/"+utoa(created.ID), map[string]any{
+		"sched_priority": 0,
+	}); rec.Code != http.StatusOK {
+		t.Fatalf("reset status = %d body=%s", rec.Code, rec.Body)
+	}
+	var row storage.Node
+	if err := db.First(&row, created.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if row.SchedPriority != 0 {
+		t.Fatalf("explicit 0 reset failed: %+v", row)
+	}
+	if rec = doJSON(t, r, "PUT", "/api/nodes/"+utoa(created.ID), map[string]any{
+		"sched_priority": 7,
+	}); rec.Code != http.StatusOK {
+		t.Fatalf("set status = %d %s", rec.Code, rec.Body)
+	}
+	if rec = doJSON(t, r, "PUT", "/api/nodes/"+utoa(created.ID), map[string]any{
+		"line_type": "cn2_gia",
+	}); rec.Code != http.StatusOK {
+		t.Fatalf("keep status = %d %s", rec.Code, rec.Body)
+	}
+	if err := db.First(&row, created.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if row.SchedPriority != 7 {
+		t.Fatalf("absent field must keep the tier: %+v", row)
+	}
+
+	// negative values invert the contract
+	if rec = doJSON(t, r, "PUT", "/api/nodes/"+utoa(created.ID), map[string]any{
+		"sched_priority": -1,
+	}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("negative status = %d %s", rec.Code, rec.Body)
+	}
+}

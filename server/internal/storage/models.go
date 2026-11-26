@@ -196,17 +196,21 @@ type Node struct {
 	Status         string     `gorm:"size:16;default:unknown" json:"status"` // online/offline/unknown
 	// Registration metadata (entries and load balancing design §C.3/C.6): the initial values the agent reports at registration,
 	// the panel may change them and is authoritative (after meta_init is set, registration no longer overwrites).
-	Role                     string     `gorm:"size:16;default:landing" json:"role"` // entry/landing/both
-	Direction                string     `gorm:"size:8;default:out" json:"direction"` // out/in/both
-	LineType                 string     `gorm:"size:16;default:普通" json:"line_type"` // cn2_gia/cu_vip/cmi/iplc/163/normal
-	Region                   string     `gorm:"size:64;default:未知" json:"region"`    // region, the fault-aggregation dimension
-	City                     string     `gorm:"size:64" json:"city"`
-	Datacenter               string     `gorm:"size:128" json:"datacenter"`
-	ISP                      string     `gorm:"size:32;default:未知" json:"isp"`          // ISP, the fault-aggregation dimension
-	ASN                      string     `gorm:"size:32" json:"asn"`                     // autonomous system number of the upstream network (F-0207)
-	ProviderID               *uint      `gorm:"index" json:"provider_id"`               // owning cloud Provider row, panel-set (F-0207)
-	Labels                   string     `gorm:"type:text" json:"labels"`                // JSON array
-	Group                    string     `gorm:"size:64;default:''" json:"group"`        // free business grouping tag (F-0743)
+	Role       string `gorm:"size:16;default:landing" json:"role"` // entry/landing/both
+	Direction  string `gorm:"size:8;default:out" json:"direction"` // out/in/both
+	LineType   string `gorm:"size:16;default:普通" json:"line_type"` // cn2_gia/cu_vip/cmi/iplc/163/normal
+	Region     string `gorm:"size:64;default:未知" json:"region"`    // region, the fault-aggregation dimension
+	City       string `gorm:"size:64" json:"city"`
+	Datacenter string `gorm:"size:128" json:"datacenter"`
+	ISP        string `gorm:"size:32;default:未知" json:"isp"`   // ISP, the fault-aggregation dimension
+	ASN        string `gorm:"size:32" json:"asn"`              // autonomous system number of the upstream network (F-0207)
+	ProviderID *uint  `gorm:"index" json:"provider_id"`        // owning cloud Provider row, panel-set (F-0207)
+	Labels     string `gorm:"type:text" json:"labels"`         // JSON array
+	Group      string `gorm:"size:64;default:''" json:"group"` // free business grouping tag (F-0743)
+	// SchedPriority is the scheduling priority tier (F-1029): lower value =
+	// higher priority, 0 = standard. The sweep prefers the best tier that has
+	// an allocatable candidate; the policy comparator decides within a tier.
+	SchedPriority            int        `gorm:"default:0" json:"sched_priority"`
 	Transport                string     `gorm:"size:16;default:tls" json:"transport"`   // tls/quic/ws-tls/ssh
 	BillingType              string     `gorm:"size:16;default:包月" json:"billing_type"` // traffic/monthly/fixed bandwidth
 	TrafficPriceCents        int64      `gorm:"default:0" json:"traffic_price_cents"`   // per-traffic unit price (cents/GB)
