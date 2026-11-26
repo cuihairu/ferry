@@ -593,7 +593,7 @@ type PaymentOrder struct {
 	Provider    string `gorm:"size:16" json:"provider"` // card / epusdt / wechat / alipay
 	AmountCents int64  `gorm:"default:0" json:"amount_cents"`
 	Product     string `gorm:"size:128" json:"product"`
-	Status      string `gorm:"size:16;default:pending;index" json:"status"` // pending/paid/failed/expired/refunded
+	Status      string `gorm:"size:16;default:pending;index" json:"status"` // pending/paid/failed/expired/cancelled/refunded
 	// Distributor attribution (DS-1): brought in from the card batch or product at redemption/order time, 0=self-operated.
 	DistributorID uint `gorm:"default:0;index" json:"distributor_id"`
 	// Auto-grant policy on credit (used by online payments; card codes use the batch's own): add_quota/extend_days, empty = no auto grant.

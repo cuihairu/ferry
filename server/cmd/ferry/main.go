@@ -227,6 +227,10 @@ func run(ctx context.Context, cfg config.Config) error {
 	// the grant-credit event trigger lives in the applyGrant transaction, announcement fan-out lives in the admin API.
 	go notifyscan.Loop(ctx, db, time.Duration(cfg.NotifyScanIntervalSec)*time.Second, nil)
 
+	// Order timeout sweep (F-1303): pending orders past the 30-minute rule flip to expired;
+	// settle-side already refuses non-pending orders, so the two ends close the same rule.
+	go handler.OrderLoop(ctx, db, time.Duration(cfg.OrderSweepIntervalSec)*time.Second, nil)
+
 	// Quota linkage (SAVE-6): subscriptions of users over the traffic/cost threshold auto-downgrade (only low-cost tier
 	// entries are emitted), trigger/release audit and in-app messages are scan-driven, the subscription egress reads the audit trail instantly.
 	go quota.LinkLoop(ctx, db, time.Duration(cfg.QuotaLinkIntervalSec)*time.Second, nil)

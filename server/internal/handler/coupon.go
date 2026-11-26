@@ -270,8 +270,9 @@ func couponCheck(tx *gorm.DB, code string, u *storage.User, batch *storage.CardB
 	}
 	// The per-user cap only counts orders that actually redeemed the coupon (P2: fix for pending occupying the cap —
 	// an order is set to pending at creation, and if pending counted too, a single unpaid order would permanently
-	// consume the user's per-user cap (this repo has no order expiry sweeper; pending rows live forever); changed to
-	// count only settled/refunded states that actually consumed the coupon). failed/expired,
+	// consume the user's per-user cap (pending rows are now bounded -- the F-1303 sweep expires them after the
+	// 30-minute rule -- but an unsettled order still never consumed the coupon); changed to
+	// count only settled/refunded states that actually consumed the coupon). failed/expired/cancelled,
 	// like pending, are not counted.
 	var mine int64
 	if err := tx.Model(&storage.PaymentOrder{}).
