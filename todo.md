@@ -1783,7 +1783,8 @@ External Client
 -   [x] `F-1210` 支持套餐升级和降级。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1210 | Status: Done | Evidence: 升级/降级=对同一用户 apply 另一套餐（applyPlan 覆盖写全部限额+reset_cycle，expires_days>0 改写到期）；apply 现同时写 plan_id 绑定，交付面套餐域（节点绑定 F-1142+plan 域策略 F-1207）随切换走不再滞后；无按比例折算（维持原审计结论） | Verification: TestPlanSwitchUpDown（pro→lite 降级全值覆盖+绑定+30 天到期；lite→pro 升级回来且 lite 发的到期保留）| Commit: 632fb4a）
     - 待补（F-1210 | 部分：字段级变更齐（PATCH user.go:219-268+卡密发放 redeem.go:179-209+SAVE-6 自动降档）；无命名套餐升级/降级流程、无按比例折算。）
--   [ ] `F-1211` 支持套餐变更历史。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1211` 支持套餐变更历史。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1211 | Status: Done | Evidence: 变更历史=AU-1 审计轨迹（auditMiddleware 记 /api 组全部非 GET：create/update/apply/失败尝试，含 actor+target id+请求体快照），GET /api/audit-logs 可按 method/target/actor/时间过滤查询（上限 200） | Verification: TestPlanChangeAuditTrail（create 行含 body 快照、apply 行 target+user_ids、409 失败行 Success=false、PUT 行按 target 过滤命中）| Commit: 0042f8f）
     - 待补（F-1211 | 部分：无套餐变更历史表；仅间接留痕：AuditLog 请求体快照（models.go:735-745）+Grant.Snapshot 变更前后快照（models.go:441-450）。）
 
 ## 10.2 设备管理
