@@ -31,6 +31,11 @@ const (
 	// ledger, spend/anomaly views and the CSV export. Cost CHANGES are a
 	// separate tier (F-1707).
 	PermCostView = "cost.view"
+	// PermCostManage gates the cost write surface (F-1707): thresholds, the
+	// reference table, watch/allocation-rule/estimate/line/reconciliation
+	// mutations and bill imports. Tiered apart from cost.view (an operator
+	// usually carries both; neither implies the other).
+	PermCostManage = "cost.manage"
 )
 
 // adminPerms is the grantable vocabulary keyed by perm name.
@@ -39,6 +44,7 @@ var adminPerms = map[string]string{
 	PermCloudPower:    "cloud resource power operations (on/off/reboot)",
 	PermCloudHighRisk: "high-risk cloud operations (force stop, rebuild)",
 	PermCostView:      "cost view and bill export (read-only cost surface)",
+	PermCostManage:    "cost changes and allocation rules (thresholds, imports, rules; pair with cost.view)",
 }
 
 // opPerm maps each cloud operation type to its gate (F-1704/F-1705); ops

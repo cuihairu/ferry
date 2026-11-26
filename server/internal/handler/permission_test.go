@@ -205,3 +205,56 @@ func TestCostViewPerm(t *testing.T) {
 		t.Fatalf("revoked export: %d %s", rec.Code, rec.Body)
 	}
 }
+
+// TestCostManagePerm covers F-1707: the cost write surface — thresholds, the
+// reference table, watches, sources/imports, allocation rules, estimates,
+// lines, reconciliations — needs cost.manage, tiered apart from cost.view
+// (the manage grant alone opens writes but not the read surface).
+func TestCostManagePerm(t *testing.T) {
+	r, db := newTestRouterCfg(t, func(cfg *config.Config) { cfg.SecretKey = "test-master-key" })
+
+	if err := db.Create(&storage.User{ID: 999, Username: "op-costmg", SubToken: "st-op-costmg",
+		Password: "x", Enabled: true, IsAdmin: true, AdminRole: "operator"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	op := opJWT(t, "op-costmg")
+
+	// No grant: representative writes 403 with the perm named (the middleware
+	// denies before the handler sees the body, so empty bodies are fine here).
+	for _, rr := range [][2]string{
+		{"PUT", "/api/cost/threshold"}, {"POST", "/api/cost/watches"},
+		{"POST", "/api/cost/allocation-rules"}, {"POST", "/api/cost/reconciliations"},
+	} {
+		rec := doPanel(t, r, op, rr[0], rr[1], map[string]any{})
+		if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "missing permission cost.manage") {
+			t.Fatalf("ungranted %s %s: %d %s", rr[0], rr[1], rec.Code, rec.Body)
+		}
+	}
+
+	// The manage grant alone opens the writes but not the reads: the tiers are
+	// independent (neither implies the other).
+	if rec := doJSON(t, r, "PUT", "/api/admins/999/perms", map[string]any{"perms": []string{PermCostManage}}); rec.Code != http.StatusOK {
+		t.Fatalf("grant: %d %s", rec.Code, rec.Body)
+	}
+	for _, rr := range [][2]string{
+		{"PUT", "/api/cost/threshold"}, {"POST", "/api/cost/watches"},
+		{"POST", "/api/cost/allocation-rules"}, {"POST", "/api/cost/estimates/compute"},
+		{"PUT", "/api/cost/ref-table"}, {"POST", "/api/cost/lines"},
+	} {
+		rec := doPanel(t, r, op, rr[0], rr[1], map[string]any{})
+		if rec.Code == http.StatusForbidden {
+			t.Fatalf("granted %s %s still 403: %d %s", rr[0], rr[1], rec.Code, rec.Body)
+		}
+	}
+	if rec := doPanel(t, r, op, "GET", "/api/cost", nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("manage grant must not open reads: %d %s", rec.Code, rec.Body)
+	}
+
+	// The super role passes both tiers without any grant.
+	if rec := doJSON(t, r, "GET", "/api/cost", nil); rec.Code != http.StatusOK {
+		t.Fatalf("super /cost: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doJSON(t, r, "POST", "/api/cost/watches", map[string]any{}); rec.Code == http.StatusForbidden {
+		t.Fatalf("super watch create 403: %d %s", rec.Code, rec.Body)
+	}
+}
