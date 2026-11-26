@@ -2218,8 +2218,10 @@ External Client
     - 备注（Task ID: F-1702 | Status: Done | Evidence: 管理员角色权限审计 §3.13（requireSuper+TestAdminRoleCRUD） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1703` 为云账号管理定义独立权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1703 | Status: Done | Evidence: 细粒度权限层落地：新模型 storage.AdminPerm（user_id+perm 唯一，GrantedAt/By 授予上下文，AutoMigrate 已加）；permission.go 定义闭合词表（PermCloudAccount="cloud.account.manage"，未知名拒绝整笔授予防错拼空授）+requirePerm 中间件（super 直通，其余查授权行，无 admin 身份（纯 API Token）fail closed；**deny 分支 fail()+c.Abort()——初版漏 Abort 会 403 后继续跑 handler 造成越权创建，TestCloudAccountPerm 计数断言抓住并修复**）；云账号面 7 条路由挂 PermCloudAccount 门（providers POST/PUT/DELETE/test/rotate/revoke-previous/sync，GET 读保持开放）；授予面 GET/PUT /api/admins/:id/perms 仅 requireSuper（目标须存在且 is_admin，整体替换式授权）；测试 TestCloudAccountPerm（operator 未授权 403+读开放、perms 面 operator 403、未知名 400、授予后创建 201 且恰好 1 条 provider（越权泄漏回归）、撤销后 403、非 admin 目标 404） | Verification: gofmt 清洁，go build/vet 通过，server 全套 52 ok exit=0 FAIL=0 | Commit: 913c554）
--   [ ] `F-1704` 为云资源开关机定义独立权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-1705` 为强制停止和重装定义高危权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1704` 为云资源开关机定义独立权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1704 | Status: Done | Evidence: 权限词表新增 PermCloudPower="cloud.power"（permission.go），opPerm 映射 power_on/power_off/reboot→cloud.power；POST /api/cloud-operations 在 createCloudOperation 内联门检（中间件读不到 body）——super 直通、其余 admin 需授权行、纯 API Token fail closed；测试 TestCloudOpPerms（未授权 power_on 403 报 "missing permission cloud.power"、授予后过门、power 授权不外溢 force_stop 仍 403、super 免授权） | Verification: gofmt 清洁，go build/vet 通过，server 全套 52 ok exit=0 FAIL=0 | Commit: cc5a0e5）
+-   [x] `F-1705` 为强制停止和重装定义高危权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1705 | Status: Done | Evidence: 权限词表新增 PermCloudHighRisk="cloud.highrisk"（permission.go），opPerm 映射 force_stop/rebuild→cloud.highrisk（数据丢失级，叠加在 oper 系统既有二次确认流之上，互不替代）；同 createCloudOperation 内联门检；测试 TestCloudOpPerms（未授权 force_stop 403 报 "missing permission cloud.highrisk"、power 授权不外溢、highrisk 授权后过门进入既有确认流（非 403）） | Verification: 同上一行（同一次全套门禁 52 ok exit=0 FAIL=0） | Commit: cc5a0e5）
 -   [ ] `F-1706` 为成本查看和账单导出定义权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [ ] `F-1707` 为成本调整和分摊规则修改定义权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [ ] `F-1708` 为节点和线路操作定义权限。（依赖：无；完成条件：需求落地+测试绿+证据行）
