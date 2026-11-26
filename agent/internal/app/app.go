@@ -3,10 +3,12 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -84,7 +86,13 @@ func New(cfg config.Config, version string) *App {
 	a.mgr.OnAlarm = a.reportAlarm
 	a.Procs = a.mgr.Statuses
 	a.cfgd = configd.New(a.log)
+	// F-0921: the panel's dispatched probe task set persists in the spool dir and
+	// rejoins the config-file probes on every start, so a restart keeps probing.
+	if dispatched := loadProbeTasks(cfg.SpoolDir, a.log); len(dispatched) > 0 {
+		cfg.Probes = mergeProbes(cfg.Probes, dispatched)
+	}
 	a.probe = probe.New(cfg.Probes, a.log)
+	a.probe.SetConcurrency(cfg.ProbeConcurrency) // F-0922
 	a.probe.SetSend(a.sendIfConnected)
 	a.traf = traffic.New(cfg.Procs, cfg.TrafficInterval(), traffic.Dispatch(cfg.Procs), a.log)
 	return a
@@ -348,6 +356,10 @@ func (a *App) OnMessage(_ context.Context, env agentproto.Envelope, send func(ag
 	case agentproto.MsgConfigPush:
 		// Applying a push takes time (validation command + reload), so it runs in the background to avoid blocking the read loop; serialization is guaranteed by the Deployer.
 		go a.handleConfigPush(env)
+	case agentproto.MsgProbeTask:
+		// Probe task dispatch (F-0921): validate, persist to the spool dir and hot-swap
+		// the probe runner; done in the background (spool write may block on disk).
+		go a.handleProbeTask(env)
 	case agentproto.MsgAlarmAck, agentproto.MsgTrafficAck:
 		// The panel's acknowledgement of an agent report; nothing to do.
 	case agentproto.MsgCalibrateAck:
@@ -390,6 +402,138 @@ func (a *App) handleConfigPush(env agentproto.Envelope) {
 	if err := a.sendIfConnected(reply); err != nil {
 		a.log.Printf("send config_ack: %v", err)
 	}
+}
+
+// handleProbeTask applies the panel's dispatched probe task set and replies with
+// probe_task_ack (F-0921). The set is all-or-nothing: one invalid spec rejects
+// the whole dispatch, so the agent never ends up probing half a desired set.
+func (a *App) handleProbeTask(env agentproto.Envelope) {
+	var task agentproto.ProbeTask
+	ack := agentproto.ProbeTaskAck{}
+	if err := env.Decode(&task); err != nil {
+		ack.Error = err.Error()
+		reply, _ := agentproto.NewEnvelope(env.ID, agentproto.MsgProbeTaskAck, ack)
+		_ = a.sendIfConnected(reply)
+		return
+	}
+	ack.Version = task.Version
+	specs := dispatchedSpecs(task.Specs)
+	if err := config.ValidateProbeSpecs(specs); err != nil {
+		ack.Error = err.Error()
+	} else if err := a.saveProbeTasks(&task); err != nil {
+		ack.Error = err.Error()
+	} else {
+		a.probe.Replace(a.effectiveProbes(specs))
+		ack.OK = true
+		ack.Applied = len(specs)
+	}
+	reply, err := agentproto.NewEnvelope(env.ID, agentproto.MsgProbeTaskAck, ack)
+	if err != nil {
+		return
+	}
+	if err := a.sendIfConnected(reply); err != nil {
+		a.log.Printf("send probe_task_ack: %v", err)
+	}
+}
+
+// dispatchedSpecs converts wire specs to config specs, filling defaults the
+// same way the config file loader does.
+func dispatchedSpecs(wire []agentproto.ProbeTaskSpec) []config.ProbeSpec {
+	specs := make([]config.ProbeSpec, 0, len(wire))
+	for _, w := range wire {
+		if w.Direction == "" {
+			w.Direction = agentproto.DirectionOut
+		}
+		specs = append(specs, config.ProbeSpec{
+			Name: w.Name, TargetKind: w.TargetKind, Target: w.Target,
+			Direction: w.Direction, IntervalSec: w.IntervalSec,
+			Proto: w.Proto, PayloadHex: w.PayloadHex, ExpectHex: w.ExpectHex,
+			HTTPPath: w.HTTPPath, ExpectStatus: w.ExpectStatus, TimeoutSec: w.TimeoutSec,
+		})
+	}
+	return specs
+}
+
+// effectiveProbes merges dispatched tasks over the config-file probes: the
+// dispatched list joins the file list, and a dispatched task with the same
+// name replaces the file one (the panel knows what it is overriding).
+func (a *App) effectiveProbes(dispatched []config.ProbeSpec) []config.ProbeSpec {
+	return mergeProbes(a.cfg.Probes, dispatched)
+}
+
+// mergeProbes is the name-shadowing union of the file list and a dispatched list.
+func mergeProbes(file, dispatched []config.ProbeSpec) []config.ProbeSpec {
+	merged := make([]config.ProbeSpec, 0, len(file)+len(dispatched))
+	for _, p := range file {
+		shadowed := false
+		for _, d := range dispatched {
+			if d.Name == p.Name {
+				shadowed = true
+				break
+			}
+		}
+		if !shadowed {
+			merged = append(merged, p)
+		}
+	}
+	return append(merged, dispatched...)
+}
+
+// probeTasksFile is where the dispatched task set persists across restarts
+// (F-0921); an empty spool dir means persistence is off and dispatch only
+// lives for the current agent process.
+const probeTasksFile = "probe-tasks.json"
+
+// saveProbeTasks records the dispatched set in the spool dir; an empty spec
+// list removes the file. Persistence failure rejects the dispatch (OK=false)
+// so the panel does not believe a set is applied that a restart would lose.
+func (a *App) saveProbeTasks(task *agentproto.ProbeTask) error {
+	if a.cfg.SpoolDir == "" {
+		return nil // persistence off: apply for this process only
+	}
+	path := filepath.Join(a.cfg.SpoolDir, probeTasksFile)
+	if len(task.Specs) == 0 {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	if err := os.MkdirAll(a.cfg.SpoolDir, 0o755); err != nil {
+		return err
+	}
+	raw, err := json.Marshal(task)
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// loadProbeTasks reads the persisted dispatched set at startup; a missing,
+// unreadable or invalid file means no dispatched tasks (the file is the
+// panel's last word, half of it is never applied).
+func loadProbeTasks(spoolDir string, logger *log.Logger) []config.ProbeSpec {
+	if spoolDir == "" {
+		return nil
+	}
+	raw, err := os.ReadFile(filepath.Join(spoolDir, probeTasksFile))
+	if err != nil {
+		return nil // missing = nothing dispatched
+	}
+	var task agentproto.ProbeTask
+	if err := json.Unmarshal(raw, &task); err != nil {
+		logger.Printf("probe tasks file: %v", err)
+		return nil
+	}
+	specs := dispatchedSpecs(task.Specs)
+	if err := config.ValidateProbeSpecs(specs); err != nil {
+		logger.Printf("probe tasks file: %v", err)
+		return nil
+	}
+	return specs
 }
 
 // procSpec looks up a process spec by name.

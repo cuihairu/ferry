@@ -21,6 +21,11 @@ func Run(ctx context.Context, cfg config.Config, logger *log.Logger) error {
 		logger.Print("probe role: no spool_dir, reports go nowhere; set spool_dir to forward via core")
 	}
 	r := probe.New(cfg.Probes, logger)
+	r.SetConcurrency(cfg.ProbeConcurrency) // F-0922
+	// The standalone prober skips the F-0926 start jitter: its spec set is the
+	// operator's local config (no panel dispatch herd), and it is supervised --
+	// after a crash restart, delaying the first round leaves a blind window.
+	r.SetStartJitter(0)
 	r.SetSend(func(env agentproto.Envelope) error {
 		if cfg.SpoolDir == "" {
 			return nil // with no spool it is a black hole (debugging form), never asserting failure

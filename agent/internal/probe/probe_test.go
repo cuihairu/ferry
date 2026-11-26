@@ -73,6 +73,7 @@ func TestProbeHealthy(t *testing.T) {
 	r.SetSend(c.send)
 
 	ctx, cancel := context.WithCancel(context.Background())
+	r.SetStartJitter(0) // keep the test timing deterministic
 	go r.Run(ctx)
 	defer cancel()
 
@@ -108,6 +109,7 @@ func TestProbeUnreachable(t *testing.T) {
 	r.SetSend(c.send)
 
 	ctx, cancel := context.WithCancel(context.Background())
+	r.SetStartJitter(0) // keep the test timing deterministic
 	go r.Run(ctx)
 	defer cancel()
 
@@ -137,6 +139,7 @@ func TestProbeTunnelReturnPath(t *testing.T) {
 	r.SetSend(c.send)
 
 	ctx, cancel := context.WithCancel(context.Background())
+	r.SetStartJitter(0) // keep the test timing deterministic
 	go r.Run(ctx)
 	defer cancel()
 
@@ -360,6 +363,7 @@ func TestProbeUDPReport(t *testing.T) {
 	r.SetSend(c.send)
 
 	ctx, cancel := context.WithCancel(context.Background())
+	r.SetStartJitter(0) // keep the test timing deterministic
 	go r.Run(ctx)
 	defer cancel()
 

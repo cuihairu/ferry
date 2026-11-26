@@ -184,6 +184,10 @@ func (h *Handler) agentWS(c *gin.Context) {
 	}
 	go h.pipelineDeploy(uint(nodeID))
 
+	// F-0921: catch the agent up on its desired probe task set right after hello;
+	// best-effort and asynchronous, the next hello retries after a failure.
+	go h.dispatchProbeTasks(nodeID, hc)
+
 	h.readAgentLoop(conn, hc, nodeID)
 
 	h.hub.Unregister(nodeID, hc)

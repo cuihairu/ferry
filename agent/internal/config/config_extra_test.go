@@ -76,3 +76,19 @@ func TestValidateProbeIntervalRange(t *testing.T) {
 		t.Fatalf("err = %v; want interval_sec range error", err)
 	}
 }
+
+// TestValidateProbeSpecs covers the exported validator (F-0921): the same
+// rules gate panel-dispatched probe tasks as gate config-file probes.
+func TestValidateProbeSpecs(t *testing.T) {
+	good := ProbeSpec{Name: "task", Target: "127.0.0.1:443", TargetKind: agentproto.ProbeTargetPeer, IntervalSec: 30}
+	if err := ValidateProbeSpecs([]ProbeSpec{good}); err != nil {
+		t.Fatalf("valid spec rejected: %v", err)
+	}
+	bad := []ProbeSpec{
+		{Name: "task", Target: "127.0.0.1:443", TargetKind: "node", IntervalSec: 30},
+		{Name: "task", Target: "127.0.0.1:443", TargetKind: agentproto.ProbeTargetPeer, IntervalSec: 30},
+	}
+	if err := ValidateProbeSpecs(bad); err == nil || !strings.Contains(err.Error(), "target_kind") {
+		t.Fatalf("err = %v; want target_kind error", err)
+	}
+}

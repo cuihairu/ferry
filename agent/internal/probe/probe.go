@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net"
 	"net/http"
 	"strings"
@@ -39,12 +40,38 @@ const (
 	peakHourEnd   = 23
 	peakDivisor   = 3
 	minPeakGap    = 10 * time.Second
+
+	// defaultProbeConcurrency caps how many probes measure at the same time
+	// (F-0922): a large dispatched set must not open dozens of sockets at once.
+	defaultProbeConcurrency = 16
+
+	// Fault speed-up (F-0925): after a sick verdict the spec temporarily probes
+	// sickBoostDivisor times faster for sickBoostWindow, so recovery is noticed
+	// in minutes instead of full intervals. The cadence never drops below
+	// minBoostGap, and never above the spec's own interval.
+	sickBoostWindow  = 5 * time.Minute
+	sickBoostDivisor = 4
+	minBoostGap      = 10 * time.Second
+
+	// Anti-storm phase spread (F-0926): when many agents run peer probes, all
+	// of them starting loops on the same tick would fire a thundering herd of
+	// cross-probes at the targets. Each loop waits a random slice of this
+	// window (never more than its own interval) before its first probe, so
+	// fleets desynchronize. 0 disables the spread.
+	stormJitterWindow = 45 * time.Second
 )
 
 // Runner executes edge probes periodically per spec.
 type Runner struct {
-	log   *log.Logger
-	specs []config.ProbeSpec
+	log *log.Logger
+
+	mu           sync.Mutex
+	specs        []config.ProbeSpec
+	root         context.Context    // Run's context; nil until Run starts
+	cancel       context.CancelFunc // cancels the currently running loop set
+	wg           sync.WaitGroup
+	sem          chan struct{} // measure permits (F-0922)
+	jitterWindow time.Duration // F-0926 anti-storm first-probe spread; 0 = off
 
 	sendMu sync.Mutex
 	send   func(agentproto.Envelope) error // sender of the current connection
@@ -55,7 +82,61 @@ func New(specs []config.ProbeSpec, logger *log.Logger) *Runner {
 	if logger == nil {
 		logger = log.Default()
 	}
-	return &Runner{log: logger, specs: specs}
+	return &Runner{log: logger, specs: specs, sem: make(chan struct{}, defaultProbeConcurrency),
+		jitterWindow: stormJitterWindow}
+}
+
+// SetStartJitter overrides the F-0926 anti-storm spread before Run; 0 makes
+// every loop fire its first probe immediately (tests, single-agent setups).
+func (r *Runner) SetStartJitter(d time.Duration) {
+	r.mu.Lock()
+	r.jitterWindow = d
+	r.mu.Unlock()
+}
+
+// startDelay is the random pre-first-probe delay for one loop (F-0926): a
+// random slice of the jitter window, never more than the spec's own interval,
+// so a large interval spec still probes promptly.
+func (r *Runner) startDelay(spec config.ProbeSpec) time.Duration {
+	r.mu.Lock()
+	window := r.jitterWindow
+	r.mu.Unlock()
+	if window <= 0 {
+		return 0
+	}
+	if iv := time.Duration(spec.IntervalSec) * time.Second; iv > 0 && iv < window {
+		window = iv
+	}
+	return time.Duration(rand.Int63n(int64(window) + 1))
+}
+
+// SetConcurrency caps simultaneous probes (F-0922); 0 falls back to the
+// default. Call it before Run: swapping the permit channel while loops run
+// would strand permits in the old channel.
+func (r *Runner) SetConcurrency(n int) {
+	if n <= 0 {
+		n = defaultProbeConcurrency
+	}
+	r.mu.Lock()
+	r.sem = make(chan struct{}, n)
+	r.mu.Unlock()
+}
+
+// Concurrency returns the current simultaneous-probe cap (F-0922).
+func (r *Runner) Concurrency() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return cap(r.sem)
+}
+
+// acquire takes a measure permit (F-0922) and returns the release func; the
+// permit spans the whole multi-round measure, not the report.
+func (r *Runner) acquire() func() {
+	r.mu.Lock()
+	sem := r.sem
+	r.mu.Unlock()
+	sem <- struct{}{}
+	return func() { <-sem }
 }
 
 // SetSend sets the report sender; app updates it after the agent reconnects.
@@ -65,39 +146,120 @@ func (r *Runner) SetSend(send func(agentproto.Envelope) error) {
 	r.sendMu.Unlock()
 }
 
+// Specs returns the current spec set (dispatch bookkeeping and tests).
+func (r *Runner) Specs() []config.ProbeSpec {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.specs
+}
+
+// Replace swaps the spec set (F-0921): the running loops stop and the new set
+// starts probing immediately. Called before Run it only swaps the set that Run
+// will start with. Each loop probes once at startup, so a dispatched change
+// produces fresh verdicts right away.
+func (r *Runner) Replace(specs []config.ProbeSpec) {
+	r.mu.Lock()
+	r.specs = specs
+	root := r.root
+	r.mu.Unlock()
+	if root == nil {
+		return // Run not started yet: the new set takes effect at startup
+	}
+	r.stopLoops()
+	r.startLoops()
+}
+
 // Run blocks until the ctx is cancelled: one probe loop per spec.
 // Tunnel probing (E-28 China-bound return path) dials the spec's target port directly -- the same network path
 // the relay uses to reach the landing, but independent of the relay process (a forwarding crash does not take probing down).
 func (r *Runner) Run(ctx context.Context) {
-	var wg sync.WaitGroup
-	for _, spec := range r.specs {
-		wg.Add(1)
+	r.mu.Lock()
+	r.root = ctx
+	r.mu.Unlock()
+	r.startLoops()
+	<-ctx.Done()
+	r.stopLoops()
+}
+
+// startLoops launches one loop per current spec; never called with mu held.
+func (r *Runner) startLoops() {
+	r.mu.Lock()
+	if r.root == nil || r.cancel != nil {
+		r.mu.Unlock()
+		return
+	}
+	ctx, cancel := context.WithCancel(r.root)
+	r.cancel = cancel
+	specs := r.specs
+	r.wg.Add(len(specs))
+	r.mu.Unlock()
+	for _, spec := range specs {
 		go func(spec config.ProbeSpec) {
-			defer wg.Done()
+			defer r.wg.Done()
 			r.loop(ctx, spec)
 		}(spec)
 	}
-	wg.Wait()
 }
 
-// loop is the periodic probe loop for one spec; the next interval follows the evening-peak rule.
+// stopLoops cancels the current loop set and waits for it to finish.
+func (r *Runner) stopLoops() {
+	r.mu.Lock()
+	cancel := r.cancel
+	r.cancel = nil
+	r.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	r.wg.Wait()
+}
+
+// loop is the periodic probe loop for one spec; the next interval follows the
+// evening-peak rule plus the F-0925 fault speed-up after a sick verdict.
 func (r *Runner) loop(ctx context.Context, spec config.ProbeSpec) {
-	t := time.NewTimer(0) // probe once at startup
+	// F-0926: spread the first probe across the jitter window, so Replace-driven
+	// dispatch herds and fleet-wide loop starts stay desynchronized.
+	t := time.NewTimer(r.startDelay(spec))
 	defer t.Stop()
+	var boostUntil time.Time // F-0925: sick verdicts speed this spec up for a while
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
 		}
-		r.probeOnce(spec)
-		t.Reset(nextInterval(spec, time.Now()))
+		if sick := r.probeOnce(spec); sick {
+			boostUntil = time.Now().Add(sickBoostWindow)
+		}
+		t.Reset(nextIntervalBoosted(spec, time.Now(), boostUntil))
 	}
 }
 
-// probeOnce runs one multi-round probe and reports the conclusion; dropped silently when offline.
-func (r *Runner) probeOnce(spec config.ProbeSpec) {
+// nextIntervalBoosted is nextInterval with the F-0925 fault speed-up: inside
+// the boost window after a sick verdict the spec probes faster so recovery is
+// noticed in minutes. The boosted gap is floored at minBoostGap and capped at
+// the plain interval, so the speed-up can never backfire into a longer wait.
+func nextIntervalBoosted(spec config.ProbeSpec, now time.Time, boostUntil time.Time) time.Duration {
+	base := nextInterval(spec, now)
+	if !now.Before(boostUntil) {
+		return base
+	}
+	d := base / sickBoostDivisor
+	if d < minBoostGap {
+		d = minBoostGap
+	}
+	if d > base {
+		d = base
+	}
+	return d
+}
+
+// probeOnce runs one multi-round probe and reports the conclusion; dropped
+// silently when offline. Returns whether the verdict is sick (F-0925).
+func (r *Runner) probeOnce(spec config.ProbeSpec) bool {
+	release := r.acquire() // F-0922: simultaneous measures are capped
 	rtt, jitter, loss, reachable, errClass := r.measure(spec)
+	release()
+	verdict := verdictOf(loss, reachable)
 	// region/ISP snapshots are filled in by the panel when it stores the target node.
 	report := agentproto.ProbeReport{
 		TargetKind: spec.TargetKind,
@@ -108,7 +270,7 @@ func (r *Runner) probeOnce(spec config.ProbeSpec) {
 		LossPct:    loss,
 		Reachable:  reachable,
 		ErrClass:   errClass,
-		Verdict:    verdictOf(loss, reachable),
+		Verdict:    verdict,
 		ProbedAt:   time.Now(),
 	}
 	env, err := agentproto.NewEnvelope(
@@ -117,17 +279,18 @@ func (r *Runner) probeOnce(spec config.ProbeSpec) {
 		agentproto.ProbeReportBatch{Items: []agentproto.ProbeReport{report}},
 	)
 	if err != nil {
-		return
+		return false
 	}
 	r.sendMu.Lock()
 	send := r.send
 	r.sendMu.Unlock()
 	if send == nil {
-		return
+		return false
 	}
 	if err := send(env); err != nil {
 		r.log.Printf("probe %s report: %v", spec.Name, err)
 	}
+	return verdict == agentproto.ProbeVerdictSick
 }
 
 // measure dispatches per spec: TCP connect probing (default), UDP request/

@@ -27,6 +27,8 @@ const (
 	MsgConfigAck     = "agent.config_ack"     // config push reply
 	MsgProbeReport   = "agent.probe_report"   // edge probe verdict report
 	MsgProbeAck      = "panel.probe_ack"      // probe report reply
+	MsgProbeTask     = "panel.probe_task"     // probe task dispatch (F-0921)
+	MsgProbeTaskAck  = "agent.probe_task_ack" // probe task dispatch reply (F-0921)
 	MsgCalibrate     = "agent.calibrate"      // speed calibration report (E-8)
 	MsgCalibrateAck  = "panel.calibrate_ack"  // speed calibration reply
 	MsgUpgrade       = "panel.upgrade"        // self-upgrade command (A-23)

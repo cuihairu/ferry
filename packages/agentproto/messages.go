@@ -321,6 +321,42 @@ type ProbeAck struct {
 	Recorded int `json:"recorded"`
 }
 
+// ProbeTaskSpec is one dispatched edge probe task (F-0921). The JSON field
+// names match the agent's config.ProbeSpec so the agent decodes the dispatch
+// payload directly; the panel validates the same rules before sending.
+type ProbeTaskSpec struct {
+	Name         string `json:"name"`        // task name
+	TargetKind   string `json:"target_kind"` // tunnel/exit/peer
+	Target       string `json:"target"`      // target host:port
+	Direction    string `json:"direction,omitempty"` // out (default) / in
+	IntervalSec  int    `json:"interval_sec"`        // 5-3600
+	Proto        string `json:"proto,omitempty"`     // tcp (default) / udp / http / https
+	PayloadHex   string `json:"payload_hex,omitempty"` // udp-only request bytes (hex)
+	ExpectHex    string `json:"expect_hex,omitempty"`  // udp-only expected reply prefix (hex)
+	HTTPPath     string `json:"http_path,omitempty"`   // http/https request path; empty = "/"
+	ExpectStatus int    `json:"expect_status,omitempty"` // http/https required status; 0 = any
+	TimeoutSec   int    `json:"timeout_sec,omitempty"`   // per-round timeout; 0 = agent default
+}
+
+// ProbeTask is the panel's dispatched probe task set (F-0921). Specs is the
+// full desired list, not a delta: the agent's dispatched set is exactly what
+// the panel last sent, and an empty list withdraws every dispatched task.
+// Dispatched tasks join the agent's config-file probes; a dispatched task with
+// the same name replaces the file one.
+type ProbeTask struct {
+	Version string          `json:"version"` // content hash of Specs
+	Specs   []ProbeTaskSpec `json:"specs"`
+}
+
+// ProbeTaskAck is the agent's reply to a probe task dispatch (F-0921).
+// OK=false means the set was rejected outright (invalid specs) and nothing changed.
+type ProbeTaskAck struct {
+	Version string `json:"version"`
+	OK      bool   `json:"ok"`
+	Applied int    `json:"applied"` // dispatched tasks now probing
+	Error   string `json:"error,omitempty"`
+}
+
 // Alarm severity and kind values.
 const (
 	AlarmSeverityWarning  = "warning"

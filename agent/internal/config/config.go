@@ -113,7 +113,10 @@ type Config struct {
 	Meta         agentproto.NodeMeta `json:"meta"` // initial node registration metadata, reported with hello at registration time
 	Procs        []ProcSpec          `json:"procs"`
 	Probes       []ProbeSpec         `json:"probes"`
-	Relay        RelaySpec           `json:"relay"` // used by -role relay; ignored in core mode
+	// ProbeConcurrency caps how many probes measure at the same time (F-0922);
+	// 0 = the runner default (16).
+	ProbeConcurrency int       `json:"probe_concurrency,omitempty"`
+	Relay            RelaySpec `json:"relay"` // used by -role relay; ignored in core mode
 }
 
 // Default returns a configuration populated with default values.
@@ -240,42 +243,19 @@ func applyMetaDefaults(cfg *Config) {
 	}
 }
 
-// Validate checks required items and value ranges.
-func (c Config) Validate() error {
-	if c.PanelURL == "" {
-		return errors.New("panel_url is required")
-	}
-	if c.Token == "" {
-		return errors.New("token is required")
-	}
-	if c.HeartbeatSec < 5 || c.HeartbeatSec > 600 {
-		return errors.New("heartbeat_sec must be 5-600")
-	}
-	if c.TrafficSec != 0 && (c.TrafficSec < 10 || c.TrafficSec > 3600) {
-		return errors.New("traffic_sec must be 0 (off) or 10-3600")
-	}
-	if (c.TLS.CertFile == "") != (c.TLS.KeyFile == "") {
-		return errors.New("tls.cert_file and tls.key_file must be set together")
-	}
+// ValidateProbeSpecs checks a probe task list (F-0921): one shared validator
+// for config-file probes and panel-dispatched tasks alike, so a dispatched set
+// can never loosen the file rules.
+func ValidateProbeSpecs(probes []ProbeSpec) error {
 	names := map[string]bool{}
-	for _, p := range c.Procs {
-		if p.Name == "" || p.Exec == "" {
-			return errors.New("procs[].name and procs[].exec are required")
-		}
-		if names[p.Name] {
-			return fmt.Errorf("duplicate proc name %q", p.Name)
-		}
-		names[p.Name] = true
-	}
-	probes := map[string]bool{}
-	for _, p := range c.Probes {
+	for _, p := range probes {
 		if p.Name == "" || p.Target == "" {
 			return errors.New("probes[].name and probes[].target are required")
 		}
-		if probes[p.Name] {
+		if names[p.Name] {
 			return fmt.Errorf("duplicate probe name %q", p.Name)
 		}
-		probes[p.Name] = true
+		names[p.Name] = true
 		switch p.TargetKind {
 		case agentproto.ProbeTargetTunnel, agentproto.ProbeTargetExit, agentproto.ProbeTargetPeer:
 		default:
@@ -313,6 +293,39 @@ func (c Config) Validate() error {
 		default:
 			return errors.New("probes[].proto must be tcp/udp/http/https")
 		}
+	}
+	return nil
+}
+
+// Validate checks required items and value ranges.
+func (c Config) Validate() error {
+	if c.PanelURL == "" {
+		return errors.New("panel_url is required")
+	}
+	if c.Token == "" {
+		return errors.New("token is required")
+	}
+	if c.HeartbeatSec < 5 || c.HeartbeatSec > 600 {
+		return errors.New("heartbeat_sec must be 5-600")
+	}
+	if c.TrafficSec != 0 && (c.TrafficSec < 10 || c.TrafficSec > 3600) {
+		return errors.New("traffic_sec must be 0 (off) or 10-3600")
+	}
+	if (c.TLS.CertFile == "") != (c.TLS.KeyFile == "") {
+		return errors.New("tls.cert_file and tls.key_file must be set together")
+	}
+	names := map[string]bool{}
+	for _, p := range c.Procs {
+		if p.Name == "" || p.Exec == "" {
+			return errors.New("procs[].name and procs[].exec are required")
+		}
+		if names[p.Name] {
+			return fmt.Errorf("duplicate proc name %q", p.Name)
+		}
+		names[p.Name] = true
+	}
+	if err := ValidateProbeSpecs(c.Probes); err != nil {
+		return err
 	}
 	switch c.Meta.Role {
 	case agentproto.RoleEntry, agentproto.RoleLanding, agentproto.RoleBoth:

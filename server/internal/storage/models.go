@@ -211,9 +211,13 @@ type Node struct {
 	CapabilityState string `gorm:"type:text" json:"capability_state"` // JSON object: dynamic runtime capability -> ok/degraded/off
 	// RelayCaps is the JSON RelayCaps declaration from the agent heartbeat (F-0804):
 	// concrete relay features and configured limits; empty before any reporting agent.
-	RelayCaps string    `gorm:"type:text" json:"relay_caps"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	RelayCaps string `gorm:"type:text" json:"relay_caps"`
+	// ProbeTasks is the node's desired dispatched probe task set (F-0921), the
+	// JSON agentproto.ProbeTask; empty = nothing dispatched. Desired state: it
+	// is re-sent on every agent hello, so offline nodes catch up on reconnect.
+	ProbeTasks string    `gorm:"type:text" json:"probe_tasks"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // TrafficLog is one traffic accounting record (aggregated per user per node per cycle).
