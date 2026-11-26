@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -90,6 +91,15 @@ func (h *Handler) panelMe(c *gin.Context) {
 		return
 	}
 	st := sub.UserStateOf(&u, used, time.Now())
+	// Current plan name (F-1502): the binding is the user's plan_id (F-1142);
+	// a plan-less user (0) or a since-deleted plan just shows no plan.
+	planName := ""
+	if u.PlanID > 0 {
+		var p storage.Plan
+		if err := h.db.First(&p, u.PlanID).Error; err == nil {
+			planName = p.Name
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"id":          u.ID,
 		"username":    u.Username,
@@ -97,6 +107,8 @@ func (h *Handler) panelMe(c *gin.Context) {
 		"quota_bytes": u.QuotaBytes,
 		"used_bytes":  used,
 		"expires_at":  u.ExpiresAt,
+		"plan_id":     u.PlanID,
+		"plan_name":   planName,
 		"active":      st.Status == sub.StatusActive,
 		"over_quota":  st.Limited,
 		// Split gate state (G3): the primary cause plus the two independent
@@ -495,4 +507,151 @@ func (h *Handler) panelSavings(c *gin.Context) {
 		"cache_hit_bytes": cacheHit,
 		"blocked_bytes":   blocked,
 	})
+}
+
+// ---- Panel row extensions: device list/unbind, token reset, plan history, access logs ----
+// (F-1505/F-1506/F-1508/F-1514/F-1516; plan identity on /me is F-1502 above.)
+
+// panelDevices lists the caller's device and IP observations (GET /api/panel/devices):
+// hwid rows are the registered devices (P2-4), ip rows are the 24h-window observations.
+func (h *Handler) panelDevices(c *gin.Context) {
+	u, ok := h.panelUser(c)
+	if !ok {
+		return
+	}
+	out := []storage.SubDevice{}
+	if err := h.db.Where("user_id = ?", u.ID).Order("kind ASC, last_seen DESC").Find(&out).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+// panelUnbindDevice removes one hwid device binding (DELETE /api/panel/devices/:id):
+// own rows only, hwid kind only (ip rows are window observations that expire on
+// their own). Foreign and non-hwid ids are a uniform 404, the panel's usual
+// anti-enumeration stance.
+func (h *Handler) panelUnbindDevice(c *gin.Context) {
+	u, ok := h.panelUser(c)
+	if !ok {
+		return
+	}
+	var row storage.SubDevice
+	if err := h.db.First(&row, c.Param("id")).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	if row.UserID != u.ID || row.Kind != "hwid" {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		return
+	}
+	if err := h.db.Delete(&row).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// panelResetToken re-issues the subscription token (POST /api/panel/reset-token):
+// the token IS the credential (P0 identity model), so this is the panel's
+// "change password" — the old token stops working immediately and the response
+// carries the replacement. Landing the operation in the audit trail keeps the
+// security story readable (F-0045 sensitive-op row).
+func (h *Handler) panelResetToken(c *gin.Context) {
+	u, ok := h.panelUser(c)
+	if !ok {
+		return
+	}
+	tok, err := RandomToken()
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	if err := h.db.Model(&storage.User{}).Where("id = ?", u.ID).Update("sub_token", tok).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	h.auditSensitive(u.Username, "panel", "POST /api/panel/reset-token", strconv.FormatUint(uint64(u.ID), 10), true, c.ClientIP())
+	c.JSON(http.StatusOK, gin.H{"sub_token": tok})
+}
+
+// panelPlanHistory lists the caller's plan applications (GET /api/panel/plan-history):
+// derived from the admin audit trail — every POST /api/plans/:id/apply row whose
+// body's user_ids contain the caller. The audit log is the record (no separate
+// ledger table); rows cap at the 200 newest applies and the body snapshot is
+// parsed strictly, so a body truncation just drops that row rather than misattributing.
+func (h *Handler) panelPlanHistory(c *gin.Context) {
+	u, ok := h.panelUser(c)
+	if !ok {
+		return
+	}
+	var rows []storage.AuditLog
+	if err := h.db.Where("action LIKE ?", "POST /api/plans/%/apply").
+		Order("id DESC").Limit(200).Find(&rows).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	type applyBody struct {
+		UserIDs []uint `json:"user_ids"`
+	}
+	out := make([]gin.H, 0, len(rows))
+	for i := range rows {
+		var ab applyBody
+		if err := json.Unmarshal([]byte(rows[i].Body), &ab); err != nil {
+			continue
+		}
+		hit := false
+		for _, id := range ab.UserIDs {
+			if id == u.ID {
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			continue
+		}
+		name := ""
+		if pid, perr := strconv.Atoi(rows[i].Target); perr == nil && pid > 0 {
+			var p storage.Plan
+			if err := h.db.First(&p, pid).Error; err == nil {
+				name = p.Name
+			}
+		}
+		out = append(out, gin.H{
+			"plan_id":    rows[i].Target,
+			"plan_name":  name,
+			"applied_at": rows[i].CreatedAt,
+			"by":         rows[i].Actor,
+		})
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+// panelAccessLogs lists the caller's subscription access records (GET /api/panel/access-logs):
+// with the token as the only credential, every /sub fetch is the panel's
+// "login record" — time/IP/UA/response code per SubAccessLog (F-1150).
+func (h *Handler) panelAccessLogs(c *gin.Context) {
+	u, ok := h.panelUser(c)
+	if !ok {
+		return
+	}
+	limit := 50
+	if v := c.Query("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 200 {
+			fail(c, http.StatusBadRequest, errors.New("limit must be 1-200"))
+			return
+		}
+		limit = n
+	}
+	out := []storage.SubAccessLog{}
+	if err := h.db.Where("user_id = ?", u.ID).Order("id DESC").Limit(limit).Find(&out).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
 }

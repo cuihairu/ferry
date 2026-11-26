@@ -339,3 +339,153 @@ func TestPanelOrdersProviderFilter(t *testing.T) {
 		t.Fatalf("未知来源应 0 条，得 %d", n)
 	}
 }
+
+func TestPanelRowExtensions(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	token := panelToken(t, r, "dana") // user id 1
+	panelToken(t, r, "earl")          // user id 2, used for the cross-user 404 checks
+
+	// Plan apply (F-1502/F-1514): /me carries the plan identity, plan-history shows the application.
+	rec := doJSON(t, r, "POST", "/api/plans", map[string]any{"name": "gold", "quota_bytes": 1 << 30})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create plan: %d %s", rec.Code, rec.Body)
+	}
+	var plan struct {
+		ID int `json:"id"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &plan)
+	if plan.ID == 0 {
+		t.Fatalf("plan id missing: %s", rec.Body)
+	}
+	rec = doJSON(t, r, "POST", "/api/plans/"+itoa64(plan.ID)+"/apply", map[string]any{"user_ids": []uint{1}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("apply plan: %d %s", rec.Code, rec.Body)
+	}
+	rec = doPanel(t, r, token, "GET", "/api/panel/me", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("me: %d %s", rec.Code, rec.Body)
+	}
+	var me struct {
+		PlanID   uint   `json:"plan_id"`
+		PlanName string `json:"plan_name"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &me); err != nil {
+		t.Fatalf("decode me: %v", err)
+	}
+	if me.PlanID != uint(plan.ID) || me.PlanName != "gold" {
+		t.Fatalf("me plan = %+v", me)
+	}
+	rec = doPanel(t, r, token, "GET", "/api/panel/plan-history", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("plan-history: %d %s", rec.Code, rec.Body)
+	}
+	var hist []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &hist); err != nil {
+		t.Fatalf("decode plan-history: %v", err)
+	}
+	if len(hist) != 1 || hist[0]["plan_name"] != "gold" {
+		t.Fatalf("plan-history = %v", hist)
+	}
+	// The other user sees none of it.
+	token2 := ""
+	{
+		rec := doJSON(t, r, "GET", "/api/users/2", nil)
+		var u map[string]any
+		_ = json.Unmarshal(rec.Body.Bytes(), &u)
+		if v, ok := u["sub_token"].(string); ok {
+			token2 = v
+		}
+	}
+	if token2 != "" {
+		if rec := doPanel(t, r, token2, "GET", "/api/panel/plan-history", nil); rec.Code == http.StatusOK {
+			var h2 []map[string]any
+			_ = json.Unmarshal(rec.Body.Bytes(), &h2)
+			if len(h2) != 0 {
+				t.Fatalf("plan-history leaked to other user: %v", h2)
+			}
+		}
+	}
+
+	// Devices (F-1505/F-1506): list own rows; unbind is owner+hwid only.
+	now := time.Now()
+	dev := &storage.SubDevice{UserID: 1, Kind: "hwid", Key: "hw-abc", UserAgent: "clash/1.0", FirstSeen: now, LastSeen: now}
+	if err := db.Create(dev).Error; err != nil {
+		t.Fatalf("seed device: %v", err)
+	}
+	if err := db.Create(&storage.SubDevice{UserID: 1, Kind: "hwid", Key: "hw-def", FirstSeen: now, LastSeen: now}).Error; err != nil {
+		t.Fatalf("seed device: %v", err)
+	}
+	if err := db.Create(&storage.SubDevice{UserID: 1, Kind: "ip", Key: "1.2.3.4", FirstSeen: now, LastSeen: now}).Error; err != nil {
+		t.Fatalf("seed ip: %v", err)
+	}
+	if err := db.Create(&storage.SubDevice{UserID: 2, Kind: "hwid", Key: "hw-other", FirstSeen: now, LastSeen: now}).Error; err != nil {
+		t.Fatalf("seed foreign device: %v", err)
+	}
+	rec = doPanel(t, r, token, "GET", "/api/panel/devices", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("devices: %d %s", rec.Code, rec.Body)
+	}
+	var devs []storage.SubDevice
+	if err := json.Unmarshal(rec.Body.Bytes(), &devs); err != nil {
+		t.Fatalf("decode devices: %v", err)
+	}
+	if len(devs) != 3 {
+		t.Fatalf("devices = %d rows", len(devs))
+	}
+	// An ip row is not unbindable (window observation), a foreign row is a 404.
+	if rec := doPanel(t, r, token, "DELETE", "/api/panel/devices/"+itoa64(int(dev.ID)+2), nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("unbind ip row: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doPanel(t, r, token, "DELETE", "/api/panel/devices/"+itoa64(int(dev.ID)+3), nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("unbind foreign row: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doPanel(t, r, token, "DELETE", "/api/panel/devices/"+itoa64(int(dev.ID)), nil); rec.Code != http.StatusOK {
+		t.Fatalf("unbind own hwid: %d %s", rec.Code, rec.Body)
+	}
+	rec = doPanel(t, r, token, "GET", "/api/panel/devices", nil)
+	_ = json.Unmarshal(rec.Body.Bytes(), &devs)
+	if len(devs) != 2 {
+		t.Fatalf("devices after unbind = %d rows", len(devs))
+	}
+
+	// Access logs (F-1516): a /sub fetch lands a row visible to the owner.
+	if rec := doPanel(t, r, token, "GET", "/sub/"+token+"?target=v2ray", nil); rec.Code != http.StatusOK {
+		t.Fatalf("sub fetch: %d %s", rec.Code, rec.Body)
+	}
+	rec = doPanel(t, r, token, "GET", "/api/panel/access-logs", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("access-logs: %d %s", rec.Code, rec.Body)
+	}
+	var logs []storage.SubAccessLog
+	if err := json.Unmarshal(rec.Body.Bytes(), &logs); err != nil {
+		t.Fatalf("decode access-logs: %v", err)
+	}
+	if len(logs) < 1 || logs[0].UserID != 1 {
+		t.Fatalf("access-logs = %d rows, first=%+v", len(logs), logs)
+	}
+	if bad := doPanel(t, r, token, "GET", "/api/panel/access-logs?limit=0", nil); bad.Code != http.StatusBadRequest {
+		t.Fatalf("bad limit: %d", bad.Code)
+	}
+
+	// Token reset (F-1508): the old token dies immediately, the new one works.
+	rec = doPanel(t, r, token, "POST", "/api/panel/reset-token", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("reset-token: %d %s", rec.Code, rec.Body)
+	}
+	var out struct {
+		SubToken string `json:"sub_token"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode reset: %v", err)
+	}
+	if out.SubToken == "" || out.SubToken == token {
+		t.Fatalf("reset token = %q", out.SubToken)
+	}
+	if rec := doPanel(t, r, token, "GET", "/api/panel/me", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("old token after reset: %d", rec.Code)
+	}
+	rec = doPanel(t, r, out.SubToken, "GET", "/api/panel/me", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("new token me: %d %s", rec.Code, rec.Body)
+	}
+}
