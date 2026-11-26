@@ -1640,7 +1640,8 @@ External Client
     - 备注（Task ID: F-1048 | Status: Done | Evidence: PolicySetting.SchedGroupModes（key=Node.Group 业务分组标签自由串，value=ValidPolicy 模式，ValidateSetting 只验 value 合法）；policyForEntry 特异性序 系统 tier ← group ← plan（F-1047 plan 最具体胜出），Group 为空或未配置走系统 tier，窗口/权重/费用守卫保持系统级；与 F-1029 层级分区协同的测试构造同 F-1047：同层双 landing（cost_first 按价 vs priority 按名）观测模式差；TestPolicyForEntryGroup（含 plan-over-group）+TestValidateSettingGroupModes+TestSweepGroupMode+TestAllocPolicyGroupModes（API 往读+非法模式 400） | Verification: go vet + server 全套件 green exit=0（51 ok）2026-11-26 | Commit: 074f2a9）
 -   [x] `F-1049` 支持人工覆盖调度结果。
     - 备注（Task ID: F-1049 | Status: Done | Evidence: createLanding Strategy:"manual"(landing.go:81)+hasManualAssignment 跳过自动(alloc.go:568-577) | Verification: TestSweepManualWins | Commit: fbcb525）
--   [ ] `F-1050` 支持人工覆盖到期自动恢复。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1050` 支持人工覆盖到期自动恢复。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1050 | Status: Done | Evidence: LandingAssignment.ExpiresAt（可选 TTL 列，nil=永久保持旧行为）+landingInput.expires_in_seconds（正整数，createLanding 换算绝对 expires_at，非正 400）；hasManualAssignment 时间感知（released_at IS NULL AND expires_at IS NULL OR > now）覆盖 BuildRequest/explain 全部调用点；releaseExpiredManual 在 SweepAt 前置（早于 F-0294 failover freeze——TTL 到期是运维已发声明的回收，不属于 failover 切换），过期行释放 released_at+ManualExpiredReason="manual_expired" 留痕，同轮 entry 重新自动分配；TestHasManualAssignmentExpiry（nil/未来/过去三态）+TestSweepManualTTL（活 TTL 不动，过期同轮释放+auto 事件）+TestLandingManualTTL（API 往读+0 秒 400+无 TTL 保持 nil） | Verification: go vet + server 全套件 green exit=0（51 ok）2026-11-27 | Commit: 18f9a03）
 -   [ ] `F-1051` 国内访问国内默认优先直连。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [ ] `F-1052` 只有测量证明中继更优时才允许国内线路走中继。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [ ] `F-1053` 直连不可用时按 Policy 回退。（依赖：无；完成条件：需求落地+测试绿+证据行）
