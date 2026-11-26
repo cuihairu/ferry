@@ -1545,10 +1545,12 @@ External Client
 
 ## 8.1 Path 编排
 
--   [ ] `F-1001` 实现 Path 创建和编辑。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1001 | 区级未满足原因：区级现状：无 Path 模型（type Path 0 命中），仅 LandingAssignment(models.go:181-195)；无 Path CRUD/启停/拓扑校验/候选预览/失败清理。capability/region/ISP-ASN/line-type 过滤部分（仅 landing 层 role/pool/direction 过滤）。人工/自动创建部分（landing.go:81+alloc.go:530-538 写 LandingAssignment 非 Path）。连通性验证部分（probe 健康门）。）
--   [ ] `F-1002` 实现 Path 启停。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-1003` 实现 Path 拓扑校验。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-1001` 实现 Path 创建和编辑。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1001 | Status: Done | Evidence: paths.go createPath/updatePath 含字段合并与 Version 递增；APIs 与 node-link 校验此前已落地（F-0105/F-0243/F-0252 行，2455a6c），本轮按“不重做已完成部分”回填；TestPathCRUD | Verification: server 全套件 green exit=0（51 ok），handler 865s 2026-11-26 | Commit: 2455a6c）
+-   [x] `F-1002` 实现 Path 启停。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1002 | Status: Done | Evidence: Path.Enabled 布尔与 create/update 显式启停写入（false 直写绕开 default:true）；GET /api/paths?enabled= 过滤；TestPathCRUD 覆盖 disabled 创建与筛选，此前已落地（F-0105/F-0250 行，2455a6c），本轮回填 | Verification: server 全套件 green exit=0（51 ok）2026-11-26 | Commit: 2455a6c）
+-   [x] `F-1003` 实现 Path 拓扑校验。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1003 | Status: Done | Evidence: validatePathInput 拒绝 entry==landing 自环及 relay 复用端点，create/update 共用；角色匹配仍由分配期 role 过滤承担（legacy 行默认 landing）；TestPathCRUD 增补三条拒绝断言 | Verification: go build/vet ./... + server 全套件 green exit=0（51 ok，handler 865s）2026-11-26 | Commit: 3388bb2）
 -   [x] `F-1004` 根据 Role 选择 Entry。
     - 备注（Task ID: F-1004 | Status: Done | Evidence: sub.go:74 role 过滤+alloc.go:448 role 候选；TestPick* | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1005` 根据 Role 选择 Landing。
