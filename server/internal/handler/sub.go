@@ -303,6 +303,11 @@ func subscriptionMeta(c *gin.Context, u storage.User, usage trafficUsage, body [
 	c.Header("Profile-Update-Interval", "24")
 	c.Header("Profile-Title", u.Username)
 	c.Header("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
+	// Cache invalidation (F-1149): shared caches must not serve a stale body.
+	// Revalidation against the content ETag is cheap (a 304), so no-cache is
+	// safe; the content hash moves on every fleet change, which is the
+	// invalidation itself.
+	c.Header("Cache-Control", "no-cache")
 	sum := sha1.Sum(body)
 	full := hex.EncodeToString(sum[:])
 	c.Header("ETag", `"`+full+`"`)

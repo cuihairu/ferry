@@ -611,6 +611,9 @@ func TestSubscriptionConditionalGet(t *testing.T) {
 	if lm := rec.Header().Get("Last-Modified"); lm == "" {
 		t.Fatal("last-modified missing")
 	}
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-cache" {
+		t.Fatalf("cache-control = %q, want no-cache", cc)
+	}
 
 	// conditional refetch: 304, empty body, usage metadata kept
 	req := httptest.NewRequest(http.MethodGet, "/sub/"+token, nil)
