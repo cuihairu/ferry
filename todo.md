@@ -2025,12 +2025,12 @@ External Client
     - 备注（Task ID: F-1463 | Status: Done | Evidence: BillsView「维度统计」按账号汇总表（account 分组，空账号归 —），笔数+按币种金额合计，与 Provider 表并列同源联动 | Verification: pnpm --filter ferry-dash build 绿 | Commit: d01c3c9）
 -   [x] `F-1464` 提供区域成本统计。
     - 备注（Task ID: F-1464 | Status: Done | Evidence: CostView.vue:333-349 区域汇总表（节点/流量花费/固定成本/月度预估） | Verification: API 侧 TestCostAPI（costapi_test.go）；dash 无前端单测 | Commit: ce8b33e）
--   [ ] `F-1465` 提供资源成本统计。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1465 | 未满足：无资源维度成本。）
+-   [x] `F-1465` 提供资源成本统计。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1465 | Status: Done | Evidence: 原「无资源维度成本」结论已过时——CostView 支出排行 scope 选择器含「资源」（spendScopes，CostView.vue:358-363）→ GET /api/cost/spend?scope=resource（billing.SpendByScope→spendItems 按 CostItem.resource_id 聚合，含 actual/report/count） | Verification: 服务端 billing stats 测试（stats_test.go）随全量 51 ok 绿；dash build 绿 | Commit: 75813fa）
 -   [x] `F-1466` 提供 Node 成本统计。
     - 备注（Task ID: F-1466 | Status: Done | Evidence: CostView.vue:306-329 节点行（月流量/流量花费/固定成本/月度预估） | Verification: API 侧 TestCostAPI（costapi_test.go）；dash 无前端单测 | Commit: ce8b33e）
--   [ ] `F-1467` 提供 Path 成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1467 | 未满足：无 Path 成本。）
+-   [x] `F-1467` 提供 Path 成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1467 | Status: Done | Evidence: 原「无 Path 成本」结论已过时——CostView getPathCosts→GET /api/cost/path-estimates（F-0603 可解释单路径估算，loadPaths pathRows）+ 支出排行 scope=路径（spendPathEstimates）；过期/未知价降级 Precise 标记不编造（F-0610） | Verification: pathcost_test.go+TestCostAPI 随全量绿；dash build 绿 | Commit: 75813fa）
 -   [ ] `F-1468` 提供账单导入和同步任务管理。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1468 | 未满足：仅价格表导入（CostView.vue:465-474）；无账单导入/同步任务。）
 -   [ ] `F-1469` 提供账单明细查询。（依赖：无；完成条件：需求落地+测试绿+证据行）
