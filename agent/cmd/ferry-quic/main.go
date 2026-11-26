@@ -122,7 +122,11 @@ func runServer(ctx context.Context, args []string) error {
 	}
 	tr := &quic.Transport{Conn: udpConn}
 	defer tr.Close()
-	ln, err := tr.Listen(tlsCfg, quictunnel.DefaultQUICConfig())
+	quicCfg := quictunnel.DefaultQUICConfig()
+	if err := quictunnel.ValidateQUICConfig(quicCfg); err != nil {
+		return err
+	}
+	ln, err := tr.Listen(tlsCfg, quicCfg)
 	if err != nil {
 		return err
 	}

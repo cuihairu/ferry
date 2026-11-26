@@ -86,12 +86,34 @@ func pipeStreams(a, b io.ReadWriteCloser) {
 	<-done
 }
 
-// DefaultQUICConfig is the QUIC configuration shared by both ends: keepalive holds the NAT open, 2 minutes idle reclaims it.
+// DefaultQUICConfig is the QUIC configuration shared by both ends: keepalive holds the NAT open, 2 minutes idle reclaims it,
+// and per-connection stream ceilings bound what one bridge connection can open (F-0827).
 func DefaultQUICConfig() *quic.Config {
 	return &quic.Config{
-		KeepAlivePeriod: 30 * time.Second,
-		MaxIdleTimeout:  120 * time.Second,
+		KeepAlivePeriod:       30 * time.Second,
+		MaxIdleTimeout:        120 * time.Second,
+		MaxIncomingStreams:    256, // concurrent forwarded streams per connection
+		MaxIncomingUniStreams: 64,  // unidirectional headroom for quic-go control frames
 	}
+}
+
+// ValidateQUICConfig checks the parameter invariants (F-0827): a positive idle
+// timeout, keepalive strictly inside it (a keepalive at or past the idle
+// timeout would fight the reclaim), and a bounded inbound stream ceiling.
+func ValidateQUICConfig(cfg *quic.Config) error {
+	switch {
+	case cfg == nil:
+		return errors.New("quic config missing")
+	case cfg.MaxIdleTimeout <= 0:
+		return fmt.Errorf("max_idle_timeout must be positive, got %v", cfg.MaxIdleTimeout)
+	case cfg.KeepAlivePeriod < 0:
+		return fmt.Errorf("keepalive_period must not be negative, got %v", cfg.KeepAlivePeriod)
+	case cfg.KeepAlivePeriod >= cfg.MaxIdleTimeout:
+		return fmt.Errorf("keepalive_period %v must stay under max_idle_timeout %v", cfg.KeepAlivePeriod, cfg.MaxIdleTimeout)
+	case cfg.MaxIncomingStreams <= 0:
+		return fmt.Errorf("max_incoming_streams must be positive, got %d", cfg.MaxIncomingStreams)
+	}
+	return nil
 }
 
 // ---- client (the agent-side sidecar) ----
@@ -107,9 +129,24 @@ type Client struct {
 }
 
 // NewClient validates and assembles a client: tlsCfg gets its NextProtos rewritten, so pass a dedicated instance.
+// A bad QUIC configuration is a programming error -- fail fast at startup.
 func NewClient(tlsCfg *tls.Config) *Client {
+	cfg := DefaultQUICConfig()
+	if err := ValidateQUICConfig(cfg); err != nil {
+		panic(err)
+	}
 	tlsCfg.NextProtos = []string{ALPNIdent}
-	return &Client{tlsCfg: tlsCfg, quicCfg: DefaultQUICConfig(), conns: map[string]*quic.Conn{}}
+	return &Client{tlsCfg: tlsCfg, quicCfg: cfg, conns: map[string]*quic.Conn{}}
+}
+
+// NewClientWithConfig builds a client with an explicit QUIC configuration,
+// validated against the F-0827 invariants.
+func NewClientWithConfig(tlsCfg *tls.Config, cfg *quic.Config) (*Client, error) {
+	if err := ValidateQUICConfig(cfg); err != nil {
+		return nil, err
+	}
+	tlsCfg.NextProtos = []string{ALPNIdent}
+	return &Client{tlsCfg: tlsCfg, quicCfg: cfg, conns: map[string]*quic.Conn{}}, nil
 }
 
 // Serve accepts local connections on ln until ln closes or the ctx is cancelled; a single failure is logged and service continues.
