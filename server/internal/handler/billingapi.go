@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/csv"
 	"errors"
 	"fmt"
 	"io"
@@ -166,6 +167,71 @@ func (h *Handler) listBillRecords(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"records": rows})
+}
+
+// exportBills serves GET /api/cost/records/export (F-1706): the same bill
+// ledger as the list endpoint, as a CSV attachment (the record's own columns;
+// line items stay on the per-record endpoint). Same filters as the list; the
+// route is gated by the cost-view permission like every other read.
+func (h *Handler) exportBills(c *gin.Context) {
+	q := h.db.Model(&storage.CostRecord{}).Order("incurred_at DESC, id DESC")
+	if s := c.Query("cost_provider_id"); s != "" {
+		id, err := strconv.ParseUint(s, 10, 64)
+		if err != nil {
+			fail(c, http.StatusBadRequest, errors.New("invalid cost_provider_id"))
+			return
+		}
+		q = q.Where("cost_provider_id = ?", id)
+	}
+	if s := c.Query("source"); s != "" {
+		q = q.Where("source = ?", s)
+	}
+	if s := c.Query("account"); s != "" {
+		q = q.Where("account = ?", s)
+	}
+	if s := c.Query("region"); s != "" {
+		q = q.Where("region = ?", s)
+	}
+	if s := c.Query("from"); s != "" {
+		q = q.Where("incurred_at >= ?", s)
+	}
+	if s := c.Query("to"); s != "" {
+		q = q.Where("incurred_at <= ?", s)
+	}
+	var rows []storage.CostRecord
+	if err := q.Find(&rows).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.Header("Content-Disposition", "attachment; filename=bills.csv")
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	w := csv.NewWriter(c.Writer)
+	_ = w.Write([]string{"id", "cost_provider_id", "source", "bill_id", "revision",
+		"account", "region", "currency", "amount_cents", "pre_tax_cents",
+		"tax_cents", "incurred_at", "period_start", "period_end"})
+	for _, r := range rows {
+		_ = w.Write([]string{
+			strconv.FormatUint(uint64(r.ID), 10),
+			strconv.FormatUint(uint64(r.CostProviderID), 10),
+			r.Source, r.BillID, r.Revision,
+			r.Account, r.Region, r.Currency,
+			strconv.FormatInt(r.AmountCents, 10),
+			strconv.FormatInt(r.PreTaxCents, 10),
+			strconv.FormatInt(r.TaxCents, 10),
+			r.IncurredAt.Format(time.RFC3339),
+			formatTime(r.PeriodStart), formatTime(r.PeriodEnd),
+		})
+	}
+	w.Flush()
+}
+
+// formatTime renders a timestamp column as RFC3339; the zero time (a billing
+// cycle the vendor never supplied) renders as empty.
+func formatTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format(time.RFC3339)
 }
 
 // listBillItems lists line items of one bill record (F-0529/F-0533).

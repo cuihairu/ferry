@@ -27,6 +27,10 @@ const (
 	// PermCloudHighRisk gates force-stop and rebuild (F-1705): the data-loss
 	// tier, stacked on top of the operation system's own confirmation flow.
 	PermCloudHighRisk = "cloud.highrisk"
+	// PermCostView gates the cost read surface (F-1706): aggregates, the bill
+	// ledger, spend/anomaly views and the CSV export. Cost CHANGES are a
+	// separate tier (F-1707).
+	PermCostView = "cost.view"
 )
 
 // adminPerms is the grantable vocabulary keyed by perm name.
@@ -34,6 +38,7 @@ var adminPerms = map[string]string{
 	PermCloudAccount:  "cloud account management (providers, credentials, sync)",
 	PermCloudPower:    "cloud resource power operations (on/off/reboot)",
 	PermCloudHighRisk: "high-risk cloud operations (force stop, rebuild)",
+	PermCostView:      "cost view and bill export (read-only cost surface)",
 }
 
 // opPerm maps each cloud operation type to its gate (F-1704/F-1705); ops

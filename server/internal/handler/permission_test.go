@@ -145,3 +145,63 @@ func TestCloudOpPerms(t *testing.T) {
 		t.Fatalf("super power_on 403: %d %s", rec.Code, rec.Body)
 	}
 }
+
+// TestCostViewPerm covers F-1706: the cost read surface — aggregates, the bill
+// ledger and the CSV export — needs the cost.view grant; writes (thresholds,
+// rules, imports) are deliberately not part of this tier. The export reuses
+// the list filters.
+func TestCostViewPerm(t *testing.T) {
+	r, db := newTestRouterCfg(t, func(cfg *config.Config) { cfg.SecretKey = "test-master-key" })
+
+	if err := db.Create(&storage.User{ID: 999, Username: "op-cost", SubToken: "st-op-cost",
+		Password: "x", Enabled: true, IsAdmin: true, AdminRole: "operator"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	op := opJWT(t, "op-cost")
+	if err := db.Create(&storage.CostRecord{CostProviderID: 1, Source: "manual",
+		BillID: "bill-1", Currency: "USD", AmountCents: 4200}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// No grant: both reads 403 with the perm named.
+	for _, path := range []string{"/api/cost", "/api/cost/records", "/api/cost/records/export"} {
+		rec := doPanel(t, r, op, "GET", path, nil)
+		if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "missing permission cost.view") {
+			t.Fatalf("ungranted %s: %d %s", path, rec.Code, rec.Body)
+		}
+	}
+
+	// Grant opens the reads; the export streams CSV with the seeded row.
+	if rec := doJSON(t, r, "PUT", "/api/admins/999/perms", map[string]any{"perms": []string{PermCostView}}); rec.Code != http.StatusOK {
+		t.Fatalf("grant: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doPanel(t, r, op, "GET", "/api/cost", nil); rec.Code != http.StatusOK {
+		t.Fatalf("granted /cost: %d %s", rec.Code, rec.Body)
+	}
+	rec := doPanel(t, r, op, "GET", "/api/cost/records/export", nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Header().Get("Content-Type"), "text/csv") {
+		t.Fatalf("granted export: %d %s", rec.Code, rec.Header().Get("Content-Type"))
+	}
+	if !strings.Contains(rec.Body.String(), "bill-1") ||
+		!strings.Contains(rec.Body.String(), "id,cost_provider_id,source") {
+		t.Fatalf("export body missing header/row:\n%s", rec.Body)
+	}
+	// The list filters carry over: a non-matching source yields header only.
+	rec = doPanel(t, r, op, "GET", "/api/cost/records/export?source=api", nil)
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "bill-1") {
+		t.Fatalf("filtered export: %d %s", rec.Code, rec.Body)
+	}
+
+	// The super role passes without any grant.
+	if rec := doJSON(t, r, "GET", "/api/cost/records/export", nil); rec.Code != http.StatusOK {
+		t.Fatalf("super export: %d %s", rec.Code, rec.Body)
+	}
+
+	// Revoke closes the reads again.
+	if rec := doJSON(t, r, "PUT", "/api/admins/999/perms", map[string]any{"perms": []string{}}); rec.Code != http.StatusOK {
+		t.Fatalf("revoke: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doPanel(t, r, op, "GET", "/api/cost/records/export", nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("revoked export: %d %s", rec.Code, rec.Body)
+	}
+}
