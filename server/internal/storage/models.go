@@ -1152,3 +1152,35 @@ type PriceSnapshot struct {
 	URL          string    `gorm:"size:255" json:"url,omitempty"`
 	CapturedAt   time.Time `gorm:"not null;index" json:"captured_at"`
 }
+
+// Task is the unified background-task ledger (F-1602): one shared state machine
+// (pending -> running -> succeeded/failed/dead, cancel -> cancelled) for
+// task-shaped work instead of another bespoke table (the five legacy task
+// tables keep their rows; new task work lands here). Queueing is pending +
+// next_attempt_at (F-1603); each attempt runs under a per-task timeout
+// (F-1604); retries are bounded by max_attempts (F-1605) with exponential
+// backoff base*2^(n-1) capped at max_delay (F-1606); a unique idempotency_key
+// makes enqueue re-runnable (F-1608); stage/progress carry phase info (F-1609);
+// log_lines is the structured per-task trail (F-1610); result holds the final
+// JSON payload, including per-item partial-success details (F-1612); actor
+// records who enqueued/retried and executor which instance ran it (F-1613).
+type Task struct {
+	ID             uint       `gorm:"primaryKey" json:"id"`
+	Kind           string     `gorm:"size:64;index;not null" json:"kind"`
+	RefID          uint       `gorm:"index" json:"ref_id"`
+	Status         string     `gorm:"size:16;index;not null;default:pending" json:"status"` // pending/running/succeeded/failed/cancelled/dead
+	Stage          string     `gorm:"size:64" json:"stage,omitempty"`
+	Progress       int        `gorm:"default:0" json:"progress"` // 0-100, best-effort (F-1609)
+	Attempts       int        `gorm:"default:0" json:"attempts"`
+	MaxAttempts    int        `gorm:"default:3" json:"max_attempts"`
+	TimeoutSeconds int        `gorm:"default:300" json:"timeout_seconds"`
+	NextAttemptAt  *time.Time `gorm:"index" json:"next_attempt_at,omitempty"`
+	IdempotencyKey string     `gorm:"size:128;uniqueIndex" json:"idempotency_key,omitempty"`
+	Result         string     `gorm:"type:text" json:"result,omitempty"`
+	Error          string     `gorm:"size:512" json:"error,omitempty"`
+	LogLines       string     `gorm:"type:text" json:"log_lines,omitempty"`
+	Actor          string     `gorm:"size:128" json:"actor,omitempty"`
+	Executor       string     `gorm:"size:128" json:"executor,omitempty"`
+	CreatedAt      time.Time  `gorm:"index" json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+}

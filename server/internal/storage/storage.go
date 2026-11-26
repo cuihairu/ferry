@@ -135,6 +135,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&BillImport{},
 		&CostAllocationRule{}, &NodeCostLine{}, &NodeUpgrade{}, &AllocExclusion{}, &AllocDecision{},
 		&HealthOverride{},
+		&Task{},
 	)
 }
 

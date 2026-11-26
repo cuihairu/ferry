@@ -45,6 +45,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/secret"
 	"github.com/cuihairu/ferry/server/internal/standby"
 	"github.com/cuihairu/ferry/server/internal/storage"
+	"github.com/cuihairu/ferry/server/internal/tasks"
 	"github.com/cuihairu/ferry/server/internal/toucher"
 	"github.com/cuihairu/ferry/server/internal/xray"
 	"github.com/gin-gonic/gin"
@@ -149,7 +150,10 @@ func run(ctx context.Context, cfg config.Config) error {
 	go pool.Loop(ctx, db, time.Duration(cfg.PoolIntervalSec)*time.Second, nil)
 
 	// Router and config pusher (E-16b): automatic line switching re-points landings through the same config.push pipeline.
-	r, pusher := handler.NewRouter(db, cfg)
+	// The unified task runner (F-1602~F-1615) is created here so main owns its sweep loop.
+	taskMgr := tasks.NewManager(db, log.Printf)
+	r, pusher := handler.NewRouterWithTasks(db, cfg, taskMgr)
+	go taskMgr.Loop(ctx, 2*time.Second)
 
 	// Landing auto-assignment (E-21): weighted least connections, three configurable strategy tiers, switches audited and notified;
 	// switching means re-pointing (E-16b): the change list pushes a per-entry relay landing override into the spec.

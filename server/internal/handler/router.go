@@ -18,6 +18,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/relaypush"
 	"github.com/cuihairu/ferry/server/internal/secret"
 	"github.com/cuihairu/ferry/server/internal/storage"
+	"github.com/cuihairu/ferry/server/internal/tasks"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -73,13 +74,26 @@ type Handler struct {
 	oidc *idp.OIDC
 	// ldap is the directory simple-bind client (G7), nil when disabled.
 	ldap *idp.LDAP
+	// tasks is the unified background-task runner (F-1602~F-1615). main owns
+	// the loop; the handler only enqueues/cancels/retries through it.
+	tasks *tasks.Manager
 }
 
-// NewRouter creates the gin engine and mounts all routes, and also hands out
-// the config pusher so background tasks (alloc auto re-pointing) reuse the
-// same push chain.
+// NewRouter is the tests-and-defaults entry: it builds a manager that runs
+// only when something drives it (endpoint tests exercise enqueue/cancel/retry
+// without the sweep; production passes its own manager to NewRouterWithTasks
+// so main owns the Loop).
 func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) {
-	h := &Handler{db: db, cfg: cfg, hub: agenthub.New()}
+	return NewRouterWithTasks(db, cfg, tasks.NewManager(db, nil))
+}
+
+// NewRouterWithTasks creates the gin engine with an externally owned task
+// manager (production: main runs mgr.Loop; consumers register below), mounting
+// all routes, and also hands out the config pusher so background tasks (alloc
+// auto re-pointing) reuse the same push chain.
+func NewRouterWithTasks(db *gorm.DB, cfg config.Config, mgr *tasks.Manager) (*gin.Engine, *relaypush.Pusher) {
+	h := &Handler{db: db, cfg: cfg, hub: agenthub.New(), tasks: mgr}
+	registerTaskConsumers(db, mgr)
 	// External admin logins are off unless the config turns them on (G7).
 	if cfg.Oidc.Enabled {
 		h.oidc = idp.NewOIDC(cfg.Oidc)
@@ -400,6 +414,13 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.POST("/path-groups/:id/members", h.addPathGroupMember)
 		api.PATCH("/path-groups/:id/members/:pathId", h.updatePathGroupMember)
 		api.DELETE("/path-groups/:id/members/:pathId", h.removePathGroupMember)
+		// Unified background tasks (F-1602~F-1615): one ledger, list/detail/enqueue/
+		// cancel/retry; consumers register kinds on the manager (node.suspend/resume).
+		api.GET("/tasks", h.listTasks)
+		api.POST("/tasks", h.enqueueTask)
+		api.GET("/tasks/:id", h.getTask)
+		api.POST("/tasks/:id/cancel", h.cancelTask)
+		api.POST("/tasks/:id/retry", h.retryTask)
 		api.GET("/user-template", h.getUserTemplate)
 		api.PUT("/user-template", h.putUserTemplate)
 		api.POST("/traffic-logs", h.recordTraffic)
