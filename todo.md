@@ -1079,153 +1079,153 @@ External Client
 
 -   [x] `F-0501` 审计现有 Cost、CostRef 和成本统计实现。
     - 备注（Task ID: F-0501 | Status: Done | Evidence: Cost/CostRef/统计审计 §3.10 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0502` 定义 Cost Provider 数据来源。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0502` 定义 Cost Provider 数据来源。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0502 | Status: Done | Evidence: storage.CostProvider + /api/cost/sources CRUD (billingapi.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0503` 定义 Cost Record 原始账单记录。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0503` 定义 Cost Record 原始账单记录。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0503 | Status: Done | Evidence: storage.CostRecord + /api/cost/records | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0504` 定义 Cost Item 费用明细。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0504` 定义 Cost Item 费用明细。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0504 | Status: Done | Evidence: storage.CostItem + /api/cost/records/:id/items | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0505` 定义 Cost Allocation 分摊记录。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0505` 定义 Cost Allocation 分摊记录。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0505 | Status: Done | Evidence: storage.CostAllocation + /api/cost/allocations | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0506` 定义 Cost Estimate 估算记录。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0506` 定义 Cost Estimate 估算记录。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0506 | Status: Done | Evidence: storage.CostEstimate + /api/cost/estimates | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0507` 定义 Cost Reconciliation 对账记录。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0507` 定义 Cost Reconciliation 对账记录。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0507 | Status: Done | Evidence: storage.CostReconciliation + /api/cost/reconciliations | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0508` 明确账单币种、金额精度和汇率日期。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0508` 明确账单币种、金额精度和汇率日期。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0508 | Status: Done | Evidence: 整数最小单位口径+FXRate/FXRateDate/FXRateSource/ReportAmountCents (storage/billing.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0509` 明确费用发生时间、账单周期和入库时间。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0509` 明确费用发生时间、账单周期和入库时间。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0509 | Status: Done | Evidence: IncurredAt/PeriodStart/PeriodEnd/ImportedAt/ImportedBy (storage/billing.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0510` 明确含税、未税和税费字段（Provider 可提供时）。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0510` 明确含税、未税和税费字段（Provider 可提供时）。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0510 | Status: Done | Evidence: PreTaxCents/TaxCents 拆分 (storage/billing.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0511` 保留 Provider 原始账单 ID 和原始字段快照。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0511` 保留 Provider 原始账单 ID 和原始字段快照。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0511 | Status: Done | Evidence: BillID/Revision + RawSnapshot 原始快照 (storage/billing.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0512` 为账单记录建立去重约束。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0512` 为账单记录建立去重约束。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0512 | Status: Done | Evidence: DedupeKey uniqueIndex 去重约束 (storage/billing.go, TestStorageConstraints) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0513` 为成本记录建立时间和资源查询索引。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0513` 为成本记录建立时间和资源查询索引。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0513 | Status: Done | Evidence: incurred_at/period_start/imported_at/resource_id 索引 (storage/billing.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
 
 ## 4.2 云账单导入
 
--   [ ] `F-0521` 定义统一账单导入 Adapter。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0521` 定义统一账单导入 Adapter。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0521 | Status: Done | Evidence: billing.Service 统一导入(cloudprov adapter)+BillImport 运行日志 (billing/import.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0522` 为每个 Provider 声明账单 API 支持能力。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0522` 为每个 Provider 声明账单 API 支持能力。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0522 | Status: Done | Evidence: caps.Billing 缺失即 fail-closed 提示手工导入 (TestImportFromAPICapabilityFailClosed) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0523` 支持手动导入账单文件（Provider 提供可用文件格式时）。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0523` 支持手动导入账单文件（Provider 提供可用文件格式时）。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0523 | Status: Done | Evidence: ImportFile 手工 JSON 文件导入 (billing/import.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0524` 支持通过 Provider Billing API 拉取账单（Provider
+-   [x] `F-0524` 支持通过 Provider Billing API 拉取账单（Provider
     - 备注（Task ID: F-0524 | Status: Done | Evidence: ImportFromAPI 经 Provider Billing API 拉取 (billing/import.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
     支持时）。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0525` 支持按账单周期拉取。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0525` 支持按账单周期拉取。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0525 | Status: Done | Evidence: BillingWindow From/To 周期拉取 (billing/import.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0526` 支持按账号和区域拉取。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0526` 支持按账号和区域拉取。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0526 | Status: Done | Evidence: ImportRequest Account/Region + 源 Account/Region 回填 (billing/import.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0527` 支持分页和增量拉取。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0527` 支持分页和增量拉取。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0527 | Status: Done | Evidence: paginate 分页 + Incremental 标记 (billing/import.go, TestImportFromAPIPaginates) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0528` 支持账单补拉。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0528` 支持账单补拉。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0528 | Status: Done | Evidence: TriggerBackfill 补拉经账单去重幂等，不重复计费 (billing/billing.go, billing/import.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0529` 支持重复账单去重。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0529` 支持重复账单去重。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0529 | Status: Done | Evidence: RecordKey(源:Provider:BillID:Revision) 去重，重导 skipped (billing/import.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0530` 支持账单修订和冲正记录。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0530` 支持账单修订和冲正记录。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0530 | Status: Done | Evidence: Revision 进 DedupeKey，修订账单按新记录存储，不覆盖原账单 (billing/import.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0531` 保留原始账单数据以便追溯。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0531` 保留原始账单数据以便追溯。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0531 | Status: Done | Evidence: 每记录 RawSnapshot + 导入运行 RawRef (storage/billing.go, billing/import.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0532` 账单导入失败时记录失败原因和重试状态。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0532` 账单导入失败时记录失败原因和重试状态。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0532 | Status: Done | Evidence: BillImport State/Error/RetryCount 失败与重试状态 (billing/import.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0533` 展示账单数据来源和最后同步时间。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0533` 展示账单数据来源和最后同步时间。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0533 | Status: Done | Evidence: CostProvider.LastSyncAt/LastError + /api/cost/imports (billingapi.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0534` 明确 Provider 不提供账单 API 时的手工导入流程。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0534` 明确 Provider 不提供账单 API 时的手工导入流程。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0534 | Status: Done | Evidence: 无 API 能力时 fail-closed 并指向手工文件导入 (billing/import.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
 
 ## 4.3 估算成本
 
 -   [x] `F-0541` 定义实例包月成本估算。
     - 备注（Task ID: F-0541 | Status: Done | Evidence: cost.go:137-138 FixedCostCents=MonthlyCostCents 包月口径+ProjectedCents 计入 | Verification: TestBuild(fixed 3000/oversea ~2100) | Commit: 506d045）
--   [ ] `F-0542` 定义按小时计费资源的成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0542` 定义按小时计费资源的成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0542 | Status: Done | Evidence: NodeCostLine kind=hourly 按小时价×期间小时数 (billing/estimate.go lineAmount, TestEstimateHourly) | Verification: TestEstimate*（TestEstimateBaseKinds/Hourly/Traffic/LinesProrate/UnknownLine/RecomputeUpdates/All）+TestBillingAPICostLines（go test ./... 全绿 2026-11-26） | Commit: 8be6965）
 -   [x] `F-0543` 定义按量流量成本估算。
     - 备注（Task ID: F-0543 | Status: Done | Evidence: cost.go:130 TrafficPriceCents×(rx+tx)/BytesPerGB 按量流量 | Verification: TestBuild(metered 1000分) | Commit: 506d045）
--   [ ] `F-0544` 定义固定带宽成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0544` 定义固定带宽成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0544 | Status: Done | Evidence: 固定带宽按包月口径计 instance 估算，随期间按比例摊 (estimate.go, TestEstimateBaseKinds) | Verification: TestEstimate*（TestEstimateBaseKinds/Hourly/Traffic/LinesProrate/UnknownLine/RecomputeUpdates/All）+TestBillingAPICostLines（go test ./... 全绿 2026-11-26） | Commit: 8be6965）
--   [ ] `F-0545` 定义额外公网 IP 成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0545` 定义额外公网 IP 成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0545 | Status: Done | Evidence: NodeCostLine kind=ip 额外公网 IP 月额按期间摊 (TestEstimateLinesProrate) | Verification: TestEstimate*（TestEstimateBaseKinds/Hourly/Traffic/LinesProrate/UnknownLine/RecomputeUpdates/All）+TestBillingAPICostLines（go test ./... 全绿 2026-11-26） | Commit: 8be6965）
--   [ ] `F-0546` 定义磁盘和快照成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0546` 定义磁盘和快照成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0546 | Status: Done | Evidence: NodeCostLine kind=disk/snapshot 磁盘与快照行估算 (TestEstimateLinesProrate) | Verification: TestEstimate*（TestEstimateBaseKinds/Hourly/Traffic/LinesProrate/UnknownLine/RecomputeUpdates/All）+TestBillingAPICostLines（go test ./... 全绿 2026-11-26） | Commit: 8be6965）
--   [ ] `F-0547` 定义备份和存储成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0547` 定义备份和存储成本估算。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0547 | Status: Done | Evidence: NodeCostLine kind=backup 备份存储行估算 (TestEstimateLinesProrate) | Verification: TestEstimate*（TestEstimateBaseKinds/Hourly/Traffic/LinesProrate/UnknownLine/RecomputeUpdates/All）+TestBillingAPICostLines（go test ./... 全绿 2026-11-26） | Commit: 8be6965）
--   [ ] `F-0548` 定义优惠、折扣和预留实例成本输入。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0548` 定义优惠、折扣和预留实例成本输入。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0548 | Status: Done | Evidence: kind=discount 负额行作优惠/预留输入，仅折扣行允许负数 (estimate.go, billingapi.go) | Verification: TestEstimate*（TestEstimateBaseKinds/Hourly/Traffic/LinesProrate/UnknownLine/RecomputeUpdates/All）+TestBillingAPICostLines（go test ./... 全绿 2026-11-26） | Commit: 8be6965）
--   [ ] `F-0549` 支持自定义成本项。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0549` 支持自定义成本项。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0549 | Status: Done | Evidence: kind=custom 自定义成本项行 (TestEstimateLinesProrate) | Verification: TestEstimate*（TestEstimateBaseKinds/Hourly/Traffic/LinesProrate/UnknownLine/RecomputeUpdates/All）+TestBillingAPICostLines（go test ./... 全绿 2026-11-26） | Commit: 8be6965）
--   [ ] `F-0550` 每条估算记录标明价格来源和生效时间。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0550` 每条估算记录标明价格来源和生效时间。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0550 | Status: Done | Evidence: CostEstimate.PriceSource/PriceAt，已知价格必填校验 (billingapi.go createEstimate) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0551` 价格未知时显示未知，不使用虚构默认单价。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0551` 价格未知时显示未知，不使用虚构默认单价。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0551 | Status: Done | Evidence: UnknownPrice 强制金额 0，不造默认单价 (billingapi.go createEstimate, TestBillingAPI) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0552` 估算数据与实际账单分开存储和展示。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0552` 估算数据与实际账单分开存储和展示。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0552 | Status: Done | Evidence: bills/estimates 分表存储，billing 包文档明确隔离 (billing/billing.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
 
 ## 4.4 成本归属与分摊
 
--   [ ] `F-0561`
+-   [x] `F-0561`
     - 备注（Task ID: F-0561 | Status: Done | Evidence: TargetKind provider/account/resource/node/region/path 归属对象 (billing/allocation.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
     定义成本归属对象：Provider、Account、Resource、Node、Region、Path。（依赖：无；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-0562` 支持资源成本直接归属到 Node。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0562` 支持资源成本直接归属到 Node。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0562 | Status: Done | Evidence: nodeForResource 直接归属 CloudResource→NodeID (billing/import.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0563` 支持共享资源成本按规则分摊。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0563` 支持共享资源成本按规则分摊。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0563 | Status: Done | Evidence: 规则引擎 direct/bandwidth/traffic/ratio/manual (billing/allocation.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0564` 支持按带宽使用量分摊。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0564` 支持按带宽使用量分摊。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0564 | Status: Done | Evidence: BasisBandwidth 按用量权重分摊 (TestAllocateBandwidthWeights) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0565` 支持按流量使用量分摊。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0565` 支持按流量使用量分摊。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0565 | Status: Done | Evidence: BasisTraffic 与带宽共用用量权重分摊路径 (billing/allocation.go splitTargets) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0566` 支持按固定比例分摊。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0566` 支持按固定比例分摊。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0566 | Status: Done | Evidence: BasisRatio 固定比例 ppm，和须为 1_000_000 (TestAllocateRatioSumsToOriginal) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0567` 支持人工调整分摊规则。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0567` 支持人工调整分摊规则。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0567 | Status: Done | Evidence: edit 规则→NewVersion，Manual 基础按显式权重 (billing/allocation.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0568` 记录分摊规则版本。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0568` 记录分摊规则版本。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0568 | Status: Done | Evidence: CostAllocationRule.Version + 旧版 retire 不删除 (TestNewVersionRetiresOldRule) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0569` 保留原始成本和分摊后成本。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0569` 保留原始成本和分摊后成本。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0569 | Status: Done | Evidence: CostItem.AmountCents 原值 + Allocation.OriginalCents/AllocatedCents (TestBillingAPI) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0570` 防止重复分摊同一账单项。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0570` 防止重复分摊同一账单项。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0570 | Status: Done | Evidence: AllocationKey uniqueIndex + OnConflict DoNothing 防重复分摊 (TestAllocateDirect) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0571` 支持成本分摊结果重算。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0571` 支持成本分摊结果重算。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0571 | Status: Done | Evidence: Recompute 重算指定规则版本 (billing/allocation.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0572` 重算不得覆盖历史账单原始记录。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0572` 重算不得覆盖历史账单原始记录。（依赖：F-0561；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0572 | Status: Done | Evidence: 重算仅按新版本键插分摊行，原始账单记录/明细不改动 (billing/allocation.go Recompute) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
 
 ## 4.5 成本核算与对账
 
--   [ ] `F-0581` 按 Provider 统计实际账单金额。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0581` 按 Provider 统计实际账单金额。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0581 | Status: Done | Evidence: GET /cost/spend?scope=provider 按 Provider 汇总实际账单 (billing/stats.go spendRecords) | Verification: TestSpendByScope/TestSpendTrend/TestDetectAnomalies/TestImportFileFX/TestBillingAPISpend（go test ./... 全绿 2026-11-26） | Commit: 2be063c）
--   [ ] `F-0582` 按账号统计实际账单金额。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0582` 按账号统计实际账单金额。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0582 | Status: Done | Evidence: scope=account 按账号汇总实际账单 (billing/stats.go) | Verification: TestSpendByScope/TestSpendTrend/TestDetectAnomalies/TestImportFileFX/TestBillingAPISpend（go test ./... 全绿 2026-11-26） | Commit: 2be063c）
--   [ ] `F-0583` 按区域统计实际账单金额。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0583` 按区域统计实际账单金额。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0583 | Status: Done | Evidence: scope=region 按区域汇总实际账单，支持期间过滤 (billing/stats.go) | Verification: TestSpendByScope/TestSpendTrend/TestDetectAnomalies/TestImportFileFX/TestBillingAPISpend（go test ./... 全绿 2026-11-26） | Commit: 2be063c）
--   [ ] `F-0584` 按资源统计实际账单金额。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0584` 按资源统计实际账单金额。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0584 | Status: Done | Evidence: scope=resource 按资源汇总账单明细 (billing/stats.go spendItems) | Verification: TestSpendByScope/TestSpendTrend/TestDetectAnomalies/TestImportFileFX/TestBillingAPISpend（go test ./... 全绿 2026-11-26） | Commit: 2be063c）
--   [ ] `F-0585` 按 Node 统计分摊成本。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0585` 按 Node 统计分摊成本。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0585 | Status: Done | Evidence: scope=node 按节点汇总分摊成本（CostAllocation target=node 按币种分组）(spendAllocatedNodes) | Verification: TestSpendByScope/TestSpendTrend/TestDetectAnomalies/TestImportFileFX/TestBillingAPISpend（go test ./... 全绿 2026-11-26） | Commit: 2be063c）
--   [ ] `F-0586` 按 Path 统计估算成本。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0586` 按 Path 统计估算成本。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0586 | Status: Done | Evidence: scope=path 按线路汇总估算成本（CostEstimate path_id 已知价）(spendPathEstimates) | Verification: TestSpendByScope/TestSpendTrend/TestDetectAnomalies/TestImportFileFX/TestBillingAPISpend（go test ./... 全绿 2026-11-26） | Commit: 2be063c）
--   [ ] `F-0587` 对比估算成本与实际账单。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0587` 对比估算成本与实际账单。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0587 | Status: Done | Evidence: Reconcile 对比估算与实际并算 Diff=Actual-Estimate (billing/allocation.go, TestBillingAPI) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0588` 识别账单缺失的资源。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0588` 识别账单缺失的资源。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0588 | Status: Done | Evidence: GET /cost/anomalies：已同步资源在期间内无账单明细即 missing_bill (billing/anomaly.go) | Verification: TestSpendByScope/TestSpendTrend/TestDetectAnomalies/TestImportFileFX/TestBillingAPISpend（go test ./... 全绿 2026-11-26） | Commit: 2be063c）
--   [ ] `F-0589` 识别账单中无法匹配的资源。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0589` 识别账单中无法匹配的资源。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0589 | Status: Done | Evidence: 账单明细 resource_id 无对应云资源即 unmatched_resource (billing/anomaly.go) | Verification: TestSpendByScope/TestSpendTrend/TestDetectAnomalies/TestImportFileFX/TestBillingAPISpend（go test ./... 全绿 2026-11-26） | Commit: 2be063c）
--   [ ] `F-0590` 识别成本异常增长。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0590` 识别成本异常增长。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0590 | Status: Done | Evidence: 月度环比涨幅超阈值（默认 100%，growth_pct 可调）即 spend_spike (DetectAnomalies) | Verification: TestSpendByScope/TestSpendTrend/TestDetectAnomalies/TestImportFileFX/TestBillingAPISpend（go test ./... 全绿 2026-11-26） | Commit: 2be063c）
--   [ ] `F-0591` 支持账单差异确认。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0591` 支持账单差异确认。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0591 | Status: Done | Evidence: ConfirmReconciliation 状态 confirmed/adjusted + Note (billing/allocation.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0592` 支持成本调整备注和审批记录。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0592` 支持成本调整备注和审批记录。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0592 | Status: Done | Evidence: CostReconciliation.Note/ApprovedBy 审批记录 (storage/billing.go, billingapi.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-0593` 支持按日、月、账单周期汇总。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0593` 支持按日、月、账单周期汇总。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0593 | Status: Done | Evidence: GET /cost/spend/trend?bucket=day|month|cycle 按日/月/账单周期汇总 (billing/stats.go SpendTrend) | Verification: TestSpendByScope/TestSpendTrend/TestDetectAnomalies/TestImportFileFX/TestBillingAPISpend（go test ./... 全绿 2026-11-26） | Commit: 2be063c）
--   [ ] `F-0594` 支持多币种原币展示。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0594` 支持多币种原币展示。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0594 | Status: Done | Evidence: 所有汇总行按币种分组，原币展示不混算 (billing/stats.go SpendRow.Currency) | Verification: TestSpendByScope/TestSpendTrend/TestDetectAnomalies/TestImportFileFX/TestBillingAPISpend（go test ./... 全绿 2026-11-26） | Commit: 2be063c）
--   [ ] `F-0595` 支持按指定汇率转换为报表币种。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0595` 支持按指定汇率转换为报表币种。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0595 | Status: Done | Evidence: 导入行可携 fx_rate，落 ReportAmountCents 报表金额并入汇总 report_cents (billing/import.go, stats.go) | Verification: TestSpendByScope/TestSpendTrend/TestDetectAnomalies/TestImportFileFX/TestBillingAPISpend（go test ./... 全绿 2026-11-26） | Commit: 2be063c）
--   [ ] `F-0596` 记录汇率来源和日期。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0596` 记录汇率来源和日期。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0596 | Status: Done | Evidence: fx_rate_source/fx_rate_date 随记录保存 (billing/import.go parseFXDate, TestImportFileFX) | Verification: TestSpendByScope/TestSpendTrend/TestDetectAnomalies/TestImportFileFX/TestBillingAPISpend（go test ./... 全绿 2026-11-26） | Commit: 2be063c）
--   [ ] `F-0597` 明确未结算账单和已结算账单状态。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0597` 明确未结算账单和已结算账单状态。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0597 | Status: Done | Evidence: CostRecord.Status unsettled/settled (storage/billing.go) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
 
 ## 4.6 成本与线路调度联动
@@ -1287,7 +1287,7 @@ External Client
     - 备注（Task ID: F-0704 | Status: Done | Evidence: agentws.go:381 MsgHeartbeat→:392 Ack；TestAgentWSHeartbeat | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0705` 统一 Agent 版本上报。
     - 备注（Task ID: F-0705 | Status: Done | Evidence: Hello.Version 上报；TestAgentWSHelloVersion | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0706` 统一 Agent 能力上报。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0706` 统一 Agent 能力上报。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0706 | Status: Done | Evidence: 统一链路已落地——Hello.Caps 静态集（agent app.go:228 staticCaps → server agentws.go:147 syncCaps，首注册记录、面板覆盖）+ Heartbeat.Caps 动态态（app.go:469 dynamicCaps → agentws.go:490 mergeCaps）；TestSyncCapsHelloAndHeartbeat/TestStaticCaps/TestDynamicCaps | Verification: go test 全绿 2026-11-26 | Commit: d3220ab）
 -   [x] `F-0707` 统一 Agent 资源使用情况上报。
     - 备注（Task ID: F-0707 | Status: Done | Evidence: Heartbeat CPU/内存/连接字段（messages.go:99-111）；TestAgentWSHeartbeat+TestSysStatus | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
@@ -1299,7 +1299,7 @@ External Client
     - 备注（Task ID: F-0710 | Status: Done | Evidence: node.go:208 revokeNodeToken+NodeTokenRevocation models.go:386；TestNodeTokenRevocation+e2e 吊销腿 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0711` 支持 Agent 凭据轮换。
     - 备注（Task ID: F-0711 | Status: Done | Evidence: node.go:183 rotateNodeToken+agentws.go:48 10min 宽限；TestNodeTokenRotation+TestAuthNodeTokenRotationWindow+e2e 轮换腿 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0712` 支持 Agent 升级状态上报。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0712` 支持 Agent 升级状态上报。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0712 | Status: Done | Evidence: 专用进度消息 MsgUpgradeStatus=agent.upgrade_status（UpgradeID/Version/State/Error，downloading→applying→applied/failed，ValidUpgradeState 守门）；agent 端 upgrade.DoWithProgress 回调逐态上报、app.doUpgrade 以命令 ID 派生信封 ID（命令-态）发送；server 端 agentws 分发经 repeatReport 去重后落 NodeUpgrade 表并开 GET /api/nodes/:id/upgrades；TestDoWithProgress/TestDoWithProgressFailed/TestAgentWSUpgradeStatus/TestUpgradeStatusRoundTrip | Verification: go test 全绿 2026-11-26（server -timeout=30m exit 0） | Commit: 1d3c633）
 -   [x] `F-0713` 支持 Agent 升级失败恢复。
     - 备注（Task ID: F-0713 | Status: Done | Evidence: upgrade 看门狗回滚；TestWatchdogRollback+TestWatchdogRollbackFailure | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
@@ -1308,7 +1308,7 @@ External Client
 
 -   [x] `F-0721` 审计现有 agentproto 消息定义。
     - 备注（Task ID: F-0721 | Status: Done | Evidence: agentproto 消息定义审计 §3.2（Msg* 信封+Version） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0722` 为现有消息补充协议文档。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0722` 为现有消息补充协议文档。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0722 | Status: Done | Evidence: 独立协议参考文档 docs/design/agent协议参考.md：信封/版本守卫/帧限/超时 + 全部 23 个消息类型表（方向/载荷/语义/应答与幂等）+ FERRY-004 摘要与兼容规则，与 TestMessageTypesStable 互为锚点 | Verification: 文档-only，代码树与 2026-11-26 全绿运行一致 | Commit: ef9cb07）
 -   [x] `F-0723` 为消息定义版本兼容规则。
     - 备注（Task ID: F-0723 | Status: Done | Evidence: Envelope.V+ProtocolVersion(envelope.go:7-8,36-41)+Valid() 拒绝未知版本(envelope.go:70)+link readLoop 丢弃(link.go:160-163) | Verification: TestEnvelopeVersionGuard+TestReadLoopDropsBadMessages | Commit: 172dad4）
@@ -1318,22 +1318,22 @@ External Client
     - 备注（Task ID: F-0725 | Status: Done | Evidence: ConfigAck/TrafficAck+relaypush；TestPushAckApplied+TestAgentWSTrafficReport | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0726` 定义消息超时和重试规则。
     - 备注（Task ID: F-0726 | Status: Done | Evidence: agenthub/hub.go:114 Request 超时 ErrTimeout；TestPushTimeout+TestPushSendError | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0727` 定义断线期间消息处理规则。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0727` 定义断线期间消息处理规则。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0727 | Status: Done | Evidence: 统一断线策略落 docs/design/agent协议参考.md §3：四类消息（核心进程内报告静默丢/角色 spool 保留重放偏移回退/面板命令 ErrOffline 502/重连循环）逐类规则表 + 重连对账（syncNodeMeta/hello_ack 周期校准/caps 合并）+ 命令超时口径（ErrTimeout 15s）；代码锚点 spool.Watch 2s 扫描、link.Run 重连、agentws setNodeStatus | Verification: 文档-only，代码行为均有现存测试（TestRunReconnectsUntilCancel/TestPushTimeout 等） | Commit: f198536）
--   [ ] `F-0728` 定义消息大小限制。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0728` 定义消息大小限制。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0728 | Status: Done | Evidence: 三面全限——面板 agent-WS 入站 8MiB（既有 maxAgentFrameBytes/TestAgentWSFrameLimit）+ agent 入站 link.MaxFrameBytes 默认 8MiB（DefaultMaxFrameBytes，connectOnce SetReadLimit，超限断连进重连，TestReadLoopFrameLimit）+ /api HTTP 请求体 8MiB（bodyLimit 中间件 http.MaxBytesReader，超限 400，TestAPIBodyLimit）；规则落 docs/design/agent协议参考.md §1 | Verification: go test 全绿 2026-11-26（server -timeout=30m exit 0，handler 848s） | Commit: 5dbc1f1）
 -   [x] `F-0729` 定义未知消息处理方式。
     - 备注（Task ID: F-0729 | Status: Done | Evidence: link readLoop 丢弃坏消息+服务端留痕；TestReadLoopDropsBadMessages | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0730` 增加 Agent 协议兼容性测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0730` 增加 Agent 协议兼容性测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0730 | Status: Done | Evidence: 跨版本兼容测试 compat_test.go：TestOldAgentPayloadsDecode（旧 agent 缺 Caps/caps/Error 字段的 hello/heartbeat/upgrade_status 按零值解码）TestUnknownPayloadFieldsIgnored（新端多字段解码忽略）TestUnknownTypeEnvelopeSurvivesDecode（新消息类型旧端按类型丢弃、信封可解）——落实 §5.2 兼容规则：载荷新字段 omitempty、两端独立升级 | Verification: go test ./... 全绿 2026-11-26（agentproto -v 三例 PASS，agent/server 本轮未改代码） | Commit: 803110c）
 
 ## 5.3 节点管理
 
--   [ ] `F-0741` 支持节点注册审批。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0741` 支持节点注册审批。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0741 | Status: Done | Evidence: 审批流落地——enrollment token 增 require_approval（凭证级开关，默认保持令牌即授权）；开启后 enroll 事务落 node 为 disabled+status=pending+note『pending approval』，authNode 因 enabled=false 拒连（agentws_test 用例验证 hello 被拒）；POST /api/nodes/:id/approve 激活（enabled+status=unknown+清 note），POST /api/nodes/:id/reject 落 rejected 终态（不可再 approve）；TestEnrollmentApproval/TestEnrollmentNoApprovalKeepsBehavior | Verification: go test ./... 全绿 2026-11-26（server -timeout=30m exit 0） | Commit: d06c2f6）
 -   [x] `F-0742` 支持节点元数据自动采集。
     - 备注（Task ID: F-0742 | Status: Done | Evidence: syncNodeMeta 注册元数据采集（meta_init 面板为准）；TestAgentWSHelloMeta | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-0743` 支持管理员编辑业务元数据。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0743` 支持管理员编辑业务元数据。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-0743 | Status: Done | Evidence: NodeInput 增业务元数据编辑——labels（MarshalLabelsJSON 去重/去空/trim，nil 保留、显式 [] 清空）、group（Node 新列 size:64）、计费字段 billing_type/traffic_price_cents/monthly_cost_cents/currency/cost_note（指针区分缺席与显式 0，校验 vocabulary 与非负价）；create 与 update 双路径贯通，meta_init 面板接管语义保持；TestNodeBusinessMetaEdit | Verification: go test 全绿 2026-11-26（server 全套无 FAIL） | Commit: 5337d70）
 -   [x] `F-0744` 支持节点入池检查。
     - 备注（Task ID: F-0744 | Status: Done | Evidence: provision→probe→online 入池检查流水线；TestProvisionPipeline | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
@@ -2475,13 +2475,13 @@ External Client
     - 待补（F-9205 | 未满足：无云资源电源开/关/重启路径（F-0361 区/F-0327 区）。）
 -   [ ] `F-9206` 完成 Cloud Resource 与 Node 关联。（依赖：F-0341、F-0391；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9206 | 未满足：CloudResource 0 命中，无资源↔Node 关联与实例停止/启动/删除联动（F-0391/F-0341 区）。）
--   [ ] `F-9207` 完成账单导入模型。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-9207` 完成账单导入模型。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-9207 | Status: Done | Evidence: 账单导入模型落地：CostRecord/CostItem/BillImport + 去重/索引 (§4.1/§4.2) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-9208` 完成至少一种 Provider 的实际账单接入或文件导入。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-9208` 完成至少一种 Provider 的实际账单接入或文件导入。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-9208 | Status: Done | Evidence: 手工文件导入(ImportFile)+API 拉取(ImportFromAPI) 双通道 (§4.2) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-9209` 完成估算成本。（依赖：F-0542；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-9209` 完成估算成本。（依赖：F-0542；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-9209 | Status: Done | Evidence: 估算成本全类目落地：包月/固定带宽/按流量/按小时/IP/磁盘/快照/备份/折扣/自定义 (§4.3 F-0541~F-0549) | Verification: TestEstimate*（TestEstimateBaseKinds/Hourly/Traffic/LinesProrate/UnknownLine/RecomputeUpdates/All）+TestBillingAPICostLines（go test ./... 全绿 2026-11-26） | Commit: 8be6965）
--   [ ] `F-9210` 完成实际账单与估算对比。（依赖：F-0581；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-9210` 完成实际账单与估算对比。（依赖：F-0581；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-9210 | Status: Done | Evidence: Reconcile 估算 vs 实际对比落地 (§4.5 F-0587) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
 -   [ ] `F-9211` 完成 Dash 云资源管理页面。（依赖：F-0411；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9211 | 未满足：Dash 云资源/云操作页面未实现（无 CloudResource 模型即无页面，审计 §3.11 F-9211/9212 未实现）；仅 Providers 列表存在（F-0411 区）。）
@@ -2635,9 +2635,9 @@ External Client
     - 待补（F-10000 | 未满足：无 CloudOperation 状态机/超时对账（F-0361+）——云操作状态不能与 Provider 实际状态对账。）
 -   [ ] `F-10001` Cloud Resource 能够与 Ferry Node 关联。（依赖：F-0103、F-0341；完成条件：需求落地+测试绿+证据行）
     - 待补（F-10001 | 未满足：无 CloudResource/关联（F-0103/0341）——Cloud Resource 不能与 Node 关联。）
--   [ ] `F-10002` 能够导入或同步实际账单。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-10002` 能够导入或同步实际账单。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-10002 | Status: Done | Evidence: 可导入或同步实际账单：文件导入 + Billing API 拉取 (§4.2) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-10003` 能够区分实际账单、估算成本和成本分摊。（依赖：F-0552、F-0505；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-10003` 能够区分实际账单、估算成本和成本分摊。（依赖：F-0552、F-0505；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-10003 | Status: Done | Evidence: 区分实际账单/估算/分摊：三表并存互不混写 (§4.1/§4.3/§4.4) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
 -   [ ] `F-10004` 能够按 Provider、账号、区域、资源和 Node 查看成本。（依赖：F-1462、F-1463、F-1465；完成条件：需求落地+测试绿+证据行）
     - 待补（F-10004 | 部分：区域/ISP/节点成本维度有（F-1464/1466 关）；无 Provider/账号/资源维度（F-1462/1463/1465）——按五维度查看成本缺二。）
