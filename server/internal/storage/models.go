@@ -293,6 +293,19 @@ type LandingAssignment struct {
 	ReleaseReason string     `gorm:"size:64" json:"release_reason"`
 }
 
+// AllocExclusion is the durable trail of a candidate the cost guard removed
+// from this allocation round (F-0609): which landing was dropped from which
+// entry and why (e.g. above the cost ceiling).
+type AllocExclusion struct {
+	ID            uint      `gorm:"primaryKey" json:"id"`
+	EntryNodeID   uint      `gorm:"index" json:"entry_node_id"`
+	LandingNodeID uint      `gorm:"index" json:"landing_node_id"`
+	Direction     string    `gorm:"size:8" json:"direction"`
+	Policy        string    `gorm:"size:16" json:"policy"`
+	Reason        string    `gorm:"size:128" json:"reason"`
+	CreatedAt     time.Time `gorm:"index" json:"created_at"`
+}
+
 // ProbeReport stores one edge probe conclusion: probing runs locally on the node,
 // and the panel only receives the conclusion for aggregate judgment and historical backtracking.
 type ProbeReport struct {

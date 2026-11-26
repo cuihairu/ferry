@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/ferry/packages/agentproto"
+	"github.com/cuihairu/ferry/server/internal/billing"
 	"github.com/cuihairu/ferry/server/internal/notify"
 	// Aliased: the local alloc-policy identifier (PolicySetting values and
 	// policy params) shadows the package name everywhere below.
@@ -69,6 +70,12 @@ type PolicySetting struct {
 	WLoad    float64 `json:"w_load"`
 	WCost    float64 `json:"w_cost"`
 	WPremium float64 `json:"w_premium"`
+	// Cost guards (F-0604~F-0606): MaxCostPerGB (0 = off) excludes metered
+	// candidates whose known fresh marginal price exceeds it; MissingCost picks
+	// the degradation rule for an unknown/stale price — deprioritize (default,
+	// F-0605/F-0610: never treated as free) or treat_zero (legacy behavior).
+	MaxCostPerGB int64  `json:"max_cost_per_gb"`
+	MissingCost  string `json:"missing_cost"`
 }
 
 // Multiplicative score weight defaults (= the current formula 0.5*loadN + 0.3*costN - 0.2*premium).
@@ -77,6 +84,26 @@ const (
 	DefaultWCost    = 0.3
 	DefaultWPremium = 0.2
 )
+
+// MissingCost degradation rules (F-0605/F-0610): how a metered candidate with an
+// unknown or stale price participates in the cost decision.
+const (
+	// MissingCostDeprioritize sorts missing-price candidates after every priced
+	// one (an unknown price is never treated as free); this is the default.
+	MissingCostDeprioritize = "deprioritize"
+	// MissingCostTreatZero keeps the legacy behavior: a missing price enters the
+	// cost decision as 0 (free).
+	MissingCostTreatZero = "treat_zero"
+)
+
+// DefaultMissingCost is the degradation rule for settings that do not carry one
+// (including all settings persisted before the field existed).
+const DefaultMissingCost = MissingCostDeprioritize
+
+// ValidMissingCost reports whether the degradation rule value is valid.
+func ValidMissingCost(m string) bool {
+	return m == MissingCostDeprioritize || m == MissingCostTreatZero
+}
 
 // Off-peak window defaults.
 const (
@@ -90,6 +117,7 @@ func DefaultPolicySetting() PolicySetting {
 		Out: DefaultPolicyOut, In: DefaultPolicyIn,
 		RebalanceStart: DefaultRebalanceStart, RebalanceEnd: DefaultRebalanceEnd,
 		WLoad: DefaultWLoad, WCost: DefaultWCost, WPremium: DefaultWPremium,
+		MissingCost: DefaultMissingCost,
 	}
 }
 
@@ -136,6 +164,15 @@ func (s *PolicySetting) normalize() {
 		(s.WLoad == 0 && s.WCost == 0 && s.WPremium == 0) {
 		s.WLoad, s.WCost, s.WPremium = DefaultWLoad, DefaultWCost, DefaultWPremium
 	}
+	// Cost guards (F-0604~F-0606): a negative ceiling means off; an empty or
+	// invalid degradation rule (settings persisted before the field existed)
+	// falls back to deprioritize.
+	if s.MaxCostPerGB < 0 {
+		s.MaxCostPerGB = 0
+	}
+	if !ValidMissingCost(s.MissingCost) {
+		s.MissingCost = DefaultMissingCost
+	}
 }
 
 // validWindow defines the off-peak window: 0-23 with start < end (half-open, no crossing midnight).
@@ -165,6 +202,16 @@ func SavePolicy(db *gorm.DB, setting PolicySetting) error {
 		// All-zero = follow the default (equivalent to unset), not rejected.
 		setting.WLoad, setting.WCost, setting.WPremium = DefaultWLoad, DefaultWCost, DefaultWPremium
 	}
+	if setting.MaxCostPerGB < 0 {
+		return fmt.Errorf("max cost per GB must be non-negative")
+	}
+	if setting.MissingCost == "" {
+		// An empty degradation rule means "use the default", like the empty tiers above.
+		setting.MissingCost = DefaultMissingCost
+	}
+	if !ValidMissingCost(setting.MissingCost) {
+		return fmt.Errorf("missing cost must be %s/%s", MissingCostDeprioritize, MissingCostTreatZero)
+	}
 	raw, err := json.Marshal(setting)
 	if err != nil {
 		return err
@@ -181,9 +228,21 @@ func InOffPeak(now time.Time, s PolicySetting) bool {
 
 // Candidate is the scoring input for one landing candidate.
 type Candidate struct {
-	Node    storage.Node
-	Conns   int  // latest connection count (no sample = 0)
-	Healthy bool // latest probe verdict within the window is not sick (no verdict counts as healthy)
+	Node      storage.Node
+	Conns     int  // latest connection count (no sample = 0)
+	Healthy   bool // latest probe verdict within the window is not sick (no verdict counts as healthy)
+	CostKnown bool // metered price present (fixed billing is always known: marginal 0 is exact by design)
+	CostFresh bool // price row fresh within billing.PriceFreshWindow (node updated_at is the price as-of marker)
+}
+
+// costMissing reports whether the marginal price is unknown or stale under the
+// configured degradation rule (F-0605/F-0610): only metered billing can be
+// missing; fixed-cost nodes are never missing because their marginal 0 is exact.
+func (c Candidate) costMissing(rule string) bool {
+	if rule == MissingCostTreatZero {
+		return false
+	}
+	return c.Node.BillingType == "按流量" && (!c.CostKnown || !c.CostFresh)
 }
 
 // CapacityMbps is the forwarding capacity (Mbps): measured calibrated > plan downlink > plan uplink > 100 floor.
@@ -216,8 +275,12 @@ func (c Candidate) CostPerGB() int64 {
 //   - perf_first: premium inbound line tiers (cn2_gia/cu_vip/cmi/iplc) first, then load ratio;
 //   - balanced: load/cost normalized weights 0.5+0.3, premium inbound line minus 0.2 (direction=in only).
 //
+// Under the deprioritize rule (F-0605/F-0610) a candidate with an unknown or
+// stale metered price sorts after every priced one in every cost comparison,
+// instead of entering as free.
+//
 // Equal scores break by name lexicographic order, keeping the result deterministic and testable.
-func Pick(policy, direction string, w ScoreWeights, cands []Candidate) (int, bool) {
+func Pick(policy, direction, missing string, w ScoreWeights, cands []Candidate) (int, bool) {
 	healthy := make([]int, 0, len(cands))
 	for i, c := range cands {
 		if c.Healthy {
@@ -230,7 +293,7 @@ func Pick(policy, direction string, w ScoreWeights, cands []Candidate) (int, boo
 	if len(healthy) == 1 {
 		return healthy[0], true
 	}
-	less := lessFor(policy, direction, w, cands)
+	less := lessFor(policy, direction, missing, w, cands)
 	best := healthy[0]
 	for _, i := range healthy[1:] {
 		if less(i, best) {
@@ -256,14 +319,24 @@ func premiumOf(c Candidate, direction string) bool {
 }
 
 // lessFor builds the policy comparison function: less(a,b) = whether a beats b.
-func lessFor(policy, direction string, w ScoreWeights, cands []Candidate) func(a, b int) bool {
+func lessFor(policy, direction, missingRule string, w ScoreWeights, cands []Candidate) func(a, b int) bool {
 	load := func(i int) float64 { return loadRatio(cands[i]) }
-	cost := func(i int) float64 { return costPer(cands[i]) }
+	missing := func(i int) bool { return cands[i].costMissing(missingRule) }
+	// Missing prices map to 0 inside the per-policy comparator: the wrapper
+	// below partitions them behind every priced candidate, so their cost value
+	// only breaks ties among themselves.
+	cost := func(i int) float64 {
+		if missing(i) {
+			return 0
+		}
+		return costPer(cands[i])
+	}
 	premium := func(i int) bool { return premiumOf(cands[i], direction) }
 	byName := func(a, b int) bool { return cands[a].Node.Name < cands[b].Node.Name }
+	var less func(a, b int) bool
 	switch policy {
 	case PolicyCostFirst:
-		return func(a, b int) bool {
+		less = func(a, b int) bool {
 			if cost(a) != cost(b) {
 				return cost(a) < cost(b)
 			}
@@ -273,7 +346,7 @@ func lessFor(policy, direction string, w ScoreWeights, cands []Candidate) func(a
 			return byName(a, b)
 		}
 	case PolicyPerfFirst:
-		return func(a, b int) bool {
+		less = func(a, b int) bool {
 			if pa, pb := premium(a), premium(b); pa != pb {
 				return pa // premium line wins
 			}
@@ -287,13 +360,25 @@ func lessFor(policy, direction string, w ScoreWeights, cands []Candidate) func(a
 		}
 	case PolicyBalanced:
 		// Normalize to [0,1] then weight; a premium line is a fixed subtraction.
-		all := make([]int, len(cands))
+		// Cost normalizes over priced candidates only (F-0605/F-0610): a missing
+		// price entering the min/max range as 0 would squeeze the priced spread,
+		// so it is excluded there; within the missing bucket every cost term is
+		// an equal constant and load/premium/name decide.
+		all := make([]int, 0, len(cands))
+		priced := make([]int, 0, len(cands))
 		for i := range cands {
-			all[i] = i
+			all = append(all, i)
+			if !missing(i) {
+				priced = append(priced, i)
+			}
 		}
 		loadN := normalize(cands, all, load)
-		costN := normalize(cands, all, cost)
-		return func(a, b int) bool {
+		costIdx := priced
+		if len(costIdx) == 0 {
+			costIdx = all
+		}
+		costN := normalize(cands, costIdx, cost)
+		less = func(a, b int) bool {
 			sa := w.Load*loadN(a) + w.Cost*costN(a)
 			sb := w.Load*loadN(b) + w.Cost*costN(b)
 			if premium(a) {
@@ -308,7 +393,7 @@ func lessFor(policy, direction string, w ScoreWeights, cands []Candidate) func(a
 			return byName(a, b)
 		}
 	default: // least_conn
-		return func(a, b int) bool {
+		less = func(a, b int) bool {
 			if load(a) != load(b) {
 				return load(a) < load(b)
 			}
@@ -318,6 +403,19 @@ func lessFor(policy, direction string, w ScoreWeights, cands []Candidate) func(a
 			return byName(a, b)
 		}
 	}
+	// Partition by the degradation rule (F-0605/F-0610): a missing price never
+	// meets a priced one on cost — it loses that comparison outright, and the
+	// policy order decides as usual within each bucket. treat_zero keeps the
+	// legacy single-bucket behavior.
+	if missingRule == MissingCostTreatZero {
+		return less
+	}
+	return func(a, b int) bool {
+		if ma, mb := missing(a), missing(b); ma != mb {
+			return !ma
+		}
+		return less(a, b)
+	}
 }
 
 // Peak switch threshold: the primary metric must be clearly better (saving 30% or more) to move, preventing trail churn (E-22).
@@ -325,21 +423,47 @@ const peakSwitchMargin = 0.7
 
 // shouldSwitch is the peak switch decision (the off-peak window switches directly by the policy total order, bypassing this check).
 // When the current landing is not among healthy candidates (sick/offline) the caller force-switches and does not reach this function.
-func shouldSwitch(policy, direction string, w ScoreWeights, cands []Candidate, cur, win int) bool {
+func shouldSwitch(policy, direction, missingRule string, w ScoreWeights, cands []Candidate, cur, win int) bool {
+	// Missing prices (F-0605/F-0610) for the cost-aware policies: never switch
+	// at peak from a known price to an unknown one (an unknown price is not a
+	// proven improvement), and leaving an unknown price for a known one is a
+	// clear improvement regardless of the margin. least_conn/perf_first do not
+	// compare cost here, so the rule does not apply to them.
+	curMissing := cands[cur].costMissing(missingRule)
+	winMissing := cands[win].costMissing(missingRule)
 	switch policy {
 	case PolicyPerfFirst:
 		// During peak only line-tier upgrades are allowed (plain → premium); downgrades wait for the off-peak rebalance.
 		return !premiumOf(cands[cur], direction) && premiumOf(cands[win], direction)
 	case PolicyCostFirst:
+		if curMissing != winMissing {
+			return curMissing
+		}
 		curCost := costPer(cands[cur])
 		return curCost > 0 && costPer(cands[win]) < curCost*peakSwitchMargin
 	case PolicyBalanced:
+		if curMissing != winMissing {
+			return curMissing
+		}
 		all := make([]int, len(cands))
+		priced := make([]int, 0, len(cands))
 		for i := range cands {
 			all[i] = i
+			if !cands[i].costMissing(missingRule) {
+				priced = append(priced, i)
+			}
 		}
 		loadN := normalize(cands, all, func(i int) float64 { return loadRatio(cands[i]) })
-		costN := normalize(cands, all, func(i int) float64 { return costPer(cands[i]) })
+		costIdx := priced
+		if len(costIdx) == 0 {
+			costIdx = all
+		}
+		costN := normalize(cands, costIdx, func(i int) float64 {
+			if cands[i].costMissing(missingRule) {
+				return 0
+			}
+			return costPer(cands[i])
+		})
 		score := func(i int) float64 {
 			s := w.Load*loadN(i) + w.Cost*costN(i)
 			if premiumOf(cands[i], direction) {
@@ -505,7 +629,26 @@ func SweepAt(db *gorm.DB, now time.Time) ([]SwitchEvent, error) {
 			if !storage.HasCapability(l, storage.CapRelayLanding) {
 				continue
 			}
-			cands = append(cands, Candidate{Node: l, Conns: conns[l.ID], Healthy: !sick[l.ID]})
+			// Price freshness (F-0604): node updated_at is the price as-of
+			// marker; beyond the window the price is stale and must not drive
+			// the cost decision (it degrades per MissingCost instead).
+			known := l.BillingType != "按流量" || l.TrafficPriceCents > 0
+			fresh := now.Sub(l.UpdatedAt) < billing.PriceFreshWindow
+			// Cost ceiling (F-0606): metered candidates with a known fresh price
+			// above the ceiling are excluded this round and the exclusion is
+			// trailed (1-hour dedupe). Unknown or stale prices are never
+			// excluded (F-0610: an unknown price must not be guessed as
+			// over-budget), and fixed billing has no marginal cost at all.
+			if policy.MaxCostPerGB > 0 && l.BillingType == "按流量" && known && fresh &&
+				l.TrafficPriceCents > policy.MaxCostPerGB {
+				// Best-effort trail: the filter above already applied, so a
+				// recording failure only costs observability, not correctness.
+				_ = recordExclusion(db, entry.ID, l.ID, direction, policyFor(policy, direction),
+					fmt.Sprintf("单价 %d 分/GB 超上限 %d", l.TrafficPriceCents, policy.MaxCostPerGB), now)
+				continue
+			}
+			cands = append(cands, Candidate{Node: l, Conns: conns[l.ID], Healthy: !sick[l.ID],
+				CostKnown: known, CostFresh: fresh})
 		}
 		// The entry itself must be able to run the relay data plane toward the
 		// landing it is picking; otherwise the tunnel cannot come up.
@@ -518,7 +661,7 @@ func SweepAt(db *gorm.DB, now time.Time) ([]SwitchEvent, error) {
 			return events, err
 		}
 		weights := policy.Weights()
-		idx, ok := Pick(policyFor(policy, direction), direction, weights, cands)
+		idx, ok := Pick(policyFor(policy, direction), direction, policy.MissingCost, weights, cands)
 		if !ok {
 			continue // all sick or no candidates: keep current, wait for recovery
 		}
@@ -539,7 +682,7 @@ func SweepAt(db *gorm.DB, now time.Time) ([]SwitchEvent, error) {
 				continue // current is already the best, no row to prevent churn
 			}
 			// At peak the primary metric must be clearly better to move; the off-peak window rebalances by the policy total order.
-			if !offPeak && !shouldSwitch(policyFor(policy, direction), direction, weights, cands, curIdx, idx) {
+			if !offPeak && !shouldSwitch(policyFor(policy, direction), direction, policy.MissingCost, weights, cands, curIdx, idx) {
 				continue
 			}
 		}
@@ -613,6 +756,36 @@ func currentAuto(db *gorm.DB, entryID uint, direction string) (*storage.LandingA
 		return nil, err
 	}
 	return &row, nil
+}
+
+// exclusionDedupeWindow is how long an identical exclusion trail suppresses a
+// repeat row: sweeps run every few minutes, one row per hour per (entry,
+// landing, reason) is enough to read the history without flooding it.
+const exclusionDedupeWindow = time.Hour
+
+// recordExclusion trails one cost-ceiling exclusion (F-0606) for the audit
+// trail; identical rows within the dedupe window are skipped so a repeating
+// sweep does not flood the table.
+func recordExclusion(db *gorm.DB, entryID, landingID uint, direction, policyName, reason string, now time.Time) error {
+	var n int64
+	if err := db.Model(&storage.AllocExclusion{}).
+		Where("entry_node_id = ? AND landing_node_id = ? AND direction = ? AND policy = ? AND reason = ? AND created_at > ?",
+			entryID, landingID, direction, policyName, reason, now.Add(-exclusionDedupeWindow)).
+		Count(&n).Error; err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	row := storage.AllocExclusion{
+		EntryNodeID:   entryID,
+		LandingNodeID: landingID,
+		Direction:     direction,
+		Policy:        policyName,
+		Reason:        reason,
+		CreatedAt:     now,
+	}
+	return db.Create(&row).Error
 }
 
 // latestConns aggregates each node's latest sampled connection count: take the latest entry per process within the window, then sum per node.

@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"errors"
 	"net/http"
 
 	"github.com/cuihairu/ferry/server/internal/alloc"
@@ -37,7 +36,7 @@ func (h *Handler) putAllocPolicy(c *gin.Context) {
 		return
 	}
 	if err := alloc.SavePolicy(h.db, in); err != nil {
-		fail(c, http.StatusBadRequest, errors.New("policy must be least_conn/cost_first/perf_first/balanced"))
+		fail(c, http.StatusBadRequest, err)
 		return
 	}
 	c.JSON(http.StatusOK, in)
