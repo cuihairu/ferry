@@ -2201,8 +2201,8 @@ External Client
     - 备注（Task ID: F-1657 | Status: Done | Evidence: OS-4 入池检查；TestProvisionPipeline | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1658` 创建失败时按策略清理部分资源。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1658 | Status: Done | Evidence: provision.Execute 接受 destroy 动作（同 workspace 同 HCL 回滚，tofu state 按 template 目录隔离，绝不波及他模板实例）；策略开关 cfg.ProvisionCleanupOnFail（默认开，FERRY_TOFU_CLEANUP_ON_FAIL 可关——失败 apply 留下在跑的付费资源即成本泄漏）；applyWithCleanup 共享助手（tasksapi.go）：apply 失败+策略开→跑 destroy 并在 ProvisionJob.Log 追加 "cleanup-on-fail: destroy ok/failed: <尾行>"，apply 状态/日志原样透传；cloud.create 任务 Run 与 runProvision 的兜底 goroutine 两条 apply 路径都走该助手；测试 TestExecuteDestroyAction（destroy 到 runner 带 -auto-approve、bogus 动作被拒不触 runner）+TestApplyWithCleanup（失败+策略开→job log 有 cleanup 行；策略关→日志不动），TestApplyLifecycle 非法动作样例由 destroy 改 reap | Verification: gofmt 清洁，go build/vet 通过，server 全套 52 ok exit=0 FAIL=0 | Commit: 2360ba1）
--   [ ] `F-1659` 支持资源销毁前依赖检查。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1659 | 未满足：无销毁流程即无销毁前依赖检查。）
+-   [x] `F-1659` 支持资源销毁前依赖检查。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1659 | Status: Done | Evidence: destroyBlockers 预检（provisionapi.go）：收集该模板全部 job 的 InstanceName→按名找 node（铸造未注册的跳过——无在服可破坏），逐节点查三类依赖：被 Path 引用（entry/landing/relay）报 "serves N path(s)"、CloudResource 仍绑定（unbound_at IS NULL）报 "bound cloud resource"、Enabled+PoolState=active 报 "in the scheduling pool"；新端点 GET /api/provision-templates/:id/destroy-check 恒 200 {ok, blockers}（未知模板 404）；测试 TestDestroyCheck（无 job→clear、404、入池/路径/绑定三类 blocker 逐一叠加、节点退服（删路径+禁用+出池+解绑）后仅剩幽灵实例→clear） | Verification: gofmt 清洁，go build/vet 通过，server 全套 52 ok exit=0 FAIL=0 | Commit: b234605）
 -   [ ] `F-1660` 支持资源销毁审批和二次确认。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1660 | 未满足：无销毁流程即无审批/二次确认。）
 
