@@ -1474,7 +1474,8 @@ External Client
     - 备注（Task ID: F-0909 | Status: Done | Evidence: probe.go:131 net.DialTimeout("tcp")；TestProbeHealthy | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-0910` 支持 UDP 探测。
     - 备注（Task ID: F-0910 | Status: Done | Evidence: ProbeSpec.proto=payload_hex/expect_hex（config 校验：udp 必带 payload、hex 合法、payload 仅 udp 专用）；measureUDP 每轮发包+等回复，回复匹配 expect 前缀才算成功（UDP 无连接，无回复=不可达）；复用 summarize 的 rtt/jitter/loss | Verification: TestMeasureUDPReply+TestMeasureUDPMismatch+TestMeasureUDPSilent+TestProbeUDPReport；config TestValidate 6 新用例；agent 全套 20 包 ok 2026-11-26 | Commit: b2badb2）
--   [ ] `F-0911` 支持应用层探测。（依赖：无；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-0911` 支持应用层探测。
+    - 备注（Task ID: F-0911 | Status: Done | Evidence: ProbeSpec.proto=http/https + http_path/expect_status（config 校验：path 必须以 / 开头、status 100-599、payload 仅 udp）；measureHTTP 每轮 HEAD 请求（重定向不跟随、视为已应答），expect_status 精确匹配才算成功，rtt=请求到响应头；https 走系统根证书（私有 CA 的 https 基线留待有真实需求时加 CAFile） | Verification: TestMeasureHTTPHealthy+TestMeasureHTTPExpectStatus（500+expect200 拒/302 无 expect 算/302 精确匹配过）+TestMeasureHTTPDeadService；config TestValidate 3 新用例；agent 全套 20 包 ok 2026-11-26 | Commit: 3b1923f）
 -   [ ] `F-0912` 支持公网出口探测。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [ ] `F-0913` 支持探测超时和错误分类。（依赖：无；完成条件：需求落地+测试绿+证据行）
 -   [x] `F-0914` 支持探测结果去重。
