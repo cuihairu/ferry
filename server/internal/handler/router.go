@@ -375,6 +375,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) (*gin.Engine, *relaypush.Pusher) 
 		api.POST("/paths/provision", h.autoProvisionPath)
 		api.GET("/paths/:id", h.getPath)
 		api.GET("/paths/:id/health", h.getPathHealth)
+		api.GET("/paths/:id/capacity", h.pathCapacity)
 		api.PUT("/paths/:id", h.updatePath)
 		api.DELETE("/paths/:id", h.deletePath)
 		// Path groups (F-0105/F-0261): ordered candidate path sets with a default.

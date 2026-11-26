@@ -277,3 +277,56 @@ func (h *Handler) deletePath(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"deleted": true})
 }
+
+// pathCapacity estimates a path's forwarding capacity (F-1068): the chain
+// is only as strong as its weakest link, so the estimate is the minimum
+// node capacity over entry -> (relay) -> landing, with the bottleneck named.
+// Read-only, no probe or measurement is triggered.
+func (h *Handler) pathCapacity(c *gin.Context) {
+	var p storage.Path
+	if err := h.db.First(&p, c.Param("id")).Error; err != nil {
+		fail(c, http.StatusNotFound, errors.New("path not found"))
+		return
+	}
+	load := func(id uint) (*storage.Node, error) {
+		var n storage.Node
+		if err := h.db.First(&n, id).Error; err != nil {
+			return nil, err
+		}
+		return &n, nil
+	}
+	entry, err := load(p.EntryNodeID)
+	if err != nil {
+		fail(c, http.StatusNotFound, errors.New("entry node missing"))
+		return
+	}
+	landing, err := load(p.LandingNodeID)
+	if err != nil {
+		fail(c, http.StatusNotFound, errors.New("landing node missing"))
+		return
+	}
+	var relay *storage.Node
+	if p.RelayNodeID != nil {
+		if relay, err = load(*p.RelayNodeID); err != nil {
+			fail(c, http.StatusNotFound, errors.New("relay node missing"))
+			return
+		}
+	}
+	cap, bottleneck := storage.PathCapacity(entry, relay, landing)
+	out := gin.H{
+		"path_id":       p.ID,
+		"entry_id":      entry.ID,
+		"relay_id":      nil,
+		"landing_id":    landing.ID,
+		"capacity_mbps": cap,
+		"bottleneck_id": bottleneck.ID,
+		"bottleneck":    bottleneck.Name,
+		"entry_mbps":    entry.CapacityMbps(),
+		"landing_mbps":  landing.CapacityMbps(),
+	}
+	if relay != nil {
+		out["relay_id"] = relay.ID
+		out["relay_mbps"] = relay.CapacityMbps()
+	}
+	c.JSON(http.StatusOK, out)
+}

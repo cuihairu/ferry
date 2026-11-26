@@ -82,3 +82,26 @@ func TestLatestLoad(t *testing.T) {
 		t.Fatalf("stale-only node must be absent: %+v", samples[n2.ID])
 	}
 }
+
+// TestPathCapacity covers the weakest-link estimate (F-1068): the minimum
+// node capacity wins, the bottleneck is named, and a direct path skips the
+// relay entirely.
+func TestPathCapacity(t *testing.T) {
+	entry := &Node{Name: "e", BwDownMbps: 500}
+	relay := &Node{Name: "r", BwDownMbps: 30}
+	landing := &Node{Name: "l", BwDownMbps: 100}
+	cap, bottleneck := PathCapacity(entry, relay, landing)
+	if cap != 30 || bottleneck.Name != "r" {
+		t.Fatalf("relay chain = %d %+v", cap, bottleneck)
+	}
+	cap, bottleneck = PathCapacity(entry, nil, landing)
+	if cap != 100 || bottleneck.Name != "l" {
+		t.Fatalf("direct chain = %d %+v", cap, bottleneck)
+	}
+	// a measured calibration on one node is respected by the shared chain
+	landing.SpeedMeasuredMbps = 10
+	cap, bottleneck = PathCapacity(entry, nil, landing)
+	if cap != 10 || bottleneck.Name != "l" {
+		t.Fatalf("measured bottleneck = %d %+v", cap, bottleneck)
+	}
+}

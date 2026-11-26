@@ -189,3 +189,68 @@ func TestPathDeleteDependencyCheck(t *testing.T) {
 		t.Fatalf("delete after unreference: %d %s", rec.Code, rec.Body)
 	}
 }
+
+// TestPathCapacityEndpoint covers the path capacity estimate (F-1068): the
+// weakest node in the entry -> relay -> landing chain decides the estimate
+// and is named as the bottleneck; a direct path skips the relay.
+func TestPathCapacityEndpoint(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	mkNode := func(name string, bw int) uint {
+		n := storage.Node{Name: name, Address: name + ".example.com", Port: 443,
+			Protocol: "vless", Token: name, Enabled: true, BwDownMbps: bw}
+		if err := db.Create(&n).Error; err != nil {
+			t.Fatal(err)
+		}
+		return n.ID
+	}
+	entry := mkNode("cap-entry", 500)
+	relay := mkNode("cap-relay", 30)
+	landing := mkNode("cap-landing", 100)
+
+	rec := doJSON(t, r, "POST", "/api/paths", map[string]any{
+		"name": "cap-path", "entry_node_id": entry, "landing_node_id": landing,
+		"relay_node_id": relay, "direction": "out",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body)
+	}
+	var p storage.Path
+	if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
+		t.Fatal(err)
+	}
+	rec = doJSON(t, r, "GET", "/api/paths/"+utoa(p.ID)+"/capacity", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("capacity status = %d %s", rec.Code, rec.Body)
+	}
+	var out struct {
+		CapacityMbps int    `json:"capacity_mbps"`
+		Bottleneck   string `json:"bottleneck"`
+		RelayMbps    int    `json:"relay_mbps"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.CapacityMbps != 30 || out.Bottleneck != "cap-relay" || out.RelayMbps != 30 {
+		t.Fatalf("capacity = %+v", out)
+	}
+
+	// direct path: relay is excluded from the chain
+	rec = doJSON(t, r, "POST", "/api/paths", map[string]any{
+		"name": "cap-direct", "entry_node_id": entry, "landing_node_id": landing, "direction": "out",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create direct: %d %s", rec.Code, rec.Body)
+	}
+	var direct storage.Path
+	if err := json.Unmarshal(rec.Body.Bytes(), &direct); err != nil {
+		t.Fatal(err)
+	}
+	rec = doJSON(t, r, "GET", "/api/paths/"+utoa(direct.ID)+"/capacity", nil)
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.CapacityMbps != 100 || out.Bottleneck != "cap-landing" {
+		t.Fatalf("direct capacity = %+v", out)
+	}
+}

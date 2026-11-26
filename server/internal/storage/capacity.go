@@ -39,6 +39,30 @@ func UtilizationPct(mbps float64, capacityMbps int, active bool) int {
 	return int(mbps / float64(capacityMbps) * 100)
 }
 
+// PathCapacity is the estimated forwarding capacity of one path (F-1068):
+// the chain is only as strong as its weakest link, so the estimate is the
+// minimum CapacityMbps over the involved nodes, with the bottleneck node
+// named. Direct paths (no relay) estimate over entry and landing only.
+func PathCapacity(entry, relay, landing *Node) (int, *Node) {
+	chain := make([]*Node, 0, 3)
+	for _, n := range []*Node{entry, relay, landing} {
+		if n != nil {
+			chain = append(chain, n)
+		}
+	}
+	if len(chain) == 0 {
+		return 0, nil
+	}
+	bottleneck := chain[0]
+	cap := bottleneck.CapacityMbps()
+	for _, n := range chain[1:] {
+		if c := n.CapacityMbps(); c < cap {
+			bottleneck, cap = n, c
+		}
+	}
+	return cap, bottleneck
+}
+
 // LoadSample is one node's load snapshot: the connection count summed over
 // the latest sample of each proc, and the throughput diffed from the latest
 // sample pair.
