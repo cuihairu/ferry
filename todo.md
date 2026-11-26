@@ -1899,7 +1899,7 @@ External Client
     - 验证：TestDistributorSettlement（佣金入账→pending、全额 payout→settled、负数 adjust→overpaid、未知 id 404、entries 列表）；全量 51 ok / FAIL=0 / exit=0（F-1324+F-1325 合并树一次门禁）。
     - Commit: 443b1c6
 -   [ ] `F-1326` 建立异常订单和重复佣金测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1326 | 未满足原因：部分：异常订单已覆盖（TestReconcile/TestEpusdtNotifyConcurrentSettle/TestReconcileGuards）；重复佣金无重放测试（dedup 仅断言 txn/grant 计数，佣金唯一性靠原子核销 redeem.go:78-84 未在 ledger 层测试）。）
+    - 备注（Task ID: F-1326 | Status: Done | Evidence: 异常订单已有 TestReconcile/TestEpusdtNotifyConcurrentSettle/TestReconcileGuards（含 dedup 重入、txn/grant 无重复）；重复佣金新增 TestRedeemReplayNoDoubleCommission（distributor_test.go）：顺序回放同一卡码仅一笔 sale+commission，并发 redeemTx 同码仅一赢家且 ledger 恰好一笔佣金（redeem.go:78-84 先写-off 后记账，-count=5 稳定） | Verification: go build/vet 干净；全量 51 ok / FAIL=0 / exit=0 | Commit: 2ebaa34）
 
 ## 11.3 通知
 
