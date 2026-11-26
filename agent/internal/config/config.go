@@ -172,6 +172,7 @@ func Load(path string) (Config, error) {
 			cfg.Probes[i].Direction = agentproto.DirectionOut
 		}
 	}
+	ensureEgressBaseline(&cfg)
 	applyMetaDefaults(&cfg)
 	if err := cfg.Validate(); err != nil {
 		return cfg, err
@@ -180,6 +181,33 @@ func Load(path string) (Config, error) {
 }
 
 // applyMetaDefaults fills in missing metadata defaults, aligned with the nodes table defaults.
+// egressBaseline is the default public-egress probe (F-0912): an HTTPS 204
+// check against a public connectivity endpoint. It feeds the node's own
+// egress health (server egresshealth, F-0905) without any operator setup.
+var egressBaseline = ProbeSpec{
+	Name:         "egress-baseline",
+	TargetKind:   agentproto.ProbeTargetExit,
+	Target:       "www.gstatic.com:443",
+	Proto:        "https",
+	HTTPPath:     "/generate_204",
+	ExpectStatus: 204,
+	Direction:    agentproto.DirectionOut,
+	IntervalSec:  60,
+}
+
+// ensureEgressBaseline appends the default public-egress probe (F-0912) when
+// the config ships no exit-kind probe at all: every agent measures whether it
+// can still reach the public internet from its own egress. An explicit exit
+// probe in the file wins -- the operator knows their baseline best.
+func ensureEgressBaseline(cfg *Config) {
+	for _, p := range cfg.Probes {
+		if p.TargetKind == agentproto.ProbeTargetExit {
+			return
+		}
+	}
+	cfg.Probes = append(cfg.Probes, egressBaseline)
+}
+
 func applyMetaDefaults(cfg *Config) {
 	m := &cfg.Meta
 	if m.Role == "" {

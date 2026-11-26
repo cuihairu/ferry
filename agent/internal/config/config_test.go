@@ -196,6 +196,46 @@ func TestProbeDirectionDefault(t *testing.T) {
 	}
 }
 
+// TestEgressBaselineDefault covers F-0912: every agent gets a public-egress
+// HTTPS baseline when it ships no exit probe, and an explicit exit probe wins.
+func TestEgressBaselineDefault(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agent.json")
+	content := `{"panel_url":"wss://p/agent/ws","agent_id":"n1","token":"t1",
+		"heartbeat_sec":30,"meta":{"bw_up_mbps":100,"bw_down_mbps":100}}`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	var found *ProbeSpec
+	for i := range cfg.Probes {
+		if cfg.Probes[i].TargetKind == agentproto.ProbeTargetExit {
+			found = &cfg.Probes[i]
+		}
+	}
+	if found == nil || found.Proto != "https" || found.ExpectStatus != 204 {
+		t.Fatalf("public egress baseline missing: %+v", cfg.Probes)
+	}
+
+	// An explicit exit probe suppresses the default.
+	content = `{"panel_url":"wss://p/agent/ws","agent_id":"n1","token":"t1",
+		"heartbeat_sec":30,"meta":{"bw_up_mbps":100,"bw_down_mbps":100},
+		"probes":[{"name":"my-exit","target_kind":"exit","target":"10.0.0.1:53","proto":"udp","payload_hex":"abcd","interval_sec":30}]}`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = Load(path)
+	if err != nil {
+		t.Fatalf("load explicit: %v", err)
+	}
+	if len(cfg.Probes) != 1 || cfg.Probes[0].Name != "my-exit" {
+		t.Fatalf("explicit exit must win: %+v", cfg.Probes)
+	}
+}
+
 func TestSpoolDirEnvAndRelay(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "agent.json")
