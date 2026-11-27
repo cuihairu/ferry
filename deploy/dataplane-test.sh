@@ -79,14 +79,18 @@ poll_health() { # WANT: polls until agents_online==WANT (at most ~30s)
   done
   printf '%s' "$n"
 }
-wait_kernel_runs() { # MIN: polls until kernel-runs.log has at least MIN "up" lines (at most ~30s)
+wait_kernel_runs() { # prints 1 once the log has >= MIN "up" lines, else 0 (at most ~30s)
+  # Boolean readiness, not the raw count: the stub kernel crashes every 4s and
+  # the agent restarts it, so on a slow CI worker the count can already be 3+
+  # by the time the agent finishes connecting. The claim under test is "the
+  # data plane started", never "exactly one start".
   local min="$1" n=0
   for i in $(seq 1 60); do
     n=$(grep -c '^up ' "$TMP/kernel-runs.log" 2>/dev/null || true)
-    [ "$n" -ge "$min" ] && break
+    if [ "$n" -ge "$min" ]; then printf '1'; return 0; fi
     sleep 0.5
   done
-  printf '%s' "$n"
+  printf '0'
 }
 start_server() { # starts the binary against the fixed data dir; sets SERVER_PID and BASE globals
   FERRY_ADDR="127.0.0.1:$PORT" \
