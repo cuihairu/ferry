@@ -178,6 +178,12 @@ type Config struct {
 	// AuditRetentionDays is the operation audit (AU-3) retention in days: out-of-window rows are deleted by the sweep loop,
 	// 0 = permanent retention (no sweep loop started).
 	AuditRetentionDays int
+	// ProbeRetentionDays is the probe report retention in days (F-1910): health reads only
+	// a sliding half-hour, older rows are swept hourly; 0 = permanent retention.
+	ProbeRetentionDays int
+	// NodeTrafficRetentionDays is the node traffic sample retention in days (F-1910):
+	// cost accounting sums the current month, 62 keeps this month plus margin; 0 = permanent.
+	NodeTrafficRetentionDays int
 	// BackupS3* is the config face of the backup outbound slot (FERRY_BACKUP_S3_*): off by default,
 	// only an explicit ENABLED=1 turns it on and injects the S3-compatible endpoint outbound (stdlib SigV4 PUT);
 	// while off, behavior is unchanged from the disabled state (never turned on proactively, env-example defaults untouched).
@@ -253,11 +259,13 @@ func Load() Config {
 
 		// Local periodic backups (panel availability §2): dir is the archive directory, cron defaults to daily,
 		// keep is the rolling retention count; S3_* is the outbound slot (off by default, an explicit toggle wires in the S3 endpoint).
-		BackupDir:          envOr("FERRY_BACKUP_DIR", "backups"),
-		BackupCron:         envOr("FERRY_BACKUP_CRON", "daily"),
-		BackupKeep:         envIntOr("FERRY_BACKUP_KEEP", 7),
-		AuditRetentionDays: envIntOr("FERRY_AUDIT_RETENTION_DAYS", 90),
-		BackupS3Enabled:    envBoolOr("FERRY_BACKUP_S3_ENABLED", false),
+		BackupDir:                envOr("FERRY_BACKUP_DIR", "backups"),
+		BackupCron:               envOr("FERRY_BACKUP_CRON", "daily"),
+		BackupKeep:               envIntOr("FERRY_BACKUP_KEEP", 7),
+		AuditRetentionDays:       envIntOr("FERRY_AUDIT_RETENTION_DAYS", 90),
+		ProbeRetentionDays:       envIntOr("FERRY_PROBE_RETENTION_DAYS", 30),
+		NodeTrafficRetentionDays: envIntOr("FERRY_NODE_TRAFFIC_RETENTION_DAYS", 62),
+		BackupS3Enabled:          envBoolOr("FERRY_BACKUP_S3_ENABLED", false),
 		Oidc: OidcConfig{
 			Enabled:      envBoolOr("FERRY_OIDC_ENABLED", false),
 			ClientID:     envOr("FERRY_OIDC_CLIENT_ID", ""),

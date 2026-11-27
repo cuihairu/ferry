@@ -40,6 +40,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/provision"
 	"github.com/cuihairu/ferry/server/internal/quota"
 	"github.com/cuihairu/ferry/server/internal/recovery"
+	"github.com/cuihairu/ferry/server/internal/retention"
 	"github.com/cuihairu/ferry/server/internal/review"
 	"github.com/cuihairu/ferry/server/internal/ringlog"
 	"github.com/cuihairu/ferry/server/internal/save"
@@ -351,6 +352,11 @@ func run(ctx context.Context, cfg config.Config) error {
 
 	// Operation audit retention sweep (AU-3): retention<=0 keeps records forever and does not start.
 	go audit.Loop(ctx, db, cfg.AuditRetentionDays, nil)
+
+	// History retention sweep (F-1910): probe reports and node traffic samples
+	// are pruned per-day windows (user traffic ledger is never touched);
+	// days<=0 keeps that table forever.
+	go retention.Loop(ctx, db, cfg.ProbeRetentionDays, cfg.NodeTrafficRetentionDays, nil)
 
 	// Panel web certificate (P1-7): if a certificate is configured in settings, serve HTTPS;
 	// corrupted config aborts startup to avoid a silent downgrade to HTTP; switching certificates requires a restart.
