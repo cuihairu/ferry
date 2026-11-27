@@ -2740,7 +2740,7 @@ External Client
 -   [x] `F-9803` 完成备份恢复演练。
     - 备注（Task ID: F-9803 | Status: Done | Evidence: 备份恢复演练：deploy/restore.sh 恢复脚本+e2e 备份恢复腿（53 断言内）+restore.sh --key(deploy/restore.sh:16)。 | Verification: deploy/e2e-smoke.sh（备份恢复断言 :385-427）+deploy/restore.sh | Commit: 970e9e2）
 -   [ ] `F-9804` 完成 Agent 和 Probe 规模测试。（依赖：F-2061~F-2076；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9804 | 部分（2026-11-27 更新）：Agent/Probe/心跳/流量/订阅/下发规模已真 e2e（scale-test.sh 9c68c3c：50 节点/150 心跳/1000 探测/200 流量帧/400 订阅/50 下发，P95/P99/RSS 归档 docs/testing/scale-report.md 7e4fc93）；仍缺 F-2066 候选调度规模、F-2068~2071/2075（云资源同步/账单导入/成本降级等无负载对象条目）、F-2072/2074 故障注入补强。）
+    - 待补（F-9804 | 仅剩 F-2068（2026-11-27 更新）：F-2061~2067/2069~2076 全关——scale-test.sh（9c68c3c：50 节点长连接/150 心跳/1000 探测/400 订阅/200 流量帧/50 下发+故障腿）、alloc_scale_test（05e0f3b）、db-outage-test（24c9a58）、relay 故障腿（b697056）、import_scale_test（ff87397），P95/P99/RSS 归档 scale-report.md；唯一未关 F-2068「云资源同步」无负载对象（全仓无云资源同步组件，provisioning 走 tofu CLI），无测试可写——待用户定夺该功能是否立项。）
 -   [x] `F-9805` 完成 Provider API 故障测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（F-9805 | 已落地，原「Adapter 0 命中」过期）：cloudprov.Error 错误形态分类（TestErrorShape）+ failHook 注错全路径（TestOperUnknownAndCancel：ErrUnavailable→Unknown/ErrUnsupported 带 ProviderCode→Failed；ctx 中断→Unknown）+ TestProviderTestConnection fake 双模式 + providerapi_err_test + F-1828 鉴权失败告警+cloudprov/metrics outcome 计数。
 -   [x] `F-9806` 完成账单导入和成本核算规模测试。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
