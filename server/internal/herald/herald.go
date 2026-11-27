@@ -50,6 +50,7 @@ const (
 	KindTrafficAnomaly  = "traffic_anomaly"    // user traffic spike vs trailing baseline (F-1252, deduped per user per day)
 	KindCloudBootFailed = "cloud_boot_failed"  // cloud instance booted but its Ferry Node did not come back (F-0403)
 	KindAgentOffline    = "agent_offline"      // agent websocket dropped (F-1821)
+	KindRelayOffline    = "relay_offline"      // relay fleet member's agent dropped (F-1822)
 
 	// User outreach (HERALD-4, §2.2; in-app messages still go out, this channel serves out-of-app delivery).
 	KindExpire = "expire" // account expiry reminder

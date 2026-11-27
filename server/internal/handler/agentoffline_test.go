@@ -62,3 +62,44 @@ func TestAgentOfflineAlert(t *testing.T) {
 		t.Fatalf("maintenance node alerted: %d events", n)
 	}
 }
+
+// TestRelayOfflineAlert covers F-1822: a relay fleet member (relay_caps
+// declared) alerts as relay_offline instead of agent_offline -- one event per
+// disconnect, the capacity loss being the fact that matters.
+func TestRelayOfflineAlert(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	id, token := createNodeFor(t, r, "rloff-1")
+	if err := db.Model(&storage.Node{}).Where("id = ?", id).
+		Update("relay_caps", `{"tcp_forward":true}`).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+	c := fakeAgent(t, srv.URL, "rloff-1", token)
+	c.Close()
+
+	var ev storage.Event
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		err := db.Where("kind = ?", herald.KindRelayOffline).First(&ev).Error
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("relay_offline event missing: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if ev.DedupKey != fmt.Sprintf("node:%d:relay_offline", id) {
+		t.Fatalf("dedup key = %q", ev.DedupKey)
+	}
+	var plain int64
+	if err := db.Model(&storage.Event{}).Where("kind = ?", herald.KindAgentOffline).
+		Count(&plain).Error; err != nil {
+		t.Fatal(err)
+	}
+	if plain != 0 {
+		t.Fatalf("relay node must not double-alert as agent_offline: %d events", plain)
+	}
+}

@@ -202,25 +202,36 @@ func (h *Handler) agentWS(c *gin.Context) {
 // notifyAgentOffline lands the agent-offline alert (F-1821) into the herald
 // outbox: one warning per disconnect, merged by dedup key on Herald's side;
 // maintenance nodes stay quiet (the operator took them down on purpose).
+// A relay fleet member (relay_caps declared, F-0804/F-1804) alerts as
+// relay_offline instead (F-1822): the capacity loss is the fact that matters,
+// and one event per disconnect keeps the admin channel free of doubles.
 // The outbox insert is best effort -- the status flip above stays the source
 // of truth, emit failures only log.
 func (h *Handler) notifyAgentOffline(nodeID int64) {
 	var n storage.Node
-	if err := h.db.Select("id, name, maintenance").First(&n, nodeID).Error; err != nil {
+	if err := h.db.Select("id, name, maintenance, relay_caps").First(&n, nodeID).Error; err != nil {
 		return
 	}
 	if n.Maintenance {
 		return
 	}
+	kind, title, key := herald.KindAgentOffline,
+		fmt.Sprintf("节点 %s Agent 掉线", n.Name),
+		fmt.Sprintf("node:%d:agent_offline", nodeID)
+	if n.RelayCaps != "" {
+		kind, title, key = herald.KindRelayOffline,
+			fmt.Sprintf("中继节点 %s 离线", n.Name),
+			fmt.Sprintf("node:%d:relay_offline", nodeID)
+	}
 	if _, err := herald.Emit(h.db, herald.EmitInput{
-		Kind: herald.KindAgentOffline, Severity: herald.SeverityWarning,
-		Title:    fmt.Sprintf("节点 %s Agent 掉线", n.Name),
+		Kind: kind, Severity: herald.SeverityWarning,
+		Title:    title,
 		Body:     "Agent 连接断开，节点离线",
 		Target:   herald.TargetAdmin,
-		DedupKey: fmt.Sprintf("node:%d:agent_offline", nodeID),
+		DedupKey: key,
 		Meta:     map[string]any{"node_id": nodeID},
 	}); err != nil {
-		log.Printf("herald emit agent_offline: node=%d %v", nodeID, err)
+		log.Printf("herald emit %s: node=%d %v", kind, nodeID, err)
 	}
 }
 
