@@ -103,6 +103,8 @@ jobs:
         run: bash deploy/rollback-test.sh
       - name: server restart agent reconnect test
         run: bash deploy/reconnect-test.sh
+      - name: data plane outage test
+        run: bash deploy/dataplane-test.sh
 
   gofmt:
     name: gofmt gate
