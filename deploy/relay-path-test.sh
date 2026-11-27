@@ -328,4 +328,68 @@ LANDING_PID=$!
 expect "landing 重连（agents_online=3）" "3" "$(poll_health 3)"
 expect "节点恢复后 Path=healthy" "healthy" "$(wait_health healthy 60)"
 
-log "PASS - F-2044 真实 relay 隧道 + F-2045 Path 与探测 + F-2050/2051 故障与恢复，全链路真二进制"
+log "F-2072: relay 进程故障 → 数据面断（front listener 消失，隧道不可用）..."
+kill "$RELAY_PID" 2>/dev/null || true
+RELAY_PID=""
+down=""
+for i in $(seq 1 30); do
+  down=$(python3 - "$RELAY_PORT" <<'PY' 2>/dev/null || true
+import socket, sys
+try:
+    s = socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=0.5)
+    s.close()
+except Exception:
+    print("1")
+PY
+)
+  [ "$down" = "1" ] && break
+  sleep 0.2
+done
+expect "relay 前端监听已消失" "1" "$down"
+
+log "F-2072: relay 进程重启 → 数据面恢复（隧道重通）..."
+"$TMP/ferry-agent" -config "$TMP/agent-relay.json" -role relay >> "$TMP/relay-role.log" 2>&1 &
+RELAY_PID=$!
+up=""
+for i in $(seq 1 30); do
+  up=$(python3 - "$RELAY_PORT" <<'PY' 2>/dev/null || true
+import socket, sys
+try:
+    s = socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=0.5); s.close(); print("1")
+except Exception:
+    pass
+PY
+)
+  [ "$up" = "1" ] && break
+  sleep 0.2
+done
+expect "relay 前端监听恢复" "1" "$up"
+python3 - "$RELAY_PORT" <<'PY'
+import socket, sys
+s = socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=5)
+s.settimeout(5)
+s.sendall(b"relay-recover")
+data = b""
+while len(data) < len(b"relay-recover"):
+    chunk = s.recv(128)
+    if not chunk:
+        break
+    data += chunk
+s.close()
+assert data == b"relay-recover", (data, b"relay-recover")
+PY
+log "ok - relay 重启后 TCP 回显字节一致（数据面重通）"
+
+log "F-2072: relay 节点 core agent 宕机 → relay 节点 offline → Path=degraded ..."
+kill "$RELAY_CORE_PID" 2>/dev/null || true
+RELAY_CORE_PID=""
+expect "relay 节点离线（agents_online=2）" "2" "$(poll_health 2)"
+expect "relay 节点故障后 Path=degraded" "degraded" "$(wait_health degraded 60)"
+
+log "F-2072: relay 节点 core agent 重连 → Path=healthy ..."
+"$TMP/ferry-agent" -config "$TMP/agent-relay.json" >> "$TMP/agent-relay.log" 2>&1 &
+RELAY_CORE_PID=$!
+expect "relay 节点重连（agents_online=3）" "3" "$(poll_health 3)"
+expect "relay 节点恢复后 Path=healthy" "healthy" "$(wait_health healthy 60)"
+
+log "PASS - F-2044 真实 relay 隧道 + F-2045 Path 与探测 + F-2050/2051 故障与恢复 + F-2072 relay 故障注入，全链路真二进制"
