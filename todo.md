@@ -2309,8 +2309,8 @@ External Client
 
 ## 16.2 告警
 
--   [ ] `F-1821` Agent 离线告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1821 | 未满足：agent 掉线仅 setNodeStatus("offline")+日志（agentws.go:178-179）；无 Alert 行、无 Herald 事件。）
+-   [x] `F-1821` Agent 离线告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1821 | Status: Done | Evidence: herald 新增 KindAgentOffline="agent_offline"（herald.go），agentws 断连点（setNodeStatus offline 之后）调 notifyAgentOffline 落 outbox（warning/admin/node:%d:agent_offline 去重键，合并交给 Herald 窗口去重）；维护中节点不告警（运维主动下线，沿 pool.go 摘除告警先例）；outbox 写入尽力而为，状态翻转仍是事实源 | Verification: go build/vet 全绿，go test ./... 53 ok FAIL=0（exit=0），TestAgentOfflineAlert 断事件行（kind/target/severity/dedupkey/pending）+ 维护节点断连不加事件 | Commit: 168479a）
 -   [ ] `F-1822` Relay 离线告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1822 | 未满足：无 relay 在线跟踪即无掉线告警。）
 -   [ ] `F-1823` Path 不可用告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
