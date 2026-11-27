@@ -2325,8 +2325,8 @@ External Client
     - 备注（Task ID: F-1827 | Status: Done | Evidence: recordUpgradeStatus（F-0712 存储点）在 State=failed 时落 herald KindUpgradeFailed="upgrade_failed" warning：标题带节点名（查不到回退 #id），Body 带目标版本+agent 上报原因，dedup node:%d:upgrade_failed:%s（按升级尝试去重，UpgradeID 每次升级唯一）；进度帧（downloading/applying/applied）不告警，agent 侧升级回滚与 recovery 管线行为原样 | Verification: go build/vet 全绿，go test ./... 53 ok FAIL=0（exit=0），TestAgentWSUpgradeStatus 扩尾断 failed 帧落事件(target/severity/dedupkey)+Body 携带原因+此前进度帧零事件 | Commit: f17aec5）
 -   [x] `F-1828` Provider API 认证失败告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1828 | Status: Done | Evidence: cloudprov 新增 AuthFailure+SetAuthFailureHook/ReportAuthFailure（包内保持零依赖，检测与告警解耦）：ErrAuth 判定为认证失败，Client.call 统一检测（ClientOptions 增 Account 身份字段，cloudsync/oper/provisionapi/providerapi 四个构建点带身份）；billing 直连 adapter 的两个调用点（Capabilities/ImportBilling）自行上报；main 注册钩子落 herald KindProviderAuth="provider_auth" warning（dedup provider:%d:auth，按 provider 去重，Herald 合并重复轮次）；非 auth 错误与无钩子场景静默 | Verification: go build/vet 全绿，go test ./... 53 ok FAIL=0（exit=0），TestAuthFailureHook 断 auth 上报载荷+非 auth 不报+清钩子安全，TestBillingAuthFailureReports 断 billing 直连路径上报 provider 身份+干净拉取不报 | Commit: f373690）
--   [ ] `F-1829` 云资源操作失败告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1829 | 未满足：provision 失败仅记 status（models.go:519）；无云操作失败告警。）
+-   [x] `F-1829` 云资源操作失败告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1829 | Status: Done | Evidence: 双落点：oper runOne 的 fail 闭包（唯一 failed 结算点，含 provider/资源不可用前置失败）落 herald KindCloudOpFailed="cloud_op_failed" warning（dedup cloudop:%d:failed，按任务行去重；unknown 结算不告警，其 reconcile 结果若落 failed 会经同一路径告警）；provision 两条约路径（Apply 内联回写 status!=ok、replenish 的 FinishJob）汇入 alertJobFailed 落 KindProvisionFailed="provision_failed" warning（dedup provision_job:%d:failed，标题带实例名/模板名+动作，Body 带 terraform 输出尾部 400 字符截断） | Verification: go build/vet 全绿，go test ./... 53 ok FAIL=0（exit=0），TestCloudOpFailedAlert 断 auth 失败落事件+dedupkey+成功静默，TestProvisionFailedAlert 断失败 job 落事件+成功 apply 静默+FinishJob 路径同helper告警 | Commit: 8e23d4b）
 -   [ ] `F-1830` 云账单同步失败告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1830 | 未满足：无账单同步即无同步失败告警。）
 -   [ ] `F-1831` 成本异常增长告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
