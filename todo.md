@@ -2317,8 +2317,8 @@ External Client
     - 备注（Task ID: F-1823 | Status: Done | Evidence: herald 新增 KindPathDown="path_down"；alloc 包新增 AlertSickPaths（failover.go），判定与 RebindSickPaths 同一谓词（落地离开可调度池/最新探测 sick），每轮每故障路径落一条 path_down warning（dedup path:%d:path_down，重复轮次由 Herald 窗口合并）；sweepOnce 中置于重绑与冻结检查之前——failover=manual 冻结时无自动重绑，告警是唯一信号；region/ISP 维度聚合告警保持原样不变 | Verification: go build/vet 全绿，go test ./... 53 ok FAIL=0（exit=0），TestAlertSickPaths 断 sick 路径告警+健康路径静默+冻结 failover 下 sweep 仍告警 | Commit: f5efa62）
 -   [x] `F-1824` Path 质量下降告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1824 | Status: Done | Evidence: herald 新增 KindPathDegraded="path_degraded"；alloc 新增 AlertDegradedPaths——用 pathhealth.Evaluate 的 Degraded 态，按成因与 F-1823 分片：落地侧故障（离池/探测 sick）归 path_down，端点侧降级（入口/中继离线或被池暂停、落地仍健康）落 path_degraded warning（dedup path:%d:path_degraded），双因路径只在 path_down 报一次不重复；维度级 region/ISP 降级通知（monitor notify dimension.degraded）保持原样 | Verification: go build/vet 全绿，go test ./... 53 ok FAIL=0（exit=0），TestAlertDegradedPaths 断健康静默+入口离线告警+落地故障不产生第二条降级事件 | Commit: 8d7f17a）
--   [ ] `F-1825` 节点带宽超限告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1825 | 未满足：无带宽超限告警（quota/link、userbw 无告警）。）
+-   [x] `F-1825` 节点带宽超限告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1825 | Status: Done | Evidence: 原「待补」已过时——quota/link 是用户配额联动（SAVE-6）而 userbw 是用户面字段，节点面唯一真实限额是 Node.MonthlyTrafficQuotaBytes（0=不限，同步给 agent）；本行落地 herald KindNodeQuota="node_quota" + notifyscan 新增 sweepNodeQuota（挂入 Sweep errors.Join）：当月 NodeTrafficLog rx+tx 汇总（与 cost 报表同口径，月起点聚合）达配额即落 admin warning（dedup node_quota:%d:%Y%m，按月去重，同 kind+dedup_key 计数先行，沿 traffic_anomaly 先例）；配额 0 与未达标节点静默，上月账目不计入当月 | Verification: go build/vet 全绿，go test ./... 53 ok FAIL=0（exit=0），TestSweepNodeQuota 断超限节点告警+dedupkey+低于配额与不限额静默+同月二次 sweep 去重 | Commit: 5f23e06）
 -   [ ] `F-1826` 配置下发失败告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1826 | 部分：config_error kind+recordAlert 通路在（alerts.go:26+TestAlertGuards）；agent 生产侧从不发送（AlarmKindConfigError 仅见于 agentproto+测试，configd 回滚仅 ack.Error configd.go:117）——有通路无生产者。）
 -   [ ] `F-1827` 节点升级失败告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
