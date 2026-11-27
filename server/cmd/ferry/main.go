@@ -133,6 +133,15 @@ func run(ctx context.Context, cfg config.Config) error {
 	// Until the Xray core integration is enabled, use a no-op implementation so the interface stays stable.
 	_ = xray.NoopHandler{}
 
+	// Router and config pusher (E-16b): automatic line switching re-points landings through the same config.push pipeline.
+	// The unified task runner (F-1602~F-1615) is created here so main owns its sweep loop.
+	// Built BEFORE any background goroutine starts: NewRouterWithTasks registers the GORM
+	// metric callbacks (instrumentDB), and callback registration mutates shared processor
+	// state — registering while a sweep goroutine already queries is a data race
+	// (caught by the -race sweep, 2026-11-27).
+	taskMgr := tasks.NewManager(db, log.Printf)
+	r, pusher := handler.NewRouterWithTasks(db, cfg, taskMgr)
+
 	// Region/ISP aggregate determination: periodically aggregates probe conclusions, merging alerts on state transitions.
 	go monitor.Run(ctx, db, time.Duration(cfg.MonitorIntervalSec)*time.Second, nil)
 
@@ -151,10 +160,6 @@ func run(ctx context.Context, cfg config.Config) error {
 	}
 	go pool.Loop(ctx, db, time.Duration(cfg.PoolIntervalSec)*time.Second, nil)
 
-	// Router and config pusher (E-16b): automatic line switching re-points landings through the same config.push pipeline.
-	// The unified task runner (F-1602~F-1615) is created here so main owns its sweep loop.
-	taskMgr := tasks.NewManager(db, log.Printf)
-	r, pusher := handler.NewRouterWithTasks(db, cfg, taskMgr)
 	go taskMgr.Loop(ctx, 2*time.Second)
 
 	// Landing auto-assignment (E-21): weighted least connections, three configurable strategy tiers, switches audited and notified;
