@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -301,6 +302,16 @@ func TestProbeTaskMetrics(t *testing.T) {
 	defer srv.Close()
 	c := fakeAgent(t, srv.URL, "ptm-1", token)
 
+	// gorilla/websocket allows exactly one concurrent writer per connection;
+	// the responder goroutine and the report write below share the conn, so
+	// every send goes through one mutex (race sweep 2026-11-27).
+	var wmu sync.Mutex
+	send := func(env agentproto.Envelope) error {
+		wmu.Lock()
+		defer wmu.Unlock()
+		return c.WriteJSON(env)
+	}
+
 	// Responder: ack the dispatched probe task set as accepted; then push a
 	// probe report batch with one healthy and one sick verdict.
 	go func() {
@@ -317,7 +328,7 @@ func TestProbeTaskMetrics(t *testing.T) {
 			if err != nil {
 				return
 			}
-			if err := c.WriteJSON(ackEnv); err != nil {
+			if err := send(ackEnv); err != nil {
 				return
 			}
 		}
@@ -341,7 +352,7 @@ func TestProbeTaskMetrics(t *testing.T) {
 			{TargetKind: "tunnel", TargetNode: int64(target), Verdict: "sick", ProbedAt: time.Now()},
 		},
 	})
-	if err := c.WriteJSON(rep); err != nil {
+	if err := send(rep); err != nil {
 		t.Fatalf("write report: %v", err)
 	}
 	deadline = time.Now().Add(3 * time.Second)
