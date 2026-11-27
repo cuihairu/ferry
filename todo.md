@@ -2279,8 +2279,8 @@ External Client
 
 -   [x] `F-1801` 采集 Server API 请求量和延迟。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1801 | Status: Done | Evidence: 指标层落地（选型：引 prometheus/client_golang v1.20.5，Apache-2.0（transitive common/procfs/client_model 亦 Apache-2.0、perks/xxhash MIT，license 已核），后续 F-1802~1806 复用同一 registry）：handler/metrics.go 定义 ferry_api_requests_total{method,route,code} 计数器与 ferry_api_request_seconds{method,route} 直方图（DefBuckets），route 用 gin 路由模板（有界基数，未匹配归 "unmatched"）；metricsMiddleware 挂 /api 组最外层（401/429 也计数；agent ws 与公开 /sub 有意排除——ws 连接生命周期会污染延迟直方图）；暴露点 GET /admin/metrics（adminAuthMiddleware 之后，cardinality 泄露路由形态故不公开，promhttp 默认 registry 附带 go_*/process_* 基线）。测试 metrics_test.go TestAPIMetrics：GET /api/nodes 200×2 与无鉴权 401×1 的 delta 精确断言（testutil.ToFloat64 前后差），exposition 含 requests_total 行/request_seconds_count/bucket，未带令牌访问 /admin/metrics 401。 | Verification: go build/vet 绿，go test ./... -count=1 53 ok FAIL=0（exit=0）；TestAPIMetrics 独立通过。 | Commit: e8f3bc7）
--   [ ] `F-1802` 采集数据库连接数和查询延迟。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1802 | 未满足：无 DB 连接/查询延迟采集。）
+-   [x] `F-1802` 采集数据库连接数和查询延迟。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1802 | Status: Done | Evidence: metrics.go 增 DB 面——ferry_db_query_seconds{op} 直方图（create/query/update/delete 四类走 GORM 回调链 Before/After("gorm:<op>") 计时，Raw/Row 读归 query；tx.Set 起点传递）与 ferry_db_query_errors_total{op}（gorm.ErrRecordNotFound 例行未中不计）；连接池 gauge 走自定义 dbStatsCollector 从 sql.DBStats 刮取：open/in_use/idle connections + connection_waits_total + connection_wait_seconds_total（scraper-pull 语义，注册 sync.Once、句柄 atomic.Pointer 存当前 *sql.DB，进程内多 router 测试取最后者、生产单实例无歧义）。NewRouterWithTasks 装配 instrumentDB+instrumentDBStats。测试 TestDBMetrics：exposition 含 5 个池 gauge 与 query/create 计数行；注入查询失败（regQueryFail）error counter delta=1，紧接 record-not-found 404 不增量。 | Verification: go build/vet 绿，go test ./... -count=1 53 ok FAIL=0（exit=0）；TestDBMetrics 独立通过。 | Commit: 68a0054）
 -   [ ] `F-1803` 采集 Agent 在线数量和心跳延迟。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1803 | 部分：在线数经 /api/health agents_online（router.go:433→hub.OnlineCount）与 /admin/status nodes.online（status.go:195）；无指标采集、无心跳延迟。）
 -   [ ] `F-1804` 采集 Relay 在线数量和连接数。（依赖：无；完成条件：需求落地+测试绿+证据行）
