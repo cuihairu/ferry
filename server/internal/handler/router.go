@@ -152,6 +152,10 @@ func NewRouterWithTasks(db *gorm.DB, cfg config.Config, mgr *tasks.Manager) (*gi
 			n, h.secrets.CurrentVersion())
 	}
 	h.operations = oper.New(db, h.secrets)
+	// DB metrics (F-1802): statement latency via the GORM callback chain and
+	// pool gauges scraped from sql.DBStats.
+	instrumentDB(db)
+	instrumentDBStats(db)
 	r := gin.Default()
 	// ClientIP only trusts forwarding headers from explicitly allow-listed
 	// reverse proxies (audit fix 2026-11-12): by default no proxy is trusted
