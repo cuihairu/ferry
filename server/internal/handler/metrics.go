@@ -240,12 +240,18 @@ var (
 		"Relay-capable nodes with a live agent connection.", nil, nil)
 	relayConnsDesc = prometheus.NewDesc("ferry_relay_connections",
 		"Live relay connections at the node's newest traffic sample, per relay node.", []string{"node_id"}, nil)
+	relayRxDesc = prometheus.NewDesc("ferry_relay_rx_bytes_total",
+		"Cumulative relay inbound bytes summed over retained traffic samples, per relay node.", []string{"node_id"}, nil)
+	relayTxDesc = prometheus.NewDesc("ferry_relay_tx_bytes_total",
+		"Cumulative relay outbound bytes summed over retained traffic samples, per relay node.", []string{"node_id"}, nil)
 )
 
 func (relayMetricsCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- relayNodesDesc
 	ch <- relayOnlineDesc
 	ch <- relayConnsDesc
+	ch <- relayRxDesc
+	ch <- relayTxDesc
 }
 
 func (relayMetricsCollector) Collect(ch chan<- prometheus.Metric) {
@@ -290,5 +296,25 @@ func (relayMetricsCollector) Collect(ch chan<- prometheus.Metric) {
 	for _, r := range rows {
 		ch <- prometheus.MustNewConstMetric(relayConnsDesc, prometheus.GaugeValue, float64(r.Conns),
 			strconv.FormatUint(uint64(r.NodeID), 10))
+	}
+
+	// Throughput (F-1805): traffic-sample rows carry per-period deltas, so the
+	// sum per node is a monotonic total; rates come from rate() at query time.
+	var sums []struct {
+		NodeID uint
+		Rx     int64
+		Tx     int64
+	}
+	if err := db.Table("node_traffic_logs").
+		Select("node_id, SUM(rx_bytes) AS rx, SUM(tx_bytes) AS tx").
+		Where("proc = ?", "relay").
+		Group("node_id").
+		Scan(&sums).Error; err != nil {
+		return
+	}
+	for _, s := range sums {
+		id := strconv.FormatUint(uint64(s.NodeID), 10)
+		ch <- prometheus.MustNewConstMetric(relayRxDesc, prometheus.CounterValue, float64(s.Rx), id)
+		ch <- prometheus.MustNewConstMetric(relayTxDesc, prometheus.CounterValue, float64(s.Tx), id)
 	}
 }

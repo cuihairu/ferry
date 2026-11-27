@@ -166,12 +166,13 @@ func TestRelayMetrics(t *testing.T) {
 	_ = ca
 
 	// Traffic samples: an older 3-conn row and the newest 7-conn row — the
-	// newest must win; a non-relay proc sample must be ignored.
+	// newest must win; a non-relay proc sample must be ignored. The rx/tx
+	// deltas sum across rows: 100+50 / 200+60.
 	now := time.Now()
 	for _, s := range []storage.NodeTrafficLog{
-		{NodeID: relayID, Proc: "relay", Conns: 3, RecordedAt: now.Add(-time.Minute)},
-		{NodeID: relayID, Proc: "relay", Conns: 7, RecordedAt: now},
-		{NodeID: relayID, Proc: "xray", Conns: 99, RecordedAt: now},
+		{NodeID: relayID, Proc: "relay", Conns: 3, RxBytes: 100, TxBytes: 200, RecordedAt: now.Add(-time.Minute)},
+		{NodeID: relayID, Proc: "relay", Conns: 7, RxBytes: 50, TxBytes: 60, RecordedAt: now},
+		{NodeID: relayID, Proc: "xray", Conns: 99, RxBytes: 1 << 20, TxBytes: 1 << 20, RecordedAt: now},
 	} {
 		if err := db.Create(&s).Error; err != nil {
 			t.Fatal(err)
@@ -189,7 +190,16 @@ func TestRelayMetrics(t *testing.T) {
 	if !strings.Contains(body, `ferry_relay_connections{node_id="`+itoa64(int(relayID))+`"} 7`) {
 		t.Fatalf("relay conns must read the newest sample: %s", body)
 	}
+	if !strings.Contains(body, `ferry_relay_rx_bytes_total{node_id="`+itoa64(int(relayID))+`"} 150`) {
+		t.Fatalf("relay rx total must sum deltas: %s", body)
+	}
+	if !strings.Contains(body, `ferry_relay_tx_bytes_total{node_id="`+itoa64(int(relayID))+`"} 260`) {
+		t.Fatalf("relay tx total must sum deltas: %s", body)
+	}
 	if strings.Contains(body, `ferry_relay_connections{node_id="`+itoa64(int(plainID))+`"}`) {
 		t.Fatal("non-relay proc samples must not appear")
+	}
+	if strings.Contains(body, `ferry_relay_rx_bytes_total{node_id="`+itoa64(int(plainID))+`"}`) {
+		t.Fatal("non-relay bytes must not appear")
 	}
 }
