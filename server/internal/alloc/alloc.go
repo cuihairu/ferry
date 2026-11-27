@@ -778,8 +778,14 @@ func Loop(ctx context.Context, db *gorm.DB, interval time.Duration, logger *log.
 }
 
 func sweepOnce(db *gorm.DB, logger *log.Logger, hooks []func([]SwitchEvent)) error {
+	// Scheduling cost (F-1810): only the two decision-pipeline calls are
+	// timed -- the announce webhooks and push hooks in between are delivery,
+	// their latency must not count against the scheduler.
+	t0 := time.Now()
 	events, err := Sweep(db)
+	sweepCost := time.Since(t0)
 	if err != nil {
+		recordSweep(sweepCost, err)
 		return err
 	}
 	for _, ev := range events {
@@ -790,7 +796,10 @@ func sweepOnce(db *gorm.DB, logger *log.Logger, hooks []func([]SwitchEvent)) err
 	// Path failover rebinds (F-1031): same round as the allocation sweep, so
 	// a failing landing is re-pointed within one interval. The rebinds join
 	// the hook list -- landing re-pointing (E-16b) must follow a failover too.
+	t1 := time.Now()
 	rebinds, err := RebindSickPaths(db, time.Now())
+	sweepCost += time.Since(t1)
+	recordSweep(sweepCost, err)
 	if err != nil {
 		return err
 	}
