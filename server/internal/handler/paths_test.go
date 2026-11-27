@@ -128,6 +128,15 @@ func TestPathCRUD(t *testing.T) {
 	if paths := mustJSON(t, rec)["paths"].([]any); len(paths) != 1 {
 		t.Fatalf("landing+enabled filter = %s", rec.Body)
 	}
+	// Region dimension (F-1941): region filters the list; unknown region is empty.
+	rec = doJSON(t, r, "GET", "/api/paths?region=us", nil)
+	if paths := mustJSON(t, rec)["paths"].([]any); len(paths) < 1 {
+		t.Fatalf("region filter returned nothing: %s", rec.Body)
+	}
+	rec = doJSON(t, r, "GET", "/api/paths?region=nosuch", nil)
+	if paths := mustJSON(t, rec)["paths"].([]any); len(paths) != 0 {
+		t.Fatalf("unknown region should be empty, got %s", rec.Body)
+	}
 	if rec = doJSON(t, r, "GET", "/api/paths/"+utoa(p.ID), nil); rec.Code != http.StatusOK {
 		t.Fatalf("get: %d", rec.Code)
 	}
