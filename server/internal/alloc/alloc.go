@@ -793,6 +793,10 @@ func sweepOnce(db *gorm.DB, logger *log.Logger, hooks []func([]SwitchEvent)) err
 			ev.EntryID, ev.EntryName, ev.Direction, ev.FromName, ev.ToName, ev.Reason)
 		announce(db, logger, ev)
 	}
+	// Path unavailability alerts (F-1823): ahead of the rebind pass and its
+	// freeze check -- with failover frozen the alert is the only signal.
+	AlertSickPaths(db)
+
 	// Path failover rebinds (F-1031): same round as the allocation sweep, so
 	// a failing landing is re-pointed within one interval. The rebinds join
 	// the hook list -- landing re-pointing (E-16b) must follow a failover too.

@@ -3,10 +3,12 @@ package alloc
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/cuihairu/ferry/packages/agentproto"
 	"github.com/cuihairu/ferry/server/internal/billing"
+	"github.com/cuihairu/ferry/server/internal/herald"
 	// Aliased: the local alloc-policy identifier shadows the package name.
 	policyconstraints "github.com/cuihairu/ferry/server/internal/policy"
 	"github.com/cuihairu/ferry/server/internal/storage"
@@ -44,6 +46,54 @@ func (e PathRebindEvent) SwitchEvent() SwitchEvent {
 		ToName:    e.ToName,
 		Policy:    "failover",
 		Reason:    e.Reason,
+	}
+}
+
+// AlertSickPaths (F-1823) lands one path_down warning per enabled path whose
+// landing is failing (left the schedulable pool, or latest probe sick) into
+// the herald outbox; the dedup key lets Herald merge the repeats across
+// rounds. It runs beside the rebind pass but BEFORE the freeze check: with
+// failover=manual nothing re-points the path, which is exactly when the
+// operator must hear about it. Emissions are best effort and never fail the
+// sweep.
+func AlertSickPaths(db *gorm.DB) {
+	var paths []storage.Path
+	if err := db.Where("enabled = ?", true).Find(&paths).Error; err != nil {
+		return
+	}
+	if len(paths) == 0 {
+		return
+	}
+	var landings []storage.Node
+	if err := db.Where("enabled = ? AND maintenance = ? AND role IN (?, ?) AND status != ?",
+		true, false, "landing", "both", "provisioning").Find(&landings).Error; err != nil {
+		return
+	}
+	pool := map[uint]bool{}
+	for _, l := range landings {
+		pool[l.ID] = true
+	}
+	sick := LatestSick(db)
+	for _, p := range paths {
+		reason := ""
+		if !pool[p.LandingNodeID] {
+			reason = "落地离开可调度池（停用/维护/置备中/删除）"
+		} else if sick[p.LandingNodeID] {
+			reason = "落地探测持续异常"
+		}
+		if reason == "" {
+			continue
+		}
+		if _, err := herald.Emit(db, herald.EmitInput{
+			Kind: herald.KindPathDown, Severity: herald.SeverityWarning,
+			Title:    fmt.Sprintf("路径 %s 不可用", p.Name),
+			Body:     reason + "，故障转移将按策略重绑或下轮重试",
+			Target:   herald.TargetAdmin,
+			DedupKey: fmt.Sprintf("path:%d:path_down", p.ID),
+			Meta:     map[string]any{"path_id": p.ID, "landing_node_id": p.LandingNodeID},
+		}); err != nil {
+			log.Printf("herald emit path_down: path=%d %v", p.ID, err)
+		}
 	}
 }
 
