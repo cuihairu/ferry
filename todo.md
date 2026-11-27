@@ -2552,8 +2552,8 @@ External Client
     - 待补（F-2070 | 未满足：无账单导入端点（账单批量导入 0 命中，仅 storage.BillingType models.go:104 字段）——无负载对象。）
 -   [ ] `F-2071` 测试 Server 与 Provider 网络中断。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2071 | 未满足：无 Server↔Provider 网络路径（Provider=DB 记录，provisioning 走 tofu CLI 非服务商 REST API）；最近的是 dns_test.go:200 TestCloudflareDoErrors DNS 不可达注入，非云资源开通路径。）
--   [ ] `F-2072` 测试 Relay 故障。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2072 | 部分：relay 组件在，故障路径单测在（relay_extra_test.go:39 TestRunListenError+:164 TestRunAcceptErrorLogged+relaypush_test.go:307 TestPushTimeout+:326 TestPushSendError）；无真实 relay 数据面故障注入（无杀进程/网络分区）。）
+-   [x] `F-2072` 测试 Relay 故障。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2072 | Commit b697056 | relay-path-test.sh F-2072 四腿 exit=0 2026-11-27，CI relay path probe smoke 步骤照跑）：真 relay 进程故障注入——①杀 relay role 进程→front listener 消失（连接被拒）；②重启 relay role→监听恢复+TCP 回显字节一致（数据面重通）；③relay 节点 core agent 宕机→agents_online=2→Path=degraded；④core agent 重连→agents_online=3→Path=healthy。进程级故障路径单测（relay_extra_test/relaypush_test）照旧。
 -   [x] `F-2073` 测试 Agent 故障。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（F-2073 | Commit 9c68c3c | scale-test.sh 故障腿）：多 agent 故障真 e2e——25/50 连接同时断开后 agents_online=25（server 断连同步标 offline），其余 25 连接负载不受影响；客户端退出全量断开后 agents_online=0 且 /api/health 仍 200（server 存活）；此前单 agent 故障单测（agentws_test/pool_test/hub_test）照旧。
 -   [ ] `F-2074` 测试数据库短暂不可用。（依赖：无；完成条件：需求落地+测试绿+证据行）
