@@ -2313,8 +2313,8 @@ External Client
     - 备注（Task ID: F-1821 | Status: Done | Evidence: herald 新增 KindAgentOffline="agent_offline"（herald.go），agentws 断连点（setNodeStatus offline 之后）调 notifyAgentOffline 落 outbox（warning/admin/node:%d:agent_offline 去重键，合并交给 Herald 窗口去重）；维护中节点不告警（运维主动下线，沿 pool.go 摘除告警先例）；outbox 写入尽力而为，状态翻转仍是事实源 | Verification: go build/vet 全绿，go test ./... 53 ok FAIL=0（exit=0），TestAgentOfflineAlert 断事件行（kind/target/severity/dedupkey/pending）+ 维护节点断连不加事件 | Commit: 168479a）
 -   [x] `F-1822` Relay 离线告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1822 | Status: Done | Evidence: 原「待补」已过时——F-1803/F-1804 已建 relay 在线跟踪（relay_caps∩hub）；本行落地 herald KindRelayOffline="relay_offline"，notifyAgentOffline 按 relay_caps 声明分流：中继舰成员发 relay_offline（dedup node:%d:relay_offline，标题「中继节点 %s 离线」），普通节点仍 agent_offline——一次断连只发一条，不双报；维护节点照旧静默 | Verification: go build/vet 全绿，go test ./... 53 ok FAIL=0（exit=0），TestRelayOfflineAlert 断 relay_offline 事件行+dedupkey+agent_offline 计数为 0（不双报） | Commit: a736e64）
--   [ ] `F-1823` Path 不可用告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1823 | 部分：region/ISP 故障经 monitor applyVerdict→Herald KindRegionFault/KindISPFault（monitor.go:123-138）；无按 Path 不可用告警。）
+-   [x] `F-1823` Path 不可用告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1823 | Status: Done | Evidence: herald 新增 KindPathDown="path_down"；alloc 包新增 AlertSickPaths（failover.go），判定与 RebindSickPaths 同一谓词（落地离开可调度池/最新探测 sick），每轮每故障路径落一条 path_down warning（dedup path:%d:path_down，重复轮次由 Herald 窗口合并）；sweepOnce 中置于重绑与冻结检查之前——failover=manual 冻结时无自动重绑，告警是唯一信号；region/ISP 维度聚合告警保持原样不变 | Verification: go build/vet 全绿，go test ./... 53 ok FAIL=0（exit=0），TestAlertSickPaths 断 sick 路径告警+健康路径静默+冻结 failover 下 sweep 仍告警 | Commit: f5efa62）
 -   [ ] `F-1824` Path 质量下降告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1824 | 部分：维度降级发 notify dimension.degraded（monitor.go:148-151）；无质量下降 Alert 行。）
 -   [ ] `F-1825` 节点带宽超限告警。（依赖：无；完成条件：需求落地+测试绿+证据行）
