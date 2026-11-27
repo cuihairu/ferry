@@ -60,7 +60,7 @@ at-most-once 副作用；判重窗口每节点有界 FIFO（512 个 ID / TTL 10 
 
 | 消息类别 | 断线时发送方行为 | 保留/重试 | 断线时面板侧行为 |
 | --- | --- | --- | --- |
-| 核心进程内报告（`heartbeat`/`traffic`/`alarm`/`proc_report`/`calibrate`/`upgrade_status`） | `sendIfConnected` 失败即**静默丢弃**（at-most-once 发送，无队列） | 不保留；下一周期以新帧重报（heartbeat/calibrate 是快照，traffic 是累计增量口径的下一段，不丢账） | 节点标记 offline（`setNodeStatus`）；无入站帧 |
+| 核心进程内报告（`heartbeat`/`traffic`/`alarm`/`proc_report`/`calibrate`/`upgrade_status`） | `sendIfConnected` 失败即**静默丢弃**（at-most-once 发送，无队列） | 不保留；下一周期以新帧重报（heartbeat/calibrate 是快照；traffic 的 xray 采集查询即 reset=true 清零计数器，离线丢弃的周期字节**真实丢失**，不存在跨断线补账——见 todo F-1251/1255） | 节点标记 offline（`setNodeStatus`）；无入站帧 |
 | 角色进程报告（probe 等，`-role` 独立进程） | 写 `<spool_dir>/<role>.out`（原子 O_APPEND 逐行 JSON 信封） | **保留**：核心 `spool.Watch` 每 2s 扫描转发；send 失败即停、消费偏移不前移，**恢复后整段重放**（角色崩溃只丢自己的文件） | 收到重放帧按正常报告处理，FERRY-004 判重兜底 |
 | 面板→agent 命令（`proc_ctl`/`proc_logs`/`config_push`/`upgrade`） | — | — | `Hub.Request` 直接返回 `ErrOffline`（HTTP 502），不排队、不上门重试；由操作方重发 |
 | 连接断开本身 | `link.Run` 重连循环持续重试直至取消 | — | `Unregister` 清理连接；判重窗口跨重连保留 |

@@ -2746,7 +2746,7 @@ External Client
 -   [x] `F-9806` 完成账单导入和成本核算规模测试。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（F-9806 | Commit ff87397 + 6acdba3 | import_scale_test.go TestImportFileLargeBatch PASS 2026-11-27，数字归档 docs/testing/scale-report.md）：账单导入规模——5000 行走真实 ImportFile 全路径 run succeeded/added=5000 首过 1.47s，重导入 5000/5000 全 skipped 零双计（F-0529）；成本核算规模——SpendByScope(provider) 聚合 5000 条记录逐分复现 2647500 cents。原待补「无账单导入」已过时（F-0521 356bdec 落地 billing/import.go）。
 -   [ ] `F-9807` 完成完整端到端测试。（依赖：F-2042~F-2055；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9807 | 部分（2026-11-27 更新）：e2e-smoke.sh 70 断言真起双二进制全不 mock，覆盖 认证→注册/重放拒→WS 上线→进程监管→proc_ctl（含 stop confirm 负断言）→断线回落→轮换吊销→配置下发回执→Entry 角色节点部署→订阅三态 UA 生成与解析→未知令牌 404→备份恢复→compose 校验；另有 reconnect/dataplane/upgrade/compose/systemd/install-rollback 六专项 smoke 进 CI（relay-path-test 440c277 新增）。仍缺：UDP 转发 e2e（F-0812 阻塞）与 Dash/Panel 前端（F-2049）；流量记账 e2e（traffic-account-test.sh 3da60f7）、规模/压测族（scale-test.sh 9c68c3c + alloc_scale 05e0f3b + db-outage 24c9a58 + relay 故障腿 b697056 + import_scale ff87397 + cloudsync_scale 0d8befa）已全部补齐；F-9804 规模族全关。）
+    - 待补（F-9807 | 部分（2026-11-27 更新）：e2e-smoke.sh 70 断言真起双二进制全不 mock，覆盖 认证→注册/重放拒→WS 上线→进程监管→proc_ctl（含 stop confirm 负断言）→断线回落→轮换吊销→配置下发回执→Entry 角色节点部署→订阅三态 UA 生成与解析→未知令牌 404→备份恢复→compose 校验；另有 reconnect/dataplane/upgrade/compose/systemd/install-rollback 六专项 smoke 进 CI（relay-path-test 440c277 新增）。仍缺：真实 UDP 转发 e2e（F-2049 / F-0812 设计阻塞——UDP 只用于探测/QUIC 传输，relay 单流 TCP；原表述误写为「Dash/Panel 前端（F-2049）」已纠正，前端面已由 F-0112/SHOP-2 构建）；流量记账 e2e（traffic-account-test.sh 3da60f7）、规模/压测族（scale-test.sh 9c68c3c + alloc_scale 05e0f3b + db-outage 24c9a58 + relay 故障腿 b697056 + import_scale ff87397 + cloudsync_scale 0d8befa）已全部补齐；F-9804 规模族全关。）
 
 ## P9 --- 后续扩展
 
@@ -2838,7 +2838,7 @@ External Client
 -   [x] `F-10019` 备份经过真实恢复演练。
     - 备注（Task ID: F-10019 | Status: Done | Evidence: deploy/restore.sh+e2e 备份恢复腿（F-1927 关，53 断言内）+restore.sh --key（deploy/restore.sh:16）| Verification: deploy/e2e-smoke.sh（备份恢复断言）+deploy/restore.sh | Commit: cb60ba7）
 -   [ ] `F-10020` 所有最终验收项均有可复现的测试证据。（依赖：F-2061~F-2076、F-2042~F-2055；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-10020 | 未满足：§18.4 无基准/压测（F-2061-2076 全未满足）；大量项仅单测无 e2e（F-2042-2055）——并非所有最终验收项有可复现测试证据。）
+    - 待补（F-10020 | 未满足，真实残项仅 F-2049（UDP 转发验证）：F-2061~F-2076 全关（规模族证据见 F-9804 备注），F-2042~F-2055 除 F-2049 外全关且各有 e2e/commit 证据；原「§18.4 无基准/压测、F-2042-2055 仅单测无 e2e」陈述已过时。UDP 转发未实现（F-0812 设计边界：relay 单流 TCP，UDP 只用于探测/QUIC 传输），故本行不能勾。）
 
 ------------------------------------------------------------------------
 
