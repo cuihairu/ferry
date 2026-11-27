@@ -2258,8 +2258,8 @@ External Client
     - 备注（Task ID: F-1731 | Status: Done | Evidence: operator 越权 403；TestAdminRoleCRUD | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1732` 测试云账号凭据泄漏。
     - 备注（Task ID: F-1732 | Status: Done | Evidence: TestProviderAPI（providerapi_test.go:40）断言创建响应不回显密钥（:59-61）、库中存密文非明文（:68-73）、列表掩码（:81-83） | Verification: providerapi_test.go TestProviderAPI | Commit: 9fcb5ad）
--   [ ] `F-1733` 测试高危云操作权限绕过。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1733 | 未满足：无高危云操作越权测试——TestAdminRoleCRUD（adminrole_test.go:39）仅 /api/admins 403；procop_test.go/upgrade_test.go 仅成功路径，无 403 断言。）
+-   [x] `F-1733` 测试高危云操作权限绕过。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1733 | Status: Done | Evidence: TestHighRiskOpBypass（permission_test.go，F-1704/F-1705/F-1710/F-0370 闸面之上的越权矩阵）：无授权 rebuild/force_stop 均 403 missing permission cloud.highrisk；cloud.power 授权不得跨层开 rebuild（403）；过闸不等于执行——power_off（高危集）未带 confirmed 停在 oper 层二次确认 409；scoped highrisk "provider:1" 对 provider 1 过闸（下游资源缺失非 403/409）而 provider 2 仍 403；未知 op 绕不过——perm 映射无项放行但 oper 校验 400；super 免授权过闸但未确认同样 409（确认流程同样约束 super）。 | Verification: go build/vet 绿，go test ./... -count=1 53 ok FAIL=0（exit=0）；TestHighRiskOpBypass 全断言通过。 | Commit: 782b283）
 -   [x] `F-1734` 测试 Agent 消息伪造和重放。
     - 备注（Task ID: F-1734 | Status: Done | Evidence: bad token 拒绝+envelope ID 重放去重；TestAgentWSBadToken+dedupe_test | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1735` 测试配置篡改。（依赖：无；完成条件：需求落地+测试绿+证据行）
