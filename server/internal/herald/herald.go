@@ -49,6 +49,7 @@ const (
 	KindDeviceAnomaly   = "device_anomaly"     // abnormal subscription device behavior, e.g. share-style churn (F-1226, deduped per user per day)
 	KindTrafficAnomaly  = "traffic_anomaly"    // user traffic spike vs trailing baseline (F-1252, deduped per user per day)
 	KindCloudBootFailed = "cloud_boot_failed"  // cloud instance booted but its Ferry Node did not come back (F-0403)
+	KindAgentOffline    = "agent_offline"      // agent websocket dropped (F-1821)
 
 	// User outreach (HERALD-4, §2.2; in-app messages still go out, this channel serves out-of-app delivery).
 	KindExpire = "expire" // account expiry reminder

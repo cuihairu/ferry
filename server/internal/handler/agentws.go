@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/cuihairu/ferry/packages/agentproto"
 	"github.com/cuihairu/ferry/server/internal/agenthub"
+	"github.com/cuihairu/ferry/server/internal/herald"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -193,7 +195,33 @@ func (h *Handler) agentWS(c *gin.Context) {
 	h.hub.Unregister(nodeID, hc)
 	hc.Close()
 	h.setNodeStatus(nodeID, "offline", false)
+	h.notifyAgentOffline(nodeID)
 	log.Printf("agent offline node=%d", nodeID)
+}
+
+// notifyAgentOffline lands the agent-offline alert (F-1821) into the herald
+// outbox: one warning per disconnect, merged by dedup key on Herald's side;
+// maintenance nodes stay quiet (the operator took them down on purpose).
+// The outbox insert is best effort -- the status flip above stays the source
+// of truth, emit failures only log.
+func (h *Handler) notifyAgentOffline(nodeID int64) {
+	var n storage.Node
+	if err := h.db.Select("id, name, maintenance").First(&n, nodeID).Error; err != nil {
+		return
+	}
+	if n.Maintenance {
+		return
+	}
+	if _, err := herald.Emit(h.db, herald.EmitInput{
+		Kind: herald.KindAgentOffline, Severity: herald.SeverityWarning,
+		Title:    fmt.Sprintf("节点 %s Agent 掉线", n.Name),
+		Body:     "Agent 连接断开，节点离线",
+		Target:   herald.TargetAdmin,
+		DedupKey: fmt.Sprintf("node:%d:agent_offline", nodeID),
+		Meta:     map[string]any{"node_id": nodeID},
+	}); err != nil {
+		log.Printf("herald emit agent_offline: node=%d %v", nodeID, err)
+	}
 }
 
 // setNodeStatus updates the node's online status; when touch is true, last_seen is refreshed too.
