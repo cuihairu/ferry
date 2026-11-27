@@ -82,9 +82,13 @@ func (m *Manager) PrepareLaunch(p LaunchParams) (*Prepared, error) {
 }
 
 // FinishJob writes back the terminal state of supply execution (called after Execute, same convention as Apply).
+// A failed status lands a provision_failed alert (F-1829).
 func (m *Manager) FinishJob(jobID uint, status, logTail string) {
 	m.db.Model(&storage.ProvisionJob{}).Where("id = ?", jobID).
 		Updates(map[string]any{"status": status, "log": logTail, "finished_at": time.Now()})
+	if status != "ok" && status != "" {
+		alertJobFailed(m.db, jobID, logTail)
+	}
 }
 
 // prepareNode pre-issues/reuses the supply node row: if a node with the same name exists it is reused (token unchanged,

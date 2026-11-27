@@ -57,6 +57,8 @@ const (
 	KindConfigError     = "config_error"       // a node's config push failed and rolled back (F-1826, agent alarm-driven)
 	KindUpgradeFailed   = "upgrade_failed"     // a node's self-upgrade failed (F-1827, deduped per upgrade attempt)
 	KindProviderAuth    = "provider_auth"      // a provider's API credentials rejected (F-1828, deduped per provider)
+	KindCloudOpFailed   = "cloud_op_failed"    // a cloud operation settled failed (F-1829)
+	KindProvisionFailed = "provision_failed"   // a provision job failed (F-1829)
 
 	// User outreach (HERALD-4, §2.2; in-app messages still go out, this channel serves out-of-app delivery).
 	KindExpire = "expire" // account expiry reminder

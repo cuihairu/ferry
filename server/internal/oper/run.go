@@ -38,6 +38,7 @@ func (s *Service) runOne(ctx context.Context, row storage.CloudOperation, now ti
 	fail := func(message, providerCode string) {
 		s.settle(ctx, row.ID, StateFailed, message, providerCode, now)
 		recordOutcomeTimed(row.Op, StateFailed, spent())
+		alertOpFailed(s.db, row, message, providerCode)
 	}
 	unknown := func(message, providerCode string) {
 		s.settle(ctx, row.ID, StateUnknown, message, providerCode, now)

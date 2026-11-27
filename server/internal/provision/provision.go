@@ -162,6 +162,9 @@ func (m *Manager) Apply(ctx context.Context, p ExecParams) (*storage.ProvisionJo
 	job.Status, job.Log, job.FinishedAt = status, log, &now
 	m.db.Model(&storage.ProvisionJob{}).Where("id = ?", job.ID).
 		Updates(map[string]any{"status": status, "log": log, "finished_at": now})
+	if status != "ok" {
+		alertJobFailed(m.db, job.ID, log)
+	}
 	return &job, nil
 }
 
