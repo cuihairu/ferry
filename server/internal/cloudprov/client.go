@@ -127,13 +127,30 @@ func (c *Client) checkCompat(ctx context.Context) error {
 
 // call runs one operation under the shared policy: compat floor (F-0317),
 // rate limit, per-call timeout, bounded retry on retryable errors (F-0316).
+// Gate refusals and outcomes are counted (F-1811); latency is observed only
+// for calls that reached the attempt loop.
 func (c *Client) call(ctx context.Context, op string, resourceID string, fn func(ctx context.Context) error) error {
 	if err := c.checkCompat(ctx); err != nil {
+		recordGate(op, "compat")
 		return err
 	}
 	if !c.allow() {
+		recordGate(op, "rate_limited")
 		return NewError(ErrRateLimited, op, resourceID, "client_rate_limited", "client-side rate limit")
 	}
+	d, err := c.attempt(ctx, op, resourceID, fn)
+	if err != nil {
+		recordCall(op, "error", d)
+		return err
+	}
+	recordCall(op, "ok", d)
+	return nil
+}
+
+// attempt runs the bounded retry loop (F-0316) and reports the wall time of
+// the whole loop (attempts plus backoff).
+func (c *Client) attempt(ctx context.Context, op string, resourceID string, fn func(ctx context.Context) error) (time.Duration, error) {
+	start := time.Now()
 	maxRetries := c.opts.MaxRetries
 	if maxRetries < 0 {
 		maxRetries = 0
@@ -143,7 +160,7 @@ func (c *Client) call(ctx context.Context, op string, resourceID string, fn func
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
 			if err := sleepCtx(ctx, backoff); err != nil {
-				return lastErr // caller cancelled during backoff: report the real failure
+				return time.Since(start), lastErr // caller cancelled during backoff: report the real failure
 			}
 			next := time.Duration(float64(backoff) * 2)
 			if next > c.opts.MaxBackoff {
@@ -155,7 +172,7 @@ func (c *Client) call(ctx context.Context, op string, resourceID string, fn func
 		err := fn(cctx)
 		cancel()
 		if err == nil {
-			return nil
+			return time.Since(start), nil
 		}
 		if errors.Is(err, context.DeadlineExceeded) {
 			// The per-call deadline cut the vendor call: a transport-level
@@ -164,10 +181,10 @@ func (c *Client) call(ctx context.Context, op string, resourceID string, fn func
 		}
 		lastErr = err
 		if !AsError(err).Type.Retryable() {
-			return err
+			return time.Since(start), err
 		}
 	}
-	return lastErr
+	return time.Since(start), lastErr
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {
