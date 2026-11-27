@@ -83,5 +83,19 @@ func TestImportFileLargeBatch(t *testing.T) {
 	if len(recs) != lines {
 		t.Fatalf("records after re-import=%d want %d (dedupe broken)", len(recs), lines)
 	}
-	t.Logf("5000-line import: first pass %s, re-import all skipped", elapsed)
+
+	// Cost accounting at volume: the spend aggregation over the imported
+	// 5000 records must reproduce the exact cent sum (provider scope).
+	spend, err := SpendByScope(db, TargetProvider, nil, nil)
+	if err != nil {
+		t.Fatalf("spend: %v", err)
+	}
+	total := int64(0)
+	for _, r := range spend {
+		total += r.ActualCents
+	}
+	if total != wantCents {
+		t.Fatalf("spend sum mismatch: got %d want %d", total, wantCents)
+	}
+	t.Logf("5000-line import: first pass %s, re-import all skipped, spend sum %d cents", elapsed, total)
 }

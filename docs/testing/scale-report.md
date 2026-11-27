@@ -63,7 +63,9 @@
 - 5000 行账单走真实 ImportFile 全路径（JSON 解析→去重键分组→落库）：run
   succeeded、added=5000、落库 CostItem=5000、金额逐分求和一致，首过 1.47s；
 - 同文件重导入：5000/5000 全部去重为 skipped，CostRecord 仍 5000 —— 量级下
-  无一分双计（F-0529）。
+  无一分双计（F-0529）；
+- 成本核算规模：SpendByScope(provider) 聚合 5000 条记录，金额逐分复现
+  2647500 cents（与导入逐分求和一致）。
 
 ## 结论
 
