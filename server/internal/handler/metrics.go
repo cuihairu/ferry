@@ -225,7 +225,80 @@ func instrumentAgentMetrics(hub *agenthub.Hub, db *gorm.DB) {
 	agentStatsOnce.Do(func() {
 		prometheus.MustRegister(agentMetricsCollector{})
 		prometheus.MustRegister(relayMetricsCollector{})
+		prometheus.MustRegister(pathMetricsCollector{})
 	})
+}
+
+// ---- Path quality metrics (F-1806): availability and quality per probe
+// target, aggregated over a sliding probe window at scrape time. ----
+
+// probeWindow bounds the aggregation; scrape answers "what did the last ten
+// minutes look like".
+var probeWindow = 10 * time.Minute
+
+type pathMetricsCollector struct{}
+
+var (
+	pathTargetsDesc = prometheus.NewDesc("ferry_path_targets",
+		"Distinct probe targets seen in the window.", nil, nil)
+	pathProbesDesc = prometheus.NewDesc("ferry_path_probes",
+		"Probe reports in the window by target and verdict.", []string{"target_node_id", "target_kind", "verdict"}, nil)
+	pathAvailDesc = prometheus.NewDesc("ferry_path_availability",
+		"Healthy probe fraction in the window, per target.", []string{"target_node_id", "target_kind"}, nil)
+	pathRttDesc = prometheus.NewDesc("ferry_path_rtt_ms",
+		"Mean RTT in the window, per target.", []string{"target_node_id", "target_kind"}, nil)
+	pathLossDesc = prometheus.NewDesc("ferry_path_loss_pct",
+		"Mean loss percentage in the window, per target.", []string{"target_node_id", "target_kind"}, nil)
+	pathJitterDesc = prometheus.NewDesc("ferry_path_jitter_ms",
+		"Mean RTT jitter in the window, per target.", []string{"target_node_id", "target_kind"}, nil)
+)
+
+func (pathMetricsCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- pathTargetsDesc
+	ch <- pathProbesDesc
+	ch <- pathAvailDesc
+	ch <- pathRttDesc
+	ch <- pathLossDesc
+	ch <- pathJitterDesc
+}
+
+func (pathMetricsCollector) Collect(ch chan<- prometheus.Metric) {
+	db := gormDBHandle.Load()
+	if db == nil {
+		return
+	}
+	var rows []struct {
+		TargetNodeID uint
+		TargetKind   string
+		Total        int64
+		Healthy      int64
+		AvgRtt       float64
+		AvgLoss      float64
+		AvgJitter    float64
+	}
+	since := time.Now().Add(-probeWindow)
+	if err := db.Table("probe_reports").
+		Select("target_node_id, target_kind, COUNT(*) AS total, "+
+			"SUM(CASE WHEN verdict = 'healthy' THEN 1 ELSE 0 END) AS healthy, "+
+			"AVG(rtt_ms) AS avg_rtt, AVG(loss_pct) AS avg_loss, AVG(jitter_ms) AS avg_jitter").
+		Where("probed_at > ? AND target_node_id IS NOT NULL", since).
+		Group("target_node_id, target_kind").
+		Scan(&rows).Error; err != nil {
+		return // scrape tolerates read failures: series simply stay absent
+	}
+	ch <- prometheus.MustNewConstMetric(pathTargetsDesc, prometheus.GaugeValue, float64(len(rows)))
+	for _, r := range rows {
+		node := strconv.FormatUint(uint64(r.TargetNodeID), 10)
+		kind := r.TargetKind
+		ch <- prometheus.MustNewConstMetric(pathProbesDesc, prometheus.GaugeValue, float64(r.Healthy), node, kind, "healthy")
+		ch <- prometheus.MustNewConstMetric(pathProbesDesc, prometheus.GaugeValue, float64(r.Total-r.Healthy), node, kind, "sick")
+		if r.Total > 0 {
+			ch <- prometheus.MustNewConstMetric(pathAvailDesc, prometheus.GaugeValue, float64(r.Healthy)/float64(r.Total), node, kind)
+		}
+		ch <- prometheus.MustNewConstMetric(pathRttDesc, prometheus.GaugeValue, r.AvgRtt, node, kind)
+		ch <- prometheus.MustNewConstMetric(pathLossDesc, prometheus.GaugeValue, r.AvgLoss, node, kind)
+		ch <- prometheus.MustNewConstMetric(pathJitterDesc, prometheus.GaugeValue, r.AvgJitter, node, kind)
+	}
 }
 
 // ---- Relay metrics (F-1804): relay fleet size, live relay agents, and live

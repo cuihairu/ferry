@@ -203,3 +203,68 @@ func TestRelayMetrics(t *testing.T) {
 		t.Fatal("non-relay bytes must not appear")
 	}
 }
+
+// TestPathMetrics covers F-1806: per-target probe aggregation inside the
+// window — availability ratio, verdict counts, and mean-quality gauges; rows
+// outside the window and host-only targets stay out.
+func TestPathMetrics(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	seedAdminForJWT(t, db)
+
+	now := time.Now()
+	target := uint(424242)
+	tunnel := "tunnel"
+	for _, s := range []storage.ProbeReport{
+		{NodeID: 1, TargetKind: tunnel, TargetNodeID: &target, RttMs: 20, LossPct: 0, JitterMs: 2, Verdict: "healthy", ProbedAt: now},
+		{NodeID: 1, TargetKind: tunnel, TargetNodeID: &target, RttMs: 30, LossPct: 0, JitterMs: 4, Verdict: "healthy", ProbedAt: now},
+		{NodeID: 1, TargetKind: tunnel, TargetNodeID: &target, RttMs: 0, LossPct: 100, JitterMs: 0, Verdict: "sick", ProbedAt: now},
+	} {
+		if err := db.Create(&s).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Outside the window and host-only: neither may surface.
+	staleTarget := uint(424243)
+	if err := db.Create(&storage.ProbeReport{NodeID: 1, TargetKind: "tunnel",
+		TargetNodeID: &staleTarget, Verdict: "sick", ProbedAt: now.Add(-20 * time.Minute)}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&storage.ProbeReport{NodeID: 1, TargetKind: "exit",
+		TargetHost: "exit.example.com", Verdict: "healthy", ProbedAt: now}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	rec := doJSON(t, r, "GET", "/admin/metrics", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("metrics: %d %s", rec.Code, rec.Body)
+	}
+	body := rec.Body.String()
+	lbl := `target_kind="tunnel",target_node_id="424242"`
+	if !strings.Contains(body, `ferry_path_availability{`+lbl+`} 0.66`) {
+		t.Fatalf("availability = healthy/total (2/3) missing: %s", body)
+	}
+	if !strings.Contains(body, `ferry_path_probes{`+lbl+`,verdict="healthy"} 2`) {
+		t.Fatal("healthy probe count missing")
+	}
+	if !strings.Contains(body, `ferry_path_probes{`+lbl+`,verdict="sick"} 1`) {
+		t.Fatal("sick probe count missing")
+	}
+	if !strings.Contains(body, `ferry_path_rtt_ms{`+lbl+`} 16.6`) {
+		t.Fatal("mean rtt (20+30+0)/3 = 16.67 missing")
+	}
+	if !strings.Contains(body, `ferry_path_jitter_ms{`+lbl+`} 2`) {
+		t.Fatal("mean jitter (2+4+0)/3 = 2 missing")
+	}
+	if !strings.Contains(body, `ferry_path_loss_pct{`+lbl+`} 33`) {
+		t.Fatal("mean loss (0+0+100)/3 = 33.3 missing")
+	}
+	if !strings.Contains(body, "ferry_path_targets 1") {
+		t.Fatal("targets gauge must count only windowed node targets")
+	}
+	if strings.Contains(body, `target_node_id="424243"`) {
+		t.Fatal("stale-window target must not appear")
+	}
+	if strings.Contains(body, `target_kind="exit"`) {
+		t.Fatal("host-only target must not appear")
+	}
+}
