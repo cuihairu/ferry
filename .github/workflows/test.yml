@@ -109,6 +109,8 @@ jobs:
         run: bash deploy/relay-path-test.sh
       - name: traffic accounting smoke
         run: bash deploy/traffic-account-test.sh
+      - name: scale load smoke
+        run: bash deploy/scale-test.sh
 
   gofmt:
     name: gofmt gate
