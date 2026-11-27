@@ -100,7 +100,7 @@ func TestUserCRUD(t *testing.T) {
 	}
 
 	// Delete: the user then 404s, and the billing history (traffic_logs) is retained (P2 fix, see userdelete_test.go)
-	if rec := doJSON(t, r, "DELETE", "/api/users/1", nil); rec.Code != http.StatusOK {
+	if rec := doJSON(t, r, "DELETE", "/api/users/1", map[string]any{"confirm": "alice2"}); rec.Code != http.StatusOK {
 		t.Fatalf("delete user: %d", rec.Code)
 	}
 	if rec := doJSON(t, r, "GET", "/api/users/1", nil); rec.Code != http.StatusNotFound {

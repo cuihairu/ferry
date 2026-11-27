@@ -188,7 +188,8 @@ async function toggleEnabled(u: User, enabled: boolean) {
 
 async function remove(u: User) {
   await ElMessageBox.confirm(`删除用户 ${u.username} 将连带删除其流量记录，确认？`, '删除用户', { type: 'warning' })
-  await del(`/api/users/${u.id}`)
+  // F-1709: the server demands the username as a second confirmation.
+  await del(`/api/users/${u.id}`, { confirm: u.username })
   ElMessage.success('已删除')
   await load()
 }

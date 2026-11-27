@@ -211,7 +211,7 @@ func TestUpdateNodeErrors(t *testing.T) {
 		t.Fatalf("delete missing: %d %s", rec.Code, rec.Body)
 	}
 	failNodeDeletes(t, db)
-	if rec := doJSON(t, r, http.MethodDelete, "/api/nodes/1", nil); rec.Code != http.StatusInternalServerError {
+	if rec := doJSON(t, r, http.MethodDelete, "/api/nodes/1", map[string]any{"confirm": "del-n"}); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("delete fail: %d %s", rec.Code, rec.Body)
 	}
 }

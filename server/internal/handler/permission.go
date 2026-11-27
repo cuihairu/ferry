@@ -188,3 +188,25 @@ func (h *Handler) putAdminPerms(c *gin.Context) {
 	h.db.Where("user_id = ?", id).Order("perm ASC").Find(&out)
 	c.JSON(http.StatusOK, out)
 }
+
+// readConfirm pulls the confirm field out of a request body (F-1709); an
+// absent or unparseable body is an empty confirm, which never matches.
+func readConfirm(c *gin.Context) string {
+	var in struct {
+		Confirm string `json:"confirm"`
+	}
+	_ = c.ShouldBindJSON(&in)
+	return in.Confirm
+}
+
+// confirmGate is the server-side second confirmation (F-1709): a destructive
+// request must echo the designated string in its confirm body field, so a
+// stray click or scripted call cannot land alone (same shape as the F-1660
+// template destroy gate).
+func confirmGate(c *gin.Context, want, verb string) bool {
+	if got := readConfirm(c); got != want {
+		fail(c, http.StatusBadRequest, fmt.Errorf("confirmation mismatch: pass confirm=%s to %s", want, verb))
+		return false
+	}
+	return true
+}

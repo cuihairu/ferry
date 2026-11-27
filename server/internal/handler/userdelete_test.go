@@ -45,7 +45,7 @@ func TestDeleteUserKeepsTrafficHistory(t *testing.T) {
 	}
 
 	idStr := strconv.FormatUint(uint64(u.ID), 10)
-	if rec := doJSON(t, r, "DELETE", "/api/users/"+idStr, nil); rec.Code != http.StatusOK {
+	if rec := doJSON(t, r, "DELETE", "/api/users/"+idStr, map[string]any{"confirm": "hist"}); rec.Code != http.StatusOK {
 		t.Fatalf("delete user: %d %s", rec.Code, rec.Body)
 	}
 

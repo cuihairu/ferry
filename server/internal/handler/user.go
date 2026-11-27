@@ -367,6 +367,11 @@ func (h *Handler) deleteUser(c *gin.Context) {
 		replyFind(c, err)
 		return
 	}
+	// F-1709: user deletion detaches billing attribution and clears device
+	// state — the body must echo the username as a second confirmation.
+	if !confirmGate(c, u.Username, "delete the user") {
+		return
+	}
 	// Device/IP records are a security state (not an accounting ledger), so they are cleared with
 	// the user rather than left as orphan rows.
 	// Billing history (the traffic_logs accounting detail) is neither deleted nor altered (per

@@ -310,7 +310,7 @@ func TestDeleteUserErrors(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	seedUser(t, r, db, "del-dev")
 	failSubDeviceDeletes(t, db)
-	rec := doJSON(t, r, http.MethodDelete, "/api/users/1", nil)
+	rec := doJSON(t, r, http.MethodDelete, "/api/users/1", map[string]any{"confirm": "del-dev"})
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("subdevice cleanup: %d %s", rec.Code, rec.Body)
 	}
@@ -319,7 +319,7 @@ func TestDeleteUserErrors(t *testing.T) {
 	r, db = newTestRouterWithDB(t)
 	seedUser(t, r, db, "del-user")
 	failUserDeletes(t, db)
-	rec = doJSON(t, r, http.MethodDelete, "/api/users/1", nil)
+	rec = doJSON(t, r, http.MethodDelete, "/api/users/1", map[string]any{"confirm": "del-user"})
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("user delete: %d %s", rec.Code, rec.Body)
 	}

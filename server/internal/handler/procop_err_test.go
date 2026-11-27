@@ -114,7 +114,7 @@ func TestBatchProcAckError(t *testing.T) {
 	done := make(chan *httptest.ResponseRecorder, 1)
 	go func() {
 		done <- doJSON(t, r, "POST", "/api/nodes/batch/proc", map[string]any{
-			"ids": []uint{idA, idB}, "action": "stop",
+			"ids": []uint{idA, idB}, "action": "stop", "confirm": "batch-stop",
 		})
 	}()
 

@@ -633,11 +633,18 @@ function summarizeProc(results: BatchProcResult[], names: Map<number, string>, a
 
 async function runProc(action: 'start' | 'stop' | 'reload') {
   if (!selected.value.length || procBusy.value) return
+  // F-1709: a batch stop cuts service on every selected node — dialog plus the
+  // server-side batch-stop token.
+  if (action === 'stop') {
+    await ElMessageBox.confirm(`停止 ${selected.value.length} 个节点上的受管进程，确认？`, '批量停止', { type: 'warning' })
+  }
   procBusy.value = true
   try {
     const ids = selected.value.map((n) => n.id)
     const names = new Map(selected.value.map((n) => [n.id, n.name]))
-    const res = await post<BatchProcResult[]>('/api/nodes/batch/proc', { ids, action })
+    const body: Record<string, unknown> = { ids, action }
+    if (action === 'stop') body.confirm = 'batch-stop'
+    const res = await post<BatchProcResult[]>('/api/nodes/batch/proc', body)
     summarizeProc(res, names, action)
     await load()
   } catch (e) {
@@ -895,7 +902,8 @@ async function toggleMaintenance(n: Node, maintenance: boolean) {
 
 async function remove(n: Node) {
   await ElMessageBox.confirm(`删除节点 ${n.name}，确认？`, '删除节点', { type: 'warning' })
-  await del(`/api/nodes/${n.id}`)
+  // F-1709: the server demands the node name as a second confirmation.
+  await del(`/api/nodes/${n.id}`, { confirm: n.name })
   ElMessage.success('已删除')
   await load()
 }

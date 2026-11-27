@@ -69,8 +69,9 @@ func (h *Handler) nodeProcOp(c *gin.Context) {
 		return
 	}
 	var in struct {
-		Action string `json:"action"`
-		Proc   string `json:"proc"`
+		Action  string `json:"action"`
+		Proc    string `json:"proc"`
+		Confirm string `json:"confirm"`
 	}
 	if err := c.ShouldBindJSON(&in); err != nil {
 		fail(c, http.StatusBadRequest, err)
@@ -78,6 +79,13 @@ func (h *Handler) nodeProcOp(c *gin.Context) {
 	}
 	if !procActions[in.Action] {
 		fail(c, http.StatusBadRequest, errors.New("action must be start/stop/reload"))
+		return
+	}
+	// F-1709: stopping the managed proc interrupts the node's service — the
+	// body must echo the node name as a second confirmation. Compared on the
+	// already-bound struct: the bind consumed the body, a re-read would be EOF.
+	if in.Action == "stop" && in.Confirm != n.Name {
+		fail(c, http.StatusBadRequest, fmt.Errorf("confirmation mismatch: pass confirm=%s to stop the proc", n.Name))
 		return
 	}
 	if in.Proc == "" {
@@ -101,9 +109,10 @@ func (h *Handler) nodeProcOp(c *gin.Context) {
 // concurrent dispatch, per-node replies.
 func (h *Handler) batchNodeProc(c *gin.Context) {
 	var in struct {
-		IDs    []uint `json:"ids"`
-		Action string `json:"action"`
-		Proc   string `json:"proc"`
+		IDs     []uint `json:"ids"`
+		Action  string `json:"action"`
+		Proc    string `json:"proc"`
+		Confirm string `json:"confirm"`
 	}
 	if err := c.ShouldBindJSON(&in); err != nil {
 		fail(c, http.StatusBadRequest, err)
@@ -115,6 +124,13 @@ func (h *Handler) batchNodeProc(c *gin.Context) {
 	}
 	if !procActions[in.Action] {
 		fail(c, http.StatusBadRequest, errors.New("action must be start/stop/reload"))
+		return
+	}
+	// F-1709: a batch stop cuts service on every selected node at once — the
+	// body must carry the fixed batch-stop token (no single name to echo).
+	// Compared on the already-bound struct; a re-read would be EOF.
+	if in.Action == "stop" && in.Confirm != "batch-stop" {
+		fail(c, http.StatusBadRequest, fmt.Errorf("confirmation mismatch: pass confirm=batch-stop to batch stop procs"))
 		return
 	}
 	if in.Proc == "" {

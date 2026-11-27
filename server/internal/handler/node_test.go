@@ -157,8 +157,8 @@ func TestNodeCRUD(t *testing.T) {
 		t.Fatalf("bad config status = %d", rec.Code)
 	}
 
-	// fetching after delete gives 404
-	if rec = doJSON(t, r, "DELETE", "/api/nodes/1", nil); rec.Code != http.StatusNoContent {
+	// fetching after delete gives 404 (F-1709: the body echoes the node name)
+	if rec = doJSON(t, r, "DELETE", "/api/nodes/1", map[string]any{"confirm": "hk-1"}); rec.Code != http.StatusNoContent {
 		t.Fatalf("delete status = %d", rec.Code)
 	}
 	if rec = doJSON(t, r, "GET", "/api/nodes/1", nil); rec.Code != http.StatusNotFound {

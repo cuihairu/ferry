@@ -342,6 +342,11 @@ func (h *Handler) deleteNode(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
+	// F-1709: node deletion is destructive — the body must echo the node name
+	// before the dependency checks run.
+	if !confirmGate(c, n.Name, "delete the node") {
+		return
+	}
 	// Dependency checks (F-0214): a node wired into the active forwarding
 	// fabric is not deletable — remove the Path/LandingAssignment links first.
 	// History rows (traffic, probes, alerts, config versions) are kept as the

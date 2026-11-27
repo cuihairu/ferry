@@ -33,7 +33,7 @@ func TestNodeDeleteDependencyChecks(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create path: %d %s", rec.Code, rec.Body)
 	}
-	if rec = doJSON(t, r, "DELETE", "/api/nodes/"+utoa(entry), nil); rec.Code != http.StatusConflict {
+	if rec = doJSON(t, r, "DELETE", "/api/nodes/"+utoa(entry), map[string]any{"confirm": "del-entry"}); rec.Code != http.StatusConflict {
 		t.Fatalf("path-referenced delete = %d %s", rec.Code, rec.Body)
 	}
 
@@ -45,10 +45,10 @@ func TestNodeDeleteDependencyChecks(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if rec = doJSON(t, r, "DELETE", "/api/nodes/"+utoa(entry), nil); rec.Code != http.StatusConflict {
+	if rec = doJSON(t, r, "DELETE", "/api/nodes/"+utoa(entry), map[string]any{"confirm": "del-entry"}); rec.Code != http.StatusConflict {
 		t.Fatalf("assigned delete = %d %s", rec.Code, rec.Body)
 	}
-	if rec = doJSON(t, r, "DELETE", "/api/nodes/"+utoa(landing), nil); rec.Code != http.StatusConflict {
+	if rec = doJSON(t, r, "DELETE", "/api/nodes/"+utoa(landing), map[string]any{"confirm": "del-landing"}); rec.Code != http.StatusConflict {
 		t.Fatalf("landing delete = %d %s", rec.Code, rec.Body)
 	}
 
@@ -63,7 +63,7 @@ func TestNodeDeleteDependencyChecks(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if rec = doJSON(t, r, "DELETE", "/api/nodes/"+utoa(free), nil); rec.Code != http.StatusNoContent {
+	if rec = doJSON(t, r, "DELETE", "/api/nodes/"+utoa(free), map[string]any{"confirm": "del-free"}); rec.Code != http.StatusNoContent {
 		t.Fatalf("released assignment blocks delete = %d %s", rec.Code, rec.Body)
 	}
 
@@ -80,7 +80,7 @@ func TestNodeDeleteDependencyChecks(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if rec = doJSON(t, r, "DELETE", "/api/nodes/"+utoa(landing), nil); rec.Code != http.StatusConflict {
+	if rec = doJSON(t, r, "DELETE", "/api/nodes/"+utoa(landing), map[string]any{"confirm": "del-landing"}); rec.Code != http.StatusConflict {
 		t.Fatalf("recovery-running delete = %d %s", rec.Code, rec.Body)
 	}
 	if err := db.Model(&storage.Recovery{}).Where("node_id = ?", landing).
@@ -102,7 +102,7 @@ func TestNodeDeleteDependencyChecks(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if rec = doJSON(t, r, "DELETE", "/api/nodes/"+utoa(landing), nil); rec.Code != http.StatusNoContent {
+	if rec = doJSON(t, r, "DELETE", "/api/nodes/"+utoa(landing), map[string]any{"confirm": "del-landing"}); rec.Code != http.StatusNoContent {
 		t.Fatalf("unblocked delete = %d %s", rec.Code, rec.Body)
 	}
 	var n int64

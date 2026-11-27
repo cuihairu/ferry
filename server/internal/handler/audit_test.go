@@ -33,7 +33,7 @@ func TestAuditLogsCaptureWriteOps(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	doJSON(t, r, "POST", "/api/users", map[string]any{"username": "au-user", "password": "pass-123"})
 	doJSON(t, r, "PUT", "/api/users/1", map[string]any{"note": "x"})
-	doJSON(t, r, "DELETE", "/api/users/1", nil)
+	doJSON(t, r, "DELETE", "/api/users/1", map[string]any{"confirm": "au-user"})
 	if n := auditCount(t, db); n != 3 {
 		t.Fatalf("audit rows after 3 writes = %d, want 3", n)
 	}
@@ -136,7 +136,7 @@ func TestAuditListGuards(t *testing.T) {
 	r, db := newTestRouterWithDB(t)
 	doJSON(t, r, "POST", "/api/users", map[string]any{"username": "ag-1", "password": "pw-12345"})
 	doJSON(t, r, "PUT", "/api/users/1", map[string]any{"note": "x"})
-	doJSON(t, r, "DELETE", "/api/users/1", nil)
+	doJSON(t, r, "DELETE", "/api/users/1", map[string]any{"confirm": "au-user"})
 	if n := auditCount(t, db); n != 3 {
 		t.Fatalf("seed rows = %d, want 3", n)
 	}

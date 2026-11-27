@@ -55,8 +55,8 @@ export function patch<T>(path: string, body?: unknown): Promise<T> {
   return request<T>(path, { method: 'PATCH', body: body === undefined ? undefined : JSON.stringify(body) })
 }
 
-export function del<T>(path: string): Promise<T> {
-  return request<T>(path, { method: 'DELETE' })
+export function del<T>(path: string, body?: unknown): Promise<T> {
+  return request<T>(path, { method: 'DELETE', body: body === undefined ? undefined : JSON.stringify(body) })
 }
 
 // postRaw POSTs a raw request body (used for rule library data file distribution, SAVE-1).
