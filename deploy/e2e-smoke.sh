@@ -432,6 +432,42 @@ code=$(curl -s -o "$TMP/first-get.json" "$BASE/api/nodes/$NODE_ID" \
 grep -q '"role":"landing"' "$TMP/first-get.json" \
   || { echo "FAIL - 默认部署节点应为 landing：$(cat "$TMP/first-get.json")" >&2; dump; exit 1; }
 log "ok - 默认部署节点角色为 landing（F-2043 口径）"
+
+# Subscription format leg (F-2046/F-2047 equivalent): with the entry node online and pool-active (default
+# pool_state=active), create a panel user and walk the real subscription endpoint over HTTP with three client
+# UAs -- sing-box gets outbounds JSON (parsed with the stdlib json parser), clash gets a YAML profile
+# (structural grep), default/curl gets base64 v2ray links; an unknown token must 404 (anti-enumeration).
+log "订阅生成与格式解析（UA 协商三态）..."
+code=$(curl -s -o "$TMP/user-sub.json" -w '%{http_code}' -X POST "$BASE/api/users" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"username":"e2e-sub","quota_bytes":1073741824,"expires_at":"2030-01-01T00:00:00Z"}')
+expect "创建面板用户 201" 201 "$code"
+SUB_TOKEN=$(json_get sub_token "$TMP/user-sub.json")
+[ -n "$SUB_TOKEN" ] || { echo "FAIL - 用户响应缺 sub_token" >&2; dump; exit 1; }
+code=$(curl -s -o /dev/null -w '%{http_code}' -X PUT "$BASE/api/nodes/$NODE2_ID" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"e2e-entry","address":"e2e.example.com","port":443,"protocol":"vless","config":"{\"uuid\":\"e2e-uuid-1\",\"tls\":true,\"sni\":\"e2e.example.com\",\"net\":\"ws\",\"path\":\"/wss\",\"host\":\"e2e.example.com\"}"}')
+expect "面板补 Entry 节点配置 200" 200 "$code"
+code=$(curl -s -o "$TMP/sub-singbox.json" -w '%{http_code}' -A "sing-box/1.8.0" "$BASE/sub/$SUB_TOKEN")
+expect "sing-box UA 订阅 200" 200 "$code"
+python3 -c 'import json,sys
+obs = json.load(open(sys.argv[1]))
+assert isinstance(obs, list) and obs and obs[0].get("type") == "vless", obs
+assert obs[0].get("server") == "e2e.example.com" and obs[0].get("uuid") == "e2e-uuid-1", obs' "$TMP/sub-singbox.json" \
+  || { echo "FAIL - sing-box 订阅 JSON 解析失败：$(cat "$TMP/sub-singbox.json")" >&2; dump; exit 1; }
+log "ok - sing-box UA 得 outbounds JSON（裸数组）且 stdlib 解析通过"
+code=$(curl -s -o "$TMP/sub-clash.yaml" -w '%{http_code}' -A "clash-verge/2.0" "$BASE/sub/$SUB_TOKEN")
+expect "clash UA 订阅 200" 200 "$code"
+grep -q '^proxies:' "$TMP/sub-clash.yaml" && grep -q 'type: vless' "$TMP/sub-clash.yaml" \
+  || { echo "FAIL - clash 订阅缺 proxies 结构：$(cat "$TMP/sub-clash.yaml")" >&2; dump; exit 1; }
+log "ok - clash UA 得 YAML 配置且 proxies/vless 结构完整"
+code=$(curl -s -o "$TMP/sub-v2ray.txt" -w '%{http_code}' "$BASE/sub/$SUB_TOKEN")
+expect "默认 UA 订阅 200" 200 "$code"
+base64 -d "$TMP/sub-v2ray.txt" 2>/dev/null | grep -q '^vless://' \
+  || { echo "FAIL - 默认 UA 应得 base64 vless 链接：$(head -c 200 "$TMP/sub-v2ray.txt")" >&2; dump; exit 1; }
+log "ok - 默认 UA 得 base64 v2ray 链接"
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/sub/not-a-real-token-e2e-0123456789ab")
+expect "未知订阅令牌 404" 404 "$code"
 kill "$AGENT_PID"; AGENT_PID=""
 expect "Entry agent 断开回落" "0" "$(poll_health 0)"
 

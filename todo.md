@@ -2505,10 +2505,10 @@ External Client
     - 待补（F-2044 | 未满足：e2e 仅 agent WS 链路；无真实 relay 隧道（relay 角色仅单测 relay_test.go）。）
 -   [ ] `F-2045` 创建 Path 并执行探测。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2045 | 未满足：无 Path；e2e 无探测（probe 仅单测）。）
--   [ ] `F-2046` 生成 sing-box 订阅并执行解析测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2046 | 未满足：sing-box 解析仅单测（sub/singbox_test.go）；e2e-smoke 推 stub 内核配置，无 sing-box 订阅解析。）
--   [ ] `F-2047` 生成 Clash/Mihomo 配置并执行解析测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2047 | 未满足：Clash 解析仅单测（sub/clash_test.go）；无 e2e 解析。）
+-   [x] `F-2046` 生成 sing-box 订阅并执行解析测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2046 | Commit cac8df0+本轮 | e2e-smoke.sh 70 断言 exit=0 2026-11-27）：原待补「仅单测」已补 e2e——创建面板用户（e2e-sub）→ 面板补 Entry 节点 vless+ws+tls 配置 → 真 HTTP UA=sing-box/1.8.0 请求 /sub/:token → python3 stdlib json 解析裸 outbounds 数组，断言 type=vless/server/uuid 逐字段；单测层 sub/singbox_test.go 同口径回归。
+-   [x] `F-2047` 生成 Clash/Mihomo 配置并执行解析测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2047 | 同轮 e2e）：UA=clash-verge/2.0 真 HTTP 请求 /sub/:token 得 YAML profile，grep 断言 `^proxies:` 与 `type: vless` 结构完整；默认 UA（curl）回落 base64 v2ray 链接（`base64 -d` 解出 `vless://`）；未知令牌 404 反枚举（三态 UA 协商全链）；单测层 sub/clash_test.go 同口径回归。
 -   [ ] `F-2048` 验证真实 TCP 转发。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2048 | 未满足：无真实 TCP 转发 e2e（relay 转发仅单测/mock TestRelayForwards）。）
 -   [ ] `F-2049` 验证真实 UDP 转发。（依赖：无；完成条件：需求落地+测试绿+证据行）
