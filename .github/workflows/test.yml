@@ -105,6 +105,8 @@ jobs:
         run: bash deploy/reconnect-test.sh
       - name: data plane outage test
         run: bash deploy/dataplane-test.sh
+      - name: relay path probe smoke
+        run: bash deploy/relay-path-test.sh
 
   gofmt:
     name: gofmt gate
