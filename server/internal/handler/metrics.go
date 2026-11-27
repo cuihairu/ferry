@@ -229,6 +229,38 @@ func instrumentAgentMetrics(hub *agenthub.Hub, db *gorm.DB) {
 	})
 }
 
+// ---- Probe task metrics (F-1807): dispatch outcomes and per-report
+// verdicts, counted at event time; rates come from rate() at query time. ----
+
+var (
+	probeTaskDispatch = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "ferry_probe_task_dispatch_total",
+		Help: "Probe task set dispatches by result (ok/rejected/offline/timeout/error).",
+	}, []string{"result"})
+	probeReportVerdict = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "ferry_probe_report_total",
+		Help: "Ingested probe reports by verdict; success rate = healthy / total.",
+	}, []string{"verdict"})
+)
+
+// recordProbeDispatch classifies one dispatchProbeTasks outcome.
+func recordProbeDispatch(err error, ackOK bool, acked bool) {
+	switch {
+	case err != nil && errors.Is(err, agenthub.ErrOffline):
+		probeTaskDispatch.WithLabelValues("offline").Inc()
+	case err != nil && errors.Is(err, agenthub.ErrTimeout):
+		probeTaskDispatch.WithLabelValues("timeout").Inc()
+	case err != nil:
+		probeTaskDispatch.WithLabelValues("error").Inc()
+	case !acked:
+		probeTaskDispatch.WithLabelValues("bad_ack").Inc()
+	case !ackOK:
+		probeTaskDispatch.WithLabelValues("rejected").Inc()
+	default:
+		probeTaskDispatch.WithLabelValues("ok").Inc()
+	}
+}
+
 // ---- Path quality metrics (F-1806): availability and quality per probe
 // target, aggregated over a sliding probe window at scrape time. ----
 

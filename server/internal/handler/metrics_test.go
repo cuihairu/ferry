@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -266,5 +267,86 @@ func TestPathMetrics(t *testing.T) {
 	}
 	if strings.Contains(body, `target_kind="exit"`) {
 		t.Fatal("host-only target must not appear")
+	}
+}
+
+// TestProbeTaskMetrics covers F-1807: dispatch outcomes (ok/rejected/offline/…)
+// and per-report verdicts count at event time; the success rate is healthy /
+// total at query time.
+func TestProbeTaskMetrics(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+
+	target := uint(424244)
+	taskJSON, err := json.Marshal(agentproto.ProbeTask{Version: "v1", Specs: []agentproto.ProbeTaskSpec{
+		{Name: "path-1", TargetKind: "tunnel", Target: "landing.example.com:443", IntervalSec: 60},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nid, token := createNodeFor(t, r, "ptm-1")
+	if err := db.Model(&storage.Node{}).Where("id = ?", nid).
+		Update("probe_tasks", string(taskJSON)).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	okChild := probeTaskDispatch.WithLabelValues("ok")
+	rejChild := probeTaskDispatch.WithLabelValues("rejected")
+	healthyChild := probeReportVerdict.WithLabelValues("healthy")
+	sickChild := probeReportVerdict.WithLabelValues("sick")
+	okBefore := testutil.ToFloat64(okChild)
+
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+	c := fakeAgent(t, srv.URL, "ptm-1", token)
+
+	// Responder: ack the dispatched probe task set as accepted; then push a
+	// probe report batch with one healthy and one sick verdict.
+	go func() {
+		for {
+			var env agentproto.Envelope
+			if err := c.ReadJSON(&env); err != nil {
+				return
+			}
+			if env.Type != agentproto.MsgProbeTask {
+				continue
+			}
+			ackEnv, err := agentproto.NewEnvelope(env.ID, agentproto.MsgProbeTaskAck,
+				agentproto.ProbeTaskAck{Version: "v1", OK: true, Applied: 1})
+			if err != nil {
+				return
+			}
+			if err := c.WriteJSON(ackEnv); err != nil {
+				return
+			}
+		}
+	}()
+
+	// The dispatch rides a goroutine after hello: wait for the ok counter.
+	deadline := time.Now().Add(3 * time.Second)
+	for testutil.ToFloat64(okChild) == okBefore && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := testutil.ToFloat64(okChild) - okBefore; got != 1 {
+		t.Fatalf("dispatch ok delta = %v, want 1", got)
+	}
+	if testutil.ToFloat64(rejChild) != 0 {
+		t.Fatal("accepted set must not count as rejected")
+	}
+
+	rep, _ := agentproto.NewEnvelope("pr1", agentproto.MsgProbeReport, agentproto.ProbeReportBatch{
+		Items: []agentproto.ProbeReport{
+			{TargetKind: "tunnel", TargetNode: int64(target), Verdict: "healthy", ProbedAt: time.Now()},
+			{TargetKind: "tunnel", TargetNode: int64(target), Verdict: "sick", ProbedAt: time.Now()},
+		},
+	})
+	if err := c.WriteJSON(rep); err != nil {
+		t.Fatalf("write report: %v", err)
+	}
+	deadline = time.Now().Add(3 * time.Second)
+	for (testutil.ToFloat64(healthyChild) < 1 || testutil.ToFloat64(sickChild) < 1) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if testutil.ToFloat64(healthyChild) < 1 || testutil.ToFloat64(sickChild) < 1 {
+		t.Fatalf("verdict counters: healthy=%v sick=%v", testutil.ToFloat64(healthyChild), testutil.ToFloat64(sickChild))
 	}
 }

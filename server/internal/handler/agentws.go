@@ -568,6 +568,9 @@ func (h *Handler) readAgentLoop(conn *websocket.Conn, hc *agenthub.Conn, nodeID 
 				if err := h.saveProbeReports(nodeID, pr.Items); err != nil {
 					log.Printf("save probe reports node=%d: %v", nodeID, err)
 				}
+				for _, it := range pr.Items {
+					probeReportVerdict.WithLabelValues(it.Verdict).Inc()
+				}
 			}
 			reply, _ := agentproto.NewEnvelope(env.ID, agentproto.MsgProbeAck, agentproto.ProbeAck{
 				Recorded: len(pr.Items),

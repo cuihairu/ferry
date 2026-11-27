@@ -210,9 +210,15 @@ func (h *Handler) dispatchProbeTasks(nodeID int64, hc *agenthub.Conn) {
 	if err != nil {
 		return
 	}
-	if _, err := h.hub.Request(nodeID, env, probeTaskAckTimeout); err != nil {
+	reply, err := h.hub.Request(nodeID, env, probeTaskAckTimeout)
+	if err != nil {
 		log.Printf("probe task dispatch node=%d: %v", nodeID, err)
+		recordProbeDispatch(err, false, false)
+		return
 	}
+	var ack agentproto.ProbeTaskAck
+	acked := reply.Decode(&ack) == nil
+	recordProbeDispatch(nil, ack.OK, acked)
 }
 
 // Probe-task names generated from paths carry this prefix; a sync rebuilds
