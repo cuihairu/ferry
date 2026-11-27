@@ -2474,8 +2474,8 @@ External Client
     - 备注（Task ID: F-2029 | Status: Done | Evidence: TestSubscription（sub_test.go:30）+TestSubscriptionAvailability（:128 超配额→无节点订阅/过期→无节点/不限→节点+Subscription-Userinfo）+TestSubscriptionHysteria2/TestSubscriptionSingBoxMixed；权限过滤 sub.UserActive（sub/availability.go:11+TestUserActive）+entry-only/pool-active/status 过滤（sub.go:74）；格式渲染 TestPackClash/TestPackSingBox/TestShareLink | Verification: sub_test.go+sub/availability_test.go | Commit: 9a8663a）
 -   [x] `F-2030` 测试流量上报、去重和补报。
     - 备注（Task ID: F-2030 | Status: Done | Evidence: 上报 TestAgentWSTrafficReport（agentws_test.go:477）+TestReporterCollectsAndReports（traffic_test.go:31）；去重 7 例（TestAgentWSDuplicateTrafficFrame:57+TestAgentWSDedupSurvivesReconnect:104+TestReportDeduperWindow:243+TestReportDeduperTTL:267）；补报 spool 离线缓冲+重试 TestSendFailureRetries（spool_test.go:99）+TestWatchForwardsUntilCancel（:147） | Verification: agentws_dedupe_test.go+traffic_test.go+spool_test.go | Commit: 9a8663a）
--   [ ] `F-2031` 测试 Provider 账号连接和资源同步。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2031 | 未满足：Provider 凭据库有且测（TestProviderAPI）；无「账号连接」与资源同步（provision 仅 tofu CLI，无 provider API 调用）；无资源同步测试。）
+-   [x] `F-2031` 测试 Provider 账号连接和资源同步。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2031 | 已满足，原待补已过时）：「账号连接」= POST /api/providers/{id}/test 连通性测试端点（a80419d），TestProviderTestConnection（handler/providerapi_test.go:297，覆盖 404/本地凭据检查/适配器远端探测 fake 双模式）+ TestProviderCredentialRotation；「资源同步」= cloudsync 包 SyncOne/Finish 资源对账（7ffa727），TestSyncOneReconcile/TestSyncScope/TestSyncFailuresAndLog（cloudsync_test.go，覆盖新增/更新/失效对账、区域 scope、失败落 log）。两包 -count=1 复跑绿（handler + cloudsync ok，全量基线 54 ok）。
 -   [ ] `F-2032` 测试云资源开机操作。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2032 | 区级未满足原因：无 CloudOperation/CloudResource 模型、无电源开/关/重启路径（provision 仅 tofu launch/replenish）——F-2032/F-2033/F-2034 未满足。）
 -   [ ] `F-2033` 测试云资源关机操作。（依赖：F-2032；完成条件：需求落地+测试绿+证据行）
