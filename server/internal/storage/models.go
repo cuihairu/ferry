@@ -10,6 +10,11 @@ type AdminPerm struct {
 	ID     uint   `gorm:"primaryKey" json:"id"`
 	UserID uint   `gorm:"uniqueIndex:idx_adminperm_user_perm;not null" json:"user_id"`
 	Perm   string `gorm:"size:64;uniqueIndex:idx_adminperm_user_perm;not null" json:"perm"`
+	// Scope narrows the grant to one resource (F-1710): "" is global (the
+	// whole surface); otherwise "<kind>:<id>" with kind provider|node — the
+	// perm then applies only to that cloud account or node. One grant row per
+	// perm: a scoped grant replaces the global one.
+	Scope string `gorm:"size:128;not null;default:''" json:"scope"`
 	// Grant context: who granted it and when (the audit trail lives on in
 	// audit_logs via the granting PUT).
 	GrantedAt time.Time `json:"granted_at"`

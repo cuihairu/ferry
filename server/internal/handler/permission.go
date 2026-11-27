@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cuihairu/ferry/server/internal/cloudprov"
@@ -57,6 +59,97 @@ var adminPerms = map[string]string{
 	PermPathManage:    "path operations (paths, drafts, path groups, landings)",
 }
 
+// scopable names the perms a grant may narrow to one resource (F-1710) and
+// the scope kind each accepts: cloud tiers scope by provider (the cloud
+// account), node ops by node. Everything else is global-only.
+var scopable = map[string]string{
+	PermCloudAccount:  "provider",
+	PermCloudPower:    "provider",
+	PermCloudHighRisk: "provider",
+	PermNodeManage:    "node",
+}
+
+// validateScope checks a grant scope (F-1710): empty is global; otherwise the
+// perm must be scopable, the scope must be "<kind>:<id>" in that perm's kind,
+// and the target row must exist — a scope naming nothing would grant forever
+// nothing (or everything, once the row appears).
+func (h *Handler) validateScope(perm, scope string) error {
+	if scope == "" {
+		return nil
+	}
+	kind, ok := scopable[perm]
+	if !ok {
+		return fmt.Errorf("perm %s cannot carry a scope", perm)
+	}
+	if !strings.HasPrefix(scope, kind+":") {
+		return fmt.Errorf("perm %s scopes by %s:<id>, got %s", perm, kind, scope)
+	}
+	id, err := strconv.ParseUint(strings.TrimPrefix(scope, kind+":"), 10, 64)
+	if err != nil || id < 1 {
+		return fmt.Errorf("scope %s: bad id", scope)
+	}
+	switch kind {
+	case "provider":
+		var n int64
+		h.db.Model(&storage.Provider{}).Where("id = ?", id).Count(&n)
+		if n == 0 {
+			return fmt.Errorf("scope %s: provider not found", scope)
+		}
+	case "node":
+		var n int64
+		h.db.Model(&storage.Node{}).Where("id = ?", id).Count(&n)
+		if n == 0 {
+			return fmt.Errorf("scope %s: node not found", scope)
+		}
+	}
+	return nil
+}
+
+// hasPermRow reports whether the admin holds a matching grant: a global row
+// (scope "") passes every check for the perm; a scoped row passes only when
+// its scope equals wantScope. wantScope "" is the resource-blind form — only
+// a global row qualifies.
+func (h *Handler) hasPermRow(c *gin.Context, perm, wantScope string) bool {
+	idStr, _ := c.Get("adminUserID")
+	s, ok := idStr.(string)
+	if !ok || s == "" {
+		return false
+	}
+	uid, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		return false
+	}
+	var rows []storage.AdminPerm
+	h.db.Where("user_id = ? AND perm = ?", uid, perm).Find(&rows)
+	for _, r := range rows {
+		// A global grant passes everywhere; a scoped grant only on its resource.
+		if r.Scope == "" || r.Scope == wantScope {
+			return true
+		}
+	}
+	return false
+}
+
+// requirePermOn gates a resource-addressed route behind a named permission
+// (F-1710): super passes, a global grant passes, and a scoped grant passes
+// only when its scope names exactly this route's resource ("<kind>:<id>"
+// from the :id path param).
+func (h *Handler) requirePermOn(perm, kind string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if role, _ := c.Get("adminRole"); role == RoleSuper {
+			c.Next()
+			return
+		}
+		want := kind + ":" + c.Param("id")
+		if !h.hasPermRow(c, perm, want) {
+			fail(c, http.StatusForbidden, fmt.Errorf("missing permission %s on %s", perm, want))
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
 // opPerm maps each cloud operation type to its gate (F-1704/F-1705); ops
 // outside the map are not permission-gated (unknown ops fail validOp later).
 var opPerm = map[string]string{
@@ -69,8 +162,9 @@ var opPerm = map[string]string{
 
 // opPermCheck is the in-handler gate for POST /api/cloud-operations (the
 // middleware form cannot see the body): super passes unconditionally, every
-// other admin needs the op-type grant.
-func (h *Handler) opPermCheck(c *gin.Context, op string) bool {
+// other admin needs the op-type grant — global, or scoped to the request's
+// cloud account (F-1710).
+func (h *Handler) opPermCheck(c *gin.Context, op string, providerID uint) bool {
 	if role, _ := c.Get("adminRole"); role == RoleSuper {
 		return true
 	}
@@ -78,7 +172,7 @@ func (h *Handler) opPermCheck(c *gin.Context, op string) bool {
 	if !ok {
 		return true
 	}
-	return h.adminHasPerm(c, perm)
+	return h.hasPermRow(c, perm, fmt.Sprintf("provider:%d", providerID))
 }
 
 // requirePerm gates one route behind a named permission: super admins pass
@@ -102,20 +196,10 @@ func (h *Handler) requirePerm(perm string) gin.HandlerFunc {
 }
 
 // adminHasPerm resolves the admin identity from the auth context and checks
-// the grant table; no identity or no row both deny.
+// the grant table for a GLOBAL row: resource-blind routes cannot address a
+// scope, so only scope "" qualifies (F-1710). No identity or no row deny.
 func (h *Handler) adminHasPerm(c *gin.Context, perm string) bool {
-	idStr, _ := c.Get("adminUserID")
-	s, ok := idStr.(string)
-	if !ok || s == "" {
-		return false
-	}
-	uid, err := strconv.ParseUint(s, 10, 64)
-	if err != nil {
-		return false
-	}
-	var n int64
-	h.db.Model(&storage.AdminPerm{}).Where("user_id = ? AND perm = ?", uid, perm).Count(&n)
-	return n > 0
+	return h.hasPermRow(c, perm, "")
 }
 
 // listAdminPerms serves GET /api/admins/:id/perms (super only): the target's
@@ -153,18 +237,41 @@ func (h *Handler) putAdminPerms(c *gin.Context) {
 		fail(c, http.StatusNotFound, fmt.Errorf("admin not found"))
 		return
 	}
+	// F-1710: each entry is either a plain perm name (global) or an object
+	// {perm, scope}; unknown names and invalid scopes reject the whole write
+	// so a typo'd grant can never land half-applied.
 	var in struct {
-		Perms []string `json:"perms"`
+		Perms []json.RawMessage `json:"perms"`
 	}
 	if err := c.ShouldBindJSON(&in); err != nil {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	for _, p := range in.Perms {
-		if _, ok := adminPerms[p]; !ok {
-			fail(c, http.StatusBadRequest, fmt.Errorf("unknown permission %s", p))
+	type grant struct {
+		Perm  string `json:"perm"`
+		Scope string `json:"scope"`
+	}
+	grants := make([]grant, 0, len(in.Perms))
+	for _, raw := range in.Perms {
+		var name string
+		g := grant{}
+		if err := json.Unmarshal(raw, &name); err == nil {
+			g.Perm = name
+		} else {
+			if err := json.Unmarshal(raw, &g); err != nil || g.Perm == "" {
+				fail(c, http.StatusBadRequest, fmt.Errorf("perm entry must be a name or {perm, scope}"))
+				return
+			}
+		}
+		if _, ok := adminPerms[g.Perm]; !ok {
+			fail(c, http.StatusBadRequest, fmt.Errorf("unknown permission %s", g.Perm))
 			return
 		}
+		if err := h.validateScope(g.Perm, g.Scope); err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		grants = append(grants, g)
 	}
 	actor, _ := h.auditActor(c)
 	err = h.db.Transaction(func(tx *gorm.DB) error {
@@ -172,8 +279,8 @@ func (h *Handler) putAdminPerms(c *gin.Context) {
 			return err
 		}
 		now := time.Now()
-		for _, p := range in.Perms {
-			row := storage.AdminPerm{UserID: uint(id), Perm: p, GrantedAt: now, GrantedBy: actor}
+		for _, g := range grants {
+			row := storage.AdminPerm{UserID: uint(id), Perm: g.Perm, Scope: g.Scope, GrantedAt: now, GrantedBy: actor}
 			if err := tx.Create(&row).Error; err != nil {
 				return err
 			}

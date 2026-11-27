@@ -47,7 +47,7 @@ func (h *Handler) createCloudOperation(c *gin.Context) {
 	// (power ops need cloud.power, force-stop/rebuild cloud.highrisk); the
 	// middleware form cannot see the body, so the check rides here. The
 	// high-risk ops' own confirmation flow is unchanged on top of this.
-	if !h.opPermCheck(c, in.Op) {
+	if !h.opPermCheck(c, in.Op, in.ProviderID) {
 		fail(c, http.StatusForbidden, fmt.Errorf("missing permission %s", opPerm[in.Op]))
 		return
 	}

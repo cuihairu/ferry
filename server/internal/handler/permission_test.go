@@ -325,3 +325,116 @@ func TestNodePathPerms(t *testing.T) {
 		t.Fatalf("super node create 403: %d %s", rec.Code, rec.Body)
 	}
 }
+
+// TestScopedPerms covers F-1710: a grant can be narrowed to one cloud account
+// ("provider:<id>") or one node ("node:<id>"). A scoped row passes only the
+// routes addressing that resource; a global row passes everywhere; blind
+// routes (create) need the global row; scope validation rejects non-scopable
+// perms, kind mismatches and targets that do not exist.
+func TestScopedPerms(t *testing.T) {
+	r, db := newTestRouterCfg(t, func(cfg *config.Config) { cfg.SecretKey = "test-master-key" })
+
+	if err := db.Create(&storage.User{ID: 999, Username: "op-scope", SubToken: "st-op-scope",
+		Password: "x", Enabled: true, IsAdmin: true, AdminRole: "operator"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	op := opJWT(t, "op-scope")
+	for _, p := range []storage.Provider{{Name: "prov-a", Type: "vultr"}, {Name: "prov-b", Type: "vultr"}} {
+		if err := db.Create(&p).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, n := range []storage.Node{{Name: "sc-a", Token: "t1"}, {Name: "sc-b", Token: "t2"}} {
+		if err := db.Create(&n).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	opReq := func(pid uint) map[string]any {
+		return map[string]any{"provider_id": pid, "op": "power_on",
+			"specs": []map[string]any{{"resource_id": 1}}}
+	}
+
+	// Scope validation: non-scopable perm, kind mismatch, missing target.
+	if rec := doJSON(t, r, "PUT", "/api/admins/999/perms", map[string]any{
+		"perms": []map[string]string{{"perm": PermCostView, "scope": "provider:1"}}}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("cost view scoped: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doJSON(t, r, "PUT", "/api/admins/999/perms", map[string]any{
+		"perms": []map[string]string{{"perm": PermNodeManage, "scope": "provider:1"}}}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("node perm provider scope: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doJSON(t, r, "PUT", "/api/admins/999/perms", map[string]any{
+		"perms": []map[string]string{{"perm": PermNodeManage, "scope": "node:99999"}}}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("missing node scope: %d %s", rec.Code, rec.Body)
+	}
+
+	// A provider-scoped cloud.power: op on account 1 passes, on account 2 is
+	// 403 (the scoped row does not generalize).
+	if rec := doJSON(t, r, "PUT", "/api/admins/999/perms", map[string]any{
+		"perms": []map[string]string{{"perm": PermCloudPower, "scope": "provider:1"}}}); rec.Code != http.StatusOK {
+		t.Fatalf("scoped grant: %d %s", rec.Code, rec.Body)
+	}
+	var rows []storage.AdminPerm
+	if err := db.Where("user_id = ?", 999).Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Scope != "provider:1" {
+		t.Fatalf("grant rows = %+v", rows)
+	}
+	if rec := doPanel(t, r, op, "POST", "/api/cloud-operations", opReq(1)); rec.Code == http.StatusForbidden {
+		t.Fatalf("scoped op on own account 403: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doPanel(t, r, op, "POST", "/api/cloud-operations", opReq(2)); rec.Code != http.StatusForbidden {
+		t.Fatalf("scoped op on other account: %d %s", rec.Code, rec.Body)
+	}
+
+	// The scoped cloud.account.manage opens account-1 actions only.
+	if rec := doJSON(t, r, "PUT", "/api/admins/999/perms", map[string]any{
+		"perms": []map[string]string{
+			{"perm": PermCloudPower, "scope": "provider:1"},
+			{"perm": PermCloudAccount, "scope": "provider:1"},
+		}}); rec.Code != http.StatusOK {
+		t.Fatalf("scoped account grant: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doPanel(t, r, op, "POST", "/api/providers/1/test", map[string]any{}); rec.Code == http.StatusForbidden {
+		t.Fatalf("scoped test own account 403: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doPanel(t, r, op, "POST", "/api/providers/2/test", map[string]any{}); rec.Code != http.StatusForbidden {
+		t.Fatalf("scoped test other account: %d %s", rec.Code, rec.Body)
+	}
+	// Blind routes need the global row: a scoped-only admin cannot create.
+	if rec := doPanel(t, r, op, "POST", "/api/providers", map[string]any{}); rec.Code != http.StatusForbidden {
+		t.Fatalf("scoped-only create: %d %s", rec.Code, rec.Body)
+	}
+
+	// The global form restores everywhere access.
+	if rec := doJSON(t, r, "PUT", "/api/admins/999/perms", map[string]any{"perms": []string{PermCloudAccount, PermCloudPower}}); rec.Code != http.StatusOK {
+		t.Fatalf("global grant: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doPanel(t, r, op, "POST", "/api/providers/2/test", map[string]any{}); rec.Code == http.StatusForbidden {
+		t.Fatalf("global test other account 403: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doPanel(t, r, op, "POST", "/api/providers", map[string]any{}); rec.Code == http.StatusForbidden {
+		t.Fatalf("global create 403: %d %s", rec.Code, rec.Body)
+	}
+
+	// Node scope: node-1 ops pass, node-2 ops stay 403.
+	if rec := doJSON(t, r, "PUT", "/api/admins/999/perms", map[string]any{
+		"perms": []map[string]string{{"perm": PermNodeManage, "scope": "node:1"}}}); rec.Code != http.StatusOK {
+		t.Fatalf("node scoped grant: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doPanel(t, r, op, "PUT", "/api/nodes/1", map[string]any{}); rec.Code == http.StatusForbidden {
+		t.Fatalf("scoped node op own node 403: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doPanel(t, r, op, "PUT", "/api/nodes/2", map[string]any{}); rec.Code != http.StatusForbidden {
+		t.Fatalf("scoped node op other node: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doPanel(t, r, op, "POST", "/api/nodes", map[string]any{}); rec.Code != http.StatusForbidden {
+		t.Fatalf("scoped-only node create: %d %s", rec.Code, rec.Body)
+	}
+
+	// The super role passes everywhere without any grant.
+	if rec := doJSON(t, r, "PUT", "/api/nodes/2", map[string]any{}); rec.Code == http.StatusForbidden {
+		t.Fatalf("super scoped route 403: %d %s", rec.Code, rec.Body)
+	}
+}

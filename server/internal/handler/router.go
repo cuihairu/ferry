@@ -182,17 +182,17 @@ func NewRouterWithTasks(db *gorm.DB, cfg config.Config, mgr *tasks.Manager) (*gi
 		api.GET("/nodes/:id/status", h.nodeStatus)
 		// Manual health override (F-0932/F-0933): pin the derived health with
 		// a mandatory reason/operator/expiry, or clear it.
-		api.PUT("/nodes/:id/health_override", h.requirePerm(PermNodeManage), h.setHealthOverride)
+		api.PUT("/nodes/:id/health_override", h.requirePermOn(PermNodeManage, "node"), h.setHealthOverride)
 		api.GET("/nodes/:id/health_override", h.getHealthOverride)
-		api.DELETE("/nodes/:id/health_override", h.requirePerm(PermNodeManage), h.deleteHealthOverride)
-		api.PUT("/nodes/:id", h.requirePerm(PermNodeManage), h.updateNode)
-		api.DELETE("/nodes/:id", h.requirePerm(PermNodeManage), h.deleteNode)
+		api.DELETE("/nodes/:id/health_override", h.requirePermOn(PermNodeManage, "node"), h.deleteHealthOverride)
+		api.PUT("/nodes/:id", h.requirePermOn(PermNodeManage, "node"), h.updateNode)
+		api.DELETE("/nodes/:id", h.requirePermOn(PermNodeManage, "node"), h.deleteNode)
 		// Registration approval flow (F-0741): a require-approval enrollment lands
 		// disabled with status "pending"; approve activates it, reject marks it refused.
-		api.POST("/nodes/:id/approve", h.requirePerm(PermNodeManage), h.approveNode)
-		api.POST("/nodes/:id/reject", h.requirePerm(PermNodeManage), h.rejectNode)
-		api.POST("/nodes/:id/token", h.requirePerm(PermNodeManage), h.rotateNodeToken)
-		api.POST("/nodes/:id/token/revoke", h.requirePerm(PermNodeManage), h.revokeNodeToken)
+		api.POST("/nodes/:id/approve", h.requirePermOn(PermNodeManage, "node"), h.approveNode)
+		api.POST("/nodes/:id/reject", h.requirePermOn(PermNodeManage, "node"), h.rejectNode)
+		api.POST("/nodes/:id/token", h.requirePermOn(PermNodeManage, "node"), h.rotateNodeToken)
+		api.POST("/nodes/:id/token/revoke", h.requirePermOn(PermNodeManage, "node"), h.revokeNodeToken)
 		api.GET("/dimension-status", h.listDimensionStatus)
 		api.GET("/transport-status", h.listTransportStatus)
 		api.GET("/probe-reports", h.listProbeReports)
@@ -203,9 +203,9 @@ func NewRouterWithTasks(db *gorm.DB, cfg config.Config, mgr *tasks.Manager) (*gi
 		api.PUT("/landings/:id", h.requirePerm(PermPathManage), h.updateLanding)
 		api.DELETE("/landings/:id", h.requirePerm(PermPathManage), h.releaseLanding)
 		api.GET("/pool", h.listPool)
-		api.POST("/pool/:id/suspend", h.requirePerm(PermNodeManage), h.suspendPoolNode)
-		api.POST("/pool/:id/resume", h.requirePerm(PermNodeManage), h.resumePoolNode)
-		api.POST("/pool/:id/standby", h.requirePerm(PermNodeManage), h.standbyPoolNode)
+		api.POST("/pool/:id/suspend", h.requirePermOn(PermNodeManage, "node"), h.suspendPoolNode)
+		api.POST("/pool/:id/resume", h.requirePermOn(PermNodeManage, "node"), h.resumePoolNode)
+		api.POST("/pool/:id/standby", h.requirePermOn(PermNodeManage, "node"), h.standbyPoolNode)
 		api.GET("/load", h.listLoad)
 		api.GET("/providers", h.listProviders)
 		// F-1703: cloud account management is its own permission — mutations
@@ -214,12 +214,12 @@ func NewRouterWithTasks(db *gorm.DB, cfg config.Config, mgr *tasks.Manager) (*gi
 		api.PUT("/providers/:id", h.requirePerm(PermCloudAccount), h.updateProvider)
 		api.DELETE("/providers/:id", h.requirePerm(PermCloudAccount), h.deleteProvider)
 		// Connection test (F-0328): local credential check + adapter probe.
-		api.POST("/providers/:id/test", h.requirePerm(PermCloudAccount), h.testProviderConnection)
+		api.POST("/providers/:id/test", h.requirePermOn(PermCloudAccount, "provider"), h.testProviderConnection)
 		// Credential rotation (F-0330): grace-window rotation + early revoke.
-		api.POST("/providers/:id/rotate", h.requirePerm(PermCloudAccount), h.rotateProviderCredential)
-		api.POST("/providers/:id/revoke-previous", h.requirePerm(PermCloudAccount), h.revokePreviousCredential)
+		api.POST("/providers/:id/rotate", h.requirePermOn(PermCloudAccount, "provider"), h.rotateProviderCredential)
+		api.POST("/providers/:id/revoke-previous", h.requirePermOn(PermCloudAccount, "provider"), h.revokePreviousCredential)
 		// Cloud resources (F-0341~F-0356): sync, list/detail, binding and history.
-		api.POST("/providers/:id/sync", h.requirePerm(PermCloudAccount), h.syncCloudResources)
+		api.POST("/providers/:id/sync", h.requirePermOn(PermCloudAccount, "provider"), h.syncCloudResources)
 		api.GET("/cloud-resources", h.listCloudResources)
 		api.GET("/cloud-resources/:id", h.getCloudResource)
 		api.POST("/cloud-resources/:id/bind", h.bindCloudResource)
@@ -234,8 +234,8 @@ func NewRouterWithTasks(db *gorm.DB, cfg config.Config, mgr *tasks.Manager) (*gi
 		// shutdown preflight, maintenance drain and post-boot Agent checks.
 		api.POST("/cloud-resources/:id/link", h.linkCloudResource)
 		api.GET("/nodes/:id/cloud-shutdown-check", h.preflightCloudShutdown)
-		api.POST("/nodes/:id/cloud-drain", h.requirePerm(PermNodeManage), h.drainCloudNode)
-		api.POST("/nodes/:id/cloud-boot-check", h.requirePerm(PermNodeManage), h.checkCloudNodeBoot)
+		api.POST("/nodes/:id/cloud-drain", h.requirePermOn(PermNodeManage, "node"), h.drainCloudNode)
+		api.POST("/nodes/:id/cloud-boot-check", h.requirePermOn(PermNodeManage, "node"), h.checkCloudNodeBoot)
 		api.GET("/nodes/:id/cloud-path-health", h.cloudNodePathHealth)
 		api.POST("/provision-templates/:id/apply", h.applyTemplate)
 		api.POST("/provision-templates/:id/plan", h.planTemplate)
@@ -329,13 +329,13 @@ func NewRouterWithTasks(db *gorm.DB, cfg config.Config, mgr *tasks.Manager) (*gi
 		api.GET("/cost/reconciliations", h.requirePerm(PermCostView), h.listReconciliations)
 		api.POST("/cost/reconciliations", h.requirePerm(PermCostManage), h.createReconciliation)
 		api.POST("/cost/reconciliations/:id/confirm", h.requirePerm(PermCostManage), h.confirmReconciliation)
-		api.POST("/nodes/:id/config", h.requirePerm(PermNodeManage), h.pushConfig)
-		api.PUT("/nodes/:id/probe_tasks", h.requirePerm(PermNodeManage), h.setProbeTasks)
+		api.POST("/nodes/:id/config", h.requirePermOn(PermNodeManage, "node"), h.pushConfig)
+		api.PUT("/nodes/:id/probe_tasks", h.requirePermOn(PermNodeManage, "node"), h.setProbeTasks)
 		api.POST("/probe-tasks/sync-from-paths", h.requirePerm(PermNodeManage), h.syncProbeTasksFromPaths)
 		// Per-business quality rollups (F-0949): region+ISP and hour-of-day.
 		api.GET("/quality-report", h.qualityReport)
-		api.POST("/nodes/:id/proc", h.requirePerm(PermNodeManage), h.nodeProcOp)
-		api.POST("/nodes/:id/upgrade", h.requirePerm(PermNodeManage), h.nodeUpgrade)
+		api.POST("/nodes/:id/proc", h.requirePermOn(PermNodeManage, "node"), h.nodeProcOp)
+		api.POST("/nodes/:id/upgrade", h.requirePermOn(PermNodeManage, "node"), h.nodeUpgrade)
 		api.GET("/nodes/:id/upgrades", h.listNodeUpgrades)
 		api.POST("/nodes/batch/proc", h.requirePerm(PermNodeManage), h.batchNodeProc)
 		api.POST("/nodes/batch/config", h.requirePerm(PermNodeManage), h.batchNodeConfig)
@@ -358,7 +358,7 @@ func NewRouterWithTasks(db *gorm.DB, cfg config.Config, mgr *tasks.Manager) (*gi
 		api.GET("/nodes/:id/share", h.nodeShare)
 		api.GET("/nodes/:id/logs", h.nodeProcLogs)
 		api.GET("/nodes/:id/procs", h.nodeProcs)
-		api.POST("/nodes/:id/rulelib", h.requirePerm(PermNodeManage), h.pushRuleLib)
+		api.POST("/nodes/:id/rulelib", h.requirePermOn(PermNodeManage, "node"), h.pushRuleLib)
 		api.GET("/nodes/:id/rulelib", h.listRuleLib)
 		// Multi-level admin / sub-admin quotas (P2-2): the admin management
 		// surface is super-only; operator (sub-admin) is bounded by the max_users
