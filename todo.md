@@ -2294,8 +2294,8 @@ External Client
 -   [x] `F-1808` 采集配置下发成功率。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1808 | Status: Done | Evidence: relaypush/metrics.go 定义 ferry_config_push_total{result=applied|invalid|bad_ack|offline|timeout|error|db_error}（事件时计数，成功率=applied/total 查询侧导出）；两条下发漏斗都上报——relaypush.Push（手动/批量 config、自动 repoint 共用，含 rulelib 之外的 kind）与 handler 的 rule-lib 推送（routing.go pushRuleLib 同一计数器；此前 ack 内容被丢弃，现拆 OK=false→invalid、解码失败→bad_ack、ErrOffline/ErrTimeout/其它→offline/timeout/error、建行失败→db_error）。测试扩至 TestConfigPushTamperTrail：三连推（applied×1、invalid+reverted×2）与离线推各驱动对应计数 delta 精确断言（applied 1 / invalid 2 / offline 1）。 | Verification: go build/vet 绿，go test ./... -count=1 53 ok FAIL=0（exit=0）；handler+relaypush 包独立全跑 ok。 | Commit: 57e9e53）
     - 待补（F-1808 | 部分：NodeConfig 行持久 pending/applied/failed（models.go:237）；无成功率聚合指标。）
--   [ ] `F-1809` 采集流量记账延迟。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1809 | 未满足：NodeTrafficLog 有 recorded_at（models.go:271）；无记账延迟指标。）
+-   [x] `F-1809` 采集流量记账延迟。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1809 | Status: Done | Evidence: `ferry_traffic_record_lag_seconds{kind}` 直方图（kind=node/user，buckets 0.5s-300s），观察点在记账落库处——saveNodeTraffic 每样本一次（agentws.go）、saveUserTraffic 仅在样本确实入账（角色判定通过+邮箱命中）时观察，被丢弃的样本不产生记账故不观察；观测值=落库时刻-样本 At，负值（agent 时钟超前=时钟偏斜而非延迟）钳到 0 并注释说明 | Verification: go build/vet 全绿，go test ./... 53 ok FAIL=0（exit=0），TestTrafficLagMetrics 以 30s 旧样本断 node sum≈30、未来 10s 样本钳 0、无用户样本不记 user 腿（直方图经 exposition _count/_sum 断言，ToFloat64 不适用） | Commit: 27610d0）
 -   [ ] `F-1810` 采集调度耗时。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1810 | 未满足：alloc 调度器无耗时指标。）
 -   [ ] `F-1811` 采集 Provider API 请求成功率和延迟。（依赖：无；完成条件：需求落地+测试绿+证据行）
