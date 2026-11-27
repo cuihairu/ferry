@@ -2517,8 +2517,9 @@ External Client
     - 备注（F-2050 | Commit 440c277 | relay-path-test.sh 故障腿）：两类故障真 e2e——①落地 TLS 服务杀掉→探测转 sick（F-0925 提速生效）→Path health=degraded；②landing agent 杀掉→WS 断开即置 offline（agentws.go:197）→agents_online 3→2→Path=degraded；进程故障（stub 内核崩溃自重启）由 e2e-smoke 原腿照旧。
 -   [x] `F-2051` 验证节点恢复后重新加入调度。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（F-2051 | Commit 440c277 | relay-path-test.sh 恢复腿）：两类恢复真 e2e——①TLS 服务重启→探测回 healthy→Path=healthy（探测调度重新纳用）；②landing agent 重连→agents_online=3→Path=healthy（节点重新可入调度）；此前 agent 掉线重连/轮换窗再上线由 e2e-smoke 原腿照旧。
--   [ ] `F-2052` 验证流量记账准确性。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2052 | 未满足：流量记账准确仅单测（TestSaveStatsAPI+traffic tests）；e2e 不测流量量级。）
+-   [x] `F-2052` 验证流量记账准确性。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2052 | Commit 3da60f7 | deploy/traffic-account-test.sh 11 断言 exit=0 2026-11-27，test.yml deploy-scripts 接线）：真协议层 e2e 无 mock——临时模块客户端引入真 packages/agentproto + gorilla/websocket，握手（hello 带 entry meta→hello_ack）后上报三帧流量（t-1 rx1000/tx2000+user acc-user 同值→原样重发同 id t-1（服务端先去重后记账）→t-2 +500/+700），断言 /api/traffic-recon 台账逐字节 user_billed=4200（重复帧不双算）、node_metered=4200、双台账 delta=0 status=ok；F-1242 单端计量由设计保真验证：客户端 hello 不带 meta 时节点归 landing、user 台账正确拒记（首轮运行实测暴露该行为后按真实 agent 语义补 meta）。
+
 -   [x] `F-2053` 验证 Server 重启后的状态恢复。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（F-2053 | 原待补「server 杀/重启→agent 重连未覆盖」已过时）：reconnect-test.sh（9c0ab8c，test.yml:104 CI 接线）钉真 server+真 agent 全链——在线→SIGTERM server（健康不可达故障窗成立断言）→同二进制同数据目录重启→节点侧零操作 agent 按退避（1s→30s）回池 agents_online==1；恢复态管理面由 e2e-smoke 备份恢复腿覆盖（恢复实例健康+原管理员+节点数据在）；数据面在故障窗内存活由 dataplane-test.sh 覆盖。
 -   [x] `F-2054` 在测试 Provider 账号或 Mock Provider
@@ -2745,7 +2746,7 @@ External Client
 -   [ ] `F-9806` 完成账单导入和成本核算规模测试。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9806 | 未满足：无账单导入（BillImport 0 命中）即无账单导入/成本核算规模测试（F-0521 区）。）
 -   [ ] `F-9807` 完成完整端到端测试。（依赖：F-2042~F-2055；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9807 | 部分（2026-11-27 更新）：e2e-smoke.sh 70 断言真起双二进制全不 mock，覆盖 认证→注册/重放拒→WS 上线→进程监管→proc_ctl（含 stop confirm 负断言）→断线回落→轮换吊销→配置下发回执→Entry 角色节点部署→订阅三态 UA 生成与解析→未知令牌 404→备份恢复→compose 校验；另有 reconnect/dataplane/upgrade/compose/systemd/install-rollback 六专项 smoke 进 CI（relay-path-test 440c277 新增）。仍缺：流量记账 e2e、UDP 转发 e2e（F-0812）、规模/压测族（F-2061~2076）、Dash/Panel 前端（F-2049/2052 及 F-2061~2076 未关）。）
+    - 待补（F-9807 | 部分（2026-11-27 更新）：e2e-smoke.sh 70 断言真起双二进制全不 mock，覆盖 认证→注册/重放拒→WS 上线→进程监管→proc_ctl（含 stop confirm 负断言）→断线回落→轮换吊销→配置下发回执→Entry 角色节点部署→订阅三态 UA 生成与解析→未知令牌 404→备份恢复→compose 校验；另有 reconnect/dataplane/upgrade/compose/systemd/install-rollback 六专项 smoke 进 CI（relay-path-test 440c277 新增）。仍缺：UDP 转发 e2e（F-0812）、规模/压测族（F-2061~2076）、Dash/Panel 前端（F-2049 及 F-2061~2076 未关）；流量记账 e2e 已由 traffic-account-test.sh（3da60f7）补齐。）
 
 ## P9 --- 后续扩展
 
