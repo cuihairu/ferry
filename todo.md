@@ -2423,8 +2423,8 @@ External Client
 
 -   [x] `F-2001` 为 Node 状态机建立单元测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（F-2001 | Commit 5ff3808 | 测试 54 ok 全绿 2026-11-27）：Node 状态机=四个独立标志位（无独立抽象是设计形态，状态即行字段+显式转移），四面包 Unit 覆盖齐——①Enabled/maintenance/Status/PoolState 四态互不牵连 TestNodeStateSeparation（node_state_test.go，F-0206）；②online→offline 断连转移 TestAgentWSHeartbeat（agentws_test.go:97,101）；③本次补的正是缺的 offline→online 重连转移 TestAgentWSNodeReconnect（同 token 重 hello 回 online，断言 offline 非终态， WS 实拨两轮）；④pool 态转移 TestApplyVerdictTransitions（monitor_test.go，verdict 驱动 healthy/degraded/unhealthy/offline）。
--   [ ] `F-2002` 为 Capability 过滤建立单元测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2002 | 未满足：type Capability 全仓 0 命中，能力仅由 role/labels/LineType 隐式承载（models.go:95-102），alloc 按 role/direction/health 过滤——无能力模型即无过滤测试。）
+-   [x] `F-2002` 为 Capability 过滤建立单元测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2002 | 历史落地 d3220ab（节点能力模型+调度门 storage.Capability gate F-0222/F-0228）+ c7de0ec（capability/region/isp/asn/line_type 五维过滤 F-1007）| 测试 54 ok 全绿 2026-11-27）：原待补「type Capability 0 命中」过期——能力模型已落地（agentproto 权威定义+storage 重导出，StaticCaps 面板存量优先否则角色派生、DynamicState 运行态 ok/degraded/off、HasCapability 门）。过滤单测两层齐——模型层 storage/capability_test.go 五例（TestStaticCapsAndGate 含静态门/动态降级判定、TestMergeDynamic 合并上报、TestParseCapsJSON 非法输入、TestJSONStateAndDynamicParse、TestDeriveCapsFromMeta 角色派生）；API 层 nodefilter_test.go F-1007 断言（capability=relay_entry 排除 landing-only 节点、relay_landing 计数、未知能力名=400 非静默空表）。消费方也有门（alloc/decision.go:189,283 relay_entry/relay_landing 门+failover.go:211+pathpreview）。无代码缺口，按当前树关行。
 -   [ ] `F-2003` 为 Path 状态机建立单元测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2003 | 未满足：type Path 0 命中；仅 LandingAssignment（models.go:165）+alloc sweep（alloc.go:497）等价物；无 Path 状态机。）
 -   [ ] `F-2004` 为 Path Group 建立单元测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
