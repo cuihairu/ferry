@@ -124,6 +124,8 @@
   - 状态=阻塞｜原因：二进制/证书/防火墙均为外部提供项，仓内无法联调｜触发条件：用户提供测试二进制+证书+防火墙环境
 - [x] TestProvisionRunAPI 偶发观察：已复现、已定位、已修复（2026-10-20 PATROL1020）
   - 状态=完成｜复现=2026-10-19 晚 sweep `-race -cpu=1,2,4 -count=100`（300 连跑）逮出 1 次：t.TempDir RemoveAll 清理 `unlinkat .../002/tpl-1: directory not empty`｜根因=测试只轮询首个 apply 的 job 终态即返回，re-apply 与 final plan 的后台 job goroutine 仍在写 TofuWorkdir/tpl-<id>，与 TempDir 清理竞态｜修复=测试收尾补等全部 provision_jobs 离开 running（job 落终态即后台 Execute 写盘全部结束）再返回｜验证=修复后同款 sweep 300 连跑全绿 exit 0（312s）
+- [x] 全仓 -race 扫描（2026-11-27）：四处竞态/脆弱点已复现、已定位、已修复
+  - 状态=完成｜背景=CI/nightly 三 workflow 均不含 -race（.github/workflows grep 无 race 踪迹），该门禁此前只靠零星本地扫描｜发现与修复=①server cmd/ferry 启动序竞态：`go monitor.Run` 先于 `NewRouterWithTasks` 启动，sweep 即时查询与 instrumentDB 注册 gorm callback（compile/sortCallbacks 写共享 processor 态）并发——DATA RACE×5 + cmd/ferry FAIL，修=router 构造提到首个后台 goroutine 之前（741bc28）；②handler TestProbeTaskMetrics 响应协程与主测试体并发对同一 ws 连接 WriteJSON（gorilla 单写者约束）——修=send 互斥串行（3566701）；③agent relay/quictunnel 八个测试以裸 `bytes.Buffer` 作 log sink、后台 run/Serve goroutine 写与测试读并发——DATA RACE×48，修=syncBuffer 互斥 sink 十站点（39e9fc6）；④TestAgentWSBatchTrim 隔离 -race 亦超时：1000 条批量 ack 服务端处理被 race 放大超 5s 读截止——修=readEnvWithin(30s)（6b50317）｜验证=修复后 server+agent 全量 `go test -race` 绿、payments/packages/agentproto/costref/payment 零 race｜留档=若 CI 接 -race 门禁，handler 单包约 24 分钟是主要时长代价；暂以本地扫描+本行留档为口径
 - [ ] [BLOCKED] 上游等待：VitePress 2 stable 尚未发布；npm latest 仍为 1.6.4（2026-10-19 复核 dist-tags.latest=1.6.4；2026-11-21 复核仍 1.6.4、next=2.0.0-alpha.21，stable 未发），待 stable 发布后验证再撤 override
   - 状态=阻塞｜原因：vitepress 2 stable 未发布，pnpm override 不可撤｜触发条件：vitepress 2 stable 发布且构建验证通过
 - [x] FERRY-001 节点注册认证闭环（外部评审 2026-10-18）：一次性短时注册凭据（enrollment token）打通安装脚本首装
