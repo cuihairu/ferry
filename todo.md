@@ -2391,8 +2391,8 @@ External Client
     - 备注（Task ID: F-1930 | Status: Done | Evidence: deploy/e2e-smoke.sh 实跑 53 ok EXIT=0 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1931` 验证 Server 重启后 Agent 能重新连接。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（F-1931 | Commit 9c0ab8c | 测试 deploy/reconnect-test.sh 7 断言 EXIT=0 本地实跑）：runbook 步骤四「节点侧零操作」口径落成真回归——真 ferry-server + 真 ferry-agent 全链路：首启登录→签发凭据→注册节点→agent 拨真 WS 上线（agents_online=1）→SIGTERM 杀 server（断言健康不可达 http=000，故障窗口成立，防端口被顶替假绿）→同一数据目录重启 server→poll agents_online 回 1（agent 指数退避 1s→30s 自愈，节点侧零操作，60×0.5s 窗口）。CI deploy-scripts job 加 server restart agent reconnect test 步。随机端口 18500-18699 防遗留进程顶替；agent.json 必须带 meta.bw_up/bw_down_mbps（load config 硬校验，首跑踩坑已修）。原待补的「单元只测重连循环、无杀真 server 断言」由本脚本补齐。
--   [ ] `F-1932` 验证 Server 不可用时数据面继续运行。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1932 | 部分：故障语义有文档（面板可用性设计.md:5-18：agent 本地自治/隧道/用户流量继续，管理面断）+离线缓冲测试 TestSendFailureRetries（spool_test.go:99）+TestWatchForwardsUntilCancel（:147）；无「数据面在 server 宕机时继续转发」专门断言。）
+-   [x] `F-1932` 验证 Server 不可用时数据面继续运行。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-1932 | Commit 1b9e696 | 测试 deploy/dataplane-test.sh 9 断言 EXIT=0 本地实跑）：设计语义（agent 本地自治、管理面断数据面不停）落成端到端断言——真 server+真 agent+会自崩 stub 内核（4 秒自退，reload: restart，每次退出都是一次必须由 agent 本地监护处理的 crash）：上线（kernel-runs=1）→SIGTERM 杀 server 进故障窗口→窗口内 18 秒 kernel-runs 1→4（3 次本地重启，全部发生在面板完全不可达时；procs.Manager 监护循环纯本地无面板依赖，backoff 1s 起）→agent 进程存活（kill -0）→同数据目录重启 server→重连 agents_online=1 且 proc 仍在跑（kernel-runs 续增）。CI deploy-scripts job 加 data plane outage test 步；随机端口 18700-18899 防顶替。原待补的离线缓冲（spool 单测）保持不动，本行补的正是「宕机时数据面继续」缺的端到端那半。
 
 ## 17.3 多区域
 
