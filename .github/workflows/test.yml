@@ -113,6 +113,8 @@ jobs:
         run: bash deploy/scale-test.sh
       - name: db outage smoke
         run: bash deploy/db-outage-test.sh
+      - name: probe replay smoke
+        run: bash deploy/probe-replay-test.sh
 
   gofmt:
     name: gofmt gate
