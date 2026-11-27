@@ -2364,8 +2364,8 @@ External Client
     - 备注（Task ID: F-1908 | Status: Done | Evidence: SQLite 并发写检查：WAL+busy_timeout(5000)+外键 storage.go:141 §3.15 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1909` 检查 PostgreSQL Migration 兼容性。
     - 备注（Task ID: F-1909 | Status: Done | Evidence: PG Migration 兼容：make test-pg 实跑 ok 4.966s §1+§3.15 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1910` 建立历史数据归档和清理策略。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1910 | 未满足：仅 audit.Prune/Loop 轮转（audit.go:20,30+TestPruneRemovesOnlyOutOfWindow audit_test.go:34）；probe_reports/traffic_logs/node_traffic_logs 无任何保留/清理代码（TrafficLog 明示不删不改 models.go:129-131；ProbeReport models.go:199 无）。）
+-   [x] `F-1910` 建立历史数据归档和清理策略。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1910 | Status: Done | Evidence: 新增 internal/retention 包（F-1910）：PruneProbeReports（probed_at 索引窗口，默认 30 天）/PruneNodeTrafficLogs（recorded_at，默认 62 天=当月+余量）+Sweep/Loop（小时 tick 沿 audit 先例，days<=0 永久保留不启动）；配置 FERRY_PROBE_RETENTION_DAYS / FERRY_NODE_TRAFFIC_RETENTION_DAYS（config.go）；main.go 在 audit.Loop 旁接线；用户 traffic_logs 明确不入清扫（记账台账不删不改，包注释与测试双重固化）；audit_log 保持自有 AU-3 清扫 | Verification: go build/vet 全绿，go test ./... 54 ok FAIL=0（exit=0，新包首次计入），TestSweepPrunes 断窗口外删/窗口内留/用户台账永不删/零值永久保留，TestLoopSweepsAndStops 断短 tick 清扫+ctx 取消退出 | Commit: fcc5eaf）
 
 ## 17.2 部署和恢复
 
