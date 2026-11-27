@@ -2383,8 +2383,8 @@ External Client
     - 备注（F-1926 | Commit 6bd6f89 | 测试 54 ok 全绿）：backup.run 每轮先做配置拷贝再 VACUUM 快照——FERRY_BACKUP_CONFIG（csv 逗号分隔，空=关闭零改动）列出的部署期配置文件（如 ferry.env）逐个拷入备份目录，命名 ferry-config-<时间戳>-<basename>，0600；配了主钥则走 store.EncryptBytesStream 流式加密成 .enc（与 DB 档同纪律，主钥本身永不落备份目录——因此密钥备份保持手动离机策略，restore.sh --key 恢复流程不变，自动化存钥在档旁等于架空主钥排除设计，已在包注释与证据行说明）；无主钥则明文 0600 拷贝并打 UNENCRYPTED 警示日志；列表中不存在的文件跳过并告警（站点自行决定改名/外挂）；读写/加密失败整轮失败→herald backup_failed（按日去重）照常触发。config.go 新增 BackupConfigFiles，main.go 注入 backup.Options.ConfigFiles。测试 configfiles_test.go：空表零写入、明文拷贝内容+0600 权限、空项/空白项跳过、缺文件跳过整轮成功、加密档不含明文且 DecryptBytes 回读一致、不可写目标整轮失败。
 -   [x] `F-1927` 建立备份恢复测试。
     - 备注（Task ID: F-1927 | Status: Done | Evidence: deploy/restore.sh+e2e 备份恢复腿（53 断言内） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1928` 建立 Server 升级测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1928 | 未满足：无 Server 升级测试——CI deploy 脚本 job（test.yml:94-99）仅 install-rollback-test.sh/start-args-test.sh/e2e-smoke.sh；Server 升级仅文档「拉新镜像重建」+启动 AutoMigrate（storage.go:60-67），无版本升级断言。）
+-   [x] `F-1928` 建立 Server 升级测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-1928 | Commit 4911dfb | 测试 deploy/upgrade-test.sh 12 断言 EXIT=0 本地实跑）：CI deploy-scripts job 新增 server upgrade test 步；脚本真走文档升级路径——阶段一用当前二进制初始化部署（管理员首启+API 注册节点 upgrade-node）→停机；用 python3/sqlite3 把库面回拨成旧版口径（DROP node_traffic_logs/probe_reports/node_upgrades/cost_records/bill_imports/events/backups 7 张近期表 + ALTER TABLE nodes DROP COLUMN monthly_traffic_quota_bytes）模拟老部署待升级状态；阶段二同一数据目录重启二进制（升级动作本身）：健康可达、admin 账号仍在、节点数据仍在、AutoMigrate 把 7 表+1 列补回（additive 迁移断言）；阶段三迁完库面再重启一次验证幂等复跑无损。防冒充：每轮随机端口（18100-18299），防上次中断遗留进程顶替健康应答造成假绿；stop_server 容忍已死进程。诚实口径：二进制替换机制（镜像拉取/compose 重建）属部署工具面（compose-smoke/systemd-smoke 已覆盖），本脚本专管 schema+数据升级断言（原待补正缺的那半）。
 -   [ ] `F-1929` 建立 Server 回滚方案。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1929 | 部分：回滚有文档+agent 原子 .prev 回滚（MIGRATION-RUNBOOK.md:127-132+install-rollback-test.sh:164-178+systemd-smoke.sh:112-120）；无 Server 二进制回滚路径（compose 重建仅前进，AutoMigrate 无 down-migration）。）
 -   [x] `F-1930` 建立完整部署冒烟测试。
