@@ -2421,8 +2421,8 @@ External Client
 
 ## 18.1 单元测试
 
--   [ ] `F-2001` 为 Node 状态机建立单元测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2001 | 部分：Node 状态转换经 TestAgentWSHeartbeat（agentws_test.go:53 online→offline :97,101）+维度状态机 TestApplyVerdictTransitions（monitor_test.go:59）+pool 态（standby_test+recovery）；无独立状态机抽象单测。）
+-   [x] `F-2001` 为 Node 状态机建立单元测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2001 | Commit 5ff3808 | 测试 54 ok 全绿 2026-11-27）：Node 状态机=四个独立标志位（无独立抽象是设计形态，状态即行字段+显式转移），四面包 Unit 覆盖齐——①Enabled/maintenance/Status/PoolState 四态互不牵连 TestNodeStateSeparation（node_state_test.go，F-0206）；②online→offline 断连转移 TestAgentWSHeartbeat（agentws_test.go:97,101）；③本次补的正是缺的 offline→online 重连转移 TestAgentWSNodeReconnect（同 token 重 hello 回 online，断言 offline 非终态， WS 实拨两轮）；④pool 态转移 TestApplyVerdictTransitions（monitor_test.go，verdict 驱动 healthy/degraded/unhealthy/offline）。
 -   [ ] `F-2002` 为 Capability 过滤建立单元测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2002 | 未满足：type Capability 全仓 0 命中，能力仅由 role/labels/LineType 隐式承载（models.go:95-102），alloc 按 role/direction/health 过滤——无能力模型即无过滤测试。）
 -   [ ] `F-2003` 为 Path 状态机建立单元测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
