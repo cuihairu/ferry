@@ -99,6 +99,8 @@ jobs:
         run: bash deploy/e2e-smoke.sh
       - name: server upgrade test
         run: bash deploy/upgrade-test.sh
+      - name: server rollback test
+        run: bash deploy/rollback-test.sh
 
   gofmt:
     name: gofmt gate

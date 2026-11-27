@@ -232,6 +232,43 @@ AES-GCM 能力）→导入（SQLite 留底+原子覆盖 / `--pg-dsn` 走 pg_rest
 换机迁移五步操作化（DNS 切换、agent 自动重连核对、回滚）见
 [MIGRATION-RUNBOOK.md](MIGRATION-RUNBOOK.md)。
 
+## Server 升级与回滚（F-1928/F-1929）
+
+升级 = **先备份，再换程序，数据目录永远不动**：
+
+```sh
+# 升级前手动留一档（硬兜底，见上一节 restore.sh）：
+curl -H "Authorization: Bearer $ADMIN_JWT" -o ferry-backup-pre-upgrade.db \
+  http://127.0.0.1:8080/admin/backup/db
+
+# compose 面：换到新代码/镜像后重建（数据卷不动）
+git pull && docker compose --env-file deploy/ferry.env -f deploy/docker-compose.yml up -d --build
+
+# 二进制/systemd 面：旧二进制先留底，再原子替换
+cp -a /usr/local/bin/ferry-server /usr/local/bin/ferry-server.prev
+install -m 0755 ferry-server.new /usr/local/bin/ferry-server.new   # 同目录落新档
+mv /usr/local/bin/ferry-server.new /usr/local/bin/ferry-server     # 同目录 rename 原子替换
+systemctl restart ferry
+```
+
+**回滚 = 把程序换回去，数据目录仍然不动**：
+
+- compose 面：`git checkout <前一 commit>`（或前一镜像 tag）后重复上面的
+  `up -d --build`；
+- 二进制面：`mv /usr/local/bin/ferry-server.prev /usr/local/bin/ferry-server &&
+  systemctl restart ferry`（同目录 rename 原子，与 agent 的 .prev 回滚同纪律）；
+- PG 面同口径（AutoMigrate 同样只加不减），PG 另有自己的备份设施。
+
+数据目录不动之所以安全：启动 AutoMigrate **只加不减**（新表/新列，无破坏性
+变更），老二进制经 GORM 只映射自身字段，对多出来的列/表无感知、也不碰它们——
+这条性质有回归测试：
+
+```sh
+bash deploy/rollback-test.sh    # 老二进制对新库面：读/写路径无损，未知表/列原样保留
+```
+
+升级后起不来或数据异常才是 restore.sh 的场景：用升级前备份档按上一节六步恢复。
+
 ## 面板主从同步（P2-1）
 
 单面板零配置零变化。需要第二台 VPS 做热备时：
