@@ -52,6 +52,7 @@ const (
 	KindAgentOffline    = "agent_offline"      // agent websocket dropped (F-1821)
 	KindRelayOffline    = "relay_offline"      // relay fleet member's agent dropped (F-1822)
 	KindPathDown        = "path_down"          // a Path's landing failing (F-1823)
+	KindPathDegraded    = "path_degraded"      // a Path degraded without landing failure (F-1824)
 
 	// User outreach (HERALD-4, §2.2; in-app messages still go out, this channel serves out-of-app delivery).
 	KindExpire = "expire" // account expiry reminder

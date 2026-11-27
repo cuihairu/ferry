@@ -9,6 +9,7 @@ import (
 	"github.com/cuihairu/ferry/packages/agentproto"
 	"github.com/cuihairu/ferry/server/internal/billing"
 	"github.com/cuihairu/ferry/server/internal/herald"
+	"github.com/cuihairu/ferry/server/internal/pathhealth"
 	// Aliased: the local alloc-policy identifier shadows the package name.
 	policyconstraints "github.com/cuihairu/ferry/server/internal/policy"
 	"github.com/cuihairu/ferry/server/internal/storage"
@@ -93,6 +94,51 @@ func AlertSickPaths(db *gorm.DB) {
 			Meta:     map[string]any{"path_id": p.ID, "landing_node_id": p.LandingNodeID},
 		}); err != nil {
 			log.Printf("herald emit path_down: path=%d %v", p.ID, err)
+		}
+	}
+}
+
+// AlertDegradedPaths (F-1824) lands one path_degraded warning per enabled
+// path whose health degraded WITHOUT the landing failing: an offline or
+// pool-suspended entry/relay endpoint while the landing still answers probes.
+// Landing-side failures alert as path_down (F-1823) -- a path degraded by
+// both causes alerts once, under the more severe fact. Emissions are best
+// effort and never fail the sweep.
+func AlertDegradedPaths(db *gorm.DB) {
+	var paths []storage.Path
+	if err := db.Where("enabled = ?", true).Find(&paths).Error; err != nil {
+		return
+	}
+	if len(paths) == 0 {
+		return
+	}
+	states := pathhealth.Evaluate(db, paths, time.Now())
+	var landings []storage.Node
+	if err := db.Where("enabled = ? AND maintenance = ? AND role IN (?, ?) AND status != ?",
+		true, false, "landing", "both", "provisioning").Find(&landings).Error; err != nil {
+		return
+	}
+	pool := map[uint]bool{}
+	for _, l := range landings {
+		pool[l.ID] = true
+	}
+	sick := LatestSick(db)
+	for _, p := range paths {
+		if states[p.ID] != pathhealth.Degraded {
+			continue
+		}
+		if !pool[p.LandingNodeID] || sick[p.LandingNodeID] {
+			continue // landing-side failure: path_down's territory
+		}
+		if _, err := herald.Emit(db, herald.EmitInput{
+			Kind: herald.KindPathDegraded, Severity: herald.SeverityWarning,
+			Title:    fmt.Sprintf("路径 %s 质量下降", p.Name),
+			Body:     "入口或中继端点离线/被池暂停，落地探测仍正常",
+			Target:   herald.TargetAdmin,
+			DedupKey: fmt.Sprintf("path:%d:path_degraded", p.ID),
+			Meta:     map[string]any{"path_id": p.ID, "entry_node_id": p.EntryNodeID},
+		}); err != nil {
+			log.Printf("herald emit path_degraded: path=%d %v", p.ID, err)
 		}
 	}
 }

@@ -796,6 +796,9 @@ func sweepOnce(db *gorm.DB, logger *log.Logger, hooks []func([]SwitchEvent)) err
 	// Path unavailability alerts (F-1823): ahead of the rebind pass and its
 	// freeze check -- with failover frozen the alert is the only signal.
 	AlertSickPaths(db)
+	// Endpoint-side quality degradation (F-1824): the other half of the
+	// degraded state, same outbox model.
+	AlertDegradedPaths(db)
 
 	// Path failover rebinds (F-1031): same round as the allocation sweep, so
 	// a failing landing is re-pointed within one interval. The rebinds join
