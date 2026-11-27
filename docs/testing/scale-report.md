@@ -67,6 +67,20 @@
 - 成本核算规模：SpendByScope(provider) 聚合 5000 条记录，金额逐分复现
   2647500 cents（与导入逐分求和一致）。
 
+## 云资源同步规模（F-2068）
+
+`server/internal/cloudsync/cloudsync_scale_test.go`（TestCloudSyncScale，2026-11-27）：
+
+- 3000 个供应商资源走真实 SyncOne/SyncAndLog 对账路径（fake Adapter 经
+  SyncConfig 注入，数据库为真实 sqlite）：首轮 inserted=3000（含两条供应商分页
+  重叠 id，去重后无重复行）527.8ms；原样重拉 updated=3000/added=0 399.4ms；
+  半数资源消失+其余状态漂移时 missing=1500/updated=1500 371.6ms，绑定节点
+  的行仍在、消失资源只打 missing 标记不删历史；三跑各留一条 CloudSyncLog；
+- 多账号并发：20 个 provider × 100 资源 = 2000 行，经 cloudprov.Register
+  工厂路径并发 SyncAndLog，415.9ms 全部 added=100，逐账号行数精确；
+- `go test -race ./internal/cloudsync -run TestCloudSyncScale` 通过；全 server
+  包 `go test ./...` 通过。
+
 ## 结论
 
 控制面在 50 节点规模下心跳/探测/流量/订阅/配置下发全链路无 5xx、
