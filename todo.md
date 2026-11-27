@@ -2427,8 +2427,8 @@ External Client
     - 备注（F-2002 | 历史落地 d3220ab（节点能力模型+调度门 storage.Capability gate F-0222/F-0228）+ c7de0ec（capability/region/isp/asn/line_type 五维过滤 F-1007）| 测试 54 ok 全绿 2026-11-27）：原待补「type Capability 0 命中」过期——能力模型已落地（agentproto 权威定义+storage 重导出，StaticCaps 面板存量优先否则角色派生、DynamicState 运行态 ok/degraded/off、HasCapability 门）。过滤单测两层齐——模型层 storage/capability_test.go 五例（TestStaticCapsAndGate 含静态门/动态降级判定、TestMergeDynamic 合并上报、TestParseCapsJSON 非法输入、TestJSONStateAndDynamicParse、TestDeriveCapsFromMeta 角色派生）；API 层 nodefilter_test.go F-1007 断言（capability=relay_entry 排除 landing-only 节点、relay_landing 计数、未知能力名=400 非静默空表）。消费方也有门（alloc/decision.go:189,283 relay_entry/relay_landing 门+failover.go:211+pathpreview）。无代码缺口，按当前树关行。
 -   [x] `F-2003` 为 Path 状态机建立单元测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（F-2003 | 历史落地 2455a6c（Path CRUD+版本）+ 7c2ff1b（PendingPath 草稿状态机 pending/confirmed/rejected）+ f7f9aa8/a6de078（LandingAssignment 运行态转移）| 测试 54 ok 全绿 2026-11-27）：原待补「type Path 0 命中」过期。Path 侧三段状态机单测齐——①草稿态机 TestPathDraftLifecycle（pathdraft_test.go:21）：pending 创建（审计字段）→自环拓扑 400→state 过滤列表→confirm 物化 Path+path_id 回填→重复 confirm 409 终态一次性（不多建 Path）→reject 终态且 confirm 不能复活；②Path 行态 TestPathCRUD（paths_test.go）：默认值/版本号 update 自增/enabled 过滤/删除置 disabled（paths.go:172）；③运行态转移 alloc sweep 套件（TestSweepDirectFirst/RelayProvenBetter/DirectFallback/ManualWins+换线释放留痕）。无代码缺口，按当前树关行。
--   [ ] `F-2004` 为 Path Group 建立单元测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2004 | 未满足：type PathGroup 0 命中；无 Group CRUD/成员/顺序。）
+-   [x] `F-2004` 为 Path Group 建立单元测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2004 | 历史落地 2455a6c | 测试 54 ok 全绿 2026-11-27）：原待补「type PathGroup 0 命中」过期——PathGroup/PathGroupMember 已落表（AutoMigrate）且管理面齐（path_groups.go：CRUD+过滤（direction/region/purpose）、成员有序 Position asc（getPathGroup :86-98）、默认线路选择、手动排除、方向校验）。单测 TestPathGroupMembers（path_groups_test.go:12，F-0261~F-0267 一体覆盖：组 CRUD 与过滤、有序成员、默认路径、排除、方向检查，含 region 过滤断言 :44）。无代码缺口，按当前树关行。
 -   [ ] `F-2005` 为 Policy 冲突规则建立单元测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2005 | 未满足：Policy 冲突规则缺失——仅 alloc 调度策略（least_conn/cost_first/perf_first/balanced/manual alloc.go:23-46）被 alloc_test 覆盖，无路由 Policy/冲突规则模型。）
 -   [x] `F-2006` 为 Scheduler 过滤和评分建立单元测试。
