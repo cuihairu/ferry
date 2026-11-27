@@ -2,10 +2,13 @@ package billing
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/cuihairu/ferry/server/internal/cloudprov"
+	"github.com/cuihairu/ferry/server/internal/herald"
 	"github.com/cuihairu/ferry/server/internal/storage"
 )
 
@@ -62,5 +65,73 @@ func TestBillingAuthFailureReports(t *testing.T) {
 	}
 	if len(got) != 1 {
 		t.Fatalf("clean pull reported: %+v", got)
+	}
+}
+
+// TestBillingSyncFailedAlert covers F-1830: a failed pull lands one
+// billing_sync_failed warning per source per day; a second same-day failure
+// stays quiet (the day key is the dedup); a successful pull never alerts.
+func TestBillingSyncFailedAlert(t *testing.T) {
+	db := openBillingDB(t)
+	src := storage.CostProvider{Name: "syncsrc", Source: SourceAPI, Currency: "USD"}
+	seedSource(t, db, &src)
+	prov := storage.Provider{Name: "prov10", Type: "fake", AccessKey: "sealed", Enabled: true}
+	if err := db.Create(&prov).Error; err != nil {
+		t.Fatalf("provider: %v", err)
+	}
+	db.Model(&storage.CostProvider{}).Where("id = ?", src.ID).Update("provider_id", prov.ID)
+
+	f := cloudprov.NewFake()
+	f.SetCaps(cloudprov.Capabilities{APIVersion: "1.0", Billing: true})
+	f.SetFailHook(cloudprov.OpImportBilling, func() *cloudprov.Error {
+		return cloudprov.NewError(cloudprov.ErrRateLimited, cloudprov.OpImportBilling, "", "429", "quota")
+	})
+	svc := New(db, fakeSecrets{}, func(storage.Provider, string) (cloudprov.Adapter, error) { return f, nil })
+	ctx := context.Background()
+	req := ImportRequest{CostProviderID: src.ID, Window: cloudprov.BillingWindow{From: time.Now().Add(-24 * time.Hour)}}
+
+	if run, err := svc.ImportFromAPI(ctx, req, "tester", time.Now()); err == nil || run.State != RunFailed {
+		t.Fatalf("pull must fail: run=%+v err=%v", run, err)
+	}
+	var ev storage.Event
+	if err := db.Where("kind = ?", herald.KindBillingSyncFailed).First(&ev).Error; err != nil {
+		t.Fatalf("billing_sync_failed event missing: %v", err)
+	}
+	if ev.Target != herald.TargetAdmin || ev.Severity != herald.SeverityWarning {
+		t.Fatalf("event shape: %+v", ev)
+	}
+	if !strings.HasPrefix(ev.DedupKey, fmt.Sprintf("billing_sync:%d:failed:", src.ID)) ||
+		len(ev.DedupKey) != len(fmt.Sprintf("billing_sync:%d:failed:", src.ID))+8 {
+		t.Fatalf("dedup key = %q", ev.DedupKey)
+	}
+
+	// A second same-day failure stays quiet.
+	if _, err := svc.ImportFromAPI(ctx, req, "tester", time.Now()); err == nil {
+		t.Fatal("second pull must fail too")
+	}
+	var n int64
+	if err := db.Model(&storage.Event{}).Where("kind = ?", herald.KindBillingSyncFailed).
+		Count(&n).Error; err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("same-day failures must dedup: %d events", n)
+	}
+
+	// A clean pull never alerts (a fresh fake: SetFailHook(op, nil) would
+	// panic on the next failing call of that op).
+	f3 := cloudprov.NewFake()
+	f3.SetCaps(cloudprov.Capabilities{APIVersion: "1.0", Billing: true})
+	f3.Seed(cloudprov.Resource{ResourceID: "vm-s1", State: "running", BwMbps: 100})
+	svc3 := New(db, fakeSecrets{}, func(storage.Provider, string) (cloudprov.Adapter, error) { return f3, nil })
+	if run, err := svc3.ImportFromAPI(ctx, req, "tester", time.Now()); err != nil || run.State != RunSucceeded {
+		t.Fatalf("clean pull: run=%+v err=%v", run, err)
+	}
+	if err := db.Model(&storage.Event{}).Where("kind = ?", herald.KindBillingSyncFailed).
+		Count(&n).Error; err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("success must stay quiet: %d events", n)
 	}
 }
