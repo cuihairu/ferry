@@ -100,7 +100,10 @@ func SyncOne(ctx context.Context, db *gorm.DB, store *secret.Store, providerID u
 		}
 		region = p.Region
 	}
-	client := cloudprov.NewClient(a, cloudprov.Defaults)
+	// Identity rides along for the auth-failure alert channel (F-1828).
+	opts := cloudprov.Defaults
+	opts.Account = cloudprov.Account{ProviderID: p.ID, Name: p.Name, Type: p.Type}
+	client := cloudprov.NewClient(a, opts)
 	flt := cloudprov.Filter{Region: region, Tags: cfg.Tags}
 	list, err := client.ListResources(ctx, flt)
 	if err != nil {

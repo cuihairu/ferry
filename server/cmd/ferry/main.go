@@ -25,6 +25,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/backup"
 	"github.com/cuihairu/ferry/server/internal/cert"
 	"github.com/cuihairu/ferry/server/internal/cloudlink"
+	"github.com/cuihairu/ferry/server/internal/cloudprov"
 	"github.com/cuihairu/ferry/server/internal/cloudsync"
 	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/cost"
@@ -294,6 +295,25 @@ func run(ctx context.Context, cfg config.Config) error {
 		eventSender = herald.HTTPSender(cfg.HeraldURL, cfg.HeraldToken)
 	}
 	go herald.Loop(ctx, db, time.Duration(cfg.EventFlushIntervalSec)*time.Second, eventSender, nil)
+
+	// Provider auth failures (F-1828): cloudprov classifies the vendor's
+	// credentials rejection on every call path; the alert leg lands here where
+	// the database lives. Dedup is per provider, Herald merges the repeats.
+	cloudprov.SetAuthFailureHook(func(f cloudprov.AuthFailure) {
+		if _, err := herald.Emit(db, herald.EmitInput{
+			Kind: herald.KindProviderAuth, Severity: herald.SeverityWarning,
+			Title:    fmt.Sprintf("Provider %s API 认证失败", f.ProviderName),
+			Body:     fmt.Sprintf("厂商拒绝凭证（操作 %s，错误码 %s）：%s", f.Op, f.ProviderCode, f.Message),
+			Target:   herald.TargetAdmin,
+			DedupKey: fmt.Sprintf("provider:%d:auth", f.ProviderID),
+			Meta: map[string]any{
+				"provider_id": f.ProviderID, "provider_type": f.ProviderType,
+				"op": f.Op, "provider_code": f.ProviderCode,
+			},
+		}); err != nil {
+			log.Printf("herald emit provider_auth: provider=%d %v", f.ProviderID, err)
+		}
+	})
 
 	// Local periodic backup (panel availability §2, P1): VACUUM INTO online snapshot packed and encrypted into
 	// FERRY_BACKUP_DIR (master-key-derived key, the master key never enters the backup archive), keeping

@@ -33,6 +33,9 @@ type ClientOptions struct {
 	// MinAPIVersion fails all calls when Capabilities.APIVersion is older
 	// (F-0317). Empty = no check.
 	MinAPIVersion string
+	// Account carries the adapter identity (provider id/name/type) for the
+	// auth-failure alert channel (F-1828): identity only, never a credential.
+	Account Account
 }
 
 // Defaults fills the zero-value policy (exported so handlers and future
@@ -141,6 +144,9 @@ func (c *Client) call(ctx context.Context, op string, resourceID string, fn func
 	d, err := c.attempt(ctx, op, resourceID, fn)
 	if err != nil {
 		recordCall(op, "error", d)
+		// A credentials rejection is reported for the auth alert (F-1828);
+		// non-auth failures (and unset hooks) fall through as a no-op.
+		ReportAuthFailure(c.opts.Account, op, resourceID, err)
 		return err
 	}
 	recordCall(op, "ok", d)

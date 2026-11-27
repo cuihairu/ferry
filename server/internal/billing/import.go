@@ -134,8 +134,12 @@ func (s *Service) ImportFromAPI(ctx context.Context, req ImportRequest, actor st
 	if err != nil {
 		return finish(RunFailed, err)
 	}
+	acct := cloudprov.Account{ProviderID: prov.ID, Name: prov.Name, Type: prov.Type}
 	caps, err := adapter.Capabilities(ctx)
 	if err != nil {
+		// A credentials rejection rides the auth alert (F-1828); other
+		// failures just fail the run.
+		cloudprov.ReportAuthFailure(acct, cloudprov.OpCapabilities, "", err)
 		return finish(RunFailed, err)
 	}
 	// F-0522: the API capability is declared by the adapter; an unsupported
@@ -145,6 +149,7 @@ func (s *Service) ImportFromAPI(ctx context.Context, req ImportRequest, actor st
 	}
 	recs, err := adapter.ImportBilling(ctx, req.Window)
 	if err != nil {
+		cloudprov.ReportAuthFailure(acct, cloudprov.OpImportBilling, "", err)
 		return finish(RunFailed, err)
 	}
 	run.Fetched = len(recs)

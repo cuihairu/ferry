@@ -169,7 +169,10 @@ func (h *Handler) specCheck(ctx context.Context, tpl storage.ProvisionTemplate, 
 		warns = append(warns, "adapter build failed: "+err.Error())
 		return errs, warns
 	}
-	caps, err := cloudprov.NewClient(a, cloudprov.Defaults).Capabilities(ctx)
+	// Identity rides along for the auth-failure alert channel (F-1828).
+	opts := cloudprov.Defaults
+	opts.Account = cloudprov.Account{ProviderID: prov.ID, Name: prov.Name, Type: prov.Type}
+	caps, err := cloudprov.NewClient(a, opts).Capabilities(ctx)
 	if err != nil {
 		warns = append(warns, "region check unavailable (vendor API): "+err.Error())
 		return errs, warns

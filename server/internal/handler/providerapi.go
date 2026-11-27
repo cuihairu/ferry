@@ -229,7 +229,10 @@ func (h *Handler) testProviderConnection(c *gin.Context) {
 			"error_type": e.Type, "error": e.Error()})
 		return
 	}
-	caps, err := cloudprov.NewClient(a, cloudprov.Defaults).Capabilities(c.Request.Context())
+	// Identity rides along for the auth-failure alert channel (F-1828).
+	opts := cloudprov.Defaults
+	opts.Account = cloudprov.Account{ProviderID: row.ID, Name: row.Name, Type: row.Type}
+	caps, err := cloudprov.NewClient(a, opts).Capabilities(c.Request.Context())
 	if err != nil {
 		e := cloudprov.AsError(err)
 		c.JSON(http.StatusOK, gin.H{"ok": false, "mode": "adapter",

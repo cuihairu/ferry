@@ -21,7 +21,10 @@ func (s *Service) newClient(prov storage.Provider) (cloudprov.Adapter, error) {
 	if err != nil {
 		return nil, fmt.Errorf("adapter init: %w", err)
 	}
-	return cloudprov.NewClient(a, cloudprov.Defaults), nil
+	// Identity rides along for the auth-failure alert channel (F-1828).
+	opts := cloudprov.Defaults
+	opts.Account = cloudprov.Account{ProviderID: prov.ID, Name: prov.Name, Type: prov.Type}
+	return cloudprov.NewClient(a, opts), nil
 }
 
 // runOne executes a single pending task: pending→running, vendor call, then a
