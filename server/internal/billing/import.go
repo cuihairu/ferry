@@ -116,6 +116,7 @@ func (s *Service) ImportFromAPI(ctx context.Context, req ImportRequest, actor st
 		}
 		done := time.Now()
 		run.FinishedAt = &done
+		recordSync(run.Source, state, done.Sub(run.StartedAt))
 		if saveErr := s.db.Save(run).Error; saveErr != nil {
 			return run, saveErr
 		}
@@ -202,6 +203,7 @@ func (s *Service) ImportFile(srcID uint, raw []byte, format, actor string, now t
 		}
 		done := time.Now()
 		run.FinishedAt = &done
+		recordSync(run.Source, state, done.Sub(run.StartedAt))
 		if saveErr := s.db.Save(run).Error; saveErr != nil {
 			return run, saveErr
 		}
