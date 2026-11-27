@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/cuihairu/ferry/packages/agentproto"
+	"github.com/cuihairu/ferry/server/internal/herald"
+	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gorilla/websocket"
 )
 
@@ -16,7 +18,7 @@ import (
 // node_upgrades rows, an identical retransmission is deduped, an unknown state
 // is ignored, and the admin API lists the rows.
 func TestAgentWSUpgradeStatus(t *testing.T) {
-	r := newTestRouter(t)
+	r, db := newTestRouterWithDB(t)
 
 	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
 		"name": "up-1", "address": "up.example.com", "port": 443, "protocol": "vless",
@@ -104,5 +106,30 @@ func TestAgentWSUpgradeStatus(t *testing.T) {
 	rec = doJSON(t, r, "GET", "/api/nodes/1/upgrades", nil)
 	if !strings.Contains(rec.Body.String(), `"error":"download: status 404"`) {
 		t.Fatalf("failed reason must be stored: %s", rec.Body.String())
+	}
+
+	// F-1827: the failed attempt lands exactly one admin-facing herald
+	// warning (deduped per upgrade attempt); the earlier progress frames of
+	// the same attempt stay quiet.
+	var ev storage.Event
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		err := db.Where("kind = ?", herald.KindUpgradeFailed).First(&ev).Error
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("upgrade_failed event missing: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if ev.Target != herald.TargetAdmin || ev.Severity != herald.SeverityWarning {
+		t.Fatalf("event shape: %+v", ev)
+	}
+	if ev.DedupKey != "node:1:upgrade_failed:upg-9" {
+		t.Fatalf("dedup key = %q", ev.DedupKey)
+	}
+	if !strings.Contains(ev.Body, "download: status 404") {
+		t.Fatalf("event body must carry the reason: %q", ev.Body)
 	}
 }

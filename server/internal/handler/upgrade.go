@@ -11,6 +11,7 @@ import (
 
 	"github.com/cuihairu/ferry/packages/agentproto"
 	"github.com/cuihairu/ferry/server/internal/agenthub"
+	"github.com/cuihairu/ferry/server/internal/herald"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
 )
@@ -80,7 +81,8 @@ func (h *Handler) nodeUpgrade(c *gin.Context) {
 }
 
 // recordUpgradeStatus stores one self-upgrade progress frame (F-0712); storage failures are
-// logged, never blocking the heartbeat loop.
+// logged, never blocking the heartbeat loop. A failed state additionally lands
+// one admin-facing Herald warning (F-1827), deduped per upgrade attempt.
 func (h *Handler) recordUpgradeStatus(nodeID int64, us agentproto.UpgradeStatus) {
 	row := storage.NodeUpgrade{
 		NodeID: uint(nodeID), UpgradeID: us.UpgradeID, Version: us.Version,
@@ -88,6 +90,31 @@ func (h *Handler) recordUpgradeStatus(nodeID int64, us agentproto.UpgradeStatus)
 	}
 	if err := h.db.Create(&row).Error; err != nil {
 		log.Printf("record upgrade status node=%d: %v", nodeID, err)
+		return
+	}
+	if us.State != agentproto.UpgradeStateFailed {
+		return
+	}
+	name := fmt.Sprintf("#%d", nodeID)
+	var n storage.Node
+	if err := h.db.Select("id, name").Where("id = ?", nodeID).First(&n).Error; err == nil && n.Name != "" {
+		name = n.Name
+	}
+	body := us.Error
+	if body == "" {
+		body = "升级流程失败（详见该节点升级记录）"
+	}
+	if _, err := herald.Emit(h.db, herald.EmitInput{
+		Kind: herald.KindUpgradeFailed, Severity: herald.SeverityWarning,
+		Title:    fmt.Sprintf("节点 %s 升级失败", name),
+		Body:     fmt.Sprintf("目标版本 %s：%s", us.Version, body),
+		Target:   herald.TargetAdmin,
+		DedupKey: fmt.Sprintf("node:%d:upgrade_failed:%s", nodeID, us.UpgradeID),
+		Meta: map[string]any{
+			"node_id": nodeID, "upgrade_id": us.UpgradeID, "version": us.Version,
+		},
+	}); err != nil {
+		log.Printf("herald emit upgrade_failed: node=%d %v", nodeID, err)
 	}
 }
 
