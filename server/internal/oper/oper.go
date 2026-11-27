@@ -294,6 +294,7 @@ func (s *Service) Cancel(ctx context.Context, id uint, now time.Time) error {
 	if !Cancelable(row.State, row.AllowCancel) {
 		return fmt.Errorf("operation %d is not cancellable (%s)", id, row.State)
 	}
+	recordOutcome(row.Op, StateCancelled)
 	return s.settle(ctx, id, StateCancelled, "cancelled by operator", "", now)
 }
 

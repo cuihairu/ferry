@@ -25,24 +25,34 @@ func (s *Service) newClient(prov storage.Provider) (cloudprov.Adapter, error) {
 }
 
 // runOne executes a single pending task: pending→running, vendor call, then a
-// terminal or Unknown settlement (F-0372/F-0376).
+// terminal or Unknown settlement (F-0372/F-0376). Settlements feed the task
+// metrics (F-1812): the outcome always, wall time on executed paths.
 func (s *Service) runOne(ctx context.Context, row storage.CloudOperation, now time.Time) {
 	if err := s.transition(ctx, row.ID, StatePending, StateRunning, "executing"); err != nil {
 		return
 	}
+	spent := func() time.Duration { return now.Sub(row.CreatedAt) }
+	fail := func(message, providerCode string) {
+		s.settle(ctx, row.ID, StateFailed, message, providerCode, now)
+		recordOutcomeTimed(row.Op, StateFailed, spent())
+	}
+	unknown := func(message, providerCode string) {
+		s.settle(ctx, row.ID, StateUnknown, message, providerCode, now)
+		recordOutcomeTimed(row.Op, StateUnknown, spent())
+	}
 	var prov storage.Provider
 	if err := s.db.First(&prov, row.ProviderID).Error; err != nil {
-		s.settle(ctx, row.ID, StateFailed, "provider unavailable: "+err.Error(), "", now)
+		fail("provider unavailable: "+err.Error(), "")
 		return
 	}
 	client, err := s.newClient(prov)
 	if err != nil {
-		s.settle(ctx, row.ID, StateFailed, err.Error(), "", now)
+		fail(err.Error(), "")
 		return
 	}
 	var res storage.CloudResource
 	if err := s.db.First(&res, row.ResourceID).Error; err != nil {
-		s.settle(ctx, row.ID, StateFailed, "resource unavailable: "+err.Error(), "", now)
+		fail("resource unavailable: "+err.Error(), "")
 		return
 	}
 	runErr := execute(ctx, client, row, res.ExternalID)
@@ -54,18 +64,19 @@ func (s *Service) runOne(ctx context.Context, row storage.CloudOperation, now ti
 			result = state
 		}
 		s.settleWithResult(ctx, row.ID, StateSucceeded, "", "", result, now)
+		recordOutcomeTimed(row.Op, StateSucceeded, spent())
 		return
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		s.settle(ctx, row.ID, StateUnknown, "provider call interrupted: "+ctxErr.Error(), "", now)
+		unknown("provider call interrupted: "+ctxErr.Error(), "")
 		return
 	}
 	pe := cloudprov.AsError(runErr)
 	if pe.Type == cloudprov.ErrUnavailable {
-		s.settle(ctx, row.ID, StateUnknown, pe.Error(), pe.ProviderCode, now)
+		unknown(pe.Error(), pe.ProviderCode)
 		return
 	}
-	s.settle(ctx, row.ID, StateFailed, pe.Error(), pe.ProviderCode, now)
+	fail(pe.Error(), pe.ProviderCode)
 }
 
 // execute dispatches one adapter op (F-0363~F-0367).
@@ -115,15 +126,21 @@ func (s *Service) reconcileOne(ctx context.Context, row storage.CloudOperation, 
 	switch row.Op {
 	case cloudprov.OpPowerOn, cloudprov.OpReboot:
 		if state == cloudprov.StateRunning || state == cloudprov.StateStarting {
-			return s.settleWithResult(ctx, row.ID, StateSucceeded, "", "", state, now)
+			s.settleWithResult(ctx, row.ID, StateSucceeded, "", "", state, now)
+			recordOutcomeTimed(row.Op, StateSucceeded, now.Sub(row.CreatedAt))
+			return nil
 		}
 	case cloudprov.OpPowerOff, cloudprov.OpForceStop:
 		if state == cloudprov.StateStopped || state == cloudprov.StateStopping {
-			return s.settleWithResult(ctx, row.ID, StateSucceeded, "", "", state, now)
+			s.settleWithResult(ctx, row.ID, StateSucceeded, "", "", state, now)
+			recordOutcomeTimed(row.Op, StateSucceeded, now.Sub(row.CreatedAt))
+			return nil
 		}
 	case cloudprov.OpRebuild:
 		if state == cloudprov.StateRebuilding || state == cloudprov.StateStopped {
-			return s.settleWithResult(ctx, row.ID, StateSucceeded, "", "", state, now)
+			s.settleWithResult(ctx, row.ID, StateSucceeded, "", "", state, now)
+			recordOutcomeTimed(row.Op, StateSucceeded, now.Sub(row.CreatedAt))
+			return nil
 		}
 	}
 	return s.log(ctx, row.ID, StateUnknown, "resource state "+state+" does not match the operation")
