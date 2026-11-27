@@ -180,7 +180,7 @@ func NewRouterWithTasks(db *gorm.DB, cfg config.Config, mgr *tasks.Manager) (*gi
 	// middleware at all, leaving the admin endpoints exposed on the public net.
 	// AU-1: write operations go through auditMiddleware into audit_logs
 	// uniformly (GET skipped).
-	api := r.Group("/api", h.apiAuth(), h.bodyLimit(), h.auditMiddleware())
+	api := r.Group("/api", metricsMiddleware(), h.apiAuth(), h.bodyLimit(), h.auditMiddleware())
 	{
 		api.GET("/nodes", h.listNodes)
 		api.POST("/nodes", h.requirePerm(PermNodeManage), h.createNode)
@@ -584,6 +584,8 @@ func NewRouterWithTasks(db *gorm.DB, cfg config.Config, mgr *tasks.Manager) (*gi
 	// AU-1: admin-surface write operations land in the audit log the same way (GET skipped).
 	admin := r.Group("/admin", h.adminAuthMiddleware(), h.auditMiddleware())
 	{
+		// Metrics layer (F-1801+): Prometheus text exposition, admin-only.
+		admin.GET("/metrics", metricsHandler())
 		admin.GET("/backup/db", h.backupDB)
 		admin.GET("/web-cert", h.getWebCert)
 		admin.PUT("/web-cert", h.putWebCert)
