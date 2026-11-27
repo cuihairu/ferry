@@ -13,6 +13,7 @@ import (
 	"github.com/cuihairu/ferry/server/internal/backup"
 	"github.com/cuihairu/ferry/server/internal/config"
 	"github.com/cuihairu/ferry/server/internal/idp"
+	"github.com/cuihairu/ferry/server/internal/keyrotate"
 	"github.com/cuihairu/ferry/server/internal/oper"
 	"github.com/cuihairu/ferry/server/internal/ratelimit"
 	"github.com/cuihairu/ferry/server/internal/relaypush"
@@ -141,6 +142,15 @@ func NewRouterWithTasks(db *gorm.DB, cfg config.Config, mgr *tasks.Manager) (*gi
 	})
 	h.pusher = relaypush.New(db, h.hub, nil)
 	h.secrets = secret.NewStore(cfg.SecretKey)
+	// Key rotation walk (F-1723): a transition keyring ("v1:old,v2:new")
+	// re-encrypts every sealed value to the new version at boot; a failed row
+	// only warns — the operator re-adds the key term and re-boots.
+	if n, err := keyrotate.Run(db, h.secrets); err != nil {
+		log.Printf("keyrotate: re-encrypt incomplete: %v", err)
+	} else if n > 0 {
+		log.Printf("keyrotate: re-encrypted %d sealed value(s) to v%d; the older key term can be retired once verified",
+			n, h.secrets.CurrentVersion())
+	}
 	h.operations = oper.New(db, h.secrets)
 	r := gin.Default()
 	// ClientIP only trusts forwarding headers from explicitly allow-listed

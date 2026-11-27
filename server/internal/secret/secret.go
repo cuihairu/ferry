@@ -17,24 +17,49 @@ import (
 	"strings"
 )
 
-// Version is the current ciphertext version number; on key rotation add a new version and encrypt with the new key, while older versions are decrypt-only.
+// Version is the lowest/current-default ciphertext version number; key rotation
+// (F-1723) raises it by supplying a versioned keyring — the highest version in
+// the ring encrypts, older versions stay decrypt-only until retired.
 const Version = 1
 
-// Store holds the master key per version (a sha256-derived AES-256 key).
+// Store holds the master key per version (a sha256-derived AES-256 key) and
+// the version new ciphertexts use (the highest in the ring).
 type Store struct {
 	keys map[int][]byte
+	cur  int
 }
 
 // NewStore builds the store from the master key; an empty master key returns a disabled store (Encrypt/Decrypt error out,
-// no plaintext is allowed to be persisted unencrypted). Multi-key input of the form "v1:xxx" is supported (key-rotation transition).
+// no plaintext is allowed to be persisted unencrypted). Keyring input "v1:old,v2:new" is the
+// rotation transition form (F-1723): every comma term carries its version, the highest encrypts,
+// older terms only decrypt. A term without a version prefix (or the whole input) is the
+// Version key, so plain deployment keys keep working unchanged.
 func NewStore(masterKey string) *Store {
 	s := &Store{keys: map[int][]byte{}}
 	if masterKey == "" {
 		return s
 	}
-	s.keys[Version] = deriveKey(masterKey)
+	for _, term := range strings.Split(masterKey, ",") {
+		term = strings.TrimSpace(term)
+		if term == "" {
+			continue
+		}
+		ver, body := Version, term
+		if i := strings.IndexByte(term, ':'); i > 1 && strings.HasPrefix(term, "v") {
+			if n, err := strconv.Atoi(term[1:i]); err == nil && n > 0 {
+				ver, body = n, term[i+1:]
+			}
+		}
+		s.keys[ver] = deriveKey(body)
+		if ver > s.cur {
+			s.cur = ver
+		}
+	}
 	return s
 }
+
+// CurrentVersion reports the version new ciphertexts use (0 = disabled store).
+func (s *Store) CurrentVersion() int { return s.cur }
 
 // deriveKey derives an AES-256 key from a master key of any length.
 func deriveKey(master string) []byte {
@@ -48,7 +73,7 @@ func (s *Store) Enabled() bool { return len(s.keys) > 0 }
 // Encrypt encrypts a plaintext secret into a version-prefixed ciphertext ("v1:nonce:ct").
 // A random nonce guarantees two ciphertexts of the same plaintext differ.
 func (s *Store) Encrypt(plain string) (string, error) {
-	key, ok := s.keys[Version]
+	key, ok := s.keys[s.cur]
 	if !ok {
 		return "", errors.New("secret: master key not configured (FERRY_SECRET_KEY)")
 	}
@@ -61,7 +86,7 @@ func (s *Store) Encrypt(plain string) (string, error) {
 		return "", err
 	}
 	sealed := aead.Seal(nil, nonce, []byte(plain), nil)
-	return fmt.Sprintf("v%d:%s:%s", Version,
+	return fmt.Sprintf("v%d:%s:%s", s.cur,
 		base64.RawStdEncoding.EncodeToString(nonce),
 		base64.RawStdEncoding.EncodeToString(sealed)), nil
 }
@@ -119,7 +144,7 @@ func newAEAD(key []byte) (cipher.AEAD, error) {
 // output format = version byte + nonce + ciphertext (compact binary, not the v1:... text format).
 // DecryptBytes is its inverse; string secrets still go through Encrypt/Decrypt.
 func (s *Store) EncryptBytes(plain []byte) ([]byte, error) {
-	key, ok := s.keys[Version]
+	key, ok := s.keys[s.cur]
 	if !ok {
 		return nil, errors.New("secret: master key not configured (FERRY_SECRET_KEY)")
 	}
@@ -132,7 +157,7 @@ func (s *Store) EncryptBytes(plain []byte) ([]byte, error) {
 		return nil, err
 	}
 	out := make([]byte, 0, 1+len(nonce)+len(plain)+aead.Overhead())
-	out = append(out, byte(Version))
+	out = append(out, byte(s.cur))
 	out = append(out, nonce...)
 	return aead.Seal(out, nonce, plain, nil), nil
 }
@@ -168,7 +193,7 @@ func (s *Store) DecryptBytes(data []byte) ([]byte, error) {
 // plaintext into memory——a large file (a full DB snapshot as the traffic table grows) no longer doubles memory. The ciphertext is still a
 // standard single-message AES-256-GCM (CTR data + GHASH tag); Seal is just split into an equivalent streaming implementation.
 func (s *Store) EncryptBytesStream(in io.Reader, out io.Writer) error {
-	key, ok := s.keys[Version]
+	key, ok := s.keys[s.cur]
 	if !ok {
 		return errors.New("secret: master key not configured (FERRY_SECRET_KEY)")
 	}
@@ -184,7 +209,7 @@ func (s *Store) EncryptBytesStream(in io.Reader, out io.Writer) error {
 	if _, err := rand.Read(nonce); err != nil {
 		return err
 	}
-	if _, err := out.Write([]byte{byte(Version)}); err != nil {
+	if _, err := out.Write([]byte{byte(s.cur)}); err != nil {
 		return err
 	}
 	if _, err := out.Write(nonce); err != nil {
