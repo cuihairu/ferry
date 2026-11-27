@@ -2519,11 +2519,11 @@ External Client
     - 待补（F-2051 | 部分：agent 掉线→重连覆盖（健康 1→0→1+token 轮换窗再上线 e2e-smoke.sh:298-340+单测 TestRunReconnectsUntilCancel）；无故障触发恢复/重入调度 e2e。）
 -   [ ] `F-2052` 验证流量记账准确性。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2052 | 未满足：流量记账准确仅单测（TestSaveStatsAPI+traffic tests）；e2e 不测流量量级。）
--   [ ] `F-2053` 验证 Server 重启后的状态恢复。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2053 | 部分：server 恢复态恢复覆盖（e2e-smoke.sh:417-427 恢复实例健康+节点数据在）；server 杀/重启→agent 重连未覆盖（F-1931 注：e2e 先杀 agent 再重启 server，重启腿不断言重连）。）
--   [ ] `F-2054` 在测试 Provider 账号或 Mock Provider
-    - 待补（F-2054 | 未满足：无云资源操作、无 test/mock provider（provision 仅 tofu CLI）。）
+-   [x] `F-2053` 验证 Server 重启后的状态恢复。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2053 | 原待补「server 杀/重启→agent 重连未覆盖」已过时）：reconnect-test.sh（9c0ab8c，test.yml:104 CI 接线）钉真 server+真 agent 全链——在线→SIGTERM server（健康不可达故障窗成立断言）→同二进制同数据目录重启→节点侧零操作 agent 按退避（1s→30s）回池 agents_online==1；恢复态管理面由 e2e-smoke 备份恢复腿覆盖（恢复实例健康+原管理员+节点数据在）；数据面在故障窗内存活由 dataplane-test.sh 覆盖。
+-   [x] `F-2054` 在测试 Provider 账号或 Mock Provider
     上验证完整云资源操作流程。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2054 | 原待补「无 test/mock provider」已过时）：cloudprov.Fake 契约适配器（contract_test.go TestFakeContract）注册即全流程——oper.Service Create→Run→Get 真实落库驱动 fake 电源操作（TestOperStateMachine 开/关/重启/高危确认，TestOperIdempotencyAndBatch 幂等+批量），cloudsync.SyncOne 资源对账（TestSyncOneReconcile/New/Failures），handler 面 TestCloudOperationAPI/TestProviderTestConnection；failHook 注错按错误类别走 Unknown/Failed 分支（TestOperUnknownAndCancel）。
 -   [ ] `F-2055` 验证云资源账单导入、成本汇总和 Dash 展示。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2055 | 未满足：无账单导入；成本汇总仅单测（costapi_test）；无 Dash 展示 e2e。）
 
