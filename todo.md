@@ -2300,8 +2300,8 @@ External Client
     - 备注（Task ID: F-1810 | Status: Done | Evidence: alloc 包内新增 `ferry_alloc_sweep_seconds` 直方图（buckets 1ms-5s）+ `ferry_alloc_sweep_total{result=ok|error}` 计数器（internal/alloc/metrics.go）；观测点在 sweepOnce，只计时决策管线两步（Sweep 换线扫描 + RebindSickPaths 故障重绑）之和——announce webhook 与 relaypush hook 属投递链路，其延迟不计入调度耗时，注释已说明 | Verification: go build/vet 全绿，go test ./... 53 ok FAIL=0（exit=0），TestSweepMetrics 断 ok+1/error 不动/直方图 count delta=1/sum>0，关库后 error+1 | Commit: 420090c）
 -   [x] `F-1811` 采集 Provider API 请求成功率和延迟。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1811 | Status: Done | Evidence: cloudprov 包内新增 `ferry_provider_api_total{op,result}` 计数器（result=ok/error/rate_limited/compat，成功率=ok/total 查询期算）+ `ferry_provider_api_seconds{op}` 直方图（buckets 50ms-30s）（internal/cloudprov/metrics.go）；观测点在 Client.call 漏斗（11 个 Op* 常量有限枚举），attempt 循环拆出独立函数计 wall time（含重试+退避）；compat/限流闸门拒绝只计数不记延迟（未触达厂商） | Verification: go build/vet 全绿，go test ./... 53 ok FAIL=0（exit=0），TestProviderCallMetrics 断 error/ok/compat/rate_limited 各 delta=1、power_on 直方图 count delta=2（闸门拒绝不观测） | Commit: d24b9c2）
--   [ ] `F-1812` 采集云操作任务成功率和耗时。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1812 | 部分：ProvisionJob 持久 running/ok/failed（models.go:519）；无成功率/耗时指标。）
+-   [x] `F-1812` 采集云操作任务成功率和耗时。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1812 | Status: Done | Evidence: oper 包内新增 `ferry_cloud_op_total{op,result}` 计数器（result=succeeded/failed/unknown/cancelled，成功率=succeeded/total 查询期算）+ `ferry_cloud_op_seconds{op}` 直方图（buckets 0.1s-300s）（internal/oper/metrics.go）；runOne 各结算分支经本地闭包统一计数+计时（结算时刻-创建时刻），reconcileOne 三处查询裁决成功也计数（unknown 结算与其后 reconcile 成功各计一次，二者非互斥，注释已说明），Cancel 只计结果不计时（队列等待无意义） | Verification: go build/vet 全绿，go test ./... 53 ok FAIL=0（exit=0），TestOperMetrics 断 succeeded delta=1→reconcile 后=2、unknown delta=1、cancelled delta=1、直方图 count delta=1 | Commit: fe9805a）
 -   [ ] `F-1813` 采集账单同步成功率和延迟。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1813 | 未满足：无账单同步组件（账单同步|syncBill 0 命中）。）
 -   [ ] `F-1814` 采集成本数据新鲜度。（依赖：无；完成条件：需求落地+测试绿+证据行）
