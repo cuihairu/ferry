@@ -56,7 +56,7 @@ func Loop(ctx context.Context, db *gorm.DB, interval time.Duration, logger *log.
 
 // Sweep runs one sweep round; expiry, traffic and scheduled announcements are each independent, never blocking each other, with errors joined and returned.
 func Sweep(db *gorm.DB, now time.Time) error {
-	return errors.Join(sweepExpiry(db, now), sweepTraffic(db, now), sweepAnnouncements(db, now), sweepTrafficAnomaly(db, now))
+	return errors.Join(sweepExpiry(db, now), sweepTraffic(db, now), sweepAnnouncements(db, now), sweepTrafficAnomaly(db, now), sweepNodeQuota(db, now))
 }
 
 // sweepAnnouncements fans out due scheduled announcements (P2-5, announce.RunDue).
@@ -231,6 +231,71 @@ func sweepTrafficAnomaly(db *gorm.DB, now time.Time) error {
 			Meta: map[string]any{
 				"user_id": u.ID, "baseline_bytes": baseline, "today_bytes": today,
 				"ratio": anomalySpikeRatio, "baseline_days": anomalyBaselineDays,
+			},
+		})
+	}
+	return nil
+}
+
+// sweepNodeQuota is the node monthly-traffic-quota sweep (F-1825): each node
+// carrying a monthly_traffic_quota_bytes limit (0 = unlimited) has its
+// current-month rx+tx summed from NodeTrafficLog (the same aggregation the
+// cost report uses); hitting the limit lands one admin-facing Herald warning,
+// deduped per node per month via the same kind+dedup_key check as the
+// anomaly sweep. Quota-less nodes stay quiet; query failures abort the sweep,
+// emission failures are best effort.
+func sweepNodeQuota(db *gorm.DB, now time.Time) error {
+	var nodes []storage.Node
+	if err := db.Where("monthly_traffic_quota_bytes > 0").Find(&nodes).Error; err != nil {
+		return err
+	}
+	if len(nodes) == 0 {
+		return nil
+	}
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	type nodeSum struct {
+		NodeID uint
+		Sum    int64
+	}
+	var rows []nodeSum
+	if err := db.Model(&storage.NodeTrafficLog{}).
+		Select("node_id, SUM(rx_bytes + tx_bytes) AS sum").
+		Where("recorded_at >= ?", monthStart).
+		Group("node_id").Scan(&rows).Error; err != nil {
+		return err
+	}
+	used := map[uint]int64{}
+	for _, r := range rows {
+		used[r.NodeID] = r.Sum
+	}
+	for i := range nodes {
+		n := nodes[i]
+		u := used[n.ID]
+		if u < n.MonthlyTrafficQuotaBytes {
+			continue
+		}
+		dedup := fmt.Sprintf("node_quota:%d:%s", n.ID, now.Format("200601"))
+		var cnt int64
+		if err := db.Model(&storage.Event{}).
+			Where("kind = ? AND dedup_key = ?", herald.KindNodeQuota, dedup).
+			Count(&cnt).Error; err != nil {
+			return err
+		}
+		if cnt > 0 {
+			continue
+		}
+		pct := int(u * 100 / n.MonthlyTrafficQuotaBytes)
+		_, _ = herald.Emit(db, herald.EmitInput{
+			Kind:     herald.KindNodeQuota,
+			Severity: herald.SeverityWarning,
+			Title:    fmt.Sprintf("节点 %s 月度流量超限", n.Name),
+			Body: fmt.Sprintf("本月已用 %.1f GB，月度配额 %.1f GB（%d%%），超出部分将持续计费或被服务商限速。",
+				float64(u)/(1<<30), float64(n.MonthlyTrafficQuotaBytes)/(1<<30), pct),
+			Target:   herald.TargetAdmin,
+			DedupKey: dedup,
+			Meta: map[string]any{
+				"node_id": n.ID, "used_bytes": u, "quota_bytes": n.MonthlyTrafficQuotaBytes,
+				"used_percent": pct, "month": now.Format("2006-01"),
 			},
 		})
 	}

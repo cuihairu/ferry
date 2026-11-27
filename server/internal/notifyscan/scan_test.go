@@ -311,3 +311,58 @@ func TestSweepTrafficAnomaly(t *testing.T) {
 		t.Fatalf("same-day sweep should dedup, got %d events", n)
 	}
 }
+
+// TestSweepNodeQuota covers F-1825: a node whose current-month traffic hits
+// its monthly_traffic_quota_bytes lands one node_quota admin warning (deduped
+// per node per month); a node below its limit and an unlimited (quota=0) node
+// stay quiet, and last month's rows don't count toward this month.
+func TestSweepNodeQuota(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Now()
+	over := storage.Node{Name: "nq-over", Token: "nq-t1", MonthlyTrafficQuotaBytes: 1 << 30}
+	below := storage.Node{Name: "nq-below", Token: "nq-t2", MonthlyTrafficQuotaBytes: 1 << 30}
+	free := storage.Node{Name: "nq-free", Token: "nq-t3"}
+	for _, nd := range []*storage.Node{&over, &below, &free} {
+		if err := db.Create(nd).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	lastMonth := now.AddDate(0, -1, 0)
+	logs := []storage.NodeTrafficLog{
+		{NodeID: over.ID, Proc: "xray", TxBytes: 2 << 30, RecordedAt: now},
+		{NodeID: over.ID, Proc: "xray", TxBytes: 3 << 30, RecordedAt: lastMonth},
+		{NodeID: below.ID, Proc: "xray", RxBytes: 1 << 29, RecordedAt: now},
+		{NodeID: free.ID, Proc: "xray", TxBytes: 5 << 30, RecordedAt: now},
+	}
+	for i := range logs {
+		if err := db.Create(&logs[i]).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Sweep(db, now); err != nil {
+		t.Fatal(err)
+	}
+	var evs []storage.Event
+	if err := db.Where("kind = ?", herald.KindNodeQuota).Order("id").Find(&evs).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 {
+		t.Fatalf("node_quota events = %d, want 1 (only nq-over)", len(evs))
+	}
+	if evs[0].Target != herald.TargetAdmin || evs[0].Severity != herald.SeverityWarning {
+		t.Fatalf("event head: %+v", evs[0])
+	}
+	if evs[0].DedupKey != fmt.Sprintf("node_quota:%d:%s", over.ID, now.Format("200601")) {
+		t.Fatalf("dedup key: %s", evs[0].DedupKey)
+	}
+
+	// Same-month dedup: a second sweep adds nothing.
+	if err := Sweep(db, now); err != nil {
+		t.Fatal(err)
+	}
+	var n int64
+	db.Model(&storage.Event{}).Where("kind = ?", herald.KindNodeQuota).Count(&n)
+	if n != 1 {
+		t.Fatalf("same-month sweep should dedup, got %d events", n)
+	}
+}
