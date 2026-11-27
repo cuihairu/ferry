@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cuihairu/ferry/packages/agentproto"
 	"github.com/cuihairu/ferry/server/internal/storage"
@@ -141,5 +142,54 @@ func TestAgentMetrics(t *testing.T) {
 	}
 	if !strings.Contains(body, "ferry_agent_heartbeat_age_max_seconds") {
 		t.Fatalf("max heartbeat age missing: %s", body)
+	}
+}
+
+// TestRelayMetrics covers F-1804: the relay fleet and online gauges answer
+// from relay_caps declarations intersected with the hub, and the connection
+// gauge reads the newest per-node traffic sample.
+func TestRelayMetrics(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	seedAdminForJWT(t, db)
+
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+	relayID, token := createNodeFor(t, r, "rly-1")
+	plainID, plainToken := createNodeFor(t, r, "rly-plain")
+	if err := db.Model(&storage.Node{}).Where("id = ?", relayID).
+		Update("relay_caps", `{"tcp_forward":true}`).Error; err != nil {
+		t.Fatal(err)
+	}
+	// Both agents online: only the relay-declaring one counts as relay online.
+	ca := fakeAgent(t, srv.URL, "rly-1", token)
+	_ = fakeAgent(t, srv.URL, "rly-plain", plainToken)
+	_ = ca
+
+	// Traffic samples: an older 3-conn row and the newest 7-conn row — the
+	// newest must win; a non-relay proc sample must be ignored.
+	now := time.Now()
+	for _, s := range []storage.NodeTrafficLog{
+		{NodeID: relayID, Proc: "relay", Conns: 3, RecordedAt: now.Add(-time.Minute)},
+		{NodeID: relayID, Proc: "relay", Conns: 7, RecordedAt: now},
+		{NodeID: relayID, Proc: "xray", Conns: 99, RecordedAt: now},
+	} {
+		if err := db.Create(&s).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rec := doJSON(t, r, "GET", "/admin/metrics", nil)
+	body := rec.Body.String()
+	if !strings.Contains(body, "ferry_relay_nodes 1") {
+		t.Fatalf("relay fleet must count only declarations: %s", body)
+	}
+	if !strings.Contains(body, "ferry_relay_online 1") {
+		t.Fatalf("relay online must intersect the hub: %s", body)
+	}
+	if !strings.Contains(body, `ferry_relay_connections{node_id="`+itoa64(int(relayID))+`"} 7`) {
+		t.Fatalf("relay conns must read the newest sample: %s", body)
+	}
+	if strings.Contains(body, `ferry_relay_connections{node_id="`+itoa64(int(plainID))+`"}`) {
+		t.Fatal("non-relay proc samples must not appear")
 	}
 }

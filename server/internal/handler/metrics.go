@@ -222,5 +222,73 @@ func (agentMetricsCollector) Collect(ch chan<- prometheus.Metric) {
 func instrumentAgentMetrics(hub *agenthub.Hub, db *gorm.DB) {
 	agentHub.Store(hub)
 	gormDBHandle.Store(db)
-	agentStatsOnce.Do(func() { prometheus.MustRegister(agentMetricsCollector{}) })
+	agentStatsOnce.Do(func() {
+		prometheus.MustRegister(agentMetricsCollector{})
+		prometheus.MustRegister(relayMetricsCollector{})
+	})
+}
+
+// ---- Relay metrics (F-1804): relay fleet size, live relay agents, and live
+// relay connections from the newest per-node traffic sample. ----
+
+type relayMetricsCollector struct{}
+
+var (
+	relayNodesDesc = prometheus.NewDesc("ferry_relay_nodes",
+		"Relay-capable nodes (an agent relay_caps declaration exists).", nil, nil)
+	relayOnlineDesc = prometheus.NewDesc("ferry_relay_online",
+		"Relay-capable nodes with a live agent connection.", nil, nil)
+	relayConnsDesc = prometheus.NewDesc("ferry_relay_connections",
+		"Live relay connections at the node's newest traffic sample, per relay node.", []string{"node_id"}, nil)
+)
+
+func (relayMetricsCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- relayNodesDesc
+	ch <- relayOnlineDesc
+	ch <- relayConnsDesc
+}
+
+func (relayMetricsCollector) Collect(ch chan<- prometheus.Metric) {
+	db := gormDBHandle.Load()
+	if db == nil {
+		return
+	}
+	// Relay fleet: nodes carrying a relay_caps declaration (F-0804).
+	var fleet []storage.Node
+	if err := db.Select("id").
+		Where("relay_caps IS NOT NULL AND relay_caps != ''").Find(&fleet).Error; err != nil {
+		return // scrape tolerates read failures: series simply stay absent
+	}
+	ch <- prometheus.MustNewConstMetric(relayNodesDesc, prometheus.GaugeValue, float64(len(fleet)))
+
+	var online float64
+	if hub := agentHub.Load(); hub != nil {
+		live := map[int64]bool{}
+		for _, id := range hub.OnlineIDs() {
+			live[id] = true
+		}
+		for _, n := range fleet {
+			if live[int64(n.ID)] {
+				online++
+			}
+		}
+	}
+	ch <- prometheus.MustNewConstMetric(relayOnlineDesc, prometheus.GaugeValue, online)
+
+	// Live connections: the newest traffic sample per relay node (MAX(id) is
+	// the newest row; traffic samples carry the conns count at sampling time).
+	var rows []struct {
+		NodeID uint
+		Conns  int
+	}
+	if err := db.Table("node_traffic_logs").
+		Select("node_id, conns").
+		Where("id IN (SELECT MAX(id) FROM node_traffic_logs WHERE proc = ? GROUP BY node_id)", "relay").
+		Scan(&rows).Error; err != nil {
+		return
+	}
+	for _, r := range rows {
+		ch <- prometheus.MustNewConstMetric(relayConnsDesc, prometheus.GaugeValue, float64(r.Conns),
+			strconv.FormatUint(uint64(r.NodeID), 10))
+	}
 }
