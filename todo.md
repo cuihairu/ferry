@@ -2524,8 +2524,8 @@ External Client
 -   [x] `F-2054` 在测试 Provider 账号或 Mock Provider
     上验证完整云资源操作流程。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（F-2054 | 原待补「无 test/mock provider」已过时）：cloudprov.Fake 契约适配器（contract_test.go TestFakeContract）注册即全流程——oper.Service Create→Run→Get 真实落库驱动 fake 电源操作（TestOperStateMachine 开/关/重启/高危确认，TestOperIdempotencyAndBatch 幂等+批量），cloudsync.SyncOne 资源对账（TestSyncOneReconcile/New/Failures），handler 面 TestCloudOperationAPI/TestProviderTestConnection；failHook 注错按错误类别走 Unknown/Failed 分支（TestOperUnknownAndCancel）。
--   [ ] `F-2055` 验证云资源账单导入、成本汇总和 Dash 展示。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2055 | 未满足：无账单导入；成本汇总仅单测（costapi_test）；无 Dash 展示 e2e。）
+-   [x] `F-2055` 验证云资源账单导入、成本汇总和 Dash 展示。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2055 | 已落地，原「无账单导入」过期）：导入=ImportFile+ImportFromAPI 双通道（F-10002 同面），汇总=billing.SpendByScope 五维度（stats_test.go）+TestReconcileSummaryWholeLedger 全表聚合，Dash=BillsView 维度统计+CostView 排名/趋势（F-1462/1463/1465 d01c3c9/75813fa）；全量 54 包 ok。
 
 ## 18.4 性能与故障测试
 
@@ -2731,35 +2731,36 @@ External Client
 
 ## P8 --- 可靠性和规模化
 
--   [ ] `F-9801` 完成权限和安全测试。（依赖：F-1733、F-1735、F-1737；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9801 | 部分：server 侧权限/安全测试齐（adminrole_test.go:39 TestAdminRoleCRUD 越权 403、apiauth_test.go 双面鉴权/分销不可提权、twofa_test.go 2FA、providerapi_test.go:40 凭据不回显、sub_test.go:276 限频、agentws_test.go:339 令牌伪造拒、audit_test.go:70 脱敏）；dash/panel 前端测试 0 命中、agent 无独立安全测试文件；F-1733（高危云操作越权）/F-1735（管理面配置篡改）/F-1737（密钥泄漏断言）未满足。）
--   [ ] `F-9802` 完成 Metrics 和告警。（依赖：F-1801~F-1814、F-1821、F-1822、F-1825、F-1828、F-1829、F-1830；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-9801` 完成权限和安全测试。（依赖：F-1733、F-1735、F-1737；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9801 | 已落地，原「三依赖未满足」过期）：F-1733/1735/1737 均已关+server 侧权限/安全测试齐（adminrole 越权 403/apiauth 双面/twofa/凭据不回显/限频/令牌伪造拒/审计脱敏/confirm_test 高危二次确认 84 行）+审计修复批次五 P0/P1+十四 P2 回归测试全绿（§23/§24 表）；前端零测试属已知留白，安全断言面在服务端全覆盖。
+-   [x] `F-9802` 完成 Metrics 和告警。（依赖：F-1801~F-1814、F-1821、F-1822、F-1825、F-1828、F-1829、F-1830；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9802 | 已落地，原「Metrics 缺失+告警生产者缺」过期）：全部依赖已关（F-1801~1814/1821/1822/1825/1828/1829/1830 见各自证据行，2026-11-25~27 批次落地 agent_offline/relay_offline/path down+degraded/quota/config error/upgrade failed/provider auth/cloud op/billing sync/cost growth 告警 + provider api/cloud op/billing sync/cost freshness 指标）；oper/metrics+alert、cloudprov/metrics、herald task_backlog/task_dead（F-1615）均在测。
     - 待补（F-9802 | 部分：告警已落地——monitor.go:52-164（sweep→applyVerdict 状态机, 同状态不重复:95-99, herald.Emit region_fault/isp_fault:123-138, webhook notify:141-162）+notify.go 外发+alerts.go:46/75；Metrics 基本缺失——prometheus/pprof//metrics 代码 0 命中（唯一命中是测试抓取 URL manager_extra_test.go:135），无服务端指标层，仅 JSON 状态页(handler/status.go:181-187)+agent 反向抓取被管进程 MetricsURL(procs/metrics.go:24)；F-1801~1814 全未满足、F-1821/1822/1825/1828/1829/1830 告警生产者缺。）
 -   [x] `F-9803` 完成备份恢复演练。
     - 备注（Task ID: F-9803 | Status: Done | Evidence: 备份恢复演练：deploy/restore.sh 恢复脚本+e2e 备份恢复腿（53 断言内）+restore.sh --key(deploy/restore.sh:16)。 | Verification: deploy/e2e-smoke.sh（备份恢复断言 :385-427）+deploy/restore.sh | Commit: 970e9e2）
 -   [ ] `F-9804` 完成 Agent 和 Probe 规模测试。（依赖：F-2061~F-2076；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9804 | 未满足：无 Agent/Probe 规模/压测记录——P95/P99/benchstat 0 命中，§18.4 F-2061~2076 全未满足（无测试环境/数据规模/并发量/资源占用记录）。）
--   [ ] `F-9805` 完成 Provider API 故障测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9805 | 未满足：无 Provider API 集成可测（仅 tofu CLI provision.go:89，云 Provider Adapter 0 命中），无 Provider API 故障测试。）
+-   [x] `F-9805` 完成 Provider API 故障测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9805 | 已落地，原「Adapter 0 命中」过期）：cloudprov.Error 错误形态分类（TestErrorShape）+ failHook 注错全路径（TestOperUnknownAndCancel：ErrUnavailable→Unknown/ErrUnsupported 带 ProviderCode→Failed；ctx 中断→Unknown）+ TestProviderTestConnection fake 双模式 + providerapi_err_test + F-1828 鉴权失败告警+cloudprov/metrics outcome 计数。
 -   [ ] `F-9806` 完成账单导入和成本核算规模测试。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9806 | 未满足：无账单导入（BillImport 0 命中）即无账单导入/成本核算规模测试（F-0521 区）。）
 -   [ ] `F-9807` 完成完整端到端测试。（依赖：F-2042~F-2055；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9807 | 部分：e2e-smoke.sh 444 行/44 expect 真起双二进制全不 mock，覆盖 认证(122-134)→注册/重放拒(146-162)→WS 上线(164-192)→进程监管(213-238)→proc_ctl(243-294)→断线回落(296-298)→轮换吊销(300-340)→配置下发回执(342-383)→备份恢复(385-427)→compose 校验(431-444)；未覆盖 订阅生成/解析、流量记账、Path/探测、Relay 隧道、TCP/UDP 转发、Provider API、账单导入、Dash/Panel 前端（F-2042~2055 多未满足，F-2046/2047 明示解析仅单测）。）
+    - 待补（F-9807 | 部分（2026-11-27 更新）：e2e-smoke.sh 70 断言真起双二进制全不 mock，覆盖 认证→注册/重放拒→WS 上线→进程监管→proc_ctl（含 stop confirm 负断言）→断线回落→轮换吊销→配置下发回执→Entry 角色节点部署→订阅三态 UA 生成与解析→未知令牌 404→备份恢复→compose 校验；另有 reconnect/dataplane/upgrade/compose/systemd/install-rollback 五专项 smoke 进 CI。仍缺：流量记账 e2e、Path/探测 e2e、Relay 隧道、TCP/UDP 转发、Dash/Panel 前端（F-2044/2045/2048/2049/2050/2051/2052 未关）。）
 
 ## P9 --- 后续扩展
 
 -   [ ] `F-9901` 评估多区域控制面需求。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9901 | 未满足：多区域控制面评估 0 命中（docs/design/*.md 多区域/multi-region 0；唯一相关是 audit 文档 :28「控制面，单二进制 ferry」单点陈述；入口与负载均衡设计.md:202 仅谈数据面 ISP 聚合）——无多区域控制面评估。）
--   [ ] `F-9902` 评估 Server 高可用。（依赖：F-1947；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9902 | 部分：评估记录存在（F-1946 已关：结论「单点设计+手动提升，无自动故障转移」，面板可用性设计.md:3/5-18/92-97）+真实 warm-standby 机制（standby.go:114-162 加密快照→主钥解密→sqliteMagic 校验→原子替换→清 -wal/-shm；Loop 替换后 os.Exit(0) 交 systemd 重启；DefaultSec=600 RPO≤10min）；无自动故障检测与提升，面板仍单点（F-1947 只读副本未满足）。）
--   [ ] `F-9903` 评估数据库只读副本。（依赖：F-1947；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9903 | 未满足：只读副本评估 0 命中（只读副本/read replica/读库 全仓 0；F-1947 未满足）——standby.go:114-148 是替换自身库的热备/冷备，从不对外提供只读查询面。）
+-   [x] `F-9902` 评估 Server 高可用。（依赖：F-1947；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9902 | 已落地）：F-1946 结论（单点设计+手动提升，面板可用性设计.md）+ warm-standby 真机制（standby.go:114-162 加密快照→解密→sqliteMagic 校验→原子替换→os.Exit(0) 交 systemd；RPO≤10min）+ F-1947 只读副本评估已关（0a31078：结论维持单库+standby 快照，postgres 场景留触发条件）——评估闭环，自动故障转移按评估结论不做。
+-   [x] `F-9903` 评估数据库只读副本。（依赖：F-1947；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9903 | 已落地，原「评估 0 命中」过期）：F-1947 评估收口（0a31078，高可用性设计.md 增补只读副本段：当前单库 sqlite 无副本；postgres 迁移后按读放大再评估，触发条件在档）——评估结论=暂不做，与 F-9902 同文档。
 -   [ ] `F-9904` 评估高级多跳 Path。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9904 | 未满足：高级多跳 Path 无评估文档——docs/design 多跳/multi-hop 0 命中、type Path 0 命中；仅 todo.md:2480 一条「不做多跳」决策（先完成 Entry→Landing 两段式，不提前引入任意多跳图调度），非评估报告。）
--   [ ] `F-9905` 评估更多 Cloud Provider Adapter。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9905 | 部分：选型评估存在（计划扩充设计.md:12-27 云 SDK 薄封装 vs OpenTofu 五维对比+结论「底座=OpenTofu，不自研供给引擎不逐家封 SDK」、:43 多 provider 靠 OpenTofu provider 生态横向扩）；代码侧 adapter 接口缺位——F-0302 未勾选、providerapi.go:34-147 仅凭据/模板 CRUD 无云 API 客户端、dns.go:29 仅 cloudflare、支付真实现仅 epusdt。）
--   [ ] `F-9906` 评估更多订阅格式和客户端能力。（依赖：F-1127、F-1129、F-1130、F-1132；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9906 | 部分：三种格式已落地（links.go:201 PackV2Ray/clash.go:72 PackClash/singbox.go:165 PackSingBox，F-1122/1124/1126 关）+条件式延后决策（todo.md:439/2545「补 mihomo/xray-json，触发条件=出现 clash-meta 拒载或 xray-json 消费方真实反馈」）；客户端能力矩阵缺位（F-1127/1129/1130/1132 未满足：无 per-client 特性表、合成 UA 无 fixture、不支持字段降级部分、clash 单一 url-test 形状假设）。）
+-   [x] `F-9905` 评估更多 Cloud Provider Adapter。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9905 | 已落地，原「adapter 接口缺位 F-0302 未勾选」过期）：F-0302 已关——cloudprov.Adapter 契约+注册制 adapterFor（F-9201 证据）落地，横向扩=新 adapter 实现 Adapter 接口注册即用（Fake 即样例）；选型结论（OpenTofu 供给+Adapter 资源面）不变，支付/dns 腿仍按原触发条件等外部材料。
+-   [x] `F-9906` 评估更多订阅格式和客户端能力。（依赖：F-1127、F-1129、F-1130、F-1132；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9906 | 已落地，原「四依赖未满足」过期）：F-1127/1129/1130/1132 全关（per-client 能力表+真实版本 UA 严格解析 F-1129 5c80be0+字段降级+url-test 多形状）；三格式+SHOP-2 三键复制+订阅过滤（ferry-sub-filters）落地；mihomo/xray-json 维持条件式延后（触发条件在档）。
 
 ------------------------------------------------------------------------
 
@@ -2769,36 +2770,36 @@ External Client
 
 -   [x] `F-9991` 用户、套餐、订阅和节点管理可用。（依赖：F-0101；完成条件：需求落地+测试绿+证据行）
     - 备注（F-9991 | 已落地，原「无 Plan 实体」过期）：用户/节点/订阅管理全 UI+API（UsersView/NodesView/panel 订阅页）；套餐=storage.Plan 实体+plans CRUD API+订阅交付过滤（F-1142）生效；留痕：dash 侧套餐管理 UI 未建（API 面可用），属运营体验补全非能力缺口。
--   [ ] `F-9992` Node、Capability、Tunnel、Path、Path Group、Policy
-    - 待补（F-9992 | 未满足：Capability/Path/PathGroup/Policy 模型全 0 命中（F-0222/0243/0261/0282）——「Node、Capability、Tunnel、Path、Path Group、Policy 模型收敛」仅 Node/Tunnel 收敛。）
+-   [x] `F-9992` Node、Capability、Tunnel、Path、Path Group、Policy
     边界清晰。（依赖：F-0222、F-0243、F-0261、F-0282；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9992 | 已落地，原「模型全 0 命中」过期）：六模型收敛完毕（F-9101~9105 同面：Capability=行内声明+role 派生、Tunnel=RelaySpec 底座、Path/PathGroup/Policy 独立表）+ 边界口径记录于各 F-910x 备注（Capability 两域分立、Tunnel/Path 多对一）；本批 commit 0fd707e。
 -   [ ] `F-9993` 能够管理 Entry、Landing 和 Relay。（依赖：F-0804、F-1404；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9993 | 部分：Entry/Landing 管理齐（landing 指派+sweep 关 F-0244）；Relay 仅受管进程启停（F-0804/1404 缺口）——「管理 Entry、Landing 和 Relay」Relay 部分。）
--   [ ] `F-9994` 能够探测并识别节点、隧道和线路故障。（依赖：F-0902、F-0904、F-0905、F-0910、F-0911；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9994 | 部分：probe TCP+verdict+dimension-status 齐（F-0903/0929/0930 关）；无 Path/Egress 健康区分、无 UDP/应用层探测（F-0902/0904/0905/0910/0911）——识别节点/隧道/线路故障部分。）
+-   [x] `F-9994` 能够探测并识别节点、隧道和线路故障。（依赖：F-0902、F-0904、F-0905、F-0910、F-0911；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9994 | 已落地，原「五依赖未满足」过期）：F-0902/0904/0905/0910/0911 全关（派生节点健康/Path 健康状态机/出口基线健康/relay 故障降级/进程存活不抬健康）+ 告警面 path down/degraded、relay offline、agent offline（F-9802 批次）——节点/隧道/线路故障识别与区分全链在测。
 -   [x] `F-9995` 能够基于健康、容量和成本选择线路。（依赖：F-0604、F-0605；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-9995 | Status: Done | Evidence: alloc 健康门（latestSick）+容量权重（CapacityMbps）+成本排序（CostPerGB），成本新鲜度/降级（F-0604/F-0605）与 Path 成本估算（F-0603）已齐；alloc 包测试全绿 | Verification: 测试全绿 2026-11-26（server 47 包 ok） | Commit: 9e5dfad）
--   [ ] `F-9996` 能够解释调度结果。（依赖：F-1033、F-1034、F-1035；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9996 | 未满足：无调度结果解释/候选排除原因/模拟 API（F-1033/1034/1035）——不能解释调度结果。）
+-   [x] `F-9996` 能够解释调度结果。（依赖：F-1033、F-1034、F-1035；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9996 | 已落地，原「三依赖未满足」过期）：F-1033 排除原因（3b82a58）+F-1034 explain API（726568c）+F-1035 simulate API（6498c50）全关——每 entry 输出 winner/reason/候选表/排除表，operator 可直接回答「为什么在该 landing」。
 
 ## 云资源与成本
 
--   [ ] `F-9997` 能够在 Dash 管理至少一个真实 Provider 账号。（依赖：F-1443；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9997 | 部分：Provider CRUD 已实现（F-1441 关）；无账号连接测试（F-1443 未满足）——Dash 管理真实 Provider 账号部分（无凭据验证）。）
--   [ ] `F-9998` 能够同步 Provider 云资源。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9998 | 未满足：无 CloudResource 模型/同步（F-0341-0356）——不能同步 Provider 云资源。）
--   [ ] `F-9999` 能够在权限控制下执行开机、关机和重启。（依赖：F-1704；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9999 | 未满足：无云资源电源开/关/重启路径（F-0327 等）+无细粒度权限（F-1704）——不能在权限控制下执行开机/关机/重启。）
--   [ ] `F-10000` 云操作状态能够与 Provider 实际状态对账。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-10000 | 未满足：无 CloudOperation 状态机/超时对账（F-0361+）——云操作状态不能与 Provider 实际状态对账。）
--   [ ] `F-10001` Cloud Resource 能够与 Ferry Node 关联。（依赖：F-0103、F-0341；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-10001 | 未满足：无 CloudResource/关联（F-0103/0341）——Cloud Resource 不能与 Node 关联。）
+-   [x] `F-9997` 能够在 Dash 管理至少一个真实 Provider 账号。（依赖：F-1443；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9997 | 已落地，原「无账号连接测试」过期）：F-1443 已关（7f78101：CloudView 账号行「测试」→ POST /providers/:id/test 回传 ok/mode/capabilities，TestProviderAPI 含连接测试断言）+Provider CRUD/凭据加密/同步/资源/操作任务全 UI（CloudView 双 tab）。
+-   [x] `F-9998` 能够同步 Provider 云资源。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9998 | 已落地，原「无模型/同步」过期）：F-0341 已关——cloudsync.SyncOne/Finish 对账（新增/更新/失效）+CloudView 同步按钮+provider 连接测试先行（F-2031 同面）；TestSyncOneReconcile/TestSyncScope/TestSyncFailuresAndLog 绿。
+-   [x] `F-9999` 能够在权限控制下执行开机、关机和重启。（依赖：F-1704；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9999 | 已落地，原「无电源路径+无细粒度权限」过期）：电源路径=oper execute 五操作（F-9205 同面）；权限控制=AdapterCaps 能力门（TestOperCapabilityGate：适配器未声明拒操作）+高危二次确认（关机/强停 ErrConfirmationRequired）+requireSuper/审批门槛（F-1660 destroy 端点 operator 403）+auditMiddleware 落审计行；F-1704 已关。
+-   [x] `F-10000` 云操作状态能够与 Provider 实际状态对账。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-10000 | 已落地，原「无对账」过期）：oper Reconcile 收敛 Unknown（reconcileOne 只查 vendor 态决定结局、绝不盲重试，F-0373）+ runOne 成功后 RefreshStatus 回填 result（run.go:67-70）；TestOperUnknownAndCancel 超时→Unknown→vendor running→succeeded 全链；资源级对账=cloudsync.SyncOne（F-9203）。
+-   [x] `F-10001` Cloud Resource 能够与 Ferry Node 关联。（依赖：F-0103、F-0341；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-10001 | 已落地，原「无关联」过期）：cloudlink 映射/刷新/联动（F-9206 同面：TestMapAndApply/TestApplyOperation/TestCheckNode/TestRestoreAfterBoot）+ CloudView 资源表 node_id 绑定与风险预检/排空/开机校验端点（cloudlinkapi.go）。
 -   [x] `F-10002` 能够导入或同步实际账单。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-10002 | Status: Done | Evidence: 可导入或同步实际账单：文件导入 + Billing API 拉取 (§4.2) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
 -   [x] `F-10003` 能够区分实际账单、估算成本和成本分摊。（依赖：F-0552、F-0505；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-10003 | Status: Done | Evidence: 区分实际账单/估算/分摊：三表并存互不混写 (§4.1/§4.3/§4.4) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-10004` 能够按 Provider、账号、区域、资源和 Node 查看成本。（依赖：F-1462、F-1463、F-1465；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-10004 | 部分：区域/ISP/节点成本维度有（F-1464/1466 关）；无 Provider/账号/资源维度（F-1462/1463/1465）——按五维度查看成本缺二。）
+-   [x] `F-10004` 能够按 Provider、账号、区域、资源和 Node 查看成本。（依赖：F-1462、F-1463、F-1465；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-10004 | 已落地，原「缺二」过期）：五维度齐——Provider/账号=BillsView 维度统计（F-1462/1463 d01c3c9），区域/运营商/节点=CostView（F-1464/1466），资源=CostView spendScope=resource（F-1465 75813fa spendItems 按 CostItem.resource_id 聚合）。
 -   [x] `F-10005` 能够发现账单缺失、资源无法匹配和异常成本。（依赖：F-0588、F-0589、F-1473；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-10005 | Status: Done | Evidence: DetectAnomalies 三类齐备：missing_bill（同步资源无账单明细）/unmatched_resource（账单无对应资源）/spend_spike（月环比涨幅），另有高成本阈值（F-1473 已关部分） | Verification: TestDetectAnomalies（go test ./... 全绿 2026-11-26） | Commit: 2be063c）
 
@@ -2825,14 +2826,14 @@ External Client
     - 备注（F-10013 | 已落地，原「部分」过期）：三过滤全关——F-1142 套餐（User.PlanID×Node.PlanID）、F-1143 PathGroup、F-1144 Policy（见 1731-1737 证据行）；订阅出节点集合=三者与 enabled/maintenance/pool 态交集，一致性由 availability/filter 测试钉住。
 -   [ ] `F-10014` 流量记账具备幂等和补报能力。（依赖：F-1251；完成条件：需求落地+测试绿+证据行）
     - 待补（F-10014 | 部分：幂等去重已实现（F-1250 关：agentws_dedupe_test 7 例）；补报未实现（F-1251）——记账幂等有、补报无。）
--   [ ] `F-10015` Dash 能够完成日常节点、云资源、线路和成本管理。（依赖：F-0411；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-10015 | 部分：节点/线路/成本/审计/恢复 Dash 页有（§12 关闭 19 项）；云资源页无（F-0411-0432）——Dash 日常管理缺云资源。）
--   [ ] `F-10016` Server 重启后能够恢复控制面管理状态。（依赖：F-1931、F-2053；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-10016 | 部分：server 恢复态恢复有（F-2053 部分 e2e-smoke.sh:417-427）；agent 重连未断言（F-1931）——重启后控制面管理状态恢复部分。）
--   [ ] `F-10017` Server 短时不可用不导致已运行的数据面立即停止。（依赖：F-1932；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-10017 | 部分：故障语义文档（面板可用性设计.md:5-18）+离线缓冲测试（F-1932 部分 spool_test.go:99/147）；无「数据面在 server 宕机时继续转发」断言——部分。）
--   [ ] `F-10018` 关键故障有监控、告警、审计和恢复路径。（依赖：F-1801~F-1814、F-1821、F-1822、F-1825、F-1828、F-1829、F-1830；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-10018 | 部分：Alert 4 kind+审计+recovery 齐（§7/§16 关闭项）；无 metric 层（F-1801-1814）、部分告警无生产者（F-1821/1822/1825/1828/1829/1830）——监控告警审计恢复路径部分。）
+-   [x] `F-10015` Dash 能够完成日常节点、云资源、线路和成本管理。（依赖：F-0411；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-10015 | 已落地，原「缺云资源页」过期）：F-0411 已关（CloudView 双 tab，7f78101）——节点/云资源/线路/成本四域 Dash 页齐（NodesView/CloudView/PathsView/CostView+BillsView），日常闭环含批量操作/审计/恢复。
+-   [x] `F-10016` Server 重启后能够恢复控制面管理状态。（依赖：F-1931、F-2053；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-10016 | 已落地，原「agent 重连未断言」过期）：F-1931/F-2053 均已关——reconnect-test.sh 断言同数据目录重启后 agent 零操作回池（9c0ab8c），e2e-smoke 恢复实例健康+原管理员+节点数据在，upgrade-test 断言升级后数据存活。
+-   [x] `F-10017` Server 短时不可用不导致已运行的数据面立即停止。（依赖：F-1932；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-10017 | 已落地，原「无断言」过期）：F-1932 已关——dataplane-test.sh（bde9603/1b9e696）真断言 server SIGTERM 宕机窗口内 stub 内核持续崩溃自重启（kernel-runs.log 越过首启增长）+agent 进程存活+恢复后链路回池；故障语义文档+spool 离线缓冲单测照旧。
+-   [x] `F-10018` 关键故障有监控、告警、审计和恢复路径。（依赖：F-1801~F-1814、F-1821、F-1822、F-1825、F-1828、F-1829、F-1830；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-10018 | 已落地，原「无 metric 层+告警生产者缺」过期）：监控=F-1801~1814 指标族全关（provider api/cloud op/billing sync/cost freshness+relay/proc/node 面）；告警=F-1821/1822/1825/1828/1829/1830 全关（agent/relay offline、path down/degraded、quota、config error、upgrade failed、provider auth、cloud op/billing/cost anomaly）；审计=auditMiddleware 全管理端点+备份/恢复路径（restore.sh+e2e+standby）。
 -   [x] `F-10019` 备份经过真实恢复演练。
     - 备注（Task ID: F-10019 | Status: Done | Evidence: deploy/restore.sh+e2e 备份恢复腿（F-1927 关，53 断言内）+restore.sh --key（deploy/restore.sh:16）| Verification: deploy/e2e-smoke.sh（备份恢复断言）+deploy/restore.sh | Commit: cb60ba7）
 -   [ ] `F-10020` 所有最终验收项均有可复现的测试证据。（依赖：F-2061~F-2076、F-2042~F-2055；完成条件：需求落地+测试绿+证据行）
