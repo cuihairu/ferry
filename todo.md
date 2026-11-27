@@ -2540,8 +2540,8 @@ External Client
     - 备注（F-2064 | Commit 9c68c3c | scale-test.sh 订阅负载腿）：400 次 /sub/:token 并发 20，1s 内完成；断言零 5xx、限流预算照发（200=30）+ 热突发触发 429（370）——router.go subLimiter 30 次/分钟/令牌的行为即为验收语义；首轮实测暴露空 config 节点渲染 500 后，按真实开通节点语义补 node config.uuid（vless.go:32 要求）。
 -   [x] `F-2065` 测试大量流量报告。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（F-2065 | Commit 9c68c3c | scale-test.sh 流量洪峰腿）：50 并发 agent × 4 帧 = 200 帧逐帧 traffic_ack（延迟 P95=67.6ms/P99=93.8ms），/api/traffic-recon 断言 user 台账合计=300000B 逐字节准确、50 节点双台账各 6000 且 delta=0——量级下仍无重复计账（帧 id 唯一经服务端 dedupe）。
--   [ ] `F-2066` 测试大量候选 Path 调度。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2066 | 未满足：候选调度功能测试在（alloc_test.go 多场景），但均为小候选功能用例；无规模/性能测量。）
+-   [x] `F-2066` 测试大量候选 Path 调度。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2066 | Commit 05e0f3b | alloc_scale_test.go：TestPickScaleDeterministicAndCorrect PASS + BenchmarkPickLargePool，数字归档 docs/testing/scale-report.md）：5000 候选池——五策略（least_conn/cost_first/perf_first/balanced/priority）健康门仍过滤病态候选、least_conn 胜者与独立 oracle 一致、50 次重复零漂移、全病态池正确拒分配；吞吐 ~1.36ms/op（5000 候选轮换四策略），调度按连接粒度远低于建立预算。
 -   [x] `F-2067` 测试大量配置批量下发。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（F-2067 | Commit 9c68c3c | scale-test.sh 配置下发腿）：probe_tasks PUT → 50 在线节点并发下发（8 并发），50/50 delivered=true，每节点经 agent probe_task_ack（客户端按 agent/internal/app handleProbeTask 语义回 ack）；probeTaskAckTimeout=10s 内全部完成。
 -   [ ] `F-2068` 测试大量云资源同步。（依赖：无；完成条件：需求落地+测试绿+证据行）
