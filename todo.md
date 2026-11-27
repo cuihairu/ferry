@@ -2476,20 +2476,22 @@ External Client
     - 备注（Task ID: F-2030 | Status: Done | Evidence: 上报 TestAgentWSTrafficReport（agentws_test.go:477）+TestReporterCollectsAndReports（traffic_test.go:31）；去重 7 例（TestAgentWSDuplicateTrafficFrame:57+TestAgentWSDedupSurvivesReconnect:104+TestReportDeduperWindow:243+TestReportDeduperTTL:267）；补报 spool 离线缓冲+重试 TestSendFailureRetries（spool_test.go:99）+TestWatchForwardsUntilCancel（:147） | Verification: agentws_dedupe_test.go+traffic_test.go+spool_test.go | Commit: 9a8663a）
 -   [x] `F-2031` 测试 Provider 账号连接和资源同步。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（F-2031 | 已满足，原待补已过时）：「账号连接」= POST /api/providers/{id}/test 连通性测试端点（a80419d），TestProviderTestConnection（handler/providerapi_test.go:297，覆盖 404/本地凭据检查/适配器远端探测 fake 双模式）+ TestProviderCredentialRotation；「资源同步」= cloudsync 包 SyncOne/Finish 资源对账（7ffa727），TestSyncOneReconcile/TestSyncScope/TestSyncFailuresAndLog（cloudsync_test.go，覆盖新增/更新/失效对账、区域 scope、失败落 log）。两包 -count=1 复跑绿（handler + cloudsync ok，全量基线 54 ok）。
--   [ ] `F-2032` 测试云资源开机操作。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2032 | 区级未满足原因：无 CloudOperation/CloudResource 模型、无电源开/关/重启路径（provision 仅 tofu launch/replenish）——F-2032/F-2033/F-2034 未满足。）
--   [ ] `F-2033` 测试云资源关机操作。（依赖：F-2032；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-2034` 测试云资源重启操作。（依赖：F-2032；完成条件：需求落地+测试绿+证据行）
--   [ ] `F-2035` 测试 Provider 请求超时后的状态对账。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2035 | 未满足：无 provider adapter→无请求超时对账；仅 agent 请求超时（relaypush TestPushTimeout）非 provider 状态对账。）
--   [ ] `F-2036` 测试账单导入和重复数据去重。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2036 | 未满足：无账单导入；storage 无账单表/模型。）
--   [ ] `F-2037` 测试估算与实际账单差异计算。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2037 | 未满足：无实际账单导入→无估算 vs 实际差异；仅估算 vs 参考价偏差（cost.CheckNode/TestCheckNode cost_test.go:224）非账单差异。）
--   [ ] `F-2038` 测试成本分摊和重算。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2038 | 未满足：无 CostAllocation 引擎；cost.Build（cost.go:96）是节点/区域成本汇总非分摊/重算。）
--   [ ] `F-2039` 测试云资源操作与 Node 状态联动。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2039 | 未满足：无 CloudOperation→无云操作↔Node 状态联动；仅手动 proc-control↔node 状态（procop+TestAgentWSProcOp）。）
+-   [x] `F-2032` 测试云资源开机操作。（依赖：F-0341、F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2032 | 原待补「无 CloudOperation/CloudResource 模型、无电源路径」已过时）：oper 包 execute→client.PowerOn 落地（run.go:89），TestOperStateMachine（oper_test.go:65-84）钉 stopped 资源开机接收→Run→succeeded + result=starting + 步骤日志≥3，开机已 running 的 state 预检查拒绝（:111-117）；handler 层 TestCloudOperationAPI（operapi_test.go:18）覆盖鉴权/创建/查询。
+-   [x] `F-2033` 测试云资源关机操作。（依赖：F-2032；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2033 | 随 F-2032 收口）：oper execute→client.PowerOff（run.go:91），TestOperStateMachine（oper_test.go:119-143）钉关机需二次确认（未确认 ErrConfirmationRequired）、确认后高危行 Confirmed+AllowCancel=true、Run→succeeded。
+-   [x] `F-2034` 测试云资源重启操作。（依赖：F-2032；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2034 | 随 F-2032 收口）：oper execute→client.Reboot（run.go:93），TestOperStateMachine（oper_test.go:91-109）钉 running 资源重启→succeeded；重启 state 预检查仅放行 running/starting（oper.go:236-237）。
+-   [x] `F-2035` 测试 Provider 请求超时后的状态对账。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2035 | 原待补「无 provider adapter→无请求超时对账」已过时）：TestOperUnknownAndCancel（oper_test.go:234-286）钉 adapter ErrUnavailable→任务 Unknown 而非 Failed、清 failHook 后 vendor 状态 running（超时实际已生效）→Reconcile 结算 succeeded，重跑不盲重试（reconcileOne run.go:108-150 只查 vendor 态）；reconcile 失败态分支同用例 :149。
+-   [x] `F-2036` 测试账单导入和重复数据去重。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2036 | 原待补「无账单导入/账单表」已过时）：billing 包 ImportFile dedupe_key 唯一键幂等，TestImportFileDedupesAndSnapshots（billing_test.go:45）二次导入 skipped 不重复计费、修订版另起行（:63）；TestRecordDedupeKey（:36）；handler TestBillingAPI/TestBillingAPIImportFromAPI（billingapi_test.go:21/181）覆盖 HTTP 面。
+-   [x] `F-2037` 测试估算与实际账单差异计算。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2037 | 原待补「无估算 vs 实际差异」已过时）：TestReconcileDiffAndConfirm（billing_test.go:208-235）钉 Estimate=900/Actual=1100→Diff=200 分、同 scope/period 重算幂等同一行、ConfirmReconciliation 审批落 approved_by。
+-   [x] `F-2038` 测试成本分摊和重算。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2038 | 原待补「无 CostAllocation 引擎」已过时）：TestAllocateDirect/TestAllocateRatioSumsToOriginal/TestAllocateBandwidthWeights（billing_test.go:97/136/174）钉直分/比例分摊和=原额/带宽权重；TestNewVersionRetiresOldRule（:237）钉新版本 v2 生效且旧规则 retired 不删；allocation.go dedupe_key OnConflict DoNothing 防重复。
+-   [x] `F-2039` 测试云资源操作与 Node 状态联动。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2039 | 原待补「无 CloudOperation→无联动」已过时）：cloudlink 包 TestMapAndApply/TestRefreshAndApply/TestApplyOperation/TestCheckNode/TestRestoreAfterBoot/TestCheckShutdownRisk/TestPathHealth（cloudlink_test.go:59/106/164/227/277/373/407）钉云资源↔Node 映射、vendor 刷新态驱动 Node、开机回执检查、关机前流量风险与维护窗排空、路径健康；handler TestCloudLinkAPI（cloudlinkapi_test.go:21）覆盖 HTTP 面。
 
 ## 18.3 端到端测试
 
