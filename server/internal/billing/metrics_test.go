@@ -97,3 +97,48 @@ func TestBillingSyncMetrics(t *testing.T) {
 		t.Fatalf("file failed delta = %v, want 1", got)
 	}
 }
+
+// TestCostFreshnessMetric covers F-1814: the scrape-time freshness gauge
+// answers per cost source from LastSyncAt; a source never synced stays
+// absent instead of reporting a fake zero.
+func TestCostFreshnessMetric(t *testing.T) {
+	db := openBillingDB(t)
+	fresh := storage.CostProvider{Name: "fresh", Source: SourceAPI, Currency: "USD"}
+	seedSource(t, db, &fresh)
+	never := storage.CostProvider{Name: "never", Source: SourceFile, Currency: "USD"}
+	seedSource(t, db, &never)
+
+	// The service constructor wires the freshness collector.
+	_ = New(db, fakeSecrets{}, nil)
+
+	synced := time.Now().Add(-2 * time.Minute)
+	if err := db.Model(&storage.CostProvider{}).Where("id = ?", fresh.ID).
+		Update("last_sync_at", synced).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := testutil.CollectAndFormat(costFreshnessCollector{}, expfmt.TypeTextPlain,
+		"ferry_cost_source_age_seconds")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(out)
+	re := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(
+		`ferry_cost_source_age_seconds{source_id="`+strconv.FormatUint(uint64(fresh.ID), 10)+`"}`) +
+		` ([0-9.eE+-]+)$`)
+	m := re.FindStringSubmatch(body)
+	if m == nil {
+		t.Fatalf("fresh source age missing:\n%s", body)
+	}
+	age, perr := strconv.ParseFloat(m[1], 64)
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	if age < 60 || age > 300 {
+		t.Fatalf("fresh source age = %v, want ~120", age)
+	}
+	if contains := regexp.MustCompile(`source_id="` +
+		regexp.QuoteMeta(strconv.FormatUint(uint64(never.ID), 10)) + `"`).MatchString(body); contains {
+		t.Fatal("never-synced source must stay absent")
+	}
+}

@@ -36,6 +36,7 @@ func New(db *gorm.DB, secrets secretStore, adapterFor func(storage.Provider, str
 			})
 		}
 	}
+	instrumentCostFreshness(db)
 	return &Service{db: db, secrets: secrets, adapterFor: adapterFor}
 }
 
