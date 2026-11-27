@@ -2556,8 +2556,8 @@ External Client
     - 备注（F-2072 | Commit b697056 | relay-path-test.sh F-2072 四腿 exit=0 2026-11-27，CI relay path probe smoke 步骤照跑）：真 relay 进程故障注入——①杀 relay role 进程→front listener 消失（连接被拒）；②重启 relay role→监听恢复+TCP 回显字节一致（数据面重通）；③relay 节点 core agent 宕机→agents_online=2→Path=degraded；④core agent 重连→agents_online=3→Path=healthy。进程级故障路径单测（relay_extra_test/relaypush_test）照旧。
 -   [x] `F-2073` 测试 Agent 故障。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（F-2073 | Commit 9c68c3c | scale-test.sh 故障腿）：多 agent 故障真 e2e——25/50 连接同时断开后 agents_online=25（server 断连同步标 offline），其余 25 连接负载不受影响；客户端退出全量断开后 agents_online=0 且 /api/health 仍 200（server 存活）；此前单 agent 故障单测（agentws_test/pool_test/hub_test）照旧。
--   [ ] `F-2074` 测试数据库短暂不可用。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2074 | 部分：真实 DB 故障注入在（recovery_test.go:558 TestSweepAndLoopOnClosedDB+:662 TestTraceHelpersOnClosedDB+cost_extra_test.go:42 TestBuildOnBrokenDB，DB 关闭后循环存活持续记日志）；但 DB 保持关闭非短暂抖动，且仅覆盖 recovery/cost 包。）
+-   [x] `F-2074` 测试数据库短暂不可用。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2074 | Commit 24c9a58 | deploy/db-outage-test.sh 9 断言 exit=0 2026-11-27，test.yml deploy-scripts 接线）：真二进制全链故障注入——第二个 sqlite 连接持 BEGIN EXCLUSIVE 6s，server 查询撞 5s busy_timeout 真阻塞（健康读失败、server.log 浮现 database is locked），server 全程存活；锁释放后健康回 200、两真实 agent 心跳写恢复在线；原有DB关闭循环存活单测（recovery/cost）照旧。
 -   [ ] `F-2075` 测试成本数据过期和缺失时的降级行为。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2075 | 未满足：cost 无新鲜度/缺失降级处理（非测试代码 grep stale/fresh/过期/degrad 0 命中）；仅 DB 错误路径测试（TestBuildOnBrokenDB）。）
 -   [x] `F-2076` 记录测试环境、数据规模、并发量、P95/P99 和资源占用。（依赖：无；完成条件：需求落地+测试绿+证据行）
