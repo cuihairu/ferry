@@ -1846,8 +1846,8 @@ External Client
     - Commit: e788369
 -   [x] `F-1254` 建立流量记账幂等测试。
     - 备注（Task ID: F-1254 | Status: Done | Evidence: 流量幂等；TestAgentWSDuplicateTrafficFrame+TestAgentWSDedupSurvivesReconnect | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1255` 建立断线补报集成测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1255 | 随 F-1251 一并待用户拍板：补报行为本身被设计钉死为丢弃（见 F-1251 行），TestReporterOfflineDropsSilently（traffic_test.go:67）断言的正是该既定行为；集成测试仅在补报落地后才有对象。）
+-   [x] `F-1255` 建立断线补报集成测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-1255 | Commit fec062d | deploy/probe-replay-test.sh 进 CI（probe replay smoke）三连跑 exit=0）：系统内的断线补报=角色进程报告腿（设计协议参考 §3 表行 2：断线写 spool 不消费、恢复后整段重放、FERRY-004 判重兜底）——真二进制 e2e 证明：-role probe 独立进程只写 spool（无面板连接），断线窗 15s 内探测的结论在 server 重启回连后经 spool 重放入账（GET /api/probe-reports 出现 probed_at 落在断线窗内的行），重放恰好一次（回连后 12s 仅增 2 条=正常 5s 节奏，无 backlog 风暴）。注：核心进程内报告（traffic 等）腿是 at-most-once 静默丢弃的钉死设计，仍由 F-1251 把守，不在本行范围；spool 重放单测 spool_test.go 12 例原在。
 
 ------------------------------------------------------------------------
 
