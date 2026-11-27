@@ -2429,8 +2429,8 @@ External Client
     - 备注（F-2003 | 历史落地 2455a6c（Path CRUD+版本）+ 7c2ff1b（PendingPath 草稿状态机 pending/confirmed/rejected）+ f7f9aa8/a6de078（LandingAssignment 运行态转移）| 测试 54 ok 全绿 2026-11-27）：原待补「type Path 0 命中」过期。Path 侧三段状态机单测齐——①草稿态机 TestPathDraftLifecycle（pathdraft_test.go:21）：pending 创建（审计字段）→自环拓扑 400→state 过滤列表→confirm 物化 Path+path_id 回填→重复 confirm 409 终态一次性（不多建 Path）→reject 终态且 confirm 不能复活；②Path 行态 TestPathCRUD（paths_test.go）：默认值/版本号 update 自增/enabled 过滤/删除置 disabled（paths.go:172）；③运行态转移 alloc sweep 套件（TestSweepDirectFirst/RelayProvenBetter/DirectFallback/ManualWins+换线释放留痕）。无代码缺口，按当前树关行。
 -   [x] `F-2004` 为 Path Group 建立单元测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（F-2004 | 历史落地 2455a6c | 测试 54 ok 全绿 2026-11-27）：原待补「type PathGroup 0 命中」过期——PathGroup/PathGroupMember 已落表（AutoMigrate）且管理面齐（path_groups.go：CRUD+过滤（direction/region/purpose）、成员有序 Position asc（getPathGroup :86-98）、默认线路选择、手动排除、方向校验）。单测 TestPathGroupMembers（path_groups_test.go:12，F-0261~F-0267 一体覆盖：组 CRUD 与过滤、有序成员、默认路径、排除、方向检查，含 region 过滤断言 :44）。无代码缺口，按当前树关行。
--   [ ] `F-2005` 为 Policy 冲突规则建立单元测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2005 | 未满足：Policy 冲突规则缺失——仅 alloc 调度策略（least_conn/cost_first/perf_first/balanced/manual alloc.go:23-46）被 alloc_test 覆盖，无路由 Policy/冲突规则模型。）
+-   [x] `F-2005` 为 Policy 冲突规则建立单元测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2005 | 历史落地 c74c69c（scoped Policy 模型与执行 F-0286~F-0295）| 测试 54 ok 全绿 2026-11-27）：原待补过期——路由 Policy 模型已落地：storage.Policy（scope=system/plan/user 唯一索引 idx_policy_scope、PolicyConstraints JSON、版本+编辑人留痕 F-0295）。冲突规则=作用域合并优先级，policy/policy_test.go 单测四例全绿——TestResolveMergePrecedence（system<plan<user 逐字段继承与覆盖，冲突消解正主）、TestApplyConstraints（region/ISP/line_type 白名单+MinHealth 分层+MinCapacity 丢弃带 Drop 留痕）、TestCapOutput（出口限速）、TestFreezeFailover；API 层 TestPolicyAPI（CRUD+校验+唯一冲突）+TestPolicyGroupLink+sub_policy_test（订阅侧应用）。alloc 调度策略（待补提的四档）是另一维度（调度核心设计.md:59），两者正交均有覆盖。无代码缺口，按当前树关行。
 -   [x] `F-2006` 为 Scheduler 过滤和评分建立单元测试。
     - 备注（Task ID: F-2006 | Status: Done | Evidence: alloc_test 9 例调度单测 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-2007` 为 Health 计算建立单元测试。
