@@ -2602,7 +2602,7 @@ External Client
 -   [x] `F-9101` 明确 Node、Capability 和现有 Pool 的关系。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
     - 备注（F-9101 | 映射口径已落地）：Capability=Node 行内 JSON 静态声明（models.go:304 Capabilities）+ role 派生默认（storage/capability.go StaticCaps：entry→proxy_ingress/relay_entry/probe、landing→relay_landing）+ 动态 gate（声明可被动态态关闭，TestStaticCapsAndGate 覆盖 F-0222~F-0227+F-0230）；Pool 关系=Node.PoolState（active/standby/suspended）承载动态健康，alloc 按 caps+pool 过滤——无独立 Capability 表是既定形态，节点能力与资源操作能力（cloudprov.AdapterCaps）分属两域。
 -   [x] `F-9102` 明确 Tunnel 与 Path 的边界。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
-    - 备注（F-9102 | 映射口径）：Tunnel=节点间传输连接（agent/relay 角色承载的隧道，RelaySpec/roles/relay 层）；Path=业务线路实体（storage.Path models.go:143，Entry→Landing 全线，含版本/草稿/健康/调度），二者多对一——多 Path 可共享同一 Tunnel 底座（relay.go TunnelSpec）；原「无 Path 实体」结论过期。
+    - 备注（F-9102 | 映射口径）：Tunnel=节点间传输连接（agent/relay 角色承载的隧道，config.RelaySpec→tunnel.Tunnel，roles/relay/relay.go:361 tunnelCache 按 spec 缓存）；Path=业务线路实体（storage.Path models.go:143，Entry→Landing 全线，含版本/草稿/健康/调度），二者多对一——多 Path 可共享同一 Tunnel 底座（同 spec 复用缓存隧道）；原「无 Path 实体」结论过期。
 -   [x] `F-9103` 完成 Path 模型或现有模型映射。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（F-9103 | 已落地）：storage.Path（models.go:143）+ PendingPath 草稿 + LandingAssignment 运行态三段状态机（F-2003 证据 2455a6c/7c2ff1b/a6de078），handler paths.go CRUD+版本+区域过滤（TestPathCRUD/TestPathDraftLifecycle 绿）。
 -   [x] `F-9104` 完成 Path Group 模型或现有模型映射。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
@@ -2618,18 +2618,18 @@ External Client
 
 ## P2 --- 云资源管理与成本基础
 
--   [ ] `F-9201` 完成 Provider Adapter 契约。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9201 | 未满足：无云资源 Provider Adapter（F-0302 区，Adapter/ListResources/Power* 均 0）；provision 仅 tofu CLI(provision.go:89 exec tofu)。）
--   [ ] `F-9202` 完成 Cloud Account 和凭据管理。（依赖：F-1442；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9202 | 未满足：无独立 Cloud Account 实体——provider 加密 access_key 兼作账号（F-1442 部分），无 account 实体/凭据管理。）
--   [ ] `F-9203` 完成资源同步。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9203 | 未满足：CloudResource 模型 0 命中（F-0341 区），无资源拉取/同步/过滤/绑定。）
--   [ ] `F-9204` 完成 Cloud Operation 任务状态机。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9204 | 未满足：CloudOperation 模型 0 命中（F-0361 区），无操作状态机/幂等键/超时对账。）
--   [ ] `F-9205` 完成开机、关机和重启流程。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9205 | 未满足：无云资源电源开/关/重启路径（F-0361 区/F-0327 区）。）
--   [ ] `F-9206` 完成 Cloud Resource 与 Node 关联。（依赖：F-0341、F-0391；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9206 | 未满足：CloudResource 0 命中，无资源↔Node 关联与实例停止/启动/删除联动（F-0391/F-0341 区）。）
+-   [x] `F-9201` 完成 Provider Adapter 契约。（依赖：F-0302；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9201 | 已落地，原「Adapter 0 命中」过期）：cloudprov.Adapter 契约（cloudprov.go:141-146：PowerOn/PowerOff/Reboot/ForceStop/Rebuild/RefreshStatus+计费导入能力）+ AdapterCaps 能力声明（power/force_stop/billing）+ 共享 client 策略（超时/限流/重试 F-0316）+ 错误形态 cloudprov.Error；contract_test.go TestFakeContract/TestUnsupportedGate/TestValidState/TestErrorShape 全绿。
+-   [x] `F-9202` 完成 Cloud Account 和凭据管理。（依赖：F-1442；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9202 | 映射口径已定）：Cloud Account=Provider 实体（既定形态，provider 即账号，F-1442 已收口 7f78101）；凭据=secret 加密 access_key（明文不出库，仅 has_access_key 标记）+ 轮换 TestProviderCredentialRotation + CloudView 账号区录入/编辑/连接测试。
+-   [x] `F-9203` 完成资源同步。（依赖：F-0341；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9203 | 已落地，原「CloudResource 0 命中」过期）：storage.CloudResource + cloudsync 包 SyncOne/Finish（新增/更新/失效对账、区域 scope、失败落 log）+ handler 同步端点；TestSyncOneReconcile/TestSyncScope/TestSyncFailuresAndLog 绿。
+-   [x] `F-9204` 完成 Cloud Operation 任务状态机。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9204 | 已落地，原「CloudOperation 0 命中」过期）：oper 包六态机 pending/running/succeeded/failed/cancelled/unknown + 幂等键 + Reconcile 收敛（TestOperStateMachine/IdempotencyAndBatch/UnknownAndCancel/CapabilityGate；F-2012 同口径）。
+-   [x] `F-9205` 完成开机、关机和重启流程。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9205 | 已落地）：run.go execute 五操作分发 + 状态预检（oper.go:206-239）+ 高危二次确认（关机/强停）+ 结果态回填；TestOperStateMachine 覆盖开/关/重启/强停，handler TestCloudOperationAPI 面。
+-   [x] `F-9206` 完成 Cloud Resource 与 Node 关联。（依赖：F-0341、F-0391；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9206 | 已落地，原「CloudResource 0 命中」过期）：cloudlink 包资源↔Node 映射/刷新/联动（TestMapAndApply/TestRefreshAndApply/TestApplyOperation/TestCheckNode/TestRestoreAfterBoot/TestAfterBootAlert/TestCheckShutdownRisk/TestPathHealth）+ handler cloudlinkapi.go（映射 CRUD/排空/开机校验/路径健康）。
 -   [x] `F-9207` 完成账单导入模型。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-9207 | Status: Done | Evidence: 账单导入模型落地：CostRecord/CostItem/BillImport + 去重/索引 (§4.1/§4.2) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
 -   [x] `F-9208` 完成至少一种 Provider 的实际账单接入或文件导入。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
@@ -2638,10 +2638,10 @@ External Client
     - 备注（Task ID: F-9209 | Status: Done | Evidence: 估算成本全类目落地：包月/固定带宽/按流量/按小时/IP/磁盘/快照/备份/折扣/自定义 (§4.3 F-0541~F-0549) | Verification: TestEstimate*（TestEstimateBaseKinds/Hourly/Traffic/LinesProrate/UnknownLine/RecomputeUpdates/All）+TestBillingAPICostLines（go test ./... 全绿 2026-11-26） | Commit: 8be6965）
 -   [x] `F-9210` 完成实际账单与估算对比。（依赖：F-0581；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-9210 | Status: Done | Evidence: Reconcile 估算 vs 实际对比落地 (§4.5 F-0587) | Verification: TestBillingAPI/TestBillingAPIImportFromAPI/TestStorageConstraints/TestAllocate*/TestReconcile/TestNewVersion（go test ./... 全绿 2026-11-26） | Commit: 356bdec）
--   [ ] `F-9211` 完成 Dash 云资源管理页面。（依赖：F-0411；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9211 | 未满足：Dash 云资源/云操作页面未实现（无 CloudResource 模型即无页面，审计 §3.11 F-9211/9212 未实现）；仅 Providers 列表存在（F-0411 区）。）
--   [ ] `F-9212` 完成 Dash 成本管理页面。（依赖：F-1462、F-1463、F-1465、F-0622；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9212 | 部分：CostView 节点/区域/运营商维度有（F-1464/1466 关）；无 Provider/账号/资源维度、无账单页/同步任务/明细/分摊规则（F-1462/1463/1465/F-0622 区）。）
+-   [x] `F-9211` 完成 Dash 云资源管理页面。（依赖：F-0411；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9211 | 已落地，原「页面未实现」过期）：CloudView 账号与资源 tab（provider 列表/凭据标记/连接测试/同步/资源表含 node_id 绑定+风险预检）+ 操作任务 tab（状态 tag/详情/取消/批次，F-1455）+ 批量电源操作二次确认；F-0411 已收口 7f78101，dash build 绿。
+-   [x] `F-9212` 完成 Dash 成本管理页面。（依赖：F-1462、F-1463、F-1465、F-0622；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9212 | 已落地，原「部分」过期）：CostView 提供成本估算/实际账单/排名/趋势/Path 成本/参考库；BillsView 提供 Provider+账号维度统计（F-1462/1463）、月度账单（F-0622）、明细行+重新分摊+分摊规则版本管理（F-1465/F-0622 面）；dash build 绿（vue-tsc -b+vite build）。
 
 ## P3 --- Agent、Relay 和配置闭环
 
