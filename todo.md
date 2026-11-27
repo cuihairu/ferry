@@ -2239,8 +2239,8 @@ External Client
     - 备注（Task ID: F-1721 | Status: Done | Evidence: secret_store 审计 §3.13（secret_test 6 例） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1722` 验证云凭据加密存储。
     - 备注（Task ID: F-1722 | Status: Done | Evidence: secret.Store AES-GCM+providerapi sealSecret；TestStoreRoundtrip+TestProviderAPI | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1723` 验证密钥轮换。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1723 | 未满足：keyinit 仅首启生成/持久化（keyinit.go:48-138）；secret.Store 有版本键位与按版本解密（secret.go:24-26,70-88）但 NewStore 恒写 v1（secret.go:35）——无加新钥/重加密存量/退休旧钥路径；测试仅初始化与加解密，无轮换用例。）
+-   [x] `F-1723` 验证密钥轮换。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1723 | Status: Done | Evidence: 三段轮换路径落地。①加新钥：NewStore 解析 keyring "v1:old,v2:new"（逗号分项各带版本、顺序无关、无版本前缀=当前版本兼容旧部署键），最高版本为新加密版本（Encrypt/EncryptBytes/EncryptBytesStream 用 s.cur），旧版本仅解密；②重加密存量：internal/keyrotate.Run 启动遍历（NewRouter 内接线，建 store 后跑）三个密封面 providers.access_key / dns_providers.api_key / users.totp_secret，版本低于 cur 的值解密后用新版本重封（幂等；非本格式明文值跳过不报错；解不开的行告警跳过不阻断 boot，密文原样保留待补钥重跑）；③退休旧钥：keyring 撤掉旧版本项后旧密文报 "no key for cipher version vN"。操作流程=两次重启：先置 "v1:old,v2:new" 重启完成迁移，再撤回 "v2:new" 重启。 | Verification: go build/vet 绿，go test ./... -count=1 53 ok FAIL=0（exit=0）；TestKeyringRotation：v1 旧密文 ring 下可解、新密文前缀 v2、乱序+空白 ring 同效、退休环 v2 可解 v1 拒、EncryptBytes 版本字节=2；TestRun：3 行 v1 迁移为 v2 且可解、明文列值原样、二次 Run=0（幂等）、退休环对残留 v1 行报 no key 并保留密文；TestRunNoop：纯键环与禁用 store 均为 0 no-op。 | Commit: ac752e8）
 -   [x] `F-1724` 验证凭据吊销。
     - 备注（Task ID: F-1724 | Status: Done | Evidence: enroll 吊销+节点吊销；TestRevokeUsedEnrollmentToken+TestNodeTokenRevocation | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-1725` 验证订阅令牌重置。
