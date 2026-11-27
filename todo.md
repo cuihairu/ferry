@@ -2408,8 +2408,8 @@ External Client
     - 备注（Task ID: F-1945 | Status: Done | Evidence: monitor.go:121-124 区域作用域发 herald.KindRegionFault+DimensionStatus 聚合（monitor.go:21-26,51-59）合并单告警；设计依据 调度核心设计.md:47,84 | Verification: TestApplyVerdictTransitions（monitor_test.go:59,81-101 region_fault 断言） | Commit: 57e899f）
 -   [x] `F-1946` 评估 Server 高可用。
     - 备注（Task ID: F-1946 | Status: Done | Evidence: 面板可用性设计.md:3 单点+§1 故障语义+小时级 RTO；warm-standby 选项 P2-1 standby.go:1-162+deploy/README.md:235-257 拉取加密主快照；结论单点设计+手动提升，无自动故障转移 | Verification: docs/design/面板可用性设计.md+deploy/README.md | Commit: 57e899f）
--   [ ] `F-1947` 评估数据库只读副本。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1947 | 未满足：无只读副本评估——只读副本|read replica|ReadReplica|副本|读库 全仓 0 命中；standby 是全量加密快照替换自身库并重启（standby.go:115-162）为热备非只读副本，无文档评估。）
+-   [x] `F-1947` 评估数据库只读副本。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-1947 | Commit 见 docs commit | 评估行=文档交付，docs/design/面板可用性设计.md 新增 §7「只读副本评估（评估不落地）」原分期节顺移 §8）：需求面盘点（读路径=订阅拉取/dash/健康自检，agent 长连接是进程内 hub 不经 DB 不构成 DB 读负载）；技术面两条——SQLite 主线无内建复制，litestream 类 WAL 归档是灾备复制非可查询副本，「整库快照只读挂载」与 standby（P2-1）能力重叠无增量收益；PG profile 原生流复制在 DB 运维面即可加、ferry 零代码，读分流（订阅/报表走只读 DSN）才需应用层增量。拍板=现在不做，四条理由（副本解决读吞吐不解决可用性——与 standby 正交，可用性已由 standby 承接；SQLite 快照形态与 standby 重叠；PG 副本 DB 层操作提前做是纯库存；单写约束 F-1948/F-1949 不触碰）。重评触发=PG 上量且订阅 p95 实测劣化或现多地读面板需求，届时动作 PG 流复制+只读 DSN 分流。代码零改动，全绿基线不变（54 ok 2026-11-27）。
 -   [x] `F-1948` 在没有明确需求前不实现数据库双主双写。
     - 备注（Task ID: F-1948 | Status: Done | Evidence: 全仓无 dual|双写|双主|leader|election|lease|advisory|FOR UPDATE（非测试）；Snapshot 显式拒绝非 sqlite（backup.go:111-113）；standby 严格拉取只读从不写主库 | Verification: 全仓 grep 0 命中+standby.go:115-162 | Commit: 57e899f）
 -   [x] `F-1949` 在没有明确需求前不实现多 Server 并发修改同一资源。
