@@ -211,6 +211,9 @@ func Loop(ctx context.Context, db *gorm.DB, interval time.Duration, logger *log.
 		if err := CheckAlerts(db, time.Now(), logger); err != nil {
 			logger.Printf("cost check: %v", err)
 		}
+		if err := CheckGrowth(db, time.Now(), logger); err != nil {
+			logger.Printf("cost growth check: %v", err)
+		}
 		t.Reset(interval)
 	}
 }

@@ -60,6 +60,7 @@ const (
 	KindCloudOpFailed     = "cloud_op_failed"     // a cloud operation settled failed (F-1829)
 	KindProvisionFailed   = "provision_failed"    // a provision job failed (F-1829)
 	KindBillingSyncFailed = "billing_sync_failed" // a cost source's pull/import failed (F-1830, deduped per source per day)
+	KindCostGrowth        = "cost_growth"         // a node's spend pace spiked vs its trailing baseline (F-1831, deduped per node per month)
 
 	// User outreach (HERALD-4, §2.2; in-app messages still go out, this channel serves out-of-app delivery).
 	KindExpire = "expire" // account expiry reminder
