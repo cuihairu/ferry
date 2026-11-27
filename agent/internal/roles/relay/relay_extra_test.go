@@ -108,7 +108,7 @@ func (errTunnel) Close() error { return errors.New("close boom") }
 
 // TestCloseAllLogsError covers one plugin failing to close while the cache closes: log it and keep clearing.
 func TestCloseAllLogsError(t *testing.T) {
-	var buf bytes.Buffer
+	var buf syncBuffer
 	c := newTunnelCache(log.New(&buf, "", 0))
 	c.mu.Lock()
 	c.m["broken"] = errTunnel{}
@@ -162,7 +162,7 @@ func (l *acceptOnceListener) Addr() net.Addr {
 
 // TestRunAcceptErrorLogged covers an error accepting a connection: log it and continue, never interrupting the serve loop.
 func TestRunAcceptErrorLogged(t *testing.T) {
-	var buf bytes.Buffer
+	var buf syncBuffer
 	logger := log.New(&buf, "", 0)
 	ctx, cancel := context.WithCancel(context.Background())
 	runErr := make(chan error, 1)
@@ -190,7 +190,7 @@ func TestRunAcceptErrorLogged(t *testing.T) {
 }
 
 // waitForLog polls the log buffer for a substring.
-func waitForLog(t *testing.T, buf *bytes.Buffer, want string) {
+func waitForLog(t *testing.T, buf *syncBuffer, want string) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for !strings.Contains(buf.String(), want) {
@@ -199,6 +199,26 @@ func waitForLog(t *testing.T, buf *bytes.Buffer, want string) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+// syncBuffer is a log sink safe for concurrent writers: run() logs from
+// background goroutines while the test goroutine polls the buffer through
+// waitForLog (caught by the -race sweep, 2026-11-27).
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 // TestRunHupReloadBranches covers the hot-reload branches: an override clearing the landing keeps the current one, no change means
@@ -212,7 +232,7 @@ func TestRunHupReloadBranches(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var buf bytes.Buffer
+	var buf syncBuffer
 	logger := log.New(&buf, "", 0)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

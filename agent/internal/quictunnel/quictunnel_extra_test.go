@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -57,10 +58,30 @@ func TestServeAcceptErrorReturns(t *testing.T) {
 	}
 }
 
+// syncBuffer is a log sink safe for concurrent writers: Serve logs from
+// background goroutines while the test goroutine polls the buffer with
+// waitForLog (caught by the -race sweep, 2026-11-27).
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
 // TestServeOneReadConnectError covers a local connection dropping without sending CONNECT: serveOne reports
 // a read-connect error which Serve logs (one failure does not take the service down).
 func TestServeOneReadConnectError(t *testing.T) {
-	var buf bytes.Buffer
+	var buf syncBuffer
 	logger := log.New(&buf, "", 0)
 	_, pool := selfSignedTLSPair(t)
 	c := NewClient(&tls.Config{RootCAs: pool})
@@ -183,7 +204,7 @@ func TestServeServerAcceptErrorReturns(t *testing.T) {
 // TestForwardStreamDialFailureLogs covers a stream established while the landing target is unreachable: the stream is closed and
 // a dial-target line is logged (other streams are unaffected).
 func TestForwardStreamDialFailureLogs(t *testing.T) {
-	var buf bytes.Buffer
+	var buf syncBuffer
 	logger := log.New(&buf, "", 0)
 	cert, pool := selfSignedTLSPair(t)
 	udp, err := net.ListenPacket("udp", "127.0.0.1:0")

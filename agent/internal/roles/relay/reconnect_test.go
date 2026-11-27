@@ -1,7 +1,6 @@
 package relay
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -65,7 +64,7 @@ func TestRelayDialRetryRecovers(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ln.Close()
-	var buf bytes.Buffer
+	var buf syncBuffer
 	logger := log.New(&buf, "", 0)
 	go func() {
 		_ = run(ctx, config.RelaySpec{
@@ -149,7 +148,7 @@ func TestRelayDialRetriesExhausted(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ln.Close()
-	var buf bytes.Buffer
+	var buf syncBuffer
 	logger := log.New(&buf, "", 0)
 	go func() {
 		_ = run(ctx, config.RelaySpec{

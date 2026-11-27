@@ -1,7 +1,6 @@
 package relay
 
 import (
-	"bytes"
 	"context"
 	"log"
 	"net"
@@ -54,7 +53,7 @@ func TestRelayMaxConnsRefusesOverflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ln.Close()
-	var buf bytes.Buffer
+	var buf syncBuffer
 	logger := log.New(&buf, "", 0)
 	runErr := make(chan error, 1)
 	go func() {
@@ -151,7 +150,7 @@ func TestRelayMaxStreamsRefusesOverflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ln.Close()
-	var buf bytes.Buffer
+	var buf syncBuffer
 	logger := log.New(&buf, "", 0)
 	runErr := make(chan error, 1)
 	go func() {
