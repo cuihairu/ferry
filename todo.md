@@ -2296,8 +2296,8 @@ External Client
     - 待补（F-1808 | 部分：NodeConfig 行持久 pending/applied/failed（models.go:237）；无成功率聚合指标。）
 -   [x] `F-1809` 采集流量记账延迟。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（Task ID: F-1809 | Status: Done | Evidence: `ferry_traffic_record_lag_seconds{kind}` 直方图（kind=node/user，buckets 0.5s-300s），观察点在记账落库处——saveNodeTraffic 每样本一次（agentws.go）、saveUserTraffic 仅在样本确实入账（角色判定通过+邮箱命中）时观察，被丢弃的样本不产生记账故不观察；观测值=落库时刻-样本 At，负值（agent 时钟超前=时钟偏斜而非延迟）钳到 0 并注释说明 | Verification: go build/vet 全绿，go test ./... 53 ok FAIL=0（exit=0），TestTrafficLagMetrics 以 30s 旧样本断 node sum≈30、未来 10s 样本钳 0、无用户样本不记 user 腿（直方图经 exposition _count/_sum 断言，ToFloat64 不适用） | Commit: 27610d0）
--   [ ] `F-1810` 采集调度耗时。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1810 | 未满足：alloc 调度器无耗时指标。）
+-   [x] `F-1810` 采集调度耗时。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1810 | Status: Done | Evidence: alloc 包内新增 `ferry_alloc_sweep_seconds` 直方图（buckets 1ms-5s）+ `ferry_alloc_sweep_total{result=ok|error}` 计数器（internal/alloc/metrics.go）；观测点在 sweepOnce，只计时决策管线两步（Sweep 换线扫描 + RebindSickPaths 故障重绑）之和——announce webhook 与 relaypush hook 属投递链路，其延迟不计入调度耗时，注释已说明 | Verification: go build/vet 全绿，go test ./... 53 ok FAIL=0（exit=0），TestSweepMetrics 断 ok+1/error 不动/直方图 count delta=1/sum>0，关库后 error+1 | Commit: 420090c）
 -   [ ] `F-1811` 采集 Provider API 请求成功率和延迟。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1811 | 未满足：providerapi 仅 CRUD；无调用成功率/延迟指标。）
 -   [ ] `F-1812` 采集云操作任务成功率和耗时。（依赖：无；完成条件：需求落地+测试绿+证据行）
