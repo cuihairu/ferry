@@ -2462,8 +2462,8 @@ External Client
     - 备注（Task ID: F-2023 | Status: Done | Evidence: relaypush_test 9 例（ACK/超时/重推） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-2024` 测试配置失败回滚。
     - 备注（Task ID: F-2024 | Status: Done | Evidence: configd_test TestApplyReloadFailRollsBack+TestApplyNoOldConfigRollbackRemoves | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-2025` 测试 Relay 建立和断线重连。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2025 | 部分：relay 建立+转发有 TestRelayForwards（relay_test.go:41 mock 隧道）+TestRelayHotRepoint（:129）；重连仅间接（SSH dial 重试 tunnel_extra_test.go:165 TestSSHDialRetryOnChannelReject+agent-link TestRunReconnectsUntilCancel）；无「断已建 relay 隧道→重连→继续转发」测试。）
+-   [x] `F-2025` 测试 Relay 建立和断线重连。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2025 | 历史落地 bfd977f（relay 建立/转发/热重指）+ 4903519（relay dial 重试+缓存失效 F-0813）| 测试 agent 模块 20 ok 全绿 2026-11-27）：原待补「无断已建隧道→重连→继续转发」过期——TestRelayDialRetryRecovers（reconnect_test.go:43，F-0813）正是该链路：已建 relay 前端连接上 landing 首拨失败（failonce 隧道插件）→同连接内重试成功→前端 echo 照常往返（继续转发断言），且恢复不产生致命丢弃（overload/stream-limit 负向断言）；配套 TestRelayDialRetriesExhausted（重试耗尽语义）+TestEffectiveRetries（配置归一/热合并）。隧道层重连 ssh.go「死连接宣告→重连一次→重试」有 TestSSHDialRetryOnChannelReject（已建连接被拒→重连换新连接→重试；重连腿也挂时保留首错+死缓存清理）+TestSSHTunnelEndToEnd（连接复用握手=1+建连后 roundtrip）。relay 生命周期 TestRelayForwards/TestRelayHotRepoint/TestRelayRunFile/TestCloseAllLogsError/TestRunAcceptErrorLogged/TestRunHupReloadBranches 全绿。无代码缺口，按当前树关行。
 -   [x] `F-2026` 测试 Probe 任务执行和结果回传。
     - 备注（Task ID: F-2026 | Status: Done | Evidence: probe_test+TestAgentWSProbeReport/TestAgentWSProbeReportResolve | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-2027` 测试 Path 健康变化。（依赖：无；完成条件：需求落地+测试绿+证据行）
