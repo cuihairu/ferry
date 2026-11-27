@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -348,5 +350,103 @@ func TestProbeTaskMetrics(t *testing.T) {
 	}
 	if testutil.ToFloat64(healthyChild) < 1 || testutil.ToFloat64(sickChild) < 1 {
 		t.Fatalf("verdict counters: healthy=%v sick=%v", testutil.ToFloat64(healthyChild), testutil.ToFloat64(sickChild))
+	}
+}
+
+// metricValue parses one metric sample value out of an exposition body
+// (histograms cannot go through testutil.ToFloat64); a series that does not
+// exist yet reads as 0, which keeps the delta asserts honest.
+func metricValue(t *testing.T, body, metric string) float64 {
+	t.Helper()
+	re := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(metric) + ` ([0-9.eE+-]+)$`)
+	m := re.FindStringSubmatch(body)
+	if m == nil {
+		return 0
+	}
+	v, err := strconv.ParseFloat(m[1], 64)
+	if err != nil {
+		t.Fatalf("metric %s value %q: %v", metric, m[1], err)
+	}
+	return v
+}
+
+// TestTrafficLagMetrics covers F-1809: recording a traffic batch observes the
+// sample age per ledger kind (node/user); a future-dated sample (agent clock
+// ahead) clamps to zero instead of poisoning the lag with negative skew, and
+// samples that never record (no matched user) observe nothing.
+func TestTrafficLagMetrics(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	seedAdminForJWT(t, db)
+
+	if err := db.Create(&storage.User{Username: "tlg@example.com",
+		SubToken: "tlg-sub", Enabled: true}).Error; err != nil {
+		t.Fatal(err)
+	}
+	// Role is set at creation: a first-registration hello writes the
+	// agent-reported meta back (defaulting to landing), and user metering is
+	// single-ended (F-1242) — only an inbound-serving node records the user leg.
+	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
+		"name": "tlg-1", "address": "tlg-1.example.com", "port": 443,
+		"protocol": "vless", "role": "entry",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create node: %d %s", rec.Code, rec.Body)
+	}
+	var node map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &node); err != nil {
+		t.Fatal(err)
+	}
+	token := node["token"].(string)
+
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+	c := fakeAgent(t, srv.URL, "tlg-1", token)
+
+	// Earlier tests in this package already recorded traffic, so deltas are
+	// taken around the batch instead of absolute values.
+	snapshot := func() (nodeCount, nodeSum, userCount, userSum float64) {
+		rec := doJSON(t, r, "GET", "/admin/metrics", nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("metrics: %d %s", rec.Code, rec.Body)
+		}
+		body := rec.Body.String()
+		return metricValue(t, body, `ferry_traffic_record_lag_seconds_count{kind="node"}`),
+			metricValue(t, body, `ferry_traffic_record_lag_seconds_sum{kind="node"}`),
+			metricValue(t, body, `ferry_traffic_record_lag_seconds_count{kind="user"}`),
+			metricValue(t, body, `ferry_traffic_record_lag_seconds_sum{kind="user"}`)
+	}
+	nC, nS, uC, uS := snapshot()
+
+	now := time.Now()
+	rep, _ := agentproto.NewEnvelope("tlg-1", agentproto.MsgTraffic, agentproto.TrafficReport{
+		Items: []agentproto.ProcTraffic{
+			// 30s-old sample: node lag ~30s; no users, so no user leg.
+			{Proc: "xray", Rx: 1, Tx: 2, Conns: 1, At: now.Add(-30 * time.Second)},
+			// fresh sample with a registered user: both legs record
+			{Proc: "xray", Rx: 3, Tx: 4, Conns: 2, At: now,
+				Users: []agentproto.UserTraffic{{Email: "tlg@example.com", Rx: 5, Tx: 6}}},
+			// future-dated sample (agent clock ahead): clamps to zero
+			{Proc: "relay", Rx: 0, Tx: 0, Conns: 1, At: now.Add(10 * time.Second)},
+		},
+	})
+	if err := c.WriteJSON(rep); err != nil {
+		t.Fatalf("write traffic: %v", err)
+	}
+	if env := readEnv(t, c); env.Type != agentproto.MsgTrafficAck {
+		t.Fatalf("expected traffic_ack, got %s", env.Type)
+	}
+
+	nC2, nS2, uC2, uS2 := snapshot()
+	if got := nC2 - nC; got != 3 {
+		t.Fatalf("node count delta = %v, want 3", got)
+	}
+	if lag := nS2 - nS; lag < 30 || lag >= 60 {
+		t.Fatalf("node sum delta = %v, want ~30 (30s sample + 0 clamped)", lag)
+	}
+	if got := uC2 - uC; got != 1 {
+		t.Fatalf("user count delta = %v, want 1 (userless items must not record)", got)
+	}
+	if lag := uS2 - uS; lag < 0 || lag >= 5 {
+		t.Fatalf("user sum delta = %v, want ~0 (fresh sample)", lag)
 	}
 }

@@ -229,6 +229,28 @@ func instrumentAgentMetrics(hub *agenthub.Hub, db *gorm.DB) {
 	})
 }
 
+// ---- Traffic accounting lag (F-1809): the age of a traffic sample when its
+// ledger row is written (record time minus the agent's sample timestamp).
+// kind separates the node-level ledger from the per-user ledger; the user
+// observation fires only when the sample actually recorded (role verdict
+// passed, emails matched) — dropped samples never happened for accounting. ----
+
+var trafficRecordLag = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	Name:    "ferry_traffic_record_lag_seconds",
+	Help:    "Age of a traffic sample when recorded, by ledger kind (node/user).",
+	Buckets: []float64{0.5, 1, 2, 5, 10, 30, 60, 120, 300},
+}, []string{"kind"})
+
+// observeTrafficLag records one sample's age; a negative delta means the agent
+// clock runs ahead, which is skew rather than lag, so it clamps to zero.
+func observeTrafficLag(kind string, at time.Time) {
+	lag := time.Since(at).Seconds()
+	if lag < 0 {
+		lag = 0
+	}
+	trafficRecordLag.WithLabelValues(kind).Observe(lag)
+}
+
 // ---- Probe task metrics (F-1807): dispatch outcomes and per-report
 // verdicts, counted at event time; rates come from rate() at query time. ----
 

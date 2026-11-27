@@ -358,6 +358,7 @@ func (h *Handler) saveNodeTraffic(nodeID int64, items []agentproto.ProcTraffic) 
 	}
 	rows := make([]storage.NodeTrafficLog, 0, len(items))
 	for _, it := range items {
+		observeTrafficLag("node", it.At)
 		rows = append(rows, storage.NodeTrafficLog{
 			NodeID:       uint(nodeID),
 			Proc:         it.Proc,
@@ -443,6 +444,7 @@ func (h *Handler) saveUserTraffic(nodeID int64, items []agentproto.ProcTraffic) 
 	rows := make([]storage.TrafficLog, 0, len(names))
 	unknown := map[string]bool{}
 	for _, it := range items {
+		matched := false
 		for _, u := range it.Users {
 			uid, ok := byName[u.Email]
 			if !ok {
@@ -454,6 +456,10 @@ func (h *Handler) saveUserTraffic(nodeID int64, items []agentproto.ProcTraffic) 
 				UserID: &uid, NodeID: &nid,
 				RxBytes: int64(u.Rx), TxBytes: int64(u.Tx), RecordedAt: it.At,
 			})
+			matched = true
+		}
+		if matched {
+			observeTrafficLag("user", it.At)
 		}
 	}
 	if len(unknown) > 0 {
