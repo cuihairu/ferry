@@ -2443,8 +2443,8 @@ External Client
     - 备注（Task ID: F-2010 | Status: Done | Evidence: agentws_dedupe_test 7 例去重单测 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [x] `F-2011` 为 Cloud Provider Adapter 建立契约测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（F-2011 | 历史落地 1ee762d（cloudprov adapter 契约）| 测试 54 ok 全绿 2026-11-27）：原待补过期——cloudprov 包已落地：Provider 接口+注册表（registry.go）+Fake 适配器（fake.go）+Client 包装（重试/超时/限流/版本兼容/调用追踪 metrics）+类型化错误（errors.go：ErrAuth/ErrUnavailable/ErrRateLimited）。契约测试 contract_test.go 四例——TestFakeContract（Fake 满足 Provider 契约：各 op 资源状态翻转/幂等）、TestUnsupportedGate（能力未声明 op 走 unsupported 门）、TestValidState（状态机合法迁移）、TestErrorShape（错误类型化形状）；Client 侧行为契约 client_test.go 五例（TestClientRetryPolicy 退避重试、TestClientTimeout、TestClientRateLimit、TestVersionCompat 最低 API 版本、TestClientTypedErrors 错误分类）；metrics_test+auth_test（F-1828 hook）补齐观测与认证面。消费方 oper/billing/cloudsync/provision 全走同一 Fake 契约测试（见 F-1828/F-1829/F-1830 证据）。无代码缺口，按当前树关行。
--   [ ] `F-2012` 为 Cloud Operation 状态机建立单元测试。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2012 | 未满足：type CloudOperation 0 命中；无操作状态机/幂等键/任务接入。）
+-   [x] `F-2012` 为 Cloud Operation 状态机建立单元测试。（依赖：F-0361；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2012 | 历史落地 5a59e1e（云操作任务 oper 包，依赖 F-0361 cloudprov）+ 8e23d4b（失败告警 F-1829）| 测试 54 ok 全绿 2026-11-27）：原待补「type CloudOperation 0 命中」过期——CloudOperation/CloudOperationLog 已落表，oper 包状态机 pending/running/succeeded/failed/cancelled/unknown。单测 oper_test.go 六例——TestOperStateMachine（状态迁移正主）、TestOperIdempotencyAndBatch（幂等键+批处理）、TestOperUnknownAndCancel（unknown 结局与取消语义）、TestOperCapabilityGate（能力未声明拒操作）、TestOperParamsJSON（参数形状）、TestCloudOpFailedAlert（failed 落 herald cloud_op_failed，F-1829）+TestOperMetrics（调用追踪）。无代码缺口，按当前树关行。
 -   [ ] `F-2013` 为 Cost Import 去重建立单元测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2013 | 未满足：无账单/导入管线（cost 仅逐节点 Build+价格 CheckNode+watch/alert）；无 CostImport 去重单测。）
 -   [ ] `F-2014` 为 Cost Allocation 建立单元测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
