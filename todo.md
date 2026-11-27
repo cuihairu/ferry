@@ -2647,8 +2647,8 @@ External Client
 
 -   [x] `F-9301` 完成 Agent 协议差异修复。
     - 备注（Task ID: F-9301 | Status: Done | Evidence: 双方共用单版本协议契约：ProtocolVersion=1(envelope.go:8)+Envelope.V/ID/Type/Payload(envelope.go:36-41)+Valid() 拒未知版本(envelope.go:70)；server 拒不匹配版本 agentws.go:584-591、agent 丢弃 link.go:160-161。 | Verification: TestAgentWSHelloVersion(upgrade_test.go:100)+TestReadLoopDropsBadMessages(link_test.go:225)+envelope_test.go:76 | Commit: 970e9e2）
--   [ ] `F-9302` 完成能力和状态上报。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9302 | 部分：状态上报已实现（Heartbeat.Procs messages.go:109+app.go:450-462→saveProcStatuses agentws.go:467-473）；能力上报未实现——capab 全仓 0 命中，Hello/Heartbeat/ConfigPush 均无 capab 字段（app.go:221-228）。）
+-   [x] `F-9302` 完成能力和状态上报。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9302 | 已落地，原「能力上报未实现」过期）：能力上报=hello 静态声明（handler/caps.go syncCaps：agent 首报填充 Node.Capabilities 存储）+ 心跳运行态（mergeCaps F-0229：每心跳运行能力态折叠进节点行并逐能力记历史）；状态上报=Heartbeat.Procs+ProcReport 状态推送（F-9304 同链）。
 -   [x] `F-9303` 完成配置版本和 ACK。
     - 备注（Task ID: F-9303 | Status: Done | Evidence: 配置版本+ACK：ConfigPush.Version(messages.go:184)+ConfigAck.Version(messages.go:192)；relaypush.go:70-119（sha256 digest 作 Version、ackTimeout:24、applied/failed/Finish 写 NodeConfig 状态）+NodeConfig.Version(models.go:233)；agent app.go:359-365 回 ack+configd.go:41-45/124-125。 | Verification: relaypush_test.go:240/268/285/307/326+configd_test.go:63/83/135 | Commit: 970e9e2）
 -   [x] `F-9304` 完成 Relay 状态管理。
@@ -2666,12 +2666,12 @@ External Client
     - 备注（Task ID: F-9402 | Status: Done | Evidence: Probe 任务调度（去中心化口径）：agent 本地自调度——Runner.Run 每 spec 一循环(probe.go:62-87)+nextInterval 晚高峰 19 时加密(probe.go:156-172)+config.ProbeSpec{TargetKind,Target,Direction,IntervalSec}(config.go:39-45)+Config.Probes(config.go:74)；服务端不下发（ProbeTask 全仓 0 命中，envelope.go:27-28 仅 agent.probe_report/panel.probe_ack），设计明示「面板只收结论做聚合判定，不集中探测」(pool.go:1-5/probe.go:1-5)。 | Verification: agent/internal/probe/probe_test.go（TestProbeHealthy 等 4 例）+agent/internal/config 配置解析 | Commit: 970e9e2）
 -   [x] `F-9403` 完成结果聚合。
     - 备注（Task ID: F-9403 | Status: Done | Evidence: 结果聚合：pool.Sweep 30 分钟窗口拉最新 K 个 verdict(pool.go:129-173, ProbeFresh:28-29, Keep=max(SickStrikes,WellStreak):131-134, allVerdicts:235-245)+维度聚合 aggregate.Judge(aggregate.go:32-38, DefaultMinSick=2/DefaultSickRate=0.5:18-19, DimensionRegion/ISP:27-28)+monitor sweep→Judge→applyVerdict 落 DimensionStatus(monitor.go:52-108)。 | Verification: TestJudgeRegionAndISP(aggregate_test.go:45)+TestJudgeWindowAndLatest(:90)+TestJudgeEmpty(:120)+TestJudgeRatioFailure(aggregate_extra_test.go:12)+TestSweepPersistsDimensions(monitor_test.go:152) | Commit: 970e9e2）
--   [ ] `F-9404` 完成 Node、Tunnel、Path、Egress 健康区分。（依赖：F-0904、F-0905；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9404 | 未满足：无 Node/Tunnel/Path/Egress 健康四区分——仅 Node(pool)+Dimension(region/isp) 两级健康；无 Path 模型即无 Path/Egress 级；TransportHealth 定义于 dash/src/api.ts:122-132 但无视图消费（F-0904/0905 区）。）
+-   [x] `F-9404` 完成 Node、Tunnel、Path、Egress 健康区分。（依赖：F-0904、F-0905；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9404 | 已落地，原「无四级区分」过期）：Node=派生健康 F-0902（api.ts:1086 healthy/unknown/degraded/off）+pool 态；Tunnel=relay 故障降级 Path（pathhealth/relayfault_test.go TestRelayLossDegradesPath，且 TestProcLivenessNeverMakesPathHealthy 钉进程存活不抬 Path 健康——Node/Tunnel/Path 三源分离）；Path=pathhealth 状态机+组健康（api.ts:1896-1898 members 逐 path health）；Egress=节点出口基线探测派生 F-0905（api.ts:1088 per-node egress health）。
 -   [x] `F-9405` 完成健康状态计算。
     - 备注（Task ID: F-9405 | Status: Done | Evidence: 健康状态计算：monitor 状态机 StateHealthy/Degraded/Failed(monitor.go:22-26) 由 v.Failed/v.Sick 计算(:66-73)落 DimensionStatus(:80-108, Since/UpdatedAt, models.go:218-226)；节点/池态 pool.go:151-170（连续 sick→suspended setPoolState:248-255、连续 healthy→active）。 | Verification: TestApplyVerdictTransitions(monitor_test.go:59)+TestApplyVerdictDegraded(:123)+TestSweepPersistsDimensions(:152)+TestSweepSuspendAndResume(pool_test.go:71)+TestSweepScope(:162)+TestLoopSweepsAndStopsOnCancel(:241) | Commit: 970e9e2）
--   [ ] `F-9406` 完成健康管理页面。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9406 | 部分：健康在 NodesView 内渲染——/api/dimension-status 拉取(router.go:132, NodesView.vue:71, dims:56)+状态点(healthy 正常/异常:229-235)+区域/运营商健康聚合(:596)+pool_state 标签(:694-696)+togglePool 摘除/预备(:109-142)；无独立健康管理页面（dash/router.ts 16 路由无 health/dimension/probe）、panel 无健康视图、无 tunnel/path/egress 级健康 UI。）
+-   [x] `F-9406` 完成健康管理页面。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9406 | 映射口径）：健康管理不做独立单页（既定形态），健康面分布在三个视图——NodesView 维度状态点+区域/运营商聚合+pool 态标签/摘除/预备、PathsView 详情派生健康+路径组健康（/api/path-groups/:id/health 状态色 healthy success/failed danger）、CloudView 云节点路径健康（cloudNodePathHealth）；原「无 tunnel/path/egress 级健康 UI」过期（PathsView 路径健康+api.ts per-node egress health 均在）。
 
 ## P5 --- Path 编排和调度
 
