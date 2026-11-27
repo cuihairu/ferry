@@ -2389,8 +2389,8 @@ External Client
     - 备注（F-1929 | Commit 24d550b | 测试 deploy/rollback-test.sh 11 断言 EXIT=0 本地实跑）：方案落 deploy/README.md 新节「Server 升级与回滚」——升级=先手动备份留底（/admin/backup/db，restore.sh 硬兜底）再换程序，数据目录永不动；回滚双面：compose 面 git checkout 前一 commit/镜像 tag 后 up -d --build 重建（数据卷不动），二进制/systemd 面 .prev 留底+同目录 rename 原子换回（与 agent .prev 同纪律）；PG 面同口径。数据不动之所以安全的性质有回归：AutoMigrate 只加不减、老二进制经 GORM 只映射自身字段——rollback-test.sh 断言老二进制对前拨库面（nodes.future_col 新列+future_table 新表带行）读路径（admin 登录/节点读回）、写路径（回滚后新注册 rb-node2）均无损，未知表/列原样保留，幂等重启无损；CI deploy-scripts job 加 server rollback test 步。诚实口径：AutoMigrate 无 down-migration 也不需要——extra schema 对老版本无害，破坏性场景兜底走升级前备份档+restore.sh 六步。
 -   [x] `F-1930` 建立完整部署冒烟测试。
     - 备注（Task ID: F-1930 | Status: Done | Evidence: deploy/e2e-smoke.sh 实跑 53 ok EXIT=0 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1931` 验证 Server 重启后 Agent 能重新连接。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1931 | 部分：仅通用重连断言 TestRunReconnectsUntilCancel（link_test.go:161-182 disconnects>=3）+TestRunDialErrorReconnectsUntilCancel（link_extra_test.go:19-35）；无杀/重启 ferry-server 断言 agent 回在线——e2e-smoke.sh 先杀 agent 再重启 server，重启腿不覆盖重连（MIGRATION-RUNBOOK.md:96-98 仅手动）。）
+-   [x] `F-1931` 验证 Server 重启后 Agent 能重新连接。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-1931 | Commit 9c0ab8c | 测试 deploy/reconnect-test.sh 7 断言 EXIT=0 本地实跑）：runbook 步骤四「节点侧零操作」口径落成真回归——真 ferry-server + 真 ferry-agent 全链路：首启登录→签发凭据→注册节点→agent 拨真 WS 上线（agents_online=1）→SIGTERM 杀 server（断言健康不可达 http=000，故障窗口成立，防端口被顶替假绿）→同一数据目录重启 server→poll agents_online 回 1（agent 指数退避 1s→30s 自愈，节点侧零操作，60×0.5s 窗口）。CI deploy-scripts job 加 server restart agent reconnect test 步。随机端口 18500-18699 防遗留进程顶替；agent.json 必须带 meta.bw_up/bw_down_mbps（load config 硬校验，首跑踩坑已修）。原待补的「单元只测重连循环、无杀真 server 断言」由本脚本补齐。
 -   [ ] `F-1932` 验证 Server 不可用时数据面继续运行。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1932 | 部分：故障语义有文档（面板可用性设计.md:5-18：agent 本地自治/隧道/用户流量继续，管理面断）+离线缓冲测试 TestSendFailureRetries（spool_test.go:99）+TestWatchForwardsUntilCancel（:147）；无「数据面在 server 宕机时继续转发」专门断言。）
 
