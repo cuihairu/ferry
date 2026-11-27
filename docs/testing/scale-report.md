@@ -56,6 +56,15 @@
   （i9-10880H，2026-11-27）——调度按连接粒度发生，单次选择远低于连接建立
   预算。
 
+## 账单大批量导入（F-2070）
+
+`server/internal/billing/import_scale_test.go`（TestImportFileLargeBatch，2026-11-27）：
+
+- 5000 行账单走真实 ImportFile 全路径（JSON 解析→去重键分组→落库）：run
+  succeeded、added=5000、落库 CostItem=5000、金额逐分求和一致，首过 1.47s；
+- 同文件重导入：5000/5000 全部去重为 skipped，CostRecord 仍 5000 —— 量级下
+  无一分双计（F-0529）。
+
 ## 结论
 
 控制面在 50 节点规模下心跳/探测/流量/订阅/配置下发全链路无 5xx、
