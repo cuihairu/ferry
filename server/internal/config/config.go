@@ -171,9 +171,10 @@ type Config struct {
 	// BackupDir/BackupCron/BackupKeep are local periodic backups (panel availability §2, P1): the archive
 	// directory, the schedule (a cron expression or the "daily"/"HH:MM" alias, defaulting to daily), and the local
 	// rolling retention count (manual archives included; out-of-window rows are deleted together with their files).
-	BackupDir  string
-	BackupCron string
-	BackupKeep int
+	BackupDir         string
+	BackupCron        string
+	BackupKeep        int
+	BackupConfigFiles []string // deploy-time config files copied into each backup round (FERRY_BACKUP_CONFIG, F-1926)
 
 	// AuditRetentionDays is the operation audit (AU-3) retention in days: out-of-window rows are deleted by the sweep loop,
 	// 0 = permanent retention (no sweep loop started).
@@ -262,6 +263,7 @@ func Load() Config {
 		BackupDir:                envOr("FERRY_BACKUP_DIR", "backups"),
 		BackupCron:               envOr("FERRY_BACKUP_CRON", "daily"),
 		BackupKeep:               envIntOr("FERRY_BACKUP_KEEP", 7),
+		BackupConfigFiles:        csvEnv("FERRY_BACKUP_CONFIG"),
 		AuditRetentionDays:       envIntOr("FERRY_AUDIT_RETENTION_DAYS", 90),
 		ProbeRetentionDays:       envIntOr("FERRY_PROBE_RETENTION_DAYS", 30),
 		NodeTrafficRetentionDays: envIntOr("FERRY_NODE_TRAFFIC_RETENTION_DAYS", 62),

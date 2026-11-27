@@ -323,7 +323,8 @@ func run(ctx context.Context, cfg config.Config) error {
 	// success sets uploaded=1, failure alerts and keeps the local archive).
 	backupOpts := backup.Options{
 		Dir: cfg.BackupDir, Cron: cfg.BackupCron, Keep: cfg.BackupKeep,
-		S3Enabled: cfg.BackupS3Enabled,
+		ConfigFiles: cfg.BackupConfigFiles,
+		S3Enabled:   cfg.BackupS3Enabled,
 	}
 	if cfg.BackupS3Enabled {
 		up, err := backup.NewS3Uploader(cfg.BackupS3Endpoint, cfg.BackupS3Bucket,

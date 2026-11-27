@@ -12,10 +12,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/cuihairu/ferry/server/internal/herald"
@@ -50,12 +52,13 @@ type Uploader interface {
 
 // Options is the periodic backup policy; the zero value falls back to the default (daily, keep 7).
 type Options struct {
-	Dir       string   // archive directory (FERRY_BACKUP_DIR)
-	Cron      string   // schedule: a cron expression or the "daily"/"HH:MM" alias (FERRY_BACKUP_CRON)
-	Keep      int      // rolling retention count (FERRY_BACKUP_KEEP)
-	S3Enabled bool     // outbound switch (FERRY_BACKUP_S3_ENABLED, off by default)
-	S3        Uploader // outbound implementation (S3Uploader injected when enabled, a stub in tests)
-	Logger    *log.Logger
+	Dir         string   // archive directory (FERRY_BACKUP_DIR)
+	Cron        string   // schedule: a cron expression or the "daily"/"HH:MM" alias (FERRY_BACKUP_CRON)
+	Keep        int      // rolling retention count (FERRY_BACKUP_KEEP)
+	ConfigFiles []string // deploy-time config files copied into the archive dir each round (FERRY_BACKUP_CONFIG, F-1926)
+	S3Enabled   bool     // outbound switch (FERRY_BACKUP_S3_ENABLED, off by default)
+	S3          Uploader // outbound implementation (S3Uploader injected when enabled, a stub in tests)
+	Logger      *log.Logger
 
 	tick  time.Duration // schedule check period (unexported, injected by tests; defaults to TickSec)
 	sched cron.Schedule // schedule injection (unexported, injected by tests; defaults to parsing Cron)
@@ -172,8 +175,69 @@ func Snapshot(db *gorm.DB, dir string, store *secret.Store) (string, int64, erro
 	return path, info.Size(), nil
 }
 
+// snapshotConfigFiles copies the operator-listed config files into the backup
+// directory (F-1926): the panel's runtime settings live in the DB (already in
+// the snapshot), but deploy-time env files do not. With a master key
+// configured each copy is stream-encrypted under the same discipline as the
+// DB archive (the master key itself never lands in the backup directory --
+// which is why key backup stays a manual, off-machine procedure, see
+// restore.sh --key); without one the copy is plaintext 0600 with a loud
+// warning. A listed file that does not exist is skipped with a warning
+// (renamed or mounted-out is a site choice); any other failure fails the
+// round so backup_failed fires.
+func snapshotConfigFiles(dir string, files []string, store *secret.Store, logger *log.Logger) error {
+	if len(files) == 0 {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return fmt.Errorf("backup dir: %w", err)
+	}
+	stamp := time.Now().Format("20060102-150405")
+	enc := store != nil && store.Enabled()
+	for _, f := range files {
+		f = strings.TrimSpace(f)
+		if f == "" {
+			continue
+		}
+		if _, err := os.Stat(f); errors.Is(err, os.ErrNotExist) {
+			logger.Printf("backup: config file %s not found, skipped", f)
+			continue
+		}
+		src, err := os.Open(f)
+		if err != nil {
+			return fmt.Errorf("config backup %s: %w", f, err)
+		}
+		name := "ferry-config-" + stamp + "-" + filepath.Base(f)
+		if enc {
+			name += ".enc"
+		}
+		dst, err := os.OpenFile(filepath.Join(dir, name), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+		if err != nil {
+			src.Close()
+			return fmt.Errorf("config backup %s: %w", f, err)
+		}
+		var cerr error
+		if enc {
+			cerr = store.EncryptBytesStream(src, dst)
+		} else {
+			_, cerr = io.Copy(dst, src)
+			if cerr == nil {
+				logger.Printf("backup: config file %s archived UNENCRYPTED (no master key configured)", f)
+			}
+		}
+		dst.Close()
+		src.Close()
+		if cerr != nil {
+			os.Remove(filepath.Join(dir, name))
+			return fmt.Errorf("config backup %s: %w", f, cerr)
+		}
+		logger.Printf("backup: config file %s archived as %s", f, name)
+	}
+	return nil
+}
+
 // Loop is the periodic backup schedule: it polls the next cron trigger at TickSec and, when it
-// comes, runs one round (snapshot -> row -> outbound slot -> rolling cleanup); failures alert via Herald backup_failed.
+// comes, runs one round (config copies -> snapshot -> row -> outbound slot -> rolling cleanup); failures alert via Herald backup_failed.
 func Loop(ctx context.Context, db *gorm.DB, opts Options, store *secret.Store) {
 	opts = opts.normalize()
 	sched := opts.sched
@@ -213,9 +277,13 @@ func outboundState(opts Options) string {
 	return "enabled (s3-compatible endpoint; scope = all files in backup dir)"
 }
 
-// run executes one full backup round: snapshot archive -> backups row -> outbound slot (S3 wired in,
-// the 2026-10-09 outbound batch; no uploader configured means only the log states that nothing is sent) -> rolling cleanup.
+// run executes one full backup round: config file copies (F-1926, opt-in) -> snapshot archive ->
+// backups row -> outbound slot (S3 wired in, the 2026-10-09 outbound batch; no uploader configured
+// means only the log states that nothing is sent) -> rolling cleanup.
 func run(ctx context.Context, db *gorm.DB, opts Options, store *secret.Store) error {
+	if err := snapshotConfigFiles(opts.Dir, opts.ConfigFiles, store, opts.Logger); err != nil {
+		return err
+	}
 	path, size, err := Snapshot(db, opts.Dir, store)
 	if err != nil {
 		return err
