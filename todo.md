@@ -2501,22 +2501,22 @@ External Client
     - 备注（F-2042 | Commit cac8df0 | e2e-smoke.sh 全链 61 断言 exit=0 2026-11-27）：原待补「无 entry 角色部署」已补——第二个 enrollment token→ enroll「e2e-entry」→ agent 配置 meta.role=entry/direction=in →真 WS hello→健康计数=1→面板 Node role/direction 落库断言→断线回落→恢复库后 e2e-entry 仍在；entry 数据面/Path entry 属 F-2044+ 真实隧道腿，不并入本行。
 -   [x] `F-2043` 自动部署 Landing Node。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（F-2043 | Commit cac8df0 | 同轮 e2e 61 断言 exit=0）：首节点不显式设 meta.role，agent 配置校验默认 landing（config.go:224-225），e2e 新增「默认部署节点角色为 landing」面板断言（nodes 行 role=landing）；F-2042 的第二个节点显式 entry 与首节点形成对照。
--   [ ] `F-2044` 建立真实 Relay Tunnel。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2044 | 未满足：e2e 仅 agent WS 链路；无真实 relay 隧道（relay 角色仅单测 relay_test.go）。）
--   [ ] `F-2045` 创建 Path 并执行探测。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2045 | 未满足：无 Path；e2e 无探测（probe 仅单测）。）
+-   [x] `F-2044` 建立真实 Relay Tunnel。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2044 | Commit 440c277 | deploy/relay-path-test.sh 24 断言 exit=0 2026-11-27，CI test.yml deploy-scripts 接线）：真二进制三节点部署——relay 角色独立进程（-role relay）front listener → tls-camo（真 TLS+CA 钉扎）→ 落地 TLS 回显，TCP 字节往返断言一致；无任何 mock。
+-   [x] `F-2045` 创建 Path 并执行探测。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2045 | Commit 440c277 | 同上脚本）：面板 API 建 entry→relay→landing 三段 Path → PUT /api/nodes/:id/probe_tasks 下发 TCP 探测（delivered=true 真 ack）→ 探测报告落库断言 reachable/healthy/tunnel/target_node_id=landing（findNodeByAddress 解析）→ GET /api/paths/:id/health=healthy。
 -   [x] `F-2046` 生成 sing-box 订阅并执行解析测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（F-2046 | Commit cac8df0+本轮 | e2e-smoke.sh 70 断言 exit=0 2026-11-27）：原待补「仅单测」已补 e2e——创建面板用户（e2e-sub）→ 面板补 Entry 节点 vless+ws+tls 配置 → 真 HTTP UA=sing-box/1.8.0 请求 /sub/:token → python3 stdlib json 解析裸 outbounds 数组，断言 type=vless/server/uuid 逐字段；单测层 sub/singbox_test.go 同口径回归。
 -   [x] `F-2047` 生成 Clash/Mihomo 配置并执行解析测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（F-2047 | 同轮 e2e）：UA=clash-verge/2.0 真 HTTP 请求 /sub/:token 得 YAML profile，grep 断言 `^proxies:` 与 `type: vless` 结构完整；默认 UA（curl）回落 base64 v2ray 链接（`base64 -d` 解出 `vless://`）；未知令牌 404 反枚举（三态 UA 协商全链）；单测层 sub/clash_test.go 同口径回归。
--   [ ] `F-2048` 验证真实 TCP 转发。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2048 | 未满足：无真实 TCP 转发 e2e（relay 转发仅单测/mock TestRelayForwards）。）
+-   [x] `F-2048` 验证真实 TCP 转发。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2048 | Commit 440c277 | relay-path-test.sh）：原待补「relay 转发仅单测/mock」已补真 e2e——真 relay 进程 front 端口发 `relay-roundtrip` 字节流经 tls-camo 隧道到落地 TLS 端再回读，逐字节一致（serveConn io.Copy 双向全真）；内核侧用户流量转发仍属 FERRY-004 外部内核关注点。
 -   [ ] `F-2049` 验证真实 UDP 转发。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2049 | 未满足：无 UDP 转发 e2e 或单测。）
--   [ ] `F-2050` 验证节点故障后的线路处理。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2050 | 未满足：e2e 覆盖进程故障（stub 内核崩溃→自重启 e2e-smoke.sh:235-237,262）；无节点线路/网络故障处理。）
--   [ ] `F-2051` 验证节点恢复后重新加入调度。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2051 | 部分：agent 掉线→重连覆盖（健康 1→0→1+token 轮换窗再上线 e2e-smoke.sh:298-340+单测 TestRunReconnectsUntilCancel）；无故障触发恢复/重入调度 e2e。）
+-   [x] `F-2050` 验证节点故障后的线路处理。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2050 | Commit 440c277 | relay-path-test.sh 故障腿）：两类故障真 e2e——①落地 TLS 服务杀掉→探测转 sick（F-0925 提速生效）→Path health=degraded；②landing agent 杀掉→WS 断开即置 offline（agentws.go:197）→agents_online 3→2→Path=degraded；进程故障（stub 内核崩溃自重启）由 e2e-smoke 原腿照旧。
+-   [x] `F-2051` 验证节点恢复后重新加入调度。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2051 | Commit 440c277 | relay-path-test.sh 恢复腿）：两类恢复真 e2e——①TLS 服务重启→探测回 healthy→Path=healthy（探测调度重新纳用）；②landing agent 重连→agents_online=3→Path=healthy（节点重新可入调度）；此前 agent 掉线重连/轮换窗再上线由 e2e-smoke 原腿照旧。
 -   [ ] `F-2052` 验证流量记账准确性。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2052 | 未满足：流量记账准确仅单测（TestSaveStatsAPI+traffic tests）；e2e 不测流量量级。）
 -   [x] `F-2053` 验证 Server 重启后的状态恢复。（依赖：无；完成条件：需求落地+测试绿+证据行）
@@ -2745,7 +2745,7 @@ External Client
 -   [ ] `F-9806` 完成账单导入和成本核算规模测试。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9806 | 未满足：无账单导入（BillImport 0 命中）即无账单导入/成本核算规模测试（F-0521 区）。）
 -   [ ] `F-9807` 完成完整端到端测试。（依赖：F-2042~F-2055；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9807 | 部分（2026-11-27 更新）：e2e-smoke.sh 70 断言真起双二进制全不 mock，覆盖 认证→注册/重放拒→WS 上线→进程监管→proc_ctl（含 stop confirm 负断言）→断线回落→轮换吊销→配置下发回执→Entry 角色节点部署→订阅三态 UA 生成与解析→未知令牌 404→备份恢复→compose 校验；另有 reconnect/dataplane/upgrade/compose/systemd/install-rollback 五专项 smoke 进 CI。仍缺：流量记账 e2e、Path/探测 e2e、Relay 隧道、TCP/UDP 转发、Dash/Panel 前端（F-2044/2045/2048/2049/2050/2051/2052 未关）。）
+    - 待补（F-9807 | 部分（2026-11-27 更新）：e2e-smoke.sh 70 断言真起双二进制全不 mock，覆盖 认证→注册/重放拒→WS 上线→进程监管→proc_ctl（含 stop confirm 负断言）→断线回落→轮换吊销→配置下发回执→Entry 角色节点部署→订阅三态 UA 生成与解析→未知令牌 404→备份恢复→compose 校验；另有 reconnect/dataplane/upgrade/compose/systemd/install-rollback 六专项 smoke 进 CI（relay-path-test 440c277 新增）。仍缺：流量记账 e2e、UDP 转发 e2e（F-0812）、规模/压测族（F-2061~2076）、Dash/Panel 前端（F-2049/2052 及 F-2061~2076 未关）。）
 
 ## P9 --- 后续扩展
 
