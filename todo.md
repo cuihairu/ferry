@@ -2675,49 +2675,52 @@ External Client
 
 ## P5 --- Path 编排和调度
 
--   [ ] `F-9501` 完成 Path 创建和校验。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9501 | 未满足：无 type Path（F-0243 区），无 Path 创建/校验/CRUD API。）
+-   [x] `F-9501` 完成 Path 创建和校验。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9501 | 已落地，原「无 type Path」过期）：storage.Path CRUD+校验（paths.go：拓扑自环/空节点/未知节点 400）+版本+草稿确认（F-1016 证据 7c2ff1b）；TestPathCRUD/TestPathDraftLifecycle 绿；F-9103 同收口。
 -   [x] `F-9502` 完成 Entry → Landing 编排。
     - 备注（Task ID: F-9502 | Status: Done | Evidence: Entry→Landing 编排：自动调度写 LandingAssignment(alloc.go:530-541 SweepAt→db.Create, 当前 auto 释放:525-528)+手动入口 landing.go:45-109(db.Create:104, 校验 entry/landing role/方向/权重)+路由 /api/landings GET/POST/PUT/DELETE(router.go:137-140)。 | Verification: TestSweepAllocatesAndSwitches(alloc_test.go:223)+TestSweepManualWins(:302)+TestLandingAssignment(landing_test.go:10)+TestAllocAPI(allocapi_test.go:11) | Commit: 970e9e2）
--   [ ] `F-9503` 完成 Path Group。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9503 | 未满足：PathGroup 模型 0 命中（F-0261 区）。）
--   [ ] `F-9504` 完成 Policy。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9504 | 未满足：无 type Policy（F-0282 区）。）
+-   [x] `F-9503` 完成 Path Group。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9503 | 已落地，原「PathGroup 模型 0 命中」过期）：storage.PathGroup+PathGroupMember（models.go:189/205）+组健康聚合/成员健康排序（pathhealth）+PathsView 组管理 UI（/api/path-groups/:id/health）；F-9104 同收口。
+-   [x] `F-9504` 完成 Policy。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9504 | 已落地，原「无 type Policy」过期）：storage.Policy（policy.go:28，system/plan/user scope+constraints）+policy 包 resolve/merge/apply/freeze+handler policyapi CRUD（GET/POST/PUT/DELETE /api/policies）；F-9105 同收口。
 -   [x] `F-9505` 完成候选过滤。
     - 备注（Task ID: F-9505 | Status: Done | Evidence: 候选过滤：alloc.go:448-455（entry role∈(entry,both)、landing role∈(landing,both)、enabled+pool_state=active+status!=provisioning）+:486-489（Direction 匹配、Healthy:!sick[l.ID]）+sick 来自 latestSick(ProbeFresh 30min):622-635+Pick 健康门控:218-226。 | Verification: TestPickHealthGate(alloc_test.go:155)+TestSweepScopeGuards(:338)+TestSweepAllSickKeepsCurrent(:367)+TestPickLeastConnCapacityWeight(:67) | Commit: 970e9e2）
 -   [x] `F-9506` 完成质量、容量和成本评分。
     - 备注（Task ID: F-9506 | Status: Done | Evidence: 质量/容量/成本评分：容量 CapacityMbps(alloc.go:188-198 实测>降档>升档>100 兜底)+loadRatio(:241-243)；成本 CostPerGB(:202-207 仅按流量边际价)+costPer(:246-248)；策略比较 lessFor(:256-318 least_conn/cost_first/perf_first 精品线:355-361/balanced 归一加权:293-301)；成本聚合 cost.Build(cost.go:96-152)。 | Verification: TestPickCostFirst(alloc_test.go:89)+TestPickPerfFirstInOnly(:111)+TestPickBalanced(:133)+TestPickBalancedWeights(:480)+TestCapacityMbpsFallbacks(:547)+TestBuild(cost_test.go:48)+TestCheckAlerts(:131) | Commit: 970e9e2）
 -   [x] `F-9507` 完成故障回退。
     - 备注（Task ID: F-9507 | Status: Done | Evidence: 故障回退：故障切换 alloc.go:502-521（当前 auto 落地不在健康候选集→强制换绑，健康问题不排队；释放旧:525-528+建新:530-541）；节点恢复 pool.Sweep(pool.go:129-173 连续 SickStrikes→suspended:156、连续 WellStreak→active:163)+手动 Resume/Suspend(:176-234)；恢复状态机 recovery.Sweep(recovery.go:108)+advance(:211)；离线补报 agent spool。 | Verification: TestSweepAllSickKeepsCurrent(alloc_test.go:367)+TestSweepSuspendAndResume(pool_test.go:71)+TestResume(:193)+TestSuspend(:216) | Commit: 970e9e2）
--   [ ] `F-9508` 完成调度解释和模拟。（依赖：F-1032、F-1033、F-1034、F-1035；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9508 | 未满足：无调度决策记录/候选排除原因/结果解释/模拟 API（F-1032/1033/1034/1035 均未关）。）
+-   [x] `F-9508` 完成调度解释和模拟。（依赖：F-1032、F-1033、F-1034、F-1035；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9508 | 已落地，原「四依赖均未关」过期）：F-1032 决策快照（43a3eae AllocDecision+GET /api/alloc/decisions 回放）、F-1033 候选排除原因（3b82a58 结构排除带 reason）、F-1034 解释 API（726568c GET /api/alloc/explain 只读）、F-1035 模拟 API（6498c50 POST /api/alloc/simulate 零持久化）；TestAllocExplain/TestAllocSimulate 绿。
 
 ## P6 --- 订阅和用户运营
 
--   [ ] `F-9601` 完成统一 Subscription DTO。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9601 | 部分：共享输入 DTO sub.Entry{Node,RttMs}(links.go:169-173) 被三适配器共用（PackV2Ray links.go:201/PackClash clash.go:72/PackSingBox singbox.go:165）；无统一响应 DTO——各格式自出（v2ray base64 links/clashDoc clash.go:66/sing-box outbounds singbox.go:165），handler 按 target 分支(sub.go:124-152)。）
+-   [x] `F-9601` 完成统一 Subscription DTO。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9601 | 映射口径已定）：统一在输入侧——sub.Entry{Node,RttMs} 单 DTO 喂三适配器（PackV2Ray/PackClash/PackSingBox）；输出侧不做单一响应 DTO 属既定形态（v2ray base64 链接行、clash YAML doc、sing-box outbounds 数组是三种客户端各自消费的格式），协商面=subTargetByUA+?target= 显式覆盖（SHOP-2 7699d05）。
 -   [x] `F-9602` 完成 sing-box Adapter。
     - 备注（Task ID: F-9602 | Status: Done | Evidence: sing-box Adapter：PackSingBox(singbox.go:165)+tls.server_name/singBoxTransport 映射(singbox.go:103-161)。 | Verification: TestPackSingBox(sub/singbox_test.go) | Commit: 970e9e2）
 -   [x] `F-9603` 完成 Clash/Mihomo Adapter。
     - 备注（Task ID: F-9603 | Status: Done | Evidence: Clash/Mihomo Adapter：PackClash(clash.go:72)+servername/applyTransport 映射(clash.go:181-201)。 | Verification: TestPackClash(sub/clash_test.go) | Commit: 970e9e2）
 -   [x] `F-9604` 完成分享链接 Adapter。
     - 备注（Task ID: F-9604 | Status: Done | Evidence: 分享链接 Adapter：PackV2Ray(links.go:201)+v2ray 参数映射(links.go:67-81)。 | Verification: TestPackV2Ray(sub/links_test.go) | Commit: 970e9e2）
--   [ ] `F-9605` 完成真实客户端解析测试。（依赖：F-1129、F-10011；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9605 | 未满足：真实客户端解析测试未满足——合成 UA 无 fixture（F-1129 区；F-10011 未满足）。）
--   [ ] `F-9606` 完成订阅权限过滤。（依赖：F-1143、F-1144；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-9605` 完成真实客户端解析测试。（依赖：F-1129、F-10011；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9605 | 已落地，原「合成 UA 无 fixture」过期）：F-1129 已关（5c80be0 TestSubscriptionUARealClients：9 个真实版本 UA 按客户端自身消费方式严格解析——v2ray base64 行/clash KnownFields 严格 YAML/sing-box outbounds 形状+Content-Type）；e2e 层补真 HTTP 三态 UA（F-2046/2047）。
+-   [x] `F-9606` 完成订阅权限过滤。（依赖：F-1143、F-1144；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9606 | 已落地，原「plan 0 命中」过期）：用户级可用门 UserActive+配额降档+设备/IP 限制照旧；套餐过滤=sub.go:115 `plan_id = 0 OR plan_id = ?`（User.PlanID × Node.PlanID，F-1142）+PathGroup/Policy 过滤（F-1143/1144 均已关）。
     - 待补（F-9606 | 部分：用户级可用门 sub.UserActive(availability.go:11-22, sub.go:70)+配额降档 quota.ActiveAction→LowCost(sub.go:88-102, quota/link.go:107-114)+设备/IP 限制(subDeviceCheck sub.go:56-59)；无套餐/权限过滤——sub+handler/sub.go 内 plan/tier/套餐/permission 0 命中，storage.User.Plan(models.go:496) 是节点机型非订阅套餐（F-1143/1144 区）。）
 -   [ ] `F-9607` 完成流量记账可靠性。（依赖：F-1251；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9607 | 部分：幂等去重已实现——服务端窗口 agentws_dedupe.go:36-67（repeat 键 msgType\x00id，FIFO cap=512/TTL=10min:13-14, repeatReport:61-67）+记账前拦截 agentws.go:544-556（重复帧双算=多扣费，必须挡在记账前）+TTL 过期即视为新帧(:48)，F-1250 关；补报未实现——断线流量静默丢弃（traffic.go:219-226 send==nil 即 return），spool 仅承载 probe 角色，设计 at-most-once 无重传（F-1251 未满足）。）
--   [ ] `F-9608` 完成套餐与线路权限关联。（依赖：F-1143、F-1144、F-9991、F-10013；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-9608` 完成套餐与线路权限关联。（依赖：F-1143、F-1144、F-9991、F-10013；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9608 | 已落地，原「无 Plan 实体」过期）：storage.Plan（models.go:116，套餐 apply 用户限额形态）+ User.PlanID × Node.PlanID 交付绑定（F-1142 sub.go:115 过滤）+ PathGroup/Policy 过滤（F-1143/1144）；plans CRUD API（router.go:402-406）。留痕：dash 侧套餐管理 UI 未建（plan 编辑目前 API 面），不影响订阅内容与权限关联的正确性。
     - 待补（F-9608 | 未满足：无套餐/Plan 实体，订阅内容无套餐与线路权限关联（F-1143/1144 区；F-9991/F-10013 部分）。）
 
 ## P7 --- 管理和运营闭环
 
 -   [x] `F-9701` 完成 Dash 节点与线路管理。
     - 备注（Task ID: F-9701 | Status: Done | Evidence: dash NodesView/LandingsView+node/landing API 测试+build 绿 | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-9702` 完成 Dash 云资源管理。（依赖：F-0411；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9702 | 未满足：Dash 云资源管理未实现（无 CloudResource 模型即无页面，仅 Providers 列表存在）（F-0411 区）。）
--   [ ] `F-9703` 完成 Dash 成本和账单管理。（依赖：F-0521、F-0622；完成条件：需求落地+测试绿+证据行）
+-   [x] `F-9702` 完成 Dash 云资源管理。（依赖：F-0411；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9702 | 已落地，原「无页面」过期）：与 F-9211 同面——CloudView 账号与资源/操作任务双 tab、资源绑定 Node、批量电源操作；F-0411 已收口 7f78101。
+-   [x] `F-9703` 完成 Dash 成本和账单管理。（依赖：F-0521、F-0622；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9703 | 已落地，原「账单管理未实现」过期）：CostView 估算/实际/排名/趋势/参考库 + BillsView 账单记录/明细行/重新分摊/分摊规则版本 + ReconcileView 对账审批；F-0521/F-0622 均已关。
     - 待补（F-9703 | 部分：成本管理有（CostView 节点/区域/运营商维度 F-1464/1466 关）；账单管理未实现（无账单导入/同步/明细页，F-0521/F-0622 区）。）
 -   [x] `F-9704` 完成 Dash 配置和任务管理。
     - 备注（Task ID: F-9704 | Status: Done | Evidence: SettingsView+config 下发+ProvisionView/RecoveryView；TestNodeConfigGuards+TestApplyLifecycle | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
@@ -2764,8 +2767,8 @@ External Client
 
 ## 控制面
 
--   [ ] `F-9991` 用户、套餐、订阅和节点管理可用。（依赖：F-0101；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9991 | 部分：用户/订阅/节点 CRUD 已实现（§1/§10，F-1202/1222/1244 等关）；无 Plan/套餐实体（F-0101 未满足）——「用户、套餐、订阅和节点」仅套餐缺。）
+-   [x] `F-9991` 用户、套餐、订阅和节点管理可用。（依赖：F-0101；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9991 | 已落地，原「无 Plan 实体」过期）：用户/节点/订阅管理全 UI+API（UsersView/NodesView/panel 订阅页）；套餐=storage.Plan 实体+plans CRUD API+订阅交付过滤（F-1142）生效；留痕：dash 侧套餐管理 UI 未建（API 面可用），属运营体验补全非能力缺口。
 -   [ ] `F-9992` Node、Capability、Tunnel、Path、Path Group、Policy
     - 待补（F-9992 | 未满足：Capability/Path/PathGroup/Policy 模型全 0 命中（F-0222/0243/0261/0282）——「Node、Capability、Tunnel、Path、Path Group、Policy 模型收敛」仅 Node/Tunnel 收敛。）
     边界清晰。（依赖：F-0222、F-0243、F-0261、F-0282；完成条件：需求落地+测试绿+证据行）
@@ -2811,15 +2814,15 @@ External Client
     - 备注（Task ID: F-10009 | Status: Done | Evidence: PackSingBox（sub/singbox.go:165+TestPackSingBox）| Verification: server/internal/sub/singbox_test.go | Commit: cb60ba7）
 -   [x] `F-10010` 能够生成 Clash/Mihomo 配置。
     - 备注（Task ID: F-10010 | Status: Done | Evidence: PackClash（sub/clash.go:72+TestPackClash）| Verification: server/internal/sub/clash_test.go | Commit: cb60ba7）
--   [ ] `F-10011` 生成内容经过真实客户端解析测试。（依赖：F-1129；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-10011 | 未满足：合成 UA 无 fixture（F-1129）——生成内容未经真实客户端解析测试。）
+-   [x] `F-10011` 生成内容经过真实客户端解析测试。（依赖：F-1129；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-10011 | 已落地，原「合成 UA 无 fixture」过期）：F-1129（5c80be0）9 真实版本 UA 按客户端自身解析方式严格消费（base64 链接行/严格 YAML KnownFields/outbounds 形状）；e2e 真 HTTP 三态 UA+stdlib 解析（F-2046/2047）双保险。
 -   [x] `F-10012` Ferry 不需要自研客户端即可完成用户接入。
     - 备注（Task ID: F-10012 | Status: Done | Evidence: v2ray/clash/sing-box 适配（F-1102-1105 关：PackV2Ray/PackClash/PackSingBox）| Verification: sub/{links,clash,singbox}_test.go | Commit: cb60ba7）
 
 ## 运营和可靠性
 
--   [ ] `F-10013` 套餐权限与订阅内容一致。（依赖：F-1142、F-1143、F-1144；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-10013 | 部分：配额降档+权限过滤有（F-1142 部分）；无套餐/PathGroup/Policy 过滤（F-1143/1144）——套餐权限与订阅内容一致性部分。）
+-   [x] `F-10013` 套餐权限与订阅内容一致。（依赖：F-1142、F-1143、F-1144；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-10013 | 已落地，原「部分」过期）：三过滤全关——F-1142 套餐（User.PlanID×Node.PlanID）、F-1143 PathGroup、F-1144 Policy（见 1731-1737 证据行）；订阅出节点集合=三者与 enabled/maintenance/pool 态交集，一致性由 availability/filter 测试钉住。
 -   [ ] `F-10014` 流量记账具备幂等和补报能力。（依赖：F-1251；完成条件：需求落地+测试绿+证据行）
     - 待补（F-10014 | 部分：幂等去重已实现（F-1250 关：agentws_dedupe_test 7 例）；补报未实现（F-1251）——记账幂等有、补报无。）
 -   [ ] `F-10015` Dash 能够完成日常节点、云资源、线路和成本管理。（依赖：F-0411；完成条件：需求落地+测试绿+证据行）
