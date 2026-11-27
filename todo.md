@@ -2807,7 +2807,7 @@ External Client
 ## 数据面与订阅
 
 -   [ ] `F-10006` Entry 和 Landing 能够建立 Relay 隧道。（依赖：F-0812、F-0243；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-10006 | 部分：relay 隧道插件已实现（§6 F-0802/0803 关）；无 UDP、无 Path 实体（F-0812/0243）——Entry/Landing 建立 Relay 隧道部分（TCP only）。）
+    - 待补（F-10006 | 部分：relay 隧道插件已实现（§6 F-0802/0803 关）且 Path 实体已建（F-0243 关 2455a6c，Path 模型+PathGroup+CRUD API 落地 models.go:143）；仅缺 UDP 转发腿（F-0812，设计边界「自定义裸 UDP 不做」）——Entry/Landing 建立 Relay 隧道部分（TCP only）可证、UDP 腿待 F-0812 拍板。）
 -   [ ] `F-10007` 支持实际 TCP 和 UDP 转发。（依赖：F-0812；完成条件：需求落地+测试绿+证据行）
     - 待补（F-10007 | 部分：TCP io.Copy 转发已实现（F-0802）；UDP 未实现（F-0812）——仅 TCP 转发。）
 -   [x] `F-10008` 配置能够可靠下发和回滚。
