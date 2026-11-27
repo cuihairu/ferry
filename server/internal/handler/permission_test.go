@@ -438,3 +438,77 @@ func TestScopedPerms(t *testing.T) {
 		t.Fatalf("super scoped route 403: %d %s", rec.Code, rec.Body)
 	}
 }
+
+// TestHighRiskOpBypass covers F-1733: escalation attempts against the
+// high-risk cloud operation tier must all fail closed — the everyday power
+// grant never opens rebuild, a scoped highrisk grant never reaches another
+// account, and passing the perm gate still leaves the oper-level second
+// confirmation (F-0370) between the request and execution.
+func TestHighRiskOpBypass(t *testing.T) {
+	r, db := newTestRouterCfg(t, func(cfg *config.Config) { cfg.SecretKey = "test-master-key" })
+
+	if err := db.Create(&storage.User{ID: 999, Username: "op-hr", SubToken: "st-op-hr",
+		Password: "x", Enabled: true, IsAdmin: true, AdminRole: "operator"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	op := opJWT(t, "op-hr")
+	for _, p := range []storage.Provider{{Name: "hr-a", Type: "vultr"}, {Name: "hr-b", Type: "vultr"}} {
+		if err := db.Create(&p).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	opReq := func(pid uint, opType string, confirmed bool) map[string]any {
+		return map[string]any{"provider_id": pid, "op": opType, "confirmed": confirmed,
+			"specs": []map[string]any{{"resource_id": 1}}}
+	}
+
+	// No grants: rebuild and force-stop name their tier.
+	rec := doPanel(t, r, op, "POST", "/api/cloud-operations", opReq(1, "rebuild", true))
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "missing permission cloud.highrisk") {
+		t.Fatalf("ungranted rebuild: %d %s", rec.Code, rec.Body)
+	}
+	rec = doPanel(t, r, op, "POST", "/api/cloud-operations", opReq(1, "force_stop", true))
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("ungranted force_stop: %d %s", rec.Code, rec.Body)
+	}
+
+	// The power tier does not escalate into the high-risk tier.
+	if rec := doJSON(t, r, "PUT", "/api/admins/999/perms", map[string]any{"perms": []string{PermCloudPower}}); rec.Code != http.StatusOK {
+		t.Fatalf("grant power: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doPanel(t, r, op, "POST", "/api/cloud-operations", opReq(1, "rebuild", true)); rec.Code != http.StatusForbidden {
+		t.Fatalf("power grant must not open rebuild: %d %s", rec.Code, rec.Body)
+	}
+	// Passing the perm gate is not execution: an unconfirmed power_off (high-
+	// risk set) stops at the oper confirmation, 409 — not 200.
+	if rec := doPanel(t, r, op, "POST", "/api/cloud-operations", opReq(1, "power_off", false)); rec.Code != http.StatusConflict {
+		t.Fatalf("unconfirmed power_off = %d %s, want 409", rec.Code, rec.Body)
+	}
+
+	// A scoped highrisk grant reaches only its own account: rebuild on
+	// provider 1 passes the gate (then fails downstream for lack of resources —
+	// anything but 403/409), provider 2 stays 403.
+	if rec := doJSON(t, r, "PUT", "/api/admins/999/perms", map[string]any{
+		"perms": []map[string]string{{"perm": PermCloudHighRisk, "scope": "provider:1"}}}); rec.Code != http.StatusOK {
+		t.Fatalf("scoped highrisk grant: %d %s", rec.Code, rec.Body)
+	}
+	rec = doPanel(t, r, op, "POST", "/api/cloud-operations", opReq(1, "rebuild", true))
+	if rec.Code == http.StatusForbidden || rec.Code == http.StatusConflict {
+		t.Fatalf("scoped rebuild own account: %d %s", rec.Code, rec.Body)
+	}
+	if rec := doPanel(t, r, op, "POST", "/api/cloud-operations", opReq(2, "rebuild", true)); rec.Code != http.StatusForbidden {
+		t.Fatalf("scoped rebuild other account: %d %s", rec.Code, rec.Body)
+	}
+
+	// An unknown op is not a bypass: it passes the perm map (nothing to gate)
+	// but oper validation rejects it.
+	if rec := doPanel(t, r, op, "POST", "/api/cloud-operations", opReq(1, "dance", true)); rec.Code != http.StatusBadRequest {
+		t.Fatalf("unknown op: %d %s", rec.Code, rec.Body)
+	}
+
+	// The super role passes the gate unconditionally (unconfirmed still 409 —
+	// the confirmation flow binds super too).
+	if rec := doJSON(t, r, "POST", "/api/cloud-operations", opReq(1, "rebuild", false)); rec.Code != http.StatusConflict {
+		t.Fatalf("super unconfirmed rebuild = %d %s, want 409", rec.Code, rec.Body)
+	}
+}
