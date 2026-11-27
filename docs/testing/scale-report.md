@@ -44,6 +44,18 @@
 - 25/50 连接同时断开 → agents_online=25（server 同步标记 offline）；
 - 客户端退出全量断开 → agents_online=0，/api/health 仍 200。
 
+## 候选 Path 调度规模（F-2066）
+
+`server/internal/alloc/alloc_scale_test.go`：
+
+- 正确性（TestPickScaleDeterministicAndCorrect，5000 候选池）：五种策略
+  （least_conn/cost_first/perf_first/balanced/priority）健康门仍过滤病态候选
+  （1/5 病态池全部落选）、least_conn 胜者与独立 oracle（最小 conns/capacity +
+  名字 tie-break）一致、50 次重复选择结果零漂移、全病态池正确拒绝分配；
+- 吞吐（BenchmarkPickLargePool，5000 候选轮换四策略）：约 1.36 ms/op
+  （i9-10880H，2026-11-27）——调度按连接粒度发生，单次选择远低于连接建立
+  预算。
+
 ## 结论
 
 控制面在 50 节点规模下心跳/探测/流量/订阅/配置下发全链路无 5xx、
