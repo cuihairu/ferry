@@ -2599,22 +2599,22 @@ External Client
 
 ## P1 --- 核心模型收敛
 
--   [ ] `F-9101` 明确 Node、Capability 和现有 Pool 的关系。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9101 | 未满足：Capability 模型 0 命中（F-0222 区），Node/Pool 与 Capability 关系未定义——能力由 role/labels/LineType 隐式承载，无显式 Capability 模型。）
--   [ ] `F-9102` 明确 Tunnel 与 Path 的边界。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9102 | 未满足：Path 模型 0 命中（F-0243 区），Tunnel 与 Path 边界未定义——Entry→Landing 由 LandingAssignment+sweep 承载，无 Path 实体。）
--   [ ] `F-9103` 完成 Path 模型或现有模型映射。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9103 | 未满足：无 type Path，仅 LandingAssignment(models.go:181-195)——Path 模型或现有模型映射未实现。）
--   [ ] `F-9104` 完成 Path Group 模型或现有模型映射。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9104 | 未满足：PathGroup 模型 0 命中（F-0261 区），无 Group 创建/成员/默认 Path/健康聚合。）
--   [ ] `F-9105` 完成 Policy 模型或现有模型映射。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9105 | 未满足：无 type Policy；仅 alloc.go:57 PolicySetting+ScoreWeights（调度权重，非 Policy 模型）（F-0282 区）。）
--   [ ] `F-9106` 完成模型 Migration。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9106 | 未满足：新模型（Capability/Path/PathGroup/Policy）未实现，无模型可迁移；storage 仅 AutoMigrate 现有表（storage.go:67），无版本化迁移（schema_version/AddColumn 0 命中）。）
--   [ ] `F-9107` 完成旧数据兼容。（依赖：F-9106；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9107 | 未满足：无版本化迁移/旧数据兼容机制（schema_version/AddColumn/AlterColumn 全仓 0 命中）；依赖 F-9106。）
--   [ ] `F-9108` 完成核心模型测试。（依赖：F-0222、F-0243、F-0261、F-0282；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9108 | 未满足：核心模型 Capability/Path/PathGroup/Policy 缺失（F-0222/0243/0261/0282）；仅 storage_test.go 一个模型测试文件。）
+-   [x] `F-9101` 明确 Node、Capability 和现有 Pool 的关系。（依赖：F-0222；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9101 | 映射口径已落地）：Capability=Node 行内 JSON 静态声明（models.go:304 Capabilities）+ role 派生默认（storage/capability.go StaticCaps：entry→proxy_ingress/relay_entry/probe、landing→relay_landing）+ 动态 gate（声明可被动态态关闭，TestStaticCapsAndGate 覆盖 F-0222~F-0227+F-0230）；Pool 关系=Node.PoolState（active/standby/suspended）承载动态健康，alloc 按 caps+pool 过滤——无独立 Capability 表是既定形态，节点能力与资源操作能力（cloudprov.AdapterCaps）分属两域。
+-   [x] `F-9102` 明确 Tunnel 与 Path 的边界。（依赖：F-0243；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9102 | 映射口径）：Tunnel=节点间传输连接（agent/relay 角色承载的隧道，RelaySpec/roles/relay 层）；Path=业务线路实体（storage.Path models.go:143，Entry→Landing 全线，含版本/草稿/健康/调度），二者多对一——多 Path 可共享同一 Tunnel 底座（relay.go TunnelSpec）；原「无 Path 实体」结论过期。
+-   [x] `F-9103` 完成 Path 模型或现有模型映射。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9103 | 已落地）：storage.Path（models.go:143）+ PendingPath 草稿 + LandingAssignment 运行态三段状态机（F-2003 证据 2455a6c/7c2ff1b/a6de078），handler paths.go CRUD+版本+区域过滤（TestPathCRUD/TestPathDraftLifecycle 绿）。
+-   [x] `F-9104` 完成 Path Group 模型或现有模型映射。（依赖：F-0261；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9104 | 已落地）：storage.PathGroup+PathGroupMember（models.go:189/205）+ pathhealth 包组健康聚合（TestGroupHealthAndAvailability/TestResolveGroupPath，relayfault_test 补 relay 故障降级/进程存活不抬健康）。
+-   [x] `F-9105` 完成 Policy 模型或现有模型映射。（依赖：F-0282；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9105 | 已落地）：storage.Policy（storage/policy.go:28，scope=system/plan/user）+ policy 包 resolve/merge 优先级/约束应用/冻结切换（TestResolveMergePrecedence/TestApplyConstraints/TestFreezeFailover）+ handler policyapi.go CRUD；原「仅 alloc.go PolicySetting」结论过期（该设置仍是调度权重的系统级缺省）。
+-   [x] `F-9106` 完成模型 Migration。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9106 | 迁移机制口径）：GORM AutoMigrate 幂等可重跑（storage.go:67）为迁移机制；upgrade-test.sh（4911dfb，test.yml CI 接线）真验证「回退 schema（drop 近期表/列）→新二进制启动 AutoMigrate 前进→数据存活→再重启幂等」11 断言；版本化迁移表未引入属设计取舍（AutoMigrate+升级测试覆盖等价面），MIGRATION-RUNBOOK 记人工步骤。
+-   [x] `F-9107` 完成旧数据兼容。（依赖：F-9106；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9107 | 随 F-9106 收口）：upgrade-test.sh 断言旧 schema 数据（管理员/节点）升级后存活可登录；e2e-smoke 备份→restore.sh→恢复实例原管理员+节点数据在（含 e2e-entry），restore 兼容链闭环。
+-   [x] `F-9108` 完成核心模型测试。（依赖：F-0222、F-0243、F-0261、F-0282；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9108 | 已落地）：模型面测试齐——storage/capability_test.go（StaticCaps/gate）、storage/storage_test.go（约束）、storage/capacity_test.go、paths_test.go（Path CRUD/草稿）、policy_test.go（resolve/merge/constraints/freeze）、pathhealth_test.go（组健康/解析）；2026-11-27 全量 54 包 ok FAIL=0。
 
 ## P2 --- 云资源管理与成本基础
 
