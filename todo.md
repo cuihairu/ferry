@@ -2277,8 +2277,8 @@ External Client
 
 ## 16.1 指标
 
--   [ ] `F-1801` 采集 Server API 请求量和延迟。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1801 | 未满足：无指标层——prometheus|/metrics|pprof 全仓 0 实命中；gin.Default() 无 metrics 钩子（router.go:100）。）
+-   [x] `F-1801` 采集 Server API 请求量和延迟。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（Task ID: F-1801 | Status: Done | Evidence: 指标层落地（选型：引 prometheus/client_golang v1.20.5，Apache-2.0（transitive common/procfs/client_model 亦 Apache-2.0、perks/xxhash MIT，license 已核），后续 F-1802~1806 复用同一 registry）：handler/metrics.go 定义 ferry_api_requests_total{method,route,code} 计数器与 ferry_api_request_seconds{method,route} 直方图（DefBuckets），route 用 gin 路由模板（有界基数，未匹配归 "unmatched"）；metricsMiddleware 挂 /api 组最外层（401/429 也计数；agent ws 与公开 /sub 有意排除——ws 连接生命周期会污染延迟直方图）；暴露点 GET /admin/metrics（adminAuthMiddleware 之后，cardinality 泄露路由形态故不公开，promhttp 默认 registry 附带 go_*/process_* 基线）。测试 metrics_test.go TestAPIMetrics：GET /api/nodes 200×2 与无鉴权 401×1 的 delta 精确断言（testutil.ToFloat64 前后差），exposition 含 requests_total 行/request_seconds_count/bucket，未带令牌访问 /admin/metrics 401。 | Verification: go build/vet 绿，go test ./... -count=1 53 ok FAIL=0（exit=0）；TestAPIMetrics 独立通过。 | Commit: e8f3bc7）
 -   [ ] `F-1802` 采集数据库连接数和查询延迟。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-1802 | 未满足：无 DB 连接/查询延迟采集。）
 -   [ ] `F-1803` 采集 Agent 在线数量和心跳延迟。（依赖：无；完成条件：需求落地+测试绿+证据行）
