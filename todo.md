@@ -2530,20 +2530,20 @@ External Client
 
 ## 18.4 性能与故障测试
 
--   [ ] `F-2061` 测试大量 Agent 长连接。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2061 | 未满足：长连接组件在（agentws.go+agenthub/hub.go），但测试仅 1-2 连接（hub_test.go:21 TestHubRegisterUnregister+agentws_test.go:53）；无多连接压测。）
--   [ ] `F-2062` 测试大量心跳并发。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2062 | 未满足：心跳组件在（app.go BuildHeartbeat），无并发心跳负载测试（无 t.Parallel/errgroup 心跳压测）。）
--   [ ] `F-2063` 测试大量 ProbeResult 写入。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2063 | 未满足：ProbeReport/ProbeReportBatch 单发测试（agentws_test.go:194 TestAgentWSProbeReport+:254）；无写入量/吞吐测试。）
--   [ ] `F-2064` 测试大量订阅请求。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2064 | 未满足：订阅单请求测试（sub_test.go:30 TestSubscription+:276）；无多请求负载测试。）
--   [ ] `F-2065` 测试大量流量报告。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2065 | 未满足：流量上报单帧测试（agentws_test.go:477 TestAgentWSTrafficReport）；无量级/并发上报测试。）
+-   [x] `F-2061` 测试大量 Agent 长连接。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2061 | Commit 9c68c3c | deploy/scale-test.sh 26 断言 exit=0 2026-11-27，test.yml deploy-scripts 接线）：真协议层 e2e——50 节点 8 并发注册后 50 条并发 WS 长连接全部 hello 握手，health 报告 agents_online=50；客户端退出后全量同步下线（agents_online=0）；长连接面单测 hub_test/agentws_test 照旧。
+-   [x] `F-2062` 测试大量心跳并发。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2062 | Commit 9c68c3c | scale-test.sh 心跳腿）：50 并发连接 × 3 轮 = 150 心跳全部 heartbeat_ack，ack 延迟 P50=7.1ms/P95=26.2ms/P99=33.4ms（n=150，2026-11-27 验收跑，数字归档 docs/testing/scale-report.md 7e4fc93）。
+-   [x] `F-2063` 测试大量 ProbeResult 写入。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2063 | Commit 9c68c3c | scale-test.sh 探测洪峰腿）：50 agent × 10 batch × 2 items = 1000 条探测报告逐 batch probe_ack，/api/probe-reports 断言落库恰好 1000 条（reachable/healthy 各 1000）；ack 延迟 P95=100.9ms/P99=131.6ms（n=500）归档于 scale-report.md（7e4fc93）。
+-   [x] `F-2064` 测试大量订阅请求。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2064 | Commit 9c68c3c | scale-test.sh 订阅负载腿）：400 次 /sub/:token 并发 20，1s 内完成；断言零 5xx、限流预算照发（200=30）+ 热突发触发 429（370）——router.go subLimiter 30 次/分钟/令牌的行为即为验收语义；首轮实测暴露空 config 节点渲染 500 后，按真实开通节点语义补 node config.uuid（vless.go:32 要求）。
+-   [x] `F-2065` 测试大量流量报告。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2065 | Commit 9c68c3c | scale-test.sh 流量洪峰腿）：50 并发 agent × 4 帧 = 200 帧逐帧 traffic_ack（延迟 P95=67.6ms/P99=93.8ms），/api/traffic-recon 断言 user 台账合计=300000B 逐字节准确、50 节点双台账各 6000 且 delta=0——量级下仍无重复计账（帧 id 唯一经服务端 dedupe）。
 -   [ ] `F-2066` 测试大量候选 Path 调度。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2066 | 未满足：候选调度功能测试在（alloc_test.go 多场景），但均为小候选功能用例；无规模/性能测量。）
--   [ ] `F-2067` 测试大量配置批量下发。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2067 | 未满足：配置下发单发测试（agentws_test.go:363 TestAgentWSConfigPush+relaypush_test.go:240）；无批量量级推送测试。）
+-   [x] `F-2067` 测试大量配置批量下发。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2067 | Commit 9c68c3c | scale-test.sh 配置下发腿）：probe_tasks PUT → 50 在线节点并发下发（8 并发），50/50 delivered=true，每节点经 agent probe_task_ack（客户端按 agent/internal/app handleProbeTask 语义回 ack）；probeTaskAckTimeout=10s 内全部完成。
 -   [ ] `F-2068` 测试大量云资源同步。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2068 | 未满足：无云资源同步组件——providerapi 仅凭据 DB CRUD，唯一外部客户端是 DNS（dns/cloudflare.go）；云资源同步全仓 0 命中。）
 -   [ ] `F-2069` 测试 Provider API 限流和超时。（依赖：无；完成条件：需求落地+测试绿+证据行）
@@ -2554,14 +2554,14 @@ External Client
     - 待补（F-2071 | 未满足：无 Server↔Provider 网络路径（Provider=DB 记录，provisioning 走 tofu CLI 非服务商 REST API）；最近的是 dns_test.go:200 TestCloudflareDoErrors DNS 不可达注入，非云资源开通路径。）
 -   [ ] `F-2072` 测试 Relay 故障。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2072 | 部分：relay 组件在，故障路径单测在（relay_extra_test.go:39 TestRunListenError+:164 TestRunAcceptErrorLogged+relaypush_test.go:307 TestPushTimeout+:326 TestPushSendError）；无真实 relay 数据面故障注入（无杀进程/网络分区）。）
--   [ ] `F-2073` 测试 Agent 故障。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2073 | 部分：agent 故障路径单测在（agentws_test.go:99-101 掉线→offline+pool_test.go:132 TestSweepOnceEmitsNodeDown+hub_test.go:56 TestHubUnregisterStale+agentws_dedupe_test.go:104）；仅单 agent，无多 agent 故障测试。）
+-   [x] `F-2073` 测试 Agent 故障。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2073 | Commit 9c68c3c | scale-test.sh 故障腿）：多 agent 故障真 e2e——25/50 连接同时断开后 agents_online=25（server 断连同步标 offline），其余 25 连接负载不受影响；客户端退出全量断开后 agents_online=0 且 /api/health 仍 200（server 存活）；此前单 agent 故障单测（agentws_test/pool_test/hub_test）照旧。
 -   [ ] `F-2074` 测试数据库短暂不可用。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2074 | 部分：真实 DB 故障注入在（recovery_test.go:558 TestSweepAndLoopOnClosedDB+:662 TestTraceHelpersOnClosedDB+cost_extra_test.go:42 TestBuildOnBrokenDB，DB 关闭后循环存活持续记日志）；但 DB 保持关闭非短暂抖动，且仅覆盖 recovery/cost 包。）
 -   [ ] `F-2075` 测试成本数据过期和缺失时的降级行为。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2075 | 未满足：cost 无新鲜度/缺失降级处理（非测试代码 grep stale/fresh/过期/degrad 0 命中）；仅 DB 错误路径测试（TestBuildOnBrokenDB）。）
--   [ ] `F-2076` 记录测试环境、数据规模、并发量、P95/P99 和资源占用。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2076 | 未满足：无测试环境/数据规模/并发量/P95/P99/资源占用记录（P95/P99/benchstat 0 命中）；status.go:182-187 的 runtime.MemStats 是运行指标非压测结果。）
+-   [x] `F-2076` 记录测试环境、数据规模、并发量、P95/P99 和资源占用。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2076 | Commit 7e4fc93 | docs/testing/scale-report.md）：归档 2026-11-27 验收跑（scale-test.sh 9c68c3c）——环境（Linux 14 核/sqlite WAL）、规模（50 节点/50 长连接/150 心跳/1000 探测/400 订阅/200 流量帧/50 下发）、P50/P95/P99（心跳 7.1/26.2/33.4ms、探测 38.5/100.9/131.6ms、流量 32.8/67.6/93.8ms）、server RSS≈50MB；此后每次 CI 运行 re-produce 同样数字。
 
 ------------------------------------------------------------------------
 
@@ -2740,13 +2740,13 @@ External Client
 -   [x] `F-9803` 完成备份恢复演练。
     - 备注（Task ID: F-9803 | Status: Done | Evidence: 备份恢复演练：deploy/restore.sh 恢复脚本+e2e 备份恢复腿（53 断言内）+restore.sh --key(deploy/restore.sh:16)。 | Verification: deploy/e2e-smoke.sh（备份恢复断言 :385-427）+deploy/restore.sh | Commit: 970e9e2）
 -   [ ] `F-9804` 完成 Agent 和 Probe 规模测试。（依赖：F-2061~F-2076；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9804 | 未满足：无 Agent/Probe 规模/压测记录——P95/P99/benchstat 0 命中，§18.4 F-2061~2076 全未满足（无测试环境/数据规模/并发量/资源占用记录）。）
+    - 待补（F-9804 | 部分（2026-11-27 更新）：Agent/Probe/心跳/流量/订阅/下发规模已真 e2e（scale-test.sh 9c68c3c：50 节点/150 心跳/1000 探测/200 流量帧/400 订阅/50 下发，P95/P99/RSS 归档 docs/testing/scale-report.md 7e4fc93）；仍缺 F-2066 候选调度规模、F-2068~2071/2075（云资源同步/账单导入/成本降级等无负载对象条目）、F-2072/2074 故障注入补强。）
 -   [x] `F-9805` 完成 Provider API 故障测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（F-9805 | 已落地，原「Adapter 0 命中」过期）：cloudprov.Error 错误形态分类（TestErrorShape）+ failHook 注错全路径（TestOperUnknownAndCancel：ErrUnavailable→Unknown/ErrUnsupported 带 ProviderCode→Failed；ctx 中断→Unknown）+ TestProviderTestConnection fake 双模式 + providerapi_err_test + F-1828 鉴权失败告警+cloudprov/metrics outcome 计数。
 -   [ ] `F-9806` 完成账单导入和成本核算规模测试。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 待补（F-9806 | 未满足：无账单导入（BillImport 0 命中）即无账单导入/成本核算规模测试（F-0521 区）。）
 -   [ ] `F-9807` 完成完整端到端测试。（依赖：F-2042~F-2055；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9807 | 部分（2026-11-27 更新）：e2e-smoke.sh 70 断言真起双二进制全不 mock，覆盖 认证→注册/重放拒→WS 上线→进程监管→proc_ctl（含 stop confirm 负断言）→断线回落→轮换吊销→配置下发回执→Entry 角色节点部署→订阅三态 UA 生成与解析→未知令牌 404→备份恢复→compose 校验；另有 reconnect/dataplane/upgrade/compose/systemd/install-rollback 六专项 smoke 进 CI（relay-path-test 440c277 新增）。仍缺：UDP 转发 e2e（F-0812）、规模/压测族（F-2061~2076）、Dash/Panel 前端（F-2049 及 F-2061~2076 未关）；流量记账 e2e 已由 traffic-account-test.sh（3da60f7）补齐。）
+    - 待补（F-9807 | 部分（2026-11-27 更新）：e2e-smoke.sh 70 断言真起双二进制全不 mock，覆盖 认证→注册/重放拒→WS 上线→进程监管→proc_ctl（含 stop confirm 负断言）→断线回落→轮换吊销→配置下发回执→Entry 角色节点部署→订阅三态 UA 生成与解析→未知令牌 404→备份恢复→compose 校验；另有 reconnect/dataplane/upgrade/compose/systemd/install-rollback 六专项 smoke 进 CI（relay-path-test 440c277 新增）。仍缺：UDP 转发 e2e（F-0812）、规模/压测族余项（F-2066、F-2068~2072、F-2074/2075；F-2061~2065/2067/2073/2076 已由 scale-test.sh 9c68c3c 关）、Dash/Panel 前端（F-2049）；流量记账 e2e 已由 traffic-account-test.sh（3da60f7）补齐。）
 
 ## P9 --- 后续扩展
 
