@@ -12,6 +12,7 @@ import (
 
 	"github.com/cuihairu/ferry/packages/agentproto"
 	"github.com/cuihairu/ferry/server/internal/agenthub"
+	"github.com/cuihairu/ferry/server/internal/relaypush"
 	"github.com/cuihairu/ferry/server/internal/routing"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
@@ -150,6 +151,7 @@ func (h *Handler) pushRuleLib(c *gin.Context) {
 		Status: "pending",
 	}
 	if err := h.db.Create(&row).Error; err != nil {
+		relaypush.PushOutcome.WithLabelValues("db_error").Inc()
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
@@ -168,10 +170,13 @@ func (h *Handler) pushRuleLib(c *gin.Context) {
 		h.finishNodeConfig(&row, "failed", false, false, err.Error())
 		switch {
 		case errors.Is(err, agenthub.ErrOffline):
+			relaypush.PushOutcome.WithLabelValues("offline").Inc()
 			fail(c, http.StatusBadGateway, err)
 		case errors.Is(err, agenthub.ErrTimeout):
+			relaypush.PushOutcome.WithLabelValues("timeout").Inc()
 			fail(c, http.StatusGatewayTimeout, err)
 		default:
+			relaypush.PushOutcome.WithLabelValues("error").Inc()
 			fail(c, http.StatusInternalServerError, err)
 		}
 		return
@@ -179,6 +184,7 @@ func (h *Handler) pushRuleLib(c *gin.Context) {
 
 	var ack agentproto.ConfigAck
 	if err := reply.Decode(&ack); err != nil {
+		relaypush.PushOutcome.WithLabelValues("bad_ack").Inc()
 		h.finishNodeConfig(&row, "failed", false, false, "bad config_ack: "+err.Error())
 		fail(c, http.StatusBadGateway, err)
 		return
@@ -186,6 +192,9 @@ func (h *Handler) pushRuleLib(c *gin.Context) {
 	status := "failed"
 	if ack.OK {
 		status = "applied"
+		relaypush.PushOutcome.WithLabelValues("applied").Inc()
+	} else {
+		relaypush.PushOutcome.WithLabelValues("invalid").Inc()
 	}
 	h.finishNodeConfig(&row, status, ack.Reverted, ack.Validated, ack.Error)
 	row.Payload = "" // the version history does not carry file contents

@@ -75,6 +75,7 @@ func (p *Pusher) Push(nodeID uint, proc, kind, payload string) (storage.NodeConf
 		Status: "pending",
 	}
 	if err := p.db.Create(&row).Error; err != nil {
+		PushOutcome.WithLabelValues("db_error").Inc()
 		return row, 500, err
 	}
 	env, err := agentproto.NewEnvelope(
@@ -83,6 +84,7 @@ func (p *Pusher) Push(nodeID uint, proc, kind, payload string) (storage.NodeConf
 		agentproto.ConfigPush{Proc: proc, Kind: kind, Version: digest, Sha256: digest, Payload: payload},
 	)
 	if err != nil {
+		PushOutcome.WithLabelValues("error").Inc()
 		return row, 500, err
 	}
 	reply, err := p.hub.Request(int64(nodeID), env, ackTimeout)
@@ -90,21 +92,28 @@ func (p *Pusher) Push(nodeID uint, proc, kind, payload string) (storage.NodeConf
 		p.Finish(&row, "failed", false, false, err.Error())
 		switch {
 		case errors.Is(err, agenthub.ErrOffline):
+			PushOutcome.WithLabelValues("offline").Inc()
 			return row, 502, err
 		case errors.Is(err, agenthub.ErrTimeout):
+			PushOutcome.WithLabelValues("timeout").Inc()
 			return row, 504, err
 		default:
+			PushOutcome.WithLabelValues("error").Inc()
 			return row, 500, err
 		}
 	}
 	var ack agentproto.ConfigAck
 	if err := reply.Decode(&ack); err != nil {
+		PushOutcome.WithLabelValues("bad_ack").Inc()
 		p.Finish(&row, "failed", false, false, "bad config_ack: "+err.Error())
 		return row, 502, err
 	}
 	status := "failed"
 	if ack.OK {
 		status = "applied"
+		PushOutcome.WithLabelValues("applied").Inc()
+	} else {
+		PushOutcome.WithLabelValues("invalid").Inc()
 	}
 	p.Finish(&row, status, ack.Reverted, ack.Validated, ack.Error)
 	return row, 0, nil

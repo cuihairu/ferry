@@ -9,8 +9,10 @@ import (
 	"testing"
 
 	"github.com/cuihairu/ferry/packages/agentproto"
+	"github.com/cuihairu/ferry/server/internal/relaypush"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 // TestConfigPushTamperTrail covers F-1735's config-push tamper line: the
@@ -70,6 +72,10 @@ func TestConfigPushTamperTrail(t *testing.T) {
 		`{"routing":"corrupted"}`,
 		`{"inbounds":"x"}`,
 	}
+	// Delivery outcome counters (F-1808): snapshot before, assert deltas after.
+	appliedBefore := testutil.ToFloat64(relaypush.PushOutcome.WithLabelValues("applied"))
+	invalidBefore := testutil.ToFloat64(relaypush.PushOutcome.WithLabelValues("invalid"))
+	offlineBefore := testutil.ToFloat64(relaypush.PushOutcome.WithLabelValues("offline"))
 	for j, pl := range payloads {
 		rec := doJSON(t, r, "POST", "/api/nodes/"+itoa64(int(id))+"/config", map[string]any{
 			"proc": "xray", "kind": "xray", "payload": pl,
@@ -91,6 +97,15 @@ func TestConfigPushTamperTrail(t *testing.T) {
 		if row.Sha256 != digest(pl) || row.Version != digest(pl) {
 			t.Fatalf("trail %d digest: sha=%s ver=%s", j, row.Sha256, row.Version)
 		}
+	}
+
+	// Delivery outcome counters (F-1808): applied ×1; both OK=false acks (the
+	// plain invalid and the reverted) count as invalid.
+	if got := testutil.ToFloat64(relaypush.PushOutcome.WithLabelValues("applied")) - appliedBefore; got != 1 {
+		t.Fatalf("applied counter delta = %v, want 1", got)
+	}
+	if got := testutil.ToFloat64(relaypush.PushOutcome.WithLabelValues("invalid")) - invalidBefore; got != 2 {
+		t.Fatalf("invalid counter delta = %v, want 2", got)
 	}
 	var okRow, badRow, revRow storage.NodeConfig
 	if err := db.Where("node_id=? AND payload=?", id, payloads[0]).First(&okRow).Error; err != nil {
@@ -126,6 +141,9 @@ func TestConfigPushTamperTrail(t *testing.T) {
 	}
 	if offRow.Error == "" {
 		t.Fatalf("offline trail must record the cause: %+v", offRow)
+	}
+	if got := testutil.ToFloat64(relaypush.PushOutcome.WithLabelValues("offline")) - offlineBefore; got != 1 {
+		t.Fatalf("offline counter delta = %v, want 1", got)
 	}
 }
 
