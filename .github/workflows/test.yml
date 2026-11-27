@@ -97,6 +97,8 @@ jobs:
         run: bash deploy/start-args-test.sh
       - name: e2e deploy smoke
         run: bash deploy/e2e-smoke.sh
+      - name: server upgrade test
+        run: bash deploy/upgrade-test.sh
 
   gofmt:
     name: gofmt gate
