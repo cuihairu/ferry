@@ -2746,7 +2746,7 @@ External Client
 -   [x] `F-9806` 完成账单导入和成本核算规模测试。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（F-9806 | Commit ff87397 + 6acdba3 | import_scale_test.go TestImportFileLargeBatch PASS 2026-11-27，数字归档 docs/testing/scale-report.md）：账单导入规模——5000 行走真实 ImportFile 全路径 run succeeded/added=5000 首过 1.47s，重导入 5000/5000 全 skipped 零双计（F-0529）；成本核算规模——SpendByScope(provider) 聚合 5000 条记录逐分复现 2647500 cents。原待补「无账单导入」已过时（F-0521 356bdec 落地 billing/import.go）。
 -   [ ] `F-9807` 完成完整端到端测试。（依赖：F-2042~F-2055；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9807 | 部分（2026-11-27 更新）：e2e-smoke.sh 70 断言真起双二进制全不 mock，覆盖 认证→注册/重放拒→WS 上线→进程监管→proc_ctl（含 stop confirm 负断言）→断线回落→轮换吊销→配置下发回执→Entry 角色节点部署→订阅三态 UA 生成与解析→未知令牌 404→备份恢复→compose 校验；另有 reconnect/dataplane/upgrade/compose/systemd/install-rollback 六专项 smoke 进 CI（relay-path-test 440c277 新增）。仍缺：UDP 转发 e2e（F-0812）、规模/压测族余项（F-2066、F-2068~2072、F-2074/2075；F-2061~2065/2067/2073/2076 已由 scale-test.sh 9c68c3c 关）、Dash/Panel 前端（F-2049）；流量记账 e2e 已由 traffic-account-test.sh（3da60f7）补齐。）
+    - 待补（F-9807 | 部分（2026-11-27 更新）：e2e-smoke.sh 70 断言真起双二进制全不 mock，覆盖 认证→注册/重放拒→WS 上线→进程监管→proc_ctl（含 stop confirm 负断言）→断线回落→轮换吊销→配置下发回执→Entry 角色节点部署→订阅三态 UA 生成与解析→未知令牌 404→备份恢复→compose 校验；另有 reconnect/dataplane/upgrade/compose/systemd/install-rollback 六专项 smoke 进 CI（relay-path-test 440c277 新增）。仍缺：UDP 转发 e2e（F-0812 阻塞）与 Dash/Panel 前端（F-2049）；流量记账 e2e（traffic-account-test.sh 3da60f7）、规模/压测族（scale-test.sh 9c68c3c + alloc_scale 05e0f3b + db-outage 24c9a58 + relay 故障腿 b697056 + import_scale ff87397）已全部补齐，唯 F-2068 无负载对象待用户定夺。）
 
 ## P9 --- 后续扩展
 
