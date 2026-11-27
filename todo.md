@@ -2544,8 +2544,8 @@ External Client
     - 备注（F-2066 | Commit 05e0f3b | alloc_scale_test.go：TestPickScaleDeterministicAndCorrect PASS + BenchmarkPickLargePool，数字归档 docs/testing/scale-report.md）：5000 候选池——五策略（least_conn/cost_first/perf_first/balanced/priority）健康门仍过滤病态候选、least_conn 胜者与独立 oracle 一致、50 次重复零漂移、全病态池正确拒分配；吞吐 ~1.36ms/op（5000 候选轮换四策略），调度按连接粒度远低于建立预算。
 -   [x] `F-2067` 测试大量配置批量下发。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（F-2067 | Commit 9c68c3c | scale-test.sh 配置下发腿）：probe_tasks PUT → 50 在线节点并发下发（8 并发），50/50 delivered=true，每节点经 agent probe_task_ack（客户端按 agent/internal/app handleProbeTask 语义回 ack）；probeTaskAckTimeout=10s 内全部完成。
--   [ ] `F-2068` 测试大量云资源同步。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2068 | 未满足：无云资源同步组件——providerapi 仅凭据 DB CRUD，唯一外部客户端是 DNS（dns/cloudflare.go）；云资源同步全仓 0 命中。）
+-   [x] `F-2068` 测试大量云资源同步。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2068 | Commit 0d8befa | cloudsync_scale_test.go TestCloudSyncScale：3000 供应商资源走真实 SyncOne/SyncAndLog 对账（真实 sqlite + fake Adapter）：首轮 inserted=3000（含分页重叠 id 去重）527.8ms、原样重拉 updated=3000/added=0 399.4ms、半数消失+状态漂移 missing=1500 371.6ms（绑定行不丢、消失只打标记）；20 provider×100 资源并发经 cloudprov.Register 工厂路径 415.9ms 全 added=100。go test -race 通过；数字归档 scale-report.md。）
 -   [x] `F-2069` 测试 Provider API 限流和超时。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（F-2069 | 原待补「无云服务商 API 客户端」已过时）：cloudprov.Client 统一超时/限流/重试策略（F-0316，client.go：Timeout 单调用 30s 默认、客户端速率限制、retryable 错误有界退避）+ 类型化错误 ErrRateLimited/ErrUnavailable（errors.go:15）；测试钉死：TestClientTimeout、TestClientRateLimit、TestClientRetryPolicy、TestClientTypedErrors（client_test.go），全绿（go test ./internal/cloudprov/ exit=0）。
 -   [x] `F-2070` 测试账单大批量导入。（依赖：无；完成条件：需求落地+测试绿+证据行）
@@ -2739,14 +2739,14 @@ External Client
     - 待补（F-9802 | 部分：告警已落地——monitor.go:52-164（sweep→applyVerdict 状态机, 同状态不重复:95-99, herald.Emit region_fault/isp_fault:123-138, webhook notify:141-162）+notify.go 外发+alerts.go:46/75；Metrics 基本缺失——prometheus/pprof//metrics 代码 0 命中（唯一命中是测试抓取 URL manager_extra_test.go:135），无服务端指标层，仅 JSON 状态页(handler/status.go:181-187)+agent 反向抓取被管进程 MetricsURL(procs/metrics.go:24)；F-1801~1814 全未满足、F-1821/1822/1825/1828/1829/1830 告警生产者缺。）
 -   [x] `F-9803` 完成备份恢复演练。
     - 备注（Task ID: F-9803 | Status: Done | Evidence: 备份恢复演练：deploy/restore.sh 恢复脚本+e2e 备份恢复腿（53 断言内）+restore.sh --key(deploy/restore.sh:16)。 | Verification: deploy/e2e-smoke.sh（备份恢复断言 :385-427）+deploy/restore.sh | Commit: 970e9e2）
--   [ ] `F-9804` 完成 Agent 和 Probe 规模测试。（依赖：F-2061~F-2076；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9804 | 仅剩 F-2068（2026-11-27 更新）：F-2061~2067/2069~2076 全关——scale-test.sh（9c68c3c：50 节点长连接/150 心跳/1000 探测/400 订阅/200 流量帧/50 下发+故障腿）、alloc_scale_test（05e0f3b）、db-outage-test（24c9a58）、relay 故障腿（b697056）、import_scale_test（ff87397），P95/P99/RSS 归档 scale-report.md；唯一未关 F-2068「云资源同步」无负载对象（全仓无云资源同步组件，provisioning 走 tofu CLI），无测试可写——待用户定夺该功能是否立项。）
+-   [x] `F-9804` 完成 Agent 和 Probe 规模测试。（依赖：F-2061~F-2076；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-9804 | Commit 0d8befa | 依赖 F-2061~F-2076 全关：scale-test.sh（9c68c3c：50 节点长连接/150 心跳/1000 探测/400 订阅/200 流量帧/50 下发+故障腿）、alloc_scale_test（05e0f3b）、db-outage-test（24c9a58）、relay 故障腿（b697056）、import_scale_test（ff87397）、cloudsync_scale_test（0d8befa：3000 资源对账+20 账号并发），P95/P99/RSS 与各规模数字归档 scale-report.md；原待补「F-2068 无负载对象」已过时——cloudsync 组件真实存在，规模测试已落地。）
 -   [x] `F-9805` 完成 Provider API 故障测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（F-9805 | 已落地，原「Adapter 0 命中」过期）：cloudprov.Error 错误形态分类（TestErrorShape）+ failHook 注错全路径（TestOperUnknownAndCancel：ErrUnavailable→Unknown/ErrUnsupported 带 ProviderCode→Failed；ctx 中断→Unknown）+ TestProviderTestConnection fake 双模式 + providerapi_err_test + F-1828 鉴权失败告警+cloudprov/metrics outcome 计数。
 -   [x] `F-9806` 完成账单导入和成本核算规模测试。（依赖：F-0521；完成条件：需求落地+测试绿+证据行）
     - 备注（F-9806 | Commit ff87397 + 6acdba3 | import_scale_test.go TestImportFileLargeBatch PASS 2026-11-27，数字归档 docs/testing/scale-report.md）：账单导入规模——5000 行走真实 ImportFile 全路径 run succeeded/added=5000 首过 1.47s，重导入 5000/5000 全 skipped 零双计（F-0529）；成本核算规模——SpendByScope(provider) 聚合 5000 条记录逐分复现 2647500 cents。原待补「无账单导入」已过时（F-0521 356bdec 落地 billing/import.go）。
 -   [ ] `F-9807` 完成完整端到端测试。（依赖：F-2042~F-2055；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-9807 | 部分（2026-11-27 更新）：e2e-smoke.sh 70 断言真起双二进制全不 mock，覆盖 认证→注册/重放拒→WS 上线→进程监管→proc_ctl（含 stop confirm 负断言）→断线回落→轮换吊销→配置下发回执→Entry 角色节点部署→订阅三态 UA 生成与解析→未知令牌 404→备份恢复→compose 校验；另有 reconnect/dataplane/upgrade/compose/systemd/install-rollback 六专项 smoke 进 CI（relay-path-test 440c277 新增）。仍缺：UDP 转发 e2e（F-0812 阻塞）与 Dash/Panel 前端（F-2049）；流量记账 e2e（traffic-account-test.sh 3da60f7）、规模/压测族（scale-test.sh 9c68c3c + alloc_scale 05e0f3b + db-outage 24c9a58 + relay 故障腿 b697056 + import_scale ff87397）已全部补齐，唯 F-2068 无负载对象待用户定夺。）
+    - 待补（F-9807 | 部分（2026-11-27 更新）：e2e-smoke.sh 70 断言真起双二进制全不 mock，覆盖 认证→注册/重放拒→WS 上线→进程监管→proc_ctl（含 stop confirm 负断言）→断线回落→轮换吊销→配置下发回执→Entry 角色节点部署→订阅三态 UA 生成与解析→未知令牌 404→备份恢复→compose 校验；另有 reconnect/dataplane/upgrade/compose/systemd/install-rollback 六专项 smoke 进 CI（relay-path-test 440c277 新增）。仍缺：UDP 转发 e2e（F-0812 阻塞）与 Dash/Panel 前端（F-2049）；流量记账 e2e（traffic-account-test.sh 3da60f7）、规模/压测族（scale-test.sh 9c68c3c + alloc_scale 05e0f3b + db-outage 24c9a58 + relay 故障腿 b697056 + import_scale ff87397 + cloudsync_scale 0d8befa）已全部补齐；F-9804 规模族全关。）
 
 ## P9 --- 后续扩展
 
