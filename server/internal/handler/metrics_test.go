@@ -2,9 +2,11 @@ package handler
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/cuihairu/ferry/packages/agentproto"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
@@ -96,5 +98,48 @@ func TestDBMetrics(t *testing.T) {
 	}
 	if got := testutil.ToFloat64(errChild) - before; got != 1 {
 		t.Fatalf("record-not-found must not count as error: delta %v", got)
+	}
+}
+
+// TestAgentMetrics covers F-1803: the online gauge answers the hub live, and
+// per-node heartbeat ages (plus the max) render for online nodes only.
+func TestAgentMetrics(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	seedAdminForJWT(t, db)
+
+	// Baseline: nobody online.
+	rec := doJSON(t, r, "GET", "/admin/metrics", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("metrics: %d %s", rec.Code, rec.Body)
+	}
+	if !strings.Contains(rec.Body.String(), "ferry_agent_online 0") {
+		t.Fatalf("empty fleet must report 0 online: %s", rec.Body)
+	}
+
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+	id, token := createNodeFor(t, r, "agm-1")
+	c := fakeAgent(t, srv.URL, "agm-1", token)
+
+	// Heartbeat: the server stamps last_seen before the ack comes back, so the
+	// age series is readable right after the ack.
+	hb, _ := agentproto.NewEnvelope("hb1", agentproto.MsgHeartbeat, agentproto.Heartbeat{})
+	if err := c.WriteJSON(hb); err != nil {
+		t.Fatalf("write heartbeat: %v", err)
+	}
+	if env := readEnv(t, c); env.Type != agentproto.MsgHeartbeatAck {
+		t.Fatalf("expected heartbeat_ack, got %s", env.Type)
+	}
+
+	rec = doJSON(t, r, "GET", "/admin/metrics", nil)
+	body := rec.Body.String()
+	if !strings.Contains(body, "ferry_agent_online 1") {
+		t.Fatalf("online agent must report 1: %s", body)
+	}
+	if !strings.Contains(body, `ferry_agent_heartbeat_age_seconds{node_id="`+itoa64(int(id))+`"}`) {
+		t.Fatalf("per-node heartbeat age missing: %s", body)
+	}
+	if !strings.Contains(body, "ferry_agent_heartbeat_age_max_seconds") {
+		t.Fatalf("max heartbeat age missing: %s", body)
 	}
 }

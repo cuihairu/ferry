@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cuihairu/ferry/server/internal/agenthub"
+	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -155,4 +157,70 @@ func instrumentDBStats(db *gorm.DB) {
 		dbHandle.Store(sqlDB)
 		dbStatsOnce.Do(func() { prometheus.MustRegister(dbStatsCollector{}) })
 	}
+}
+
+// ---- Agent fleet metrics (F-1803): online count plus per-node heartbeat age
+// (seconds since the node's last heartbeat, online nodes only). ----
+
+var (
+	agentHub       atomic.Pointer[agenthub.Hub]
+	gormDBHandle   atomic.Pointer[gorm.DB]
+	agentStatsOnce sync.Once
+)
+
+type agentMetricsCollector struct{}
+
+var (
+	agentOnlineDesc       = prometheus.NewDesc("ferry_agent_online", "Currently online agent connections.", nil, nil)
+	agentHeartbeatAgeDesc = prometheus.NewDesc("ferry_agent_heartbeat_age_seconds",
+		"Seconds since the node's last heartbeat, per online node.", []string{"node_id"}, nil)
+	agentHeartbeatAgeMaxDesc = prometheus.NewDesc("ferry_agent_heartbeat_age_max_seconds",
+		"Largest heartbeat age among online nodes.", nil, nil)
+)
+
+func (agentMetricsCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- agentOnlineDesc
+	ch <- agentHeartbeatAgeDesc
+	ch <- agentHeartbeatAgeMaxDesc
+}
+
+func (agentMetricsCollector) Collect(ch chan<- prometheus.Metric) {
+	hub := agentHub.Load()
+	if hub == nil {
+		return
+	}
+	ids := hub.OnlineIDs()
+	ch <- prometheus.MustNewConstMetric(agentOnlineDesc, prometheus.GaugeValue, float64(len(ids)))
+	if len(ids) == 0 {
+		return
+	}
+	var rows []storage.Node
+	if db := gormDBHandle.Load(); db != nil {
+		db.Select("id, last_seen").Where("id IN ?", ids).Find(&rows) // scrape reads tolerate errors: ages are simply skipped
+	}
+	now := time.Now()
+	anyAge := false
+	maxAge := 0.0
+	for _, n := range rows {
+		if n.LastSeen == nil {
+			continue // no heartbeat recorded yet: age undefined for this node
+		}
+		age := now.Sub(*n.LastSeen).Seconds()
+		ch <- prometheus.MustNewConstMetric(agentHeartbeatAgeDesc, prometheus.GaugeValue, age,
+			strconv.FormatUint(uint64(n.ID), 10))
+		if !anyAge || age > maxAge {
+			maxAge, anyAge = age, true
+		}
+	}
+	if anyAge {
+		ch <- prometheus.MustNewConstMetric(agentHeartbeatAgeMaxDesc, prometheus.GaugeValue, maxAge)
+	}
+}
+
+// instrumentAgentMetrics registers the fleet gauges once and points them at
+// this process's hub and DB.
+func instrumentAgentMetrics(hub *agenthub.Hub, db *gorm.DB) {
+	agentHub.Store(hub)
+	gormDBHandle.Store(db)
+	agentStatsOnce.Do(func() { prometheus.MustRegister(agentMetricsCollector{}) })
 }

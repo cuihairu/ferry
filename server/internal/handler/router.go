@@ -156,6 +156,8 @@ func NewRouterWithTasks(db *gorm.DB, cfg config.Config, mgr *tasks.Manager) (*gi
 	// pool gauges scraped from sql.DBStats.
 	instrumentDB(db)
 	instrumentDBStats(db)
+	// Agent fleet metrics (F-1803): online count and heartbeat age.
+	instrumentAgentMetrics(h.hub, db)
 	r := gin.Default()
 	// ClientIP only trusts forwarding headers from explicitly allow-listed
 	// reverse proxies (audit fix 2026-11-12): by default no proxy is trusted

@@ -117,6 +117,17 @@ func (h *Hub) OnlineCount() int {
 	return len(h.conns)
 }
 
+// OnlineIDs returns the ids of the nodes with a live connection (metrics scrape).
+func (h *Hub) OnlineIDs() []int64 {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	ids := make([]int64, 0, len(h.conns))
+	for id := range h.conns {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 // Request sends a request to a node and waits for the same-ID answer.
 func (h *Hub) Request(nodeID int64, env agentproto.Envelope, timeout time.Duration) (agentproto.Envelope, error) {
 	h.mu.RLock()
