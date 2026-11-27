@@ -2379,8 +2379,8 @@ External Client
     - 备注（Task ID: F-1924 | Status: Done | Evidence: keyinit.go:21-22 defaultKeyFileName+ :143-159 FERRY_KEYFILE 覆盖；部署指南.md:33-34 记录 FERRY_SECRET_KEY/FERRY_ENV/FERRY_KEYFILE+迁移须携带主钥文件；MIGRATION-RUNBOOK.md:11 主钥不入备份包 | Verification: TestGeneratePersistsAndStable+TestProductionRequiresPersistence+TestKeyfileRoundTrip（keyinit_test.go:25/156/98） | Commit: 57e899f）
 -   [x] `F-1925` 建立数据库自动备份。
     - 备注（Task ID: F-1925 | Status: Done | Evidence: backup.go:153 Loop 周期备份；TestLoopRunsOnceAndPrunes+TestSnapshotEncrypted | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-1926` 建立配置和密钥备份策略。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1926 | 部分：backup.Snapshot（backup.go:110）仅 VACUUM INTO 数据库，主钥故意排除，备份循环不含配置/ferry-keys.env/ferry.env 拷贝；仅手动策略（部署指南.md:33+MIGRATION-RUNBOOK.md:11+restore.sh --key:16）——配置与密钥备份非自动化。）
+-   [x] `F-1926` 建立配置和密钥备份策略。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-1926 | Commit 6bd6f89 | 测试 54 ok 全绿）：backup.run 每轮先做配置拷贝再 VACUUM 快照——FERRY_BACKUP_CONFIG（csv 逗号分隔，空=关闭零改动）列出的部署期配置文件（如 ferry.env）逐个拷入备份目录，命名 ferry-config-<时间戳>-<basename>，0600；配了主钥则走 store.EncryptBytesStream 流式加密成 .enc（与 DB 档同纪律，主钥本身永不落备份目录——因此密钥备份保持手动离机策略，restore.sh --key 恢复流程不变，自动化存钥在档旁等于架空主钥排除设计，已在包注释与证据行说明）；无主钥则明文 0600 拷贝并打 UNENCRYPTED 警示日志；列表中不存在的文件跳过并告警（站点自行决定改名/外挂）；读写/加密失败整轮失败→herald backup_failed（按日去重）照常触发。config.go 新增 BackupConfigFiles，main.go 注入 backup.Options.ConfigFiles。测试 configfiles_test.go：空表零写入、明文拷贝内容+0600 权限、空项/空白项跳过、缺文件跳过整轮成功、加密档不含明文且 DecryptBytes 回读一致、不可写目标整轮失败。
 -   [x] `F-1927` 建立备份恢复测试。
     - 备注（Task ID: F-1927 | Status: Done | Evidence: deploy/restore.sh+e2e 备份恢复腿（53 断言内） | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
 -   [ ] `F-1928` 建立 Server 升级测试。（依赖：无；完成条件：需求落地+测试绿+证据行）
