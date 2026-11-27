@@ -107,6 +107,8 @@ jobs:
         run: bash deploy/dataplane-test.sh
       - name: relay path probe smoke
         run: bash deploy/relay-path-test.sh
+      - name: traffic accounting smoke
+        run: bash deploy/traffic-account-test.sh
 
   gofmt:
     name: gofmt gate
