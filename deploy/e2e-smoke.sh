@@ -3,7 +3,8 @@
 # (sqlite in a temp dir) plus a real ferry-agent binary dialing a real WebSocket, walking one path through
 # health check/DB init -> admin first login and auth -> issue a one-time enrollment credential -> register a node
 # -> agent handshakes online (health count +1) -> agent disconnect falls back -> token rotation/compat window/revocation
-# -> config push with the agent's answer recorded, and node edits visible from the panel -> backup then restore and
+# -> config push with the agent's answer recorded, and node edits visible from the panel -> an entry-role node
+# deployment (meta.role=entry landing in the panel row; the default node lands as landing) -> backup then restore and
 # re-login to verify node data. Nothing is mocked; data lands only in a temp dir; any failing step prints the tails
 # of all service logs and exits non-zero. CI: test.yml's deploy-scripts job; locally the go toolchain is needed.
 set -euo pipefail
@@ -24,7 +25,7 @@ expect() { # $1=description $2=expected $3=actual
   else echo "FAIL - $1：want [$2] got [$3]" >&2; dump; exit 1; fi
 }
 dump() {
-  for f in server.log server2.log agent.log agent-old.log agent-new.log agent-revoked.log restore.log; do
+  for f in server.log server2.log agent.log agent-entry.log agent-old.log agent-new.log agent-revoked.log restore.log; do
     if [ -f "$TMP/$f" ]; then
       echo "--- $f 尾部 ---" >&2
       tail -n 40 "$TMP/$f" >&2 || true
@@ -248,9 +249,15 @@ code=$(curl -s -o "$TMP/ctl-bad.json" -w '%{http_code}' -X POST \
   -H 'Content-Type: application/json' -d '{"action":"restart","proc":"k1"}')
 expect "非法 action 服务端拒绝" 400 "$code"
 M2=$(grep -c '^up ' "$TMP/kernel-runs.log")
-code=$(curl -s -o "$TMP/ctl-stop.json" -w '%{http_code}' -X POST \
+# F-1709: stopping a managed proc interrupts the node's service, so the body must echo the node name as a second
+# confirmation; without it the server refuses before anything reaches the agent.
+code=$(curl -s -o "$TMP/ctl-stop-noconfirm.json" -w '%{http_code}' -X POST \
   "$BASE/api/nodes/$NODE_ID/proc" -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H 'Content-Type: application/json' -d '{"action":"stop","proc":"k1"}')
+expect "停内核缺 confirm 被拒" 400 "$code"
+code=$(curl -s -o "$TMP/ctl-stop.json" -w '%{http_code}' -X POST \
+  "$BASE/api/nodes/$NODE_ID/proc" -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"action":"stop","proc":"k1","confirm":"e2e-node"}')
 expect "面板停内核 200" 200 "$code"
 expect "stop 回执 ok=true" "true" "$(json_get ok "$TMP/ctl-stop.json")"
 state=""
@@ -385,6 +392,49 @@ expect "配置下发后 agent 仍在线" "1" "$(poll_health 1)"
 kill "$AGENT_PID"; AGENT_PID=""
 expect "新令牌 agent 断开" "0" "$(poll_health 0)"
 
+# Entry-node deployment leg (F-2042/F-2043 equivalent): enroll a second node whose agent config declares
+# meta.role=entry (direction=in), bring it online and verify the panel row carries the declared role; the first
+# node (default config) must have landed as role=landing. Same real chain as above: enrollment token -> enroll ->
+# real WebSocket handshake -> health count -> panel-visible metadata.
+log "Entry 角色节点部署（meta.role=entry 全链路）..."
+code=$(curl -s -o "$TMP/enrolltok2.json" -w '%{http_code}' -X POST "$BASE/api/enrollment-tokens" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' -d '{"note":"e2e-entry"}')
+expect "Entry 凭据签发成功" 201 "$code"
+CRED2=$(json_get token "$TMP/enrolltok2.json")
+code=$(curl -s -o "$TMP/enroll2.json" -w '%{http_code}' -X POST "$BASE/api/enroll" \
+  -H "Authorization: Bearer $CRED2" -H 'Content-Type: application/json' \
+  -d '{"name":"e2e-entry","address":"e2e.example.com","port":443,"protocol":"vless"}')
+expect "Entry 节点注册成功" 201 "$code"
+ENTRY_TOKEN=$(json_get token "$TMP/enroll2.json")
+NODE2_ID=$(json_get id "$TMP/enroll2.json")
+cat > "$TMP/agent-entry.json" <<EOF
+{
+  "panel_url": "ws://127.0.0.1:$PORT/agent/ws",
+  "agent_id": "e2e-agent-entry",
+  "token": "$ENTRY_TOKEN",
+  "heartbeat_sec": 5,
+  "meta": { "role": "entry", "direction": "in", "bw_up_mbps": 10, "bw_down_mbps": 10 }
+}
+EOF
+"$TMP/ferry-agent" -config "$TMP/agent-entry.json" > "$TMP/agent-entry.log" 2>&1 &
+AGENT_PID=$!
+expect "Entry agent 上线（健康计数=1）" "1" "$(poll_health 1)"
+code=$(curl -s -o "$TMP/entry-get.json" -w '%{http_code}' "$BASE/api/nodes/$NODE2_ID" \
+  -H "Authorization: Bearer $ADMIN_TOKEN")
+expect "读取 Entry 节点" 200 "$code"
+grep -q '"role":"entry"' "$TMP/entry-get.json" \
+  || { echo "FAIL - Entry 节点 role 未落库：$(cat "$TMP/entry-get.json")" >&2; dump; exit 1; }
+grep -q '"direction":"in"' "$TMP/entry-get.json" \
+  || { echo "FAIL - Entry 节点 direction 未落库：$(cat "$TMP/entry-get.json")" >&2; dump; exit 1; }
+log "ok - Entry 角色元数据经 hello 落库可见"
+code=$(curl -s -o "$TMP/first-get.json" "$BASE/api/nodes/$NODE_ID" \
+  -H "Authorization: Bearer $ADMIN_TOKEN")
+grep -q '"role":"landing"' "$TMP/first-get.json" \
+  || { echo "FAIL - 默认部署节点应为 landing：$(cat "$TMP/first-get.json")" >&2; dump; exit 1; }
+log "ok - 默认部署节点角色为 landing（F-2043 口径）"
+kill "$AGENT_PID"; AGENT_PID=""
+expect "Entry agent 断开回落" "0" "$(poll_health 0)"
+
 log "备份 → 停机 → 恢复到新目录 → 恢复后登录与节点数据 ..."
 code=$(curl -s -o "$TMP/after-node.enc" -w '%{http_code}' "$BASE/admin/backup/db" \
   -H "Authorization: Bearer $ADMIN_TOKEN")
@@ -427,7 +477,9 @@ code=$(curl -s -o "$TMP/nodes.json" -w '%{http_code}' "$BASE/api/nodes" \
 expect "恢复后节点数据在" 200 "$code"
 grep -q '"name":"e2e-node"' "$TMP/nodes.json" \
   || { echo "FAIL - 恢复库缺 e2e-node" >&2; dump; exit 1; }
-log "ok - e2e-node 随库恢复"
+grep -q '"name":"e2e-entry"' "$TMP/nodes.json" \
+  || { echo "FAIL - 恢复库缺 e2e-entry" >&2; dump; exit 1; }
+log "ok - e2e-node/e2e-entry 随库恢复"
 
 log "PASS：部署→认证→注册→通信→断线→轮换吊销→配置下发应答→备份恢复链路全通"
 
