@@ -439,6 +439,18 @@ func (a *App) handleConfigPush(env agentproto.Envelope) {
 	if err := a.sendIfConnected(reply); err != nil {
 		a.log.Printf("send config_ack: %v", err)
 	}
+	// A failed push (apply error, including rollback) also raises the
+	// config_error alarm (F-1826): the ack answers only this connection, the
+	// alarm makes the failure visible through the panel alert path.
+	if ack.Error != "" {
+		a.reportAlarm(agentproto.Alarm{
+			Kind:     agentproto.AlarmKindConfigError,
+			Severity: agentproto.AlarmSeverityWarning,
+			Proc:     push.Proc,
+			Message:  fmt.Sprintf("version %s apply failed: %s", push.Version, ack.Error),
+			At:       time.Now(),
+		})
+	}
 }
 
 // handleProbeTask applies the panel's dispatched probe task set and replies with

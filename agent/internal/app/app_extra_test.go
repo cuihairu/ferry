@@ -465,3 +465,59 @@ func TestRunConnectsAndHandshakes(t *testing.T) {
 		})
 	}
 }
+
+// TestOnMessageConfigPushFailureAlarms covers F-1826: a push failing sha256
+// verification replies an error ack AND raises the config_error alarm, so the
+// failure is visible through the panel alert path beyond this connection.
+func TestOnMessageConfigPushFailureAlarms(t *testing.T) {
+	a := startManagedApp(t)
+	rec := &recorder{}
+	a.setSend(rec.send)
+
+	env, err := agentproto.NewEnvelope("p4", agentproto.MsgConfigPush, agentproto.ConfigPush{
+		Proc: "xray", Kind: "xray", Version: "v3", Payload: "{}", Sha256: "deadbeef",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.OnMessage(context.Background(), env, a.sendIfConnected)
+
+	// Both the ack and the alarm land on the same sender, in order.
+	deadline := time.Now().Add(5 * time.Second)
+	for len(rec.msgsOfType(agentproto.MsgAlarm)) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("no config_error alarm captured")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	acks := rec.msgsOfType(agentproto.MsgConfigAck)
+	if len(acks) != 1 {
+		t.Fatalf("acks = %d, want 1", len(acks))
+	}
+	var ack agentproto.ConfigAck
+	mustDecode(t, acks[0], &ack)
+	if ack.OK || ack.Error == "" || ack.Proc != "xray" {
+		t.Fatalf("ack = %+v; want failed xray ack", ack)
+	}
+	var al agentproto.Alarm
+	mustDecode(t, rec.msgsOfType(agentproto.MsgAlarm)[0], &al)
+	if al.Kind != agentproto.AlarmKindConfigError || al.Proc != "xray" || al.Message == "" {
+		t.Fatalf("alarm = %+v; want config_error with context", al)
+	}
+
+	// A successful push must not alarm: the success path stays quiet.
+	payload := `{}`
+	sum := sha256.Sum256([]byte(payload))
+	okEnv, err := agentproto.NewEnvelope("p5", agentproto.MsgConfigPush, agentproto.ConfigPush{
+		Proc: "xray", Kind: "xray", Version: "v4", Payload: payload, Sha256: hex.EncodeToString(sum[:]),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := rec.count()
+	a.OnMessage(context.Background(), okEnv, a.sendIfConnected)
+	waitReply(t, rec, before, 1)
+	if got := rec.count(); got != before+1 {
+		t.Fatalf("success produced %d messages, want only the ack", got-before)
+	}
+}

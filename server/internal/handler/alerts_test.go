@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/ferry/packages/agentproto"
+	"github.com/cuihairu/ferry/server/internal/herald"
 	"github.com/cuihairu/ferry/server/internal/storage"
 	"github.com/gorilla/websocket"
 	"gorm.io/gorm"
@@ -346,5 +347,74 @@ func TestAlertGuards(t *testing.T) {
 	// Manual resolve: an invalid id is 404.
 	if rec := doJSON(t, r, "POST", "/api/alerts/abc/resolve", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("resolve bad id: %d", rec.Code)
+	}
+}
+
+// TestConfigErrorAlertHerald covers F-1826: a config_error alarm activates the
+// panel alert AND lands one config_error warning in the herald outbox
+// (node+proc dedup); a repeat alarm refreshes the alert without a second event
+// (activation is the emission gate).
+func TestConfigErrorAlertHerald(t *testing.T) {
+	r, db := newTestRouterWithDB(t)
+	id, token := createNodeFor(t, r, "cerr-1")
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+	c := fakeAgent(t, srv.URL, "cerr-1", token)
+
+	al, _ := agentproto.NewEnvelope("ce1", agentproto.MsgAlarm, agentproto.Alarm{
+		Kind: agentproto.AlarmKindConfigError, Proc: "xray",
+		Message: "version v3 apply failed: reload: exit 1 (rolled back)", At: time.Now(),
+	})
+	if err := c.WriteJSON(al); err != nil {
+		t.Fatalf("write alarm: %v", err)
+	}
+	if env := readEnv(t, c); env.Type != agentproto.MsgAlarmAck {
+		t.Fatalf("expected alarm_ack, got %s", env.Type)
+	}
+	var ev storage.Event
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		err := db.Where("kind = ?", herald.KindConfigError).First(&ev).Error
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("config_error event missing: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if ev.Target != herald.TargetAdmin || ev.Severity != herald.SeverityWarning {
+		t.Fatalf("event shape: %+v", ev)
+	}
+	if ev.DedupKey != fmt.Sprintf("node:%d:config_error:xray", id) {
+		t.Fatalf("dedup key = %q", ev.DedupKey)
+	}
+
+	// A repeat alarm refreshes the active alert; no second event is emitted.
+	al2, _ := agentproto.NewEnvelope("ce2", agentproto.MsgAlarm, agentproto.Alarm{
+		Kind: agentproto.AlarmKindConfigError, Proc: "xray", Message: "still failing", At: time.Now(),
+	})
+	if err := c.WriteJSON(al2); err != nil {
+		t.Fatalf("write alarm 2: %v", err)
+	}
+	if env := readEnv(t, c); env.Type != agentproto.MsgAlarmAck {
+		t.Fatalf("expected alarm_ack, got %s", env.Type)
+	}
+	time.Sleep(300 * time.Millisecond)
+	var n int64
+	if err := db.Model(&storage.Event{}).Where("kind = ?", herald.KindConfigError).
+		Count(&n).Error; err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("repeat alarm must not re-emit: %d events", n)
+	}
+	var row storage.Alert
+	if err := db.Where("node_id = ? AND kind = ?", id, agentproto.AlarmKindConfigError).
+		Order("id DESC").First(&row).Error; err != nil {
+		t.Fatalf("alert row: %v", err)
+	}
+	if row.Message != "still failing" || row.State != AlertStateActive {
+		t.Fatalf("alert not refreshed: %+v", row)
 	}
 }

@@ -54,6 +54,7 @@ const (
 	KindPathDown        = "path_down"          // a Path's landing failing (F-1823)
 	KindPathDegraded    = "path_degraded"      // a Path degraded without landing failure (F-1824)
 	KindNodeQuota       = "node_quota"         // node monthly traffic quota exceeded (F-1825, deduped per node per month)
+	KindConfigError     = "config_error"       // a node's config push failed and rolled back (F-1826, agent alarm-driven)
 
 	// User outreach (HERALD-4, §2.2; in-app messages still go out, this channel serves out-of-app delivery).
 	KindExpire = "expire" // account expiry reminder

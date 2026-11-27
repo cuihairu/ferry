@@ -57,6 +57,20 @@ func (h *Handler) recordAlert(nodeID uint, al agentproto.Alarm) {
 			}); err != nil {
 				log.Printf("herald emit proc_crashed: node=%d %v", nodeID, err)
 			}
+		} else if al.Kind == agentproto.AlarmKindConfigError {
+			// A failed config push alarms the same way (F-1826): the agent raises
+			// config_error on every failed apply, the active-alert uniqueness above
+			// gates the emission, Herald merges the repeats across rounds.
+			if _, err := herald.Emit(h.db, herald.EmitInput{
+				Kind: herald.KindConfigError, Severity: sev,
+				Title:    fmt.Sprintf("节点 %d 配置下发失败", nodeID),
+				Body:     al.Message,
+				Target:   herald.TargetAdmin,
+				DedupKey: fmt.Sprintf("node:%d:config_error:%s", nodeID, al.Proc),
+				Meta:     map[string]any{"node_id": nodeID, "proc": al.Proc, "severity": sev},
+			}); err != nil {
+				log.Printf("herald emit config_error: node=%d %v", nodeID, err)
+			}
 		}
 	case err != nil:
 		log.Printf("find active alert node=%d kind=%s: %v", nodeID, al.Kind, err)
