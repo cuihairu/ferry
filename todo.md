@@ -2497,10 +2497,10 @@ External Client
 
 -   [x] `F-2041` 自动部署测试 Server。
     - 备注（Task ID: F-2041 | Status: Done | Evidence: 真实 server 二进制启动+健康可达+DB 初始化+degraded→ok 恢复+管理端认证+备份/恢复（deploy/e2e-smoke.sh:116-145,388-427）；CI test.yml:98-99 deploy-scripts job 接入 | Verification: deploy/e2e-smoke.sh（53 断言）+.github/workflows/test.yml | Commit: 9a8663a）
--   [ ] `F-2042` 自动部署 Entry Node。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2042 | 未满足：通用 agent 注册上线（e2e-smoke.sh:156,192）；无 entry 角色部署/entry 数据面/Path entry。）
--   [ ] `F-2043` 自动部署 Landing Node。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2043 | 未满足：无 landing 角色部署。）
+-   [x] `F-2042` 自动部署 Entry Node。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2042 | Commit cac8df0 | e2e-smoke.sh 全链 61 断言 exit=0 2026-11-27）：原待补「无 entry 角色部署」已补——第二个 enrollment token→ enroll「e2e-entry」→ agent 配置 meta.role=entry/direction=in →真 WS hello→健康计数=1→面板 Node role/direction 落库断言→断线回落→恢复库后 e2e-entry 仍在；entry 数据面/Path entry 属 F-2044+ 真实隧道腿，不并入本行。
+-   [x] `F-2043` 自动部署 Landing Node。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2043 | Commit cac8df0 | 同轮 e2e 61 断言 exit=0）：首节点不显式设 meta.role，agent 配置校验默认 landing（config.go:224-225），e2e 新增「默认部署节点角色为 landing」面板断言（nodes 行 role=landing）；F-2042 的第二个节点显式 entry 与首节点形成对照。
 -   [ ] `F-2044` 建立真实 Relay Tunnel。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2044 | 未满足：e2e 仅 agent WS 链路；无真实 relay 隧道（relay 角色仅单测 relay_test.go）。）
 -   [ ] `F-2045` 创建 Path 并执行探测。（依赖：无；完成条件：需求落地+测试绿+证据行）
