@@ -17,8 +17,15 @@ import (
 
 // readEnv reads one message from the connection and parses it into an Envelope.
 func readEnv(t *testing.T, c *websocket.Conn) agentproto.Envelope {
+	return readEnvWithin(t, c, 5*time.Second)
+}
+
+// readEnvWithin reads one envelope with an explicit deadline; heavy batch
+// tests pass a longer one because -race multiplies the server-side
+// decode+insert cost well past the default (race sweep 2026-11-27).
+func readEnvWithin(t *testing.T, c *websocket.Conn, d time.Duration) agentproto.Envelope {
 	t.Helper()
-	_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_ = c.SetReadDeadline(time.Now().Add(d))
 	_, raw, err := c.ReadMessage()
 	if err != nil {
 		t.Fatalf("read: %v", err)
@@ -856,7 +863,7 @@ func TestAgentWSBatchTrim(t *testing.T) {
 	if err := c.WriteJSON(batch); err != nil {
 		t.Fatalf("write probe batch: %v", err)
 	}
-	env := readEnv(t, c)
+	env := readEnvWithin(t, c, 30*time.Second)
 	if env.Type != agentproto.MsgProbeAck {
 		t.Fatalf("expected probe_ack, got %s", env.Type)
 	}
