@@ -2466,10 +2466,10 @@ External Client
     - 备注（F-2025 | 历史落地 bfd977f（relay 建立/转发/热重指）+ 4903519（relay dial 重试+缓存失效 F-0813）| 测试 agent 模块 20 ok 全绿 2026-11-27）：原待补「无断已建隧道→重连→继续转发」过期——TestRelayDialRetryRecovers（reconnect_test.go:43，F-0813）正是该链路：已建 relay 前端连接上 landing 首拨失败（failonce 隧道插件）→同连接内重试成功→前端 echo 照常往返（继续转发断言），且恢复不产生致命丢弃（overload/stream-limit 负向断言）；配套 TestRelayDialRetriesExhausted（重试耗尽语义）+TestEffectiveRetries（配置归一/热合并）。隧道层重连 ssh.go「死连接宣告→重连一次→重试」有 TestSSHDialRetryOnChannelReject（已建连接被拒→重连换新连接→重试；重连腿也挂时保留首错+死缓存清理）+TestSSHTunnelEndToEnd（连接复用握手=1+建连后 roundtrip）。relay 生命周期 TestRelayForwards/TestRelayHotRepoint/TestRelayRunFile/TestCloseAllLogsError/TestRunAcceptErrorLogged/TestRunHupReloadBranches 全绿。无代码缺口，按当前树关行。
 -   [x] `F-2026` 测试 Probe 任务执行和结果回传。
     - 备注（Task ID: F-2026 | Status: Done | Evidence: probe_test+TestAgentWSProbeReport/TestAgentWSProbeReportResolve | Verification: docs/audit-platform-impl-2026-11-03.md；测试全绿 2026-11-03（make test/handler -timeout=40m/agent/packages/e2e 53 断言） | Commit: 无）
--   [ ] `F-2027` 测试 Path 健康变化。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2027 | 未满足：Path 缺失；sub.go:74 按 status!=offline+pool_state 过滤，但无 Path 健康变化测试（monitor 维度迁移不建模 Path）。）
--   [ ] `F-2028` 测试 Path 故障回退。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2028 | 未满足：Path 故障回退缺失；最接近 entry→landing 经 alloc sweep（TestSweepAllocatesAndSwitches alloc_test.go:223），无 Path。）
+-   [x] `F-2027` 测试 Path 健康变化。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2027 | 历史落地 f5efa62（Path down 告警）| 测试 54 ok 全绿 2026-11-27）：原待补「Path 缺失」过期——Path 模型有 Region/ProbeImportance/Enabled，健康变化有两级测试——①Path 级告警 pathdown_test.go：TestAlertSickPaths（健康恶化→herald path_down 告警）、TestAlertDegradedPaths（degraded 阈值，告警状态激活/刷新语义）；②节点级健康源 monitor.go TestApplyVerdictTransitions（healthy/degraded/offline 转移，F-1945）。订阅侧 sub.go:74 对 status!=offline+pool_state 过滤有 TestSubscriptionAvailability（过期/超配额/不限三态）。无代码缺口，按当前树关行。
+-   [x] `F-2028` 测试 Path 故障回退。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2028 | 历史落地 6d0a5ab（Path failover rebind executor F-1031）| 测试 54 ok 全绿 2026-11-27）：原待补「Path 故障回退缺失」过期——Failover 执行器已落地（alloc/failover.go：换线决策+重绑 Path+PathRebindEvent 留痕+策略冻结 failover=manual 跳过+每条真实 rebind 才落 event）。单测 failover_test.go 三例——TestRebindSickPaths（ sick landing→备选 landing 重绑并留痕）、TestRebindLandingLeftPool（退出池触发回退）、TestRebindRecordsSnapshot（每次真实 rebind 一条 event）；策略门 policy_freeze_test.go（F-2005 冻结语义）+alloc 换线 TestSweepAllocatesAndSwitches/TestSweepDirectFallback 对齐。无代码缺口，按当前树关行。
 -   [x] `F-2029` 测试订阅生成和权限过滤。
     - 备注（Task ID: F-2029 | Status: Done | Evidence: TestSubscription（sub_test.go:30）+TestSubscriptionAvailability（:128 超配额→无节点订阅/过期→无节点/不限→节点+Subscription-Userinfo）+TestSubscriptionHysteria2/TestSubscriptionSingBoxMixed；权限过滤 sub.UserActive（sub/availability.go:11+TestUserActive）+entry-only/pool-active/status 过滤（sub.go:74）；格式渲染 TestPackClash/TestPackSingBox/TestShareLink | Verification: sub_test.go+sub/availability_test.go | Commit: 9a8663a）
 -   [x] `F-2030` 测试流量上报、去重和补报。
