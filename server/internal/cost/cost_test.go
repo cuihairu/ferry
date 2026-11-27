@@ -333,3 +333,63 @@ func TestWatchLoopScansUntilCancel(t *testing.T) {
 		t.Fatal("watch loop did not return after cancel")
 	}
 }
+
+// TestBuildRegionCapacity covers F-1944's capacity half: GroupCost carries the
+// dimension's deliverable bandwidth (Node.CapacityMbps precedence override >
+// measured > bw_down > bw_up) summed over ENABLED nodes only -- a disabled node
+// costs but carries no capacity. Summary aggregates the same way.
+func TestBuildRegionCapacity(t *testing.T) {
+	db := newTestDB(t)
+	seed := func(name, region string, enabled bool, mut func(*storage.Node)) storage.Node {
+		t.Helper()
+		n := storage.Node{Name: name, Token: "tok-" + name, Region: region, ISP: "容量ISP",
+			BillingType: "包月", MonthlyCostCents: 1000, Enabled: enabled}
+		if mut != nil {
+			mut(&n)
+		}
+		if err := db.Create(&n).Error; err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	// hk: override wins over bw_down; a second node measured; a third disabled
+	// (updated after create -- gorm's default:true would resurrect false on insert).
+	seed("cap-override", "hk", true, func(n *storage.Node) {
+		n.CapacityOverrideMbps, n.BwDownMbps = 500, 300
+	})
+	seed("cap-measured", "hk", true, func(n *storage.Node) { n.SpeedMeasuredMbps, n.BwDownMbps = 400, 999 })
+	paused := seed("cap-disabled", "hk", true, func(n *storage.Node) { n.BwDownMbps = 700 })
+	if err := db.Model(&storage.Node{}).Where("id = ?", paused.ID).Update("enabled", false).Error; err != nil {
+		t.Fatal(err)
+	}
+	// us: bw_down fallback; isp group gets everything enabled.
+	seed("cap-bwdown", "us", true, func(n *storage.Node) { n.BwDownMbps = 250 })
+
+	rep, err := Build(db, time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	byRegion := map[string]GroupCost{}
+	for _, g := range rep.Regions {
+		byRegion[g.Key] = g
+	}
+	hk := byRegion["hk"]
+	if hk.Nodes != 3 || hk.EnabledNodes != 2 || hk.CapacityMbps != 900 {
+		t.Fatalf("hk = %+v, want nodes=3 enabled=2 cap=900 (override 500 + measured 400, disabled 700 excluded)", hk)
+	}
+	us := byRegion["us"]
+	if us.EnabledNodes != 1 || us.CapacityMbps != 250 {
+		t.Fatalf("us = %+v, want enabled=1 cap=250 (bw_down fallback)", us)
+	}
+	if rep.Summary.EnabledNodes != 3 || rep.Summary.CapacityMbps != 1150 {
+		t.Fatalf("summary = %+v, want enabled=3 cap=1150", rep.Summary)
+	}
+	isps := rep.Isps
+	if len(isps) != 1 || isps[0].CapacityMbps != 1150 || isps[0].EnabledNodes != 3 {
+		t.Fatalf("isps = %+v, want one group cap=1150 enabled=3", isps)
+	}
+	// Cost rows keep working alongside (disabled node still costs).
+	if hk.FixedCents != 3000 {
+		t.Fatalf("hk fixed = %d, want 3000 (all three hk nodes cost)", hk.FixedCents)
+	}
+}

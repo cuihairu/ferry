@@ -53,10 +53,15 @@ type NodeCost struct {
 	ProjectedCents int64 `json:"projected_cents"`
 }
 
-// GroupCost is a cost summary along the region/ISP dimension.
+// GroupCost is a cost summary along the region/ISP dimension, with the
+// dimension's capacity (F-1944): CapacityMbps sums Node.CapacityMbps() over
+// the group's enabled nodes (the deliverable bandwidth a region can take),
+// EnabledNodes counts them; disabled nodes cost but carry no capacity.
 type GroupCost struct {
 	Key            string `json:"key"`
 	Nodes          int    `json:"nodes"`
+	EnabledNodes   int    `json:"enabled_nodes"`
+	CapacityMbps   int64  `json:"capacity_mbps"`
 	TrafficCents   int64  `json:"traffic_cents"`
 	FixedCents     int64  `json:"fixed_cents"`
 	ProjectedCents int64  `json:"projected_cents"`
@@ -138,10 +143,15 @@ func Build(db *gorm.DB, now time.Time) (*Report, error) {
 			ProjectedCents:   n.MonthlyCostCents + int64(float64(trafficCents)/fraction),
 		}
 		rep.Nodes = append(rep.Nodes, nc)
-		group(byRegion, n.Region, nc)
-		group(byISP, n.ISP, nc)
+		cap := n.CapacityMbps()
+		group(byRegion, n.Region, nc, cap, n.Enabled)
+		group(byISP, n.ISP, nc, cap, n.Enabled)
 		sum := &rep.Summary
 		sum.Nodes++
+		if n.Enabled {
+			sum.EnabledNodes++
+			sum.CapacityMbps += int64(cap)
+		}
 		sum.TrafficCents += nc.TrafficCostCents
 		sum.FixedCents += nc.FixedCostCents
 		sum.ProjectedCents += nc.ProjectedCents
@@ -151,8 +161,9 @@ func Build(db *gorm.DB, now time.Time) (*Report, error) {
 	return rep, nil
 }
 
-// group adds a node's cost into a dimension summary.
-func group(by map[string]*GroupCost, key string, nc NodeCost) {
+// group adds a node's cost into a dimension summary; capacity and the enabled
+// count only take enabled nodes (a paused node delivers no bandwidth).
+func group(by map[string]*GroupCost, key string, nc NodeCost, capacityMbps int, enabled bool) {
 	if key == "" {
 		key = "未知"
 	}
@@ -162,6 +173,10 @@ func group(by map[string]*GroupCost, key string, nc NodeCost) {
 		by[key] = g
 	}
 	g.Nodes++
+	if enabled {
+		g.EnabledNodes++
+		g.CapacityMbps += int64(capacityMbps)
+	}
 	g.TrafficCents += nc.TrafficCostCents
 	g.FixedCents += nc.FixedCostCents
 	g.ProjectedCents += nc.ProjectedCents

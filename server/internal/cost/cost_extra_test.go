@@ -16,7 +16,7 @@ import (
 // TestGroupEmptyKey covers empty region/ISP: grouped under the "unknown" key instead of an empty key.
 func TestGroupEmptyKey(t *testing.T) {
 	by := map[string]*GroupCost{}
-	group(by, "", NodeCost{TrafficCostCents: 1, FixedCostCents: 2, ProjectedCents: 3})
+	group(by, "", NodeCost{TrafficCostCents: 1, FixedCostCents: 2, ProjectedCents: 3}, 0, false)
 	g, ok := by["未知"]
 	if !ok || g.Nodes != 1 || g.TrafficCents != 1 || g.FixedCents != 2 || g.ProjectedCents != 3 {
 		t.Fatalf("empty key must map to 未知: %#v", by)
