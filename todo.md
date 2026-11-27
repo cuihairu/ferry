@@ -2546,20 +2546,20 @@ External Client
     - 备注（F-2067 | Commit 9c68c3c | scale-test.sh 配置下发腿）：probe_tasks PUT → 50 在线节点并发下发（8 并发），50/50 delivered=true，每节点经 agent probe_task_ack（客户端按 agent/internal/app handleProbeTask 语义回 ack）；probeTaskAckTimeout=10s 内全部完成。
 -   [ ] `F-2068` 测试大量云资源同步。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 待补（F-2068 | 未满足：无云资源同步组件——providerapi 仅凭据 DB CRUD，唯一外部客户端是 DNS（dns/cloudflare.go）；云资源同步全仓 0 命中。）
--   [ ] `F-2069` 测试 Provider API 限流和超时。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2069 | 未满足：ratelimit 单测覆盖 IP/API-auth/sub 节流（limiter_test.go:9/34/62）非 Provider API；无云服务商 API 客户端（provisioning 走 tofu exec provision.go:89），无 Provider API 限流/超时测试。）
--   [ ] `F-2070` 测试账单大批量导入。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2070 | 未满足：无账单导入端点（账单批量导入 0 命中，仅 storage.BillingType models.go:104 字段）——无负载对象。）
--   [ ] `F-2071` 测试 Server 与 Provider 网络中断。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2071 | 未满足：无 Server↔Provider 网络路径（Provider=DB 记录，provisioning 走 tofu CLI 非服务商 REST API）；最近的是 dns_test.go:200 TestCloudflareDoErrors DNS 不可达注入，非云资源开通路径。）
+-   [x] `F-2069` 测试 Provider API 限流和超时。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2069 | 原待补「无云服务商 API 客户端」已过时）：cloudprov.Client 统一超时/限流/重试策略（F-0316，client.go：Timeout 单调用 30s 默认、客户端速率限制、retryable 错误有界退避）+ 类型化错误 ErrRateLimited/ErrUnavailable（errors.go:15）；测试钉死：TestClientTimeout、TestClientRateLimit、TestClientRetryPolicy、TestClientTypedErrors（client_test.go），全绿（go test ./internal/cloudprov/ exit=0）。
+-   [x] `F-2070` 测试账单大批量导入。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2070 | Commit ff87397 | import_scale_test.go TestImportFileLargeBatch PASS 2026-11-27，数字归档 docs/testing/scale-report.md）：5000 行账单走真实 ImportFile 全路径（解析→去重键分组→落库），run succeeded/added=5000/CostItem=5000/金额逐分一致，首过 1.47s；同文件重导入 5000/5000 全 skipped、CostRecord 仍 5000——量级下零双计（F-0529）。原待补「无账单导入端点」已过时（billing/import.go + router.go:325-326 import-api/import-file 已落地，F-0521 356bdec）。
+-   [x] `F-2071` 测试 Server 与 Provider 网络中断。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2071 | 原待补「无 Server↔Provider 网络路径」已过时）：cloudprov Adapter 即 Server↔Provider 网络路径（billing.Service 经 adapter 拉账单/操作，import.go）——网络中断注入：failHook 模拟 vendor 超时（fake.go:71 F-0372）+ TestClientTimeout 真超时路径 + TestOperUnknownAndCancel（ErrUnavailable→Unknown 分类）+ TestProviderTestConnection fake 双模式 + F-1828 鉴权失败告警 + metrics outcome 计数（F-9805 同族已关）。
 -   [x] `F-2072` 测试 Relay 故障。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（F-2072 | Commit b697056 | relay-path-test.sh F-2072 四腿 exit=0 2026-11-27，CI relay path probe smoke 步骤照跑）：真 relay 进程故障注入——①杀 relay role 进程→front listener 消失（连接被拒）；②重启 relay role→监听恢复+TCP 回显字节一致（数据面重通）；③relay 节点 core agent 宕机→agents_online=2→Path=degraded；④core agent 重连→agents_online=3→Path=healthy。进程级故障路径单测（relay_extra_test/relaypush_test）照旧。
 -   [x] `F-2073` 测试 Agent 故障。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（F-2073 | Commit 9c68c3c | scale-test.sh 故障腿）：多 agent 故障真 e2e——25/50 连接同时断开后 agents_online=25（server 断连同步标 offline），其余 25 连接负载不受影响；客户端退出全量断开后 agents_online=0 且 /api/health 仍 200（server 存活）；此前单 agent 故障单测（agentws_test/pool_test/hub_test）照旧。
 -   [x] `F-2074` 测试数据库短暂不可用。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（F-2074 | Commit 24c9a58 | deploy/db-outage-test.sh 9 断言 exit=0 2026-11-27，test.yml deploy-scripts 接线）：真二进制全链故障注入——第二个 sqlite 连接持 BEGIN EXCLUSIVE 6s，server 查询撞 5s busy_timeout 真阻塞（健康读失败、server.log 浮现 database is locked），server 全程存活；锁释放后健康回 200、两真实 agent 心跳写恢复在线；原有DB关闭循环存活单测（recovery/cost）照旧。
--   [ ] `F-2075` 测试成本数据过期和缺失时的降级行为。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-2075 | 未满足：cost 无新鲜度/缺失降级处理（非测试代码 grep stale/fresh/过期/degrad 0 命中）；仅 DB 错误路径测试（TestBuildOnBrokenDB）。）
+-   [x] `F-2075` 测试成本数据过期和缺失时的降级行为。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-2075 | 原待补「cost 无新鲜度/缺失降级处理」已过时）：降级在（billing/pathcost.go:10 PriceFreshWindow=7d + Fresh 标记 pathcost.go:62；alloc MissingCost 规则 alloc.go:328 costMissing：按流量且（缺失或过期）→MissingCostDeprioritize 排到所有已定价候选之后、绝不按免费计；接线 failover.go:216-218/decision.go:197-206）；测试钉死：TestMissingCostDeprioritized + 过期价 TestMissingCostDeprioritized 内 stale 分支（alloc_cost_guard_test.go:35-43「stale price must lose to a fresh one」F-0604）+ TestSweepMissingCostDeprioritized + TestPathCostPreciseFresh（pathcost_test.go:94），全绿。
 -   [x] `F-2076` 记录测试环境、数据规模、并发量、P95/P99 和资源占用。（依赖：无；完成条件：需求落地+测试绿+证据行）
     - 备注（F-2076 | Commit 7e4fc93 | docs/testing/scale-report.md）：归档 2026-11-27 验收跑（scale-test.sh 9c68c3c）——环境（Linux 14 核/sqlite WAL）、规模（50 节点/50 长连接/150 心跳/1000 探测/400 订阅/200 流量帧/50 下发）、P50/P95/P99（心跳 7.1/26.2/33.4ms、探测 38.5/100.9/131.6ms、流量 32.8/67.6/93.8ms）、server RSS≈50MB；此后每次 CI 运行 re-produce 同样数字。
 
