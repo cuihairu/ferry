@@ -101,6 +101,54 @@ func TestAgentWSHeartbeat(t *testing.T) {
 	waitStatus(t, r, 1, "offline")
 }
 
+// TestAgentWSNodeReconnect closes the reconnect transition of the node
+// online/offline state machine (F-2001): the same token re-hellos after the
+// offline transition and the node goes back online -- offline is never final.
+func TestAgentWSNodeReconnect(t *testing.T) {
+	r := newTestRouter(t)
+
+	rec := doJSON(t, r, "POST", "/api/nodes", map[string]any{
+		"name": "hk-rc", "address": "hk.example.com", "port": 443, "protocol": "vless",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create node: %d %s", rec.Code, rec.Body)
+	}
+	var node map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &node)
+	token := node["token"].(string)
+
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/agent/ws"
+
+	helloWith := func(id string) *websocket.Conn {
+		c, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+		if err != nil {
+			t.Fatalf("dial: %v", err)
+		}
+		hello, _ := agentproto.NewEnvelope(id, agentproto.MsgHello, agentproto.Hello{
+			Token: token, AgentID: "hk-rc", Version: "test",
+		})
+		if err := c.WriteJSON(hello); err != nil {
+			t.Fatalf("write hello: %v", err)
+		}
+		if env := readEnv(t, c); env.Type != agentproto.MsgHelloAck {
+			t.Fatalf("expected hello_ack, got %s", env.Type)
+		}
+		return c
+	}
+
+	c := helloWith("h-first")
+	waitStatus(t, r, 1, "online")
+	c.Close()
+	waitStatus(t, r, 1, "offline")
+
+	// reconnect with the same token: back to online (offline → online)
+	c2 := helloWith("h-second")
+	defer c2.Close()
+	waitStatus(t, r, 1, "online")
+}
+
 func TestAgentWSHelloMeta(t *testing.T) {
 	r := newTestRouter(t)
 
