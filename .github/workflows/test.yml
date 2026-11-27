@@ -111,6 +111,8 @@ jobs:
         run: bash deploy/traffic-account-test.sh
       - name: scale load smoke
         run: bash deploy/scale-test.sh
+      - name: db outage smoke
+        run: bash deploy/db-outage-test.sh
 
   gofmt:
     name: gofmt gate
