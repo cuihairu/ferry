@@ -2396,8 +2396,8 @@ External Client
 
 ## 17.3 多区域
 
--   [ ] `F-1941` 为 Node 和 Path 建立区域维度管理。（依赖：无；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-1941 | 部分：Node 侧区域齐（model.go:41 Region+Node.Region/Datacenter/ISP/City+ProbeReport.Region/.ISP models.go:209-210+DimensionStatus :216-227）；无 Path 模型/实体（type Path 0 命中，仅 Backup.Path 文件字段 models.go:704）——Node 和 Path 仅覆盖一半。）
+-   [x] `F-1941` 为 Node 和 Path 建立区域维度管理。（依赖：无；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-1941 | Commit 1a61025（补 region 过滤断言）+ 历史落地 2455a6c（Path/PathGroup 模型与管理面）| 测试 54 ok 全绿）：原待补过期——「type Path 0 命中」不对当前树：storage.Path（models.go:143）带 Region 字段（:150），PendingPath/PathGroup 同带 Region；两侧管理面均已落地——Node 侧 Region/Datacenter/ISP/City 字段+列表 region 精确过滤（node.go:26 四串过滤含 region，nodefilter_test.go:102 断言 2 条/未知区空）+更新写回（node.go:595）；Path 侧创建带 region（paths.go:106）、列表 region 过滤（paths.go:122）、更新留空保旧（paths.go:211）、分组按 region 过滤（path_groups_test.go:44）、draft 同维度；区域聚合 DimensionStatus 按 region 维护（monitor.go）+ProbeReport.Region/.ISP 快照（F-1942 证据）。本次补的正是唯一缺口：/api/paths?region= 过滤此前无测试（entry/direction/landing+enabled 都有，region 漏），paths_test.go 加两断言（region=us 非空、region=nosuch 空）——Node 和 Path 两侧区域维度管理至此测试覆盖闭环。
 -   [x] `F-1942` 支持跨区域探测。
     - 备注（Task ID: F-1942 | Status: Done | Evidence: probe.go:91-95 Target/TargetKind/TargetHost 探测任意目标+ProbeReport.Region/.ISP（models.go:209-210）记录目标区域/运营商快照；entry→landing 探测天然跨区域 | Verification: probe_test.go+TestAgentWSProbeReport（agentws_test.go） | Commit: 57e899f）
 -   [ ] `F-1943` 支持跨区域调度。（依赖：无；完成条件：需求落地+测试绿+证据行）
