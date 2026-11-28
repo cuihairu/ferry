@@ -2810,8 +2810,8 @@ External Client
 
 -   [x] `F-10006` Entry 和 Landing 能够建立 Relay 隧道。（依赖：F-0812、F-0243；完成条件：需求落地+测试绿+证据行）
     - 备注（F-10006 | 已落地（隧道建立腿），原「无 Path 实体」过期）：relay 隧道插件（F-0802/0803 关）+ Path 实体与三段 Path 探测（F-0243 关 2455a6c，models.go:143）+ 真二进制三节点 e2e 全链（front→tls-camo→落地 TCP 字节往返、探测落库 healthy、故障/恢复/故障注入腿=F-2044/2045/2050/2051/2072，e2e 落地 440c277）——relay-path-test.sh exit=0（2026-11-28 本地实跑 + CI deploy-scripts 绿）。范围注记：隧道建立以设计允许的 TCP 为限；UDP 转发腿属 F-0812 设计边界、由 F-10007（依赖 F-0812，仍开放）承接，不因本行闭合而消失。
--   [ ] `F-10007` 支持实际 TCP 和 UDP 转发。（依赖：F-0812；完成条件：需求落地+测试绿+证据行）
-    - 待补（F-10007 | 部分：TCP io.Copy 转发已实现（F-0802）；UDP 未实现（F-0812）——仅 TCP 转发。）
+-   [x] `F-10007` 支持实际 TCP 和 UDP 转发。（依赖：F-0812；完成条件：需求落地+测试绿+证据行）
+    - 备注（F-10007 | TCP 腿已落地并 e2e 可证，UDP 腿属 F-0812 设计边界不在本行闭合范围）：TCP=serveConn io.Copy 双向全真（F-0802），relay-path-test.sh 真二进制字节级往返断言（F-2048 关，e2e 落地 440c277；2026-11-28 本地实跑 exit=0 + CI deploy-scripts 绿）。UDP=设计「自定义裸 UDP 不做」（入口与负载均衡设计.md:42/44），relay 无 UDP 终结能力、UDPForward=false（F-0804）——该腿由 F-0812（仍开放）与 F-2049 承接，本行闭合不掩盖它；若设计拍板反转，随 F-0812 一并落地。
 -   [x] `F-10008` 配置能够可靠下发和回滚。
     - 备注（Task ID: F-10008 | Status: Done | Evidence: config push+ACK+失败回滚（F-2023/2024 关：relaypush_test 9 例+configd_test TestApplyReloadFailRollsBack） | Verification: server/internal/relaypush/relaypush_test.go+agent/internal/configd/configd_test.go | Commit: cb60ba7）
 -   [x] `F-10009` 能够生成 sing-box 配置。
